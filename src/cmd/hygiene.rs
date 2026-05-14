@@ -1,5 +1,7 @@
-use crate::cli::global::GlobalFlags;
+use crate::cli::global::{EolMode, GlobalFlags};
+use crate::diff::unified_diff;
 use crate::exit;
+use crate::write::{apply_policy, atomic_write, WritePolicy};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -186,8 +188,102 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(exit::CHANGES_DETECTED)
             }
         }
-        HygieneAction::Fix { .. } => {
-            anyhow::bail!("hygiene fix: not yet implemented")
+        HygieneAction::Fix { paths } => {
+            let root = if let Some(ref cwd) = global.cwd {
+                std::path::PathBuf::from(cwd)
+            } else {
+                std::env::current_dir()?
+            };
+
+            let glob_matcher = match &global.glob {
+                Some(pattern) => Some(Glob::new(pattern)?.compile_matcher()),
+                None => None,
+            };
+
+            let effective_paths: Vec<String> = if paths.is_empty() {
+                vec![".".to_string()]
+            } else {
+                paths.to_vec()
+            };
+
+            let policy = WritePolicy {
+                ensure_final_newline: global.ensure_final_newline,
+                normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
+                trim_trailing_whitespace: global.trim_trailing_whitespace,
+            };
+
+            let mut any_changed = false;
+
+            for start in &effective_paths {
+                let start_path = root.join(start);
+                let walker = WalkBuilder::new(&start_path).hidden(false).build();
+
+                for entry in walker {
+                    let entry = entry?;
+                    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+                        continue;
+                    }
+                    let file_path = entry.path();
+
+                    // Apply glob filter if set.
+                    if let Some(ref matcher) = glob_matcher {
+                        let name = file_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        if !matcher.is_match(&name) {
+                            let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
+                            if !matcher.is_match(rel) {
+                                continue;
+                            }
+                        }
+                    }
+
+                    let data = std::fs::read(file_path)?;
+                    if data.is_empty() || is_binary(&data) {
+                        continue;
+                    }
+
+                    let original = String::from_utf8_lossy(&data);
+                    let fixed = apply_policy(&original, &policy);
+
+                    if fixed == *original {
+                        continue;
+                    }
+
+                    any_changed = true;
+
+                    let rel_path = file_path
+                        .strip_prefix(&root)
+                        .unwrap_or(file_path)
+                        .to_string_lossy()
+                        .to_string();
+
+                    if global.check {
+                        println!("{rel_path}");
+                    } else if global.apply {
+                        // Write with a no-op policy since we already applied it.
+                        let noop = WritePolicy::default();
+                        atomic_write(file_path, &fixed, &noop)?;
+                    } else {
+                        // Default and --diff: show unified diff.
+                        let diff = unified_diff(&rel_path, &original, &fixed);
+                        if diff.has_changes {
+                            println!("--- a/{rel_path}");
+                            println!("+++ b/{rel_path}");
+                            for hunk in &diff.hunks {
+                                print!("{hunk}");
+                            }
+                        }
+                    }
+                }
+            }
+
+            if any_changed {
+                Ok(exit::CHANGES_DETECTED)
+            } else {
+                Ok(exit::SUCCESS)
+            }
         }
     }
 }
@@ -343,5 +439,101 @@ mod tests {
             "expected issues when filtering to *.txt"
         );
         assert!(issues.iter().any(|i| i.issue == "missing final newline"));
+    }
+
+    #[test]
+    fn fix_adds_missing_newline() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("no_nl.txt");
+        std::fs::write(&file, b"hello").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.ensure_final_newline = true;
+        global.apply = true;
+
+        let args = HygieneArgs {
+            action: HygieneAction::Fix {
+                paths: vec![".".to_string()],
+            },
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        let content = std::fs::read(&file).unwrap();
+        assert!(
+            content.ends_with(b"\n"),
+            "expected file to end with newline after fix"
+        );
+    }
+
+    #[test]
+    fn fix_normalizes_eol() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("crlf.txt");
+        std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
+        global.apply = true;
+
+        let args = HygieneArgs {
+            action: HygieneAction::Fix {
+                paths: vec![".".to_string()],
+            },
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        let content = std::fs::read(&file).unwrap();
+        assert!(
+            !content.windows(2).any(|w| w == b"\r\n"),
+            "expected no CRLF sequences after fix"
+        );
+    }
+
+    #[test]
+    fn fix_trims_trailing_whitespace() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("trailing.txt");
+        std::fs::write(&file, b"hello   \nworld\t\n").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.trim_trailing_whitespace = true;
+        global.apply = true;
+
+        let args = HygieneArgs {
+            action: HygieneAction::Fix {
+                paths: vec![".".to_string()],
+            },
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello\nworld\n");
+    }
+
+    #[test]
+    fn fix_is_idempotent_on_clean_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("clean.txt");
+        std::fs::write(&file, b"hello\nworld\n").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.ensure_final_newline = true;
+        global.trim_trailing_whitespace = true;
+        global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
+        global.apply = true;
+
+        let args = HygieneArgs {
+            action: HygieneAction::Fix {
+                paths: vec![".".to_string()],
+            },
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello\nworld\n");
     }
 }
