@@ -1,2 +1,113 @@
-// Selector evaluation against serde_json::Value.
-// TODO: implement in Phase 1B
+use super::parser::{Segment, Selector};
+
+/// Evaluate a selector against a JSON value tree.
+///
+/// Returns all matching leaf values.  For wildcards and predicates the
+/// result may contain more than one entry.
+pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a serde_json::Value> {
+    let mut current = vec![value];
+
+    for segment in selector {
+        let mut next = Vec::new();
+        for val in current {
+            match segment {
+                Segment::Key(key) => {
+                    if let Some(v) = val.get(key.as_str()) {
+                        next.push(v);
+                    }
+                }
+                Segment::Index(idx) => {
+                    if let Some(v) = val.get(*idx) {
+                        next.push(v);
+                    }
+                }
+                Segment::Wildcard => {
+                    if let Some(arr) = val.as_array() {
+                        next.extend(arr.iter());
+                    }
+                }
+                Segment::Predicate {
+                    key,
+                    value: pred_val,
+                } => {
+                    if let Some(arr) = val.as_array() {
+                        for item in arr {
+                            if let Some(field) = item.get(key.as_str()) {
+                                let matches = match field {
+                                    serde_json::Value::String(s) => s == pred_val,
+                                    serde_json::Value::Number(n) => n.to_string() == *pred_val,
+                                    serde_json::Value::Bool(b) => b.to_string() == *pred_val,
+                                    _ => false,
+                                };
+                                if matches {
+                                    next.push(item);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        current = next;
+    }
+
+    current
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::selector::parser::parse;
+    use serde_json::json;
+
+    #[test]
+    fn eval_simple_key_path() {
+        let data = json!({"scripts": {"test": "jest"}});
+        let sel = parse("scripts.test").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!("jest");
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_array_index() {
+        let data = json!({"items": [10, 20, 30]});
+        let sel = parse("items[1]").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!(20);
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_wildcard_collects_all() {
+        let data = json!({"steps": [{"name": "a"}, {"name": "b"}, {"name": "c"}]});
+        let sel = parse("steps[*].name").unwrap();
+        let results = eval(&data, &sel);
+        let a = json!("a");
+        let b = json!("b");
+        let c = json!("c");
+        assert_eq!(results, vec![&a, &b, &c]);
+    }
+
+    #[test]
+    fn eval_predicate_filters() {
+        let data = json!({
+            "jobs": [
+                {"id": "build", "timeout": 10},
+                {"id": "test", "timeout": 30}
+            ]
+        });
+        let sel = parse("jobs[id=test].timeout").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!(30);
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_missing_key_returns_empty() {
+        let data = json!({"a": 1});
+        let sel = parse("b").unwrap();
+        let results = eval(&data, &sel);
+        assert!(results.is_empty());
+    }
+}
