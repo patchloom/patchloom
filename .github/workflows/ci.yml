@@ -16,11 +16,14 @@ permissions:
 
 jobs:
   ci:
-    runs-on: [self-hosted, Linux, X64]
+    # Use the self-hosted runner for trusted events (push, workflow_dispatch,
+    # and PRs from the same repo). Fork PRs fall back to GitHub-hosted to
+    # prevent arbitrary code execution on the self-hosted machine.
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
