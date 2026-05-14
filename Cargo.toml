@@ -9,6 +9,19 @@ homepage = "https://github.com/patchloom/patchloom"
 readme = "README.md"
 keywords = ["cli", "agents", "patch", "markdown", "config"]
 
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml_edit = { version = "0.22", features = ["serde"] }
+ignore = "0.4"
+globset = "0.4"
+regex = "1"
+similar = { version = "2", features = ["text"] }
+tempfile = "3"
+anyhow = "1"
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
