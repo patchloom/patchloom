@@ -1,0 +1,42 @@
+name: Discussion / proposal
+description: Start a design discussion before writing a large Patchloom change
+title: "discussion: "
+labels:
+  - discussion
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for larger design questions, tradeoffs, or proposals that need maintainer alignment before code.
+  - type: textarea
+    id: topic
+    attributes:
+      label: Topic
+      description: What should be discussed?
+      placeholder: Summarize the proposal or decision to make.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why does this matter now?
+      placeholder: Explain the current problem, workflow, or ambiguity.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs or open questions
+      description: What are the main choices, risks, or unanswered questions?
+      placeholder: List the main options and concerns.
+    validations:
+      required: false
+  - type: textarea
+    id: desired_outcome
+    attributes:
+      label: Desired outcome
+      description: What kind of decision or feedback would help you move forward?
+      placeholder: For example, scope approval, API direction, or whether to proceed at all.
+    validations:
+      required: true

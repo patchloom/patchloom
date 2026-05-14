@@ -1,0 +1,15 @@
+[package]
+name = "patchloom"
+version = "0.1.0"
+edition = "2021"
+description = "A Rust CLI for agent-grade repo operations"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patchloom/patchloom"
+homepage = "https://github.com/patchloom/patchloom"
+readme = "README.md"
+keywords = ["cli", "agents", "patch", "markdown", "config"]
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Patchloom security reporting policy
+    url: https://github.com/patchloom/patchloom/blob/main/SECURITY.md
+    about: Do not post security vulnerabilities publicly. Read the private reporting policy first.
+  - name: Patchloom maintainer workflow
+    url: https://github.com/patchloom/patchloom/blob/main/MAINTAINERS.md
+    about: Read the maintainer-side contribution and review workflow.
+  - name: Patchloom contributing guide
+    url: https://github.com/patchloom/patchloom/blob/main/CONTRIBUTING.md
+    about: Read the contributor expectations before opening a large pull request.

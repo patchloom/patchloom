@@ -1,0 +1,33 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# The archive format to use for non-windows builds (defaults .tar.xz)
+unix-archive = ".tar.xz"
+# The archive format to use for windows builds (defaults .zip)
+windows-archive = ".zip"
+# Checksums to generate for each App
+checksum = "sha256"
+# A GitHub repo to push Homebrew formulas to
+tap = "patchloom/homebrew-tap"
+# Publish jobs to run in CI
+publish-jobs = ["homebrew", "./publish-crates"]
+# Where to host releases
+hosting = "github"
+# Which actions to run on pull requests
+pr-run-mode = "plan"
+# Which phase dist should use to create the GitHub release
+github-release = "host"
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false

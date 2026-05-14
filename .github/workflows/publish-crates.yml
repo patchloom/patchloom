@@ -1,0 +1,46 @@
+name: Publish crates.io package
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      PLAN: ${{ inputs.plan }}
+    steps:
+      - name: Validate dist plan input
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          plan = json.loads(os.environ["PLAN"])
+          if not plan.get("releases"):
+              raise SystemExit("dist plan contained no releases")
+          PY
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify package metadata
+        run: cargo package --locked --package patchloom
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked --package patchloom

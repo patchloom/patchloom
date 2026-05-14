@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a new Patchloom capability or CLI improvement
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal.
+
+        For non-trivial features, use this issue to align on scope before opening a large pull request.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What workflow, pain point, or limitation are you trying to solve?
+      placeholder: Describe the user problem first.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What change would you like to see?
+      placeholder: Describe the command, behavior, or output you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider?
+      placeholder: Existing tools, flags, workflows, or why current behavior is not enough.
+    validations:
+      required: false
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example usage
+      description: Share example commands, input, or expected output if helpful.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution intent
+      options:
+        - label: I am willing to help implement this after scope is aligned
+          required: false

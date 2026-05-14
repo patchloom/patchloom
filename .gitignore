@@ -1,0 +1,10 @@
+# Rust build output
+/target
+
+# Local release artifacts
+/dist
+/.dist
+
+# Logs and OS files
+*.log
+.DS_Store
