@@ -100,6 +100,12 @@ Regex replace with capture groups:
 patchloom replace --regex --from 'version = "(\d+)\.(\d+)\.(\d+)"' --to 'version = "$1.$2.99"' Cargo.toml --apply
 ```
 
+Idempotent replace (succeeds even if text not found):
+
+```
+patchloom replace --from 'legacy_name' --to 'new_name' --if-exists --apply
+```
+
 ### doc
 
 Read a JSON value:
@@ -192,30 +198,18 @@ Compare two structured files:
 patchloom doc diff old.json new.json
 ```
 
-### md
-
-Replace a section in a Markdown file:
-
-```
-patchloom md replace-section --file AGENTS.md --heading "Rules" --content "New rules here" --apply
-```
-
-Create a new file:
-
-```
-patchloom create --file AGENTS.md --content "# Project Rules" --apply
-```
-
 Delete items from a YAML array by predicate:
 
 ```
 patchloom doc delete-where config.yml contact_links --predicate 'name=Old Entry' --apply
 ```
 
-Idempotent replace (succeeds even if text not found):
+### md
+
+Replace a section in a Markdown file:
 
 ```
-patchloom replace --from 'legacy_name' --to 'new_name' --if-exists --apply
+patchloom md replace-section --file AGENTS.md --heading "Rules" --content "New rules here" --apply
 ```
 
 Insert content after a heading (without replacing the existing section):
@@ -248,6 +242,14 @@ Remove duplicate headings:
 patchloom md dedupe-headings --file AGENTS.md --apply
 ```
 
+### create
+
+Create a new file:
+
+```
+patchloom create --file AGENTS.md --content "# Project Rules" --apply
+```
+
 ### patch
 
 Apply a unified diff:
@@ -275,6 +277,8 @@ Fix issues across a directory:
 ```
 patchloom hygiene fix . --ensure-final-newline --apply
 ```
+
+### tx
 
 Run a multi-operation plan atomically:
 
