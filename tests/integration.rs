@@ -1560,6 +1560,411 @@ fn test_parse_unknown_subcommand_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// doc: delete, merge, prepend, select, ensure, move, update
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_delete_removes_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"keep","remove_me":true}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("remove_me")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["name"], serde_json::json!("keep"));
+    assert!(v.get("remove_me").is_none(), "key should be removed");
+}
+
+#[test]
+fn test_doc_merge_combines_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"b":2}"#)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["a"], serde_json::json!(1));
+    assert_eq!(v["b"], serde_json::json!(2));
+}
+
+#[test]
+fn test_doc_prepend_inserts_at_front() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[2,3]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("1")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items[0], serde_json::json!(1));
+    assert_eq!(items.len(), 3);
+}
+
+#[test]
+fn test_doc_select_filters_by_predicate() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"status":"active","name":"a"},{"status":"done","name":"b"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("select")
+        .arg(&file)
+        .arg("items[status=active]")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\""))
+        .stdout(predicate::str::contains("\"a\""))
+        .stdout(predicate::str::contains("\"b\"").not());
+}
+
+#[test]
+fn test_doc_ensure_creates_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("b")
+        .arg("2")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["b"], serde_json::json!(2));
+}
+
+#[test]
+fn test_doc_ensure_noop_when_exists() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    // ensure with --check when key already exists should exit 0 (no changes)
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("a")
+        .arg("1")
+        .arg("--check")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_doc_move_renames_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"old_key":"value"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("old_key")
+        .arg("new_key")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["new_key"], serde_json::json!("value"));
+    assert!(v.get("old_key").is_none(), "old key should be gone");
+}
+
+#[test]
+fn test_doc_update_matching_nodes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"s":"a"},{"s":"b"}]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("update")
+        .arg(&file)
+        .arg("items[*].s")
+        .arg("\"x\"")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items[0]["s"], serde_json::json!("x"));
+    assert_eq!(items[1]["s"], serde_json::json!("x"));
+}
+
+// ---------------------------------------------------------------------------
+// md: dedupe-headings, lint-agents
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_dedupe_headings_removes_duplicate() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg("--file")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let count = content.matches("## Dup").count();
+    assert_eq!(count, 1, "duplicate heading should be removed");
+}
+
+#[test]
+fn test_md_lint_agents_clean_file_exits_0() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# AGENTS.md\n\n## Build\n\nRun make\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_md_lint_agents_bad_file_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(
+        &file,
+        "# AGENTS.md\n\n## Build\n\nRun make\n\n## Build\n\nDuplicate\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .assert()
+        .code(2);
+}
+
+// ---------------------------------------------------------------------------
+// global flags: --jsonl, --files-from, --context, --literal
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_jsonl_output_produces_valid_json_lines() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\nhello again\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let _: serde_json::Value =
+            serde_json::from_str(line).expect("each JSONL line should be valid JSON");
+    }
+    assert!(
+        stdout.lines().count() >= 2,
+        "should have at least 2 JSONL lines for 2 matches"
+    );
+}
+
+#[test]
+fn test_files_from_restricts_search() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("included.txt"), "findme\n").unwrap();
+    fs::write(dir.path().join("excluded.txt"), "findme\n").unwrap();
+
+    let list = dir.path().join("filelist.txt");
+    fs::write(&list, "included.txt\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg(&list)
+        .arg("search")
+        .arg("findme")
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("included.txt"))
+        .stdout(predicate::str::contains("excluded.txt").not());
+}
+
+#[test]
+fn test_search_context_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nline2\nmatch_me\nline4\nline5\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-C")
+        .arg("1")
+        .arg("match_me")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("line2"))
+        .stdout(predicate::str::contains("match_me"))
+        .stdout(predicate::str::contains("line4"));
+}
+
+#[test]
+fn test_search_literal_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    // dot in "foo.bar" should NOT match "fooXbar" with --literal
+    fs::write(&file, "foo.bar\nfooXbar\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("foo.bar")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("foo.bar"))
+        .stdout(predicate::str::contains("fooXbar").not());
+}
+
+// ---------------------------------------------------------------------------
+// create --force
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_create_force_overwrites_existing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("overwritten")
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "overwritten");
+}
+
+// ---------------------------------------------------------------------------
+// error paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_no_match_without_if_exists_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "some content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("nonexistent_pattern_xyz")
+        .arg("--to")
+        .arg("new")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_search_invert_match_normal() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep\nremove\nkeep2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-v")
+        .arg("remove")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("keep"))
+        .stdout(predicate::str::contains("remove").not());
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 
