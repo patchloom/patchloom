@@ -2514,6 +2514,222 @@ fn test_hygiene_fix_check_exits_2_no_write() {
 }
 
 // ---------------------------------------------------------------------------
+// md --apply --check: check takes priority (bug fix)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_apply_check_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    let original = "# Title\n\n## Section\n\nold content\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("replace-section")
+        .arg("--file")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Section")
+        .arg("--content")
+        .arg("new content")
+        .arg("--apply")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, original,
+        "--check should prevent writing even with --apply"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// tx: glob-based replace
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_glob_replace_only_matches_pattern() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("skip.rs"), "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "glob": "*.txt", "from": "hello", "to": "bye"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(fs::read_to_string(dir.path().join("a.txt"))
+        .unwrap()
+        .contains("bye"));
+    assert!(fs::read_to_string(dir.path().join("b.txt"))
+        .unwrap()
+        .contains("bye"));
+    assert!(
+        fs::read_to_string(dir.path().join("skip.rs"))
+            .unwrap()
+            .contains("hello"),
+        ".rs file should not be modified"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// tx: md operations in plan
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_md_replace_section_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    fs::write(
+        &file,
+        "# Title\n\n## Changelog\n\nOld entry\n\n## Other\n\nKept\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {
+                "op": "md.replace_section",
+                "path": "readme.md",
+                "heading": "## Changelog",
+                "content": "- v2.0 release"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("v2.0 release"), "new section content");
+    assert!(!content.contains("Old entry"), "old content removed");
+    assert!(content.contains("Kept"), "other section preserved");
+}
+
+// ---------------------------------------------------------------------------
+// write policy CLI flags: normalize-eol, trim-trailing-whitespace, --diff
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_normalize_eol_lf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("crlf.txt");
+    fs::write(&file, "old\r\ncontent\r\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("old")
+        .arg("--to")
+        .arg("new")
+        .arg("--normalize-eol")
+        .arg("lf")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        !content.windows(2).any(|w| w == b"\r\n"),
+        "CRLF should be normalized to LF"
+    );
+    assert!(
+        content.windows(3).any(|w| w == b"new"),
+        "replacement should be applied"
+    );
+}
+
+#[test]
+fn test_create_trim_trailing_whitespace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("trimmed.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello   \nworld\t\n")
+        .arg("--trim-trailing-whitespace")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "hello\nworld\n",
+        "trailing whitespace should be trimmed"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// multi-file replace --apply on directory
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_directory_modifies_all_matching_files() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hello again\n").unwrap();
+    fs::write(dir.path().join("c.txt"), "no match here\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("bye")
+        .arg(dir.path())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(fs::read_to_string(dir.path().join("a.txt"))
+        .unwrap()
+        .contains("bye"));
+    assert!(fs::read_to_string(dir.path().join("b.txt"))
+        .unwrap()
+        .contains("bye"));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("c.txt")).unwrap(),
+        "no match here\n",
+        "file without match should be untouched"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 

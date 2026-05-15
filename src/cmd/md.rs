@@ -224,12 +224,12 @@ fn apply_mutation(
         }
     }
 
-    if global.apply {
-        atomic_write(path, new_content, &policy)?;
-    }
-
     if global.check && has_changes {
         return Ok(exit::CHANGES_DETECTED);
+    }
+
+    if global.apply {
+        atomic_write(path, new_content, &policy)?;
     }
 
     Ok(exit::SUCCESS)
