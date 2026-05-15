@@ -356,6 +356,40 @@ fn test_quiet_suppresses_search_output() {
 }
 
 #[test]
+fn test_search_count_returns_success_on_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("count_exit.txt");
+    fs::write(&file, "hello world\nhello again\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--count")
+        .arg("hello")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(":2"));
+}
+
+#[test]
+fn test_search_files_with_matches_returns_success_on_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("fwm_exit.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--files-with-matches")
+        .arg("hello")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fwm_exit.txt"));
+}
+
+#[test]
 fn test_quiet_suppresses_hygiene_check_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("no_newline.txt");

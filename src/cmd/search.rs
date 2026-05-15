@@ -238,7 +238,12 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let results = collect_matches(&args, global)?;
 
-    if results.matches.is_empty() {
+    let has_matches = if args.count || args.files_with_matches {
+        !results.file_match_counts.is_empty()
+    } else {
+        !results.matches.is_empty()
+    };
+    if !has_matches {
         return Ok(exit::NO_MATCHES);
     }
 
