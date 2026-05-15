@@ -394,7 +394,22 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let mut results: Vec<PatchCheckResult> = Vec::new();
             for pf in &patch_files {
                 let file_path = root.join(&pf.path);
-                let original = std::fs::read_to_string(&file_path).unwrap_or_default();
+                let original = match std::fs::read_to_string(&file_path) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        let msg = format!("file not found: {}", file_path.display());
+                        results.push(PatchCheckResult {
+                            path: pf.path.clone(),
+                            status: "missing".to_string(),
+                            error: Some(msg.clone()),
+                        });
+                        if !global.json && !global.jsonl {
+                            eprintln!("patch check: {} -- MISSING: {}", pf.path, msg);
+                        }
+                        all_clean = false;
+                        continue;
+                    }
+                };
                 match apply_hunks(&original, &pf.hunks) {
                     Ok(_) => {
                         results.push(PatchCheckResult {
@@ -693,6 +708,37 @@ mod tests {
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::AMBIGUOUS);
+    }
+
+    #[test]
+    fn check_reports_missing_file() {
+        let tmp = TempDir::new().unwrap();
+        // Do NOT create hello.txt — it should be reported as missing.
+        let diff_path = tmp.path().join("missing.patch");
+        std::fs::write(
+            &diff_path,
+            "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,3 +1,3 @@
+ line1
+-old line
++new line
+ line3
+",
+        )
+        .unwrap();
+
+        let global = flags_for(tmp.path());
+        let args = PatchArgs {
+            action: PatchAction::Check {
+                file: Some(diff_path.to_string_lossy().to_string()),
+                stdin: false,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::AMBIGUOUS, "missing file should fail check");
     }
 
     // ── Integration: apply subcommand ───────────────────────────────
