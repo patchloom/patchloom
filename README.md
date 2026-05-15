@@ -423,7 +423,7 @@ Plans support three lifecycle arrays and an optional write policy:
 - **write_policy**: Optional object with `ensure_final_newline` (bool), `normalize_eol` (`"lf"` or `"crlf"`), and `trim_trailing_whitespace` (bool). Applied to all pending content (including `file.create`) before writing to disk.
 - **strict**: Optional boolean (default: `false`). When `true`, a format or validation failure reverts all file writes and exits with code 7 (ROLLBACK) instead of code 6. Created files are removed; modified files are restored to their original content.
 
-All shell commands in `format` and `validate` execute via `sh -c` on the host; only use plans from trusted sources.
+All shell commands in `format` and `validate` execute via the host platform shell (`sh -c` on Unix, `cmd /C` on Windows); only use plans from trusted sources.
 
 ### Operation ordering
 

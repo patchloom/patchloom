@@ -4,6 +4,63 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+fn shell_false() -> &'static str {
+    #[cfg(windows)]
+    {
+        "exit /b 1"
+    }
+    #[cfg(not(windows))]
+    {
+        "false"
+    }
+}
+
+fn shell_exit_1() -> &'static str {
+    #[cfg(windows)]
+    {
+        "exit /b 1"
+    }
+    #[cfg(not(windows))]
+    {
+        "exit 1"
+    }
+}
+
+fn shell_sleep_300() -> &'static str {
+    #[cfg(windows)]
+    {
+        "powershell -Command \"Start-Sleep -Seconds 300\""
+    }
+    #[cfg(not(windows))]
+    {
+        "sleep 300"
+    }
+}
+
+fn shell_touch(path: &Path) -> String {
+    let path = path.display();
+    #[cfg(windows)]
+    {
+        format!("powershell -Command \"New-Item -ItemType File -Path '{path}' -Force | Out-Null\"")
+    }
+    #[cfg(not(windows))]
+    {
+        format!("touch '{path}'")
+    }
+}
+
+fn shell_test_exists(path: &Path) -> String {
+    let path = path.display();
+    #[cfg(windows)]
+    {
+        format!("if exist \"{path}\" (exit /b 0) else (exit /b 1)")
+    }
+    #[cfg(not(windows))]
+    {
+        format!("test -f '{path}'")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // search
 // ---------------------------------------------------------------------------
@@ -2228,7 +2285,7 @@ fn test_tx_validate_required_failure_exits_6() {
             {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
         ],
         "validate": [
-            {"cmd": "false", "required": true}
+            {"cmd": shell_false(), "required": true}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -2436,7 +2493,7 @@ fn test_tx_optional_validation_failure_ignored() {
             {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
         ],
         "validate": [
-            {"cmd": "false", "required": false}
+            {"cmd": shell_false(), "required": false}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -3061,8 +3118,8 @@ fn test_tx_format_step_runs_between_write_and_validate() {
             "from": "before",
             "to": "after"
         }],
-        "format": [{"cmd": format!("touch {}", marker.to_str().unwrap())}],
-        "validate": [{"cmd": format!("test -f {}", marker.to_str().unwrap()), "required": true}]
+        "format": [{"cmd": shell_touch(&marker)}],
+        "validate": [{"cmd": shell_test_exists(&marker), "required": true}]
     });
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
@@ -3451,7 +3508,7 @@ fn test_tx_validate_timeout_kills_hanging_command() {
             "to": "changed"
         }],
         "validate": [{
-            "cmd": "sleep 300",
+            "cmd": shell_sleep_300(),
             "required": true,
             "timeout": 1
         }]
@@ -3484,7 +3541,7 @@ fn test_tx_format_timeout_kills_hanging_command() {
             "to": "changed"
         }],
         "format": [{
-            "cmd": "sleep 300",
+            "cmd": shell_sleep_300(),
             "timeout": 1
         }]
     });
@@ -3517,7 +3574,7 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
             "to": "changed"
         }],
         "format": [{
-            "cmd": "exit 1"
+            "cmd": shell_exit_1()
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -3551,7 +3608,7 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
             "to": "changed"
         }],
         "validate": [{
-            "cmd": "exit 1",
+            "cmd": shell_exit_1(),
             "required": true
         }]
     });
@@ -3583,7 +3640,7 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
             "content": "should be removed"
         }],
         "validate": [{
-            "cmd": "exit 1",
+            "cmd": shell_exit_1(),
             "required": true
         }]
     });
@@ -3814,7 +3871,7 @@ fn test_tx_json_output_on_validation_failure() {
             "to": "world"
         }],
         "validate": [{
-            "cmd": "false",
+            "cmd": shell_false(),
             "required": true,
             "timeout": 5
         }]
@@ -3851,7 +3908,7 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
             "path": file.to_str().unwrap()
         }],
         "validate": [{
-            "cmd": "exit 1",
+            "cmd": shell_exit_1(),
             "required": true
         }]
     });
@@ -3885,7 +3942,7 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
             "to": "changed"
         }],
         "format": [{
-            "cmd": "exit 1"
+            "cmd": shell_exit_1()
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -4011,11 +4068,11 @@ fn test_tx_format_and_validate_success_path() {
             "to": "changed"
         }],
         "format": [{
-            "cmd": format!("touch {}", marker.to_str().unwrap()),
+            "cmd": shell_touch(&marker),
             "timeout": 10
         }],
         "validate": [{
-            "cmd": format!("test -f {}", marker.to_str().unwrap()),
+            "cmd": shell_test_exists(&marker),
             "required": true,
             "timeout": 10
         }]

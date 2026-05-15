@@ -51,44 +51,46 @@ pub struct TxArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
+const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
+const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+fn host_shell_command(cmd: &str) -> std::process::Command {
+    #[cfg(windows)]
+    {
+        let mut command = std::process::Command::new("cmd");
+        command.arg("/C").arg(cmd);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg(cmd);
+        command
+    }
+}
+
 /// Run a shell command with a timeout. Returns the exit status on success,
 /// or an error if the command times out or fails to start.
 fn run_shell_with_timeout(
     cmd: &str,
     timeout_secs: u64,
 ) -> anyhow::Result<std::process::ExitStatus> {
-    let mut child = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
+    let mut child = host_shell_command(cmd)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    let pid = child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    // Wait for the child in a dedicated thread so the main thread
-    // can enforce the timeout without polling.
-    std::thread::spawn(move || {
-        let result = child.wait();
-        let _ = tx.send(result);
-    });
-
-    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-        Ok(result) => Ok(result?),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            // Kill the child process so the wait thread can exit.
-            let _ = std::process::Command::new("kill")
-                .arg("-9")
-                .arg(pid.to_string())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-            // Drain the channel so the thread can exit cleanly.
-            let _ = rx.recv();
+    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
             anyhow::bail!("timed out after {timeout_secs}s");
         }
-        Err(e) => anyhow::bail!("wait channel error: {e}"),
+        std::thread::sleep(SHELL_POLL_INTERVAL);
     }
 }
 
@@ -891,7 +893,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut lifecycle_failed = false;
         if let Some(ref format_steps) = plan.format {
             for step in format_steps {
-                let timeout_secs = step.timeout.unwrap_or(60);
+                let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                 match run_shell_with_timeout(&step.cmd, timeout_secs) {
                     Ok(status) if !status.success() => {
                         eprintln!("tx: format step failed: {}", step.cmd);
@@ -912,7 +914,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !lifecycle_failed {
             if let Some(ref validate) = plan.validate {
                 for step in validate {
-                    let timeout_secs = step.timeout.unwrap_or(60);
+                    let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                     let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
                         Ok(status) => status.success(),
                         Err(e) => {
@@ -990,6 +992,28 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    fn shell_true() -> &'static str {
+        #[cfg(windows)]
+        {
+            "exit /b 0"
+        }
+        #[cfg(not(windows))]
+        {
+            "true"
+        }
+    }
+
+    fn shell_false() -> &'static str {
+        #[cfg(windows)]
+        {
+            "exit /b 1"
+        }
+        #[cfg(not(windows))]
+        {
+            "false"
+        }
+    }
 
     fn default_global() -> GlobalFlags {
         GlobalFlags::default()
@@ -1107,7 +1131,7 @@ mod tests {
         let plan_json = serde_json::json!({
             "operations": [],
             "validate": [
-                {"cmd": "true", "required": true}
+                {"cmd": shell_true(), "required": true}
             ]
         });
 
@@ -1132,7 +1156,7 @@ mod tests {
         let plan_json = serde_json::json!({
             "operations": [],
             "validate": [
-                {"cmd": "false", "required": true}
+                {"cmd": shell_false(), "required": true}
             ]
         });
 
