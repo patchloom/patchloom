@@ -507,6 +507,90 @@ fn test_tx_rollback_on_failure() {
 }
 
 // ---------------------------------------------------------------------------
+// doc: YAML and TOML
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_yaml() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "name: patchloom\nversion: 1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+#[test]
+fn test_doc_set_yaml_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "name: old\nversion: 1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("name")
+        .arg("\"new\"")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("new"), "YAML should contain updated value");
+    assert!(
+        !content.contains("old"),
+        "YAML should not contain old value"
+    );
+}
+
+#[test]
+fn test_doc_get_toml() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[package]\nname = \"patchloom\"\nversion = \"1.0\"\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("package.name")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+#[test]
+fn test_doc_set_toml_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[package]\nname = \"old\"\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("package.name")
+        .arg("\"new\"")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("new"), "TOML should contain updated value");
+}
+
+// ---------------------------------------------------------------------------
 // output format
 // ---------------------------------------------------------------------------
 
