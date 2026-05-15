@@ -165,6 +165,9 @@ pub fn policy_from_flags(
 pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
+    // Capture the original file's permissions before overwriting.
+    let original_perms = std::fs::metadata(path).ok().map(|m| m.permissions());
+
     let parent = path
         .parent()
         .context("cannot determine parent directory of target path")?;
@@ -175,6 +178,12 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
 
     std::fs::write(tmp.path(), final_content.as_bytes())
         .with_context(|| format!("failed to write to tempfile {}", tmp.path().display()))?;
+
+    // Restore the original permissions on the temp file before renaming.
+    if let Some(perms) = original_perms {
+        std::fs::set_permissions(tmp.path(), perms)
+            .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
+    }
 
     tmp.persist(path)
         .with_context(|| format!("failed to persist tempfile to {}", path.display()))?;
@@ -310,6 +319,25 @@ mod tests {
         assert!(policy.ensure_final_newline);
         assert!(matches!(policy.normalize_eol, EolMode::Lf));
         assert!(policy.trim_trailing_whitespace);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_preserves_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("script.sh");
+        fs::write(&target, "#!/bin/sh\necho old\n").unwrap();
+
+        // Set executable permission (0o755).
+        fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&target, "#!/bin/sh\necho new\n", &policy).unwrap();
+
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "permissions should be preserved after atomic_write");
     }
 
     #[test]
