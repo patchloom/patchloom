@@ -468,3 +468,115 @@ fn test_help_flag() {
                 .and(predicate::str::contains("doc")),
         );
 }
+
+// ---------------------------------------------------------------------------
+// Parse smoke tests: every subcommand name is recognized by clap
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_parse_subcommand_search() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["search", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_replace() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_patch() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["patch", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_md() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_doc() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_hygiene() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["hygiene", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_create() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["create", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_subcommand_tx() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tx", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_global_flag_json() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_global_flag_ensure_final_newline() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--ensure-final-newline", "search", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_global_flag_normalize_eol() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--normalize-eol", "lf", "search", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_parse_unknown_subcommand_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("nonexistent-command")
+        .assert()
+        .failure();
+}
