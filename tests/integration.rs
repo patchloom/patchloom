@@ -3734,6 +3734,104 @@ fn test_tx_json_output_on_operation_failure() {
 }
 
 #[test]
+fn test_tx_json_output_on_diff() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // Default mode (no --apply or --check) is diff mode.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["files_changed"], 1);
+    // File should NOT be modified in diff mode.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_tx_json_output_on_parse_error() {
+    let dir = TempDir::new().unwrap();
+    let plan_file = dir.path().join("bad.json");
+    fs::write(&plan_file, "{ not valid json }").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(4)); // PARSE_ERROR
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["status"], "error");
+    assert!(!json["error"].as_str().unwrap().is_empty());
+    assert!(json["error"].as_str().unwrap().contains("parse_error"));
+}
+
+#[test]
+fn test_tx_json_output_on_validation_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": "false",
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert!(!json["error"].as_str().unwrap().is_empty());
+}
+
+#[test]
 fn test_tx_strict_mode_restores_deleted_file_on_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

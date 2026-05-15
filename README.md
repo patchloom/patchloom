@@ -7,7 +7,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 314 passing tests.
+V2 with 10 commands and 317 passing tests.
 
 ## Install
 
@@ -479,11 +479,6 @@ at your option.
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 All commits must be signed off with `git commit -s`.
-
-## License
-
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT License](LICENSE-MIT) at your option.
 
 ## Security
 
