@@ -3496,6 +3496,63 @@ fn test_tx_format_timeout_kills_hanging_command() {
 }
 
 #[test]
+fn test_tx_write_policy_ensure_final_newline_on_file_create() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("newfile.txt");
+
+    let plan = serde_json::json!({
+        "write_policy": { "ensure_final_newline": true },
+        "operations": [{
+            "op": "file.create",
+            "path": file.to_str().unwrap(),
+            "content": "no trailing newline"
+        }]
+    });
+
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "no trailing newline\n");
+}
+
+#[test]
+fn test_tx_plan_from_stdin() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }]
+    });
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg("-")
+        .arg("--apply")
+        .write_stdin(serde_json::to_string(&plan).unwrap())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "world\n");
+}
+
+#[test]
 fn test_tx_create_after_delete_unmarks_deletion() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

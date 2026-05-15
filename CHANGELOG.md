@@ -25,4 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dual license: MIT OR Apache-2.0
 - CONTRIBUTING.md, SECURITY.md, AGENTS.md
 - CI with fmt, clippy, tests, MSRV check, and dependency audit
-- 302 tests (152 unit + 150 integration)
+- `--plan -` reads tx plan from stdin
+- Documentation for tx operation ordering semantics
+- Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
+- 305 tests (152 unit + 153 integration)
+
+### Fixed
+
+- `file.create` after `file.delete` in the same tx plan no longer silently loses the file
+- Makefile `update-readme` dynamically reads version and command count instead of hardcoding

@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 303 passing tests.
+V2 with 10 commands and 305 passing tests.
 
 ## Install
 
@@ -331,6 +331,12 @@ Run a multi-operation plan atomically:
 patchloom tx --plan plan.json --apply
 ```
 
+Read the plan from stdin:
+
+```
+echo '{"operations": [...]}' | patchloom tx --plan - --apply
+```
+
 ## Shell completions
 
 Generate shell completions for your shell:
@@ -388,13 +394,22 @@ The `tx` command accepts a JSON plan with an array of operations:
 
 All operations run in order. If any operation fails, all changes are rolled back and no files are written (exit code 7). Pass `--apply` to write to disk.
 
-Plans support three lifecycle arrays:
+Plans support three lifecycle arrays and an optional write policy:
 
 - **operations**: The mutations to apply.
 - **format**: Shell commands that run after all operations are written to disk but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60). Note: files are already on disk when format runs; a format failure exits with code 6 but does not undo the writes.
 - **validate**: Shell commands that run after format steps. If a required step fails, the transaction exits with code 6. Each step accepts an optional `timeout` in seconds (default: 60). Like format, validation runs after writes are committed.
+- **write_policy**: Optional object with `ensure_final_newline` (bool), `normalize_eol` (`"lf"` or `"crlf"`), and `trim_trailing_whitespace` (bool). Applied to all pending content (including `file.create`) before writing to disk.
 
 All shell commands in `format` and `validate` execute via `sh -c` on the host; only use plans from trusted sources.
+
+### Operation ordering
+
+Operations execute in array order. When multiple operations target the same file, each sees the result of the previous one. Key rules:
+
+- **Last write wins**: If operations 1 and 3 both modify `config.json`, operation 3 sees the content left by operation 1.
+- **Delete then create**: A `file.delete` followed by `file.create` (with `force: true`) on the same path recreates the file with the new content. The deletion is unset by the subsequent write.
+- **Delete then replace**: A `file.delete` sets the pending content to empty. A subsequent `replace` on the same path sees empty content, so the `from` pattern will not match unless it matches the empty string.
 
 ## Symlink behavior
 
