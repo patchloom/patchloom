@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 8 commands and 172 passing tests.
+V1 with 8 commands and 173 passing tests.
 
 ## Install
 
@@ -73,16 +73,60 @@ Replace text across files (preview diff by default, write with `--apply`):
 patchloom replace --from 'old_name' --to 'new_name' src/ --apply
 ```
 
+### doc
+
 Read a JSON value:
 
 ```
 patchloom doc get package.json name
 ```
 
+Check if a key exists (exit 0 = yes, exit 3 = no):
+
+```
+patchloom doc has config.yaml database.host
+```
+
+List keys of an object:
+
+```
+patchloom doc keys package.json --json
+```
+
+Get the length of an array or object:
+
+```
+patchloom doc len package.json dependencies
+```
+
 Set a YAML key:
 
 ```
 patchloom doc set config.yaml server.port 8080 --apply
+```
+
+Delete a key:
+
+```
+patchloom doc delete config.json deprecated_field --apply
+```
+
+Merge an object into an existing key:
+
+```
+patchloom doc merge config.json settings '{"debug": true}' --apply
+```
+
+Append to an array:
+
+```
+patchloom doc append config.json tags '"new-tag"' --apply
+```
+
+Prepend to an array:
+
+```
+patchloom doc prepend config.json tags '"first-tag"' --apply
 ```
 
 Replace a section in a Markdown file:
@@ -127,7 +171,15 @@ Check whether a patch applies cleanly (without writing):
 patchloom patch check --file changes.patch
 ```
 
-Fix missing final newlines across a directory:
+### hygiene
+
+Check files for trailing whitespace, mixed line endings, and missing final newlines:
+
+```
+patchloom hygiene check src/
+```
+
+Fix issues across a directory:
 
 ```
 patchloom hygiene fix . --ensure-final-newline --apply
