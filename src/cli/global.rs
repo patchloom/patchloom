@@ -44,7 +44,7 @@ pub struct GlobalFlags {
     #[arg(long, global = true)]
     pub glob: Option<String>,
 
-    /// Read file list from stdin (one path per line). Pass `-` as the value.
+    /// Read file list from a file or stdin (`-`), one path per line.
     #[arg(long, global = true)]
     pub files_from: Option<String>,
 
