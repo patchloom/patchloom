@@ -888,6 +888,36 @@ fn test_tx_success_applies_all() {
     assert_eq!(v["version"], serde_json::json!(2));
 }
 
+#[test]
+fn test_tx_check_mode_reports_changes_without_writing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.set", "path": "data.json", "key": "key", "value": "new"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .assert()
+        .code(2); // CHANGES_DETECTED
+
+    // File should be unchanged.
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, r#"{"key": "old"}"#);
+}
+
 // ---------------------------------------------------------------------------
 // doc: YAML and TOML
 // ---------------------------------------------------------------------------
