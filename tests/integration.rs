@@ -3496,6 +3496,40 @@ fn test_tx_format_timeout_kills_hanging_command() {
 }
 
 #[test]
+fn test_tx_create_after_delete_unmarks_deletion() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "old content\n").unwrap();
+
+    // Delete the file, then recreate it. The create should "win"
+    // because it is the last operation on that file.
+    let plan = serde_json::json!({
+        "operations": [
+            { "op": "file.delete", "path": file.to_str().unwrap() },
+            { "op": "file.create", "path": file.to_str().unwrap(), "content": "new content", "force": true }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    // File should exist with the new content, not deleted.
+    assert!(
+        file.exists(),
+        "file should not be deleted after a subsequent create"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new content");
+}
+
+#[test]
 fn test_tx_format_and_validate_success_path() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

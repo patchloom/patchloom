@@ -106,11 +106,15 @@ fn read_file_content(
 }
 
 /// Update the current content for a file in the pending map.
+/// If the file was previously marked for deletion, unmark it (the latest
+/// intent is to write, not delete).
 fn update_file_content(
     pending: &mut HashMap<PathBuf, (String, String)>,
+    deletions: &mut HashSet<PathBuf>,
     path: &Path,
     new_content: String,
 ) {
+    deletions.remove(path);
     if let Some((_, ref mut current)) = pending.get_mut(path) {
         *current = new_content;
     }
@@ -171,6 +175,7 @@ fn do_replace(
 /// and write the result back. Reduces boilerplate across 9 doc.* operations.
 fn with_doc<F>(
     pending: &mut HashMap<PathBuf, (String, String)>,
+    deletions: &mut HashSet<PathBuf>,
     path: &str,
     mutate: F,
 ) -> anyhow::Result<()>
@@ -184,7 +189,7 @@ where
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let new_content =
         serialize_value(&root, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    update_file_content(pending, &file_path, new_content);
+    update_file_content(pending, deletions, &file_path, new_content);
     Ok(())
 }
 
@@ -212,7 +217,7 @@ fn execute_operation(
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
                 let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
-                update_file_content(pending, &file_path, replaced);
+                update_file_content(pending, deletions, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
                 let walker = WalkBuilder::new(".").build();
@@ -235,7 +240,7 @@ fn execute_operation(
                         Err(_) => continue,
                     };
                     let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
-                    update_file_content(pending, &file_path, replaced);
+                    update_file_content(pending, deletions, &file_path, replaced);
                 }
             } else {
                 anyhow::bail!("replace operation requires either 'path' or 'glob'");
@@ -245,7 +250,7 @@ fn execute_operation(
         Operation::DocSet { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let last = sel
@@ -278,7 +283,7 @@ fn execute_operation(
 
         Operation::DocDelete { path, key } => {
             let key = key.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 if sel.is_empty() {
@@ -308,7 +313,7 @@ fn execute_operation(
 
         Operation::DocMerge { path, value } => {
             let value = value.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 deep_merge(root, &value);
                 Ok(())
             })?;
@@ -317,7 +322,7 @@ fn execute_operation(
         Operation::DocAppend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let target = navigate_mut(root, &sel, false)?;
@@ -332,7 +337,7 @@ fn execute_operation(
         Operation::DocPrepend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let target = navigate_mut(root, &sel, false)?;
@@ -346,7 +351,7 @@ fn execute_operation(
 
         Operation::DocUpdate { path, key, value } => {
             let key = key.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let count = update_matching(root, &sel, value);
@@ -360,7 +365,7 @@ fn execute_operation(
         Operation::DocMove { path, from, to } => {
             let from = from.clone();
             let to = to.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let from_sel =
                     selector::parse(&from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let to_sel =
@@ -424,7 +429,7 @@ fn execute_operation(
         Operation::DocEnsure { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
@@ -468,7 +473,7 @@ fn execute_operation(
         } => {
             let key = key.clone();
             let predicate = predicate.clone();
-            with_doc(pending, path, |root| {
+            with_doc(pending, deletions, path, |root| {
                 let sel =
                     selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
                 let eq_pos = predicate
@@ -508,7 +513,7 @@ fn execute_operation(
             let file_content = read_file_content(pending, &file_path)?;
             let new_content = replace_section_in(&file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdInsertAfterHeading {
@@ -520,7 +525,7 @@ fn execute_operation(
             let file_content = read_file_content(pending, &file_path)?;
             let new_content = insert_after_heading_in(&file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdInsertBeforeHeading {
@@ -532,7 +537,7 @@ fn execute_operation(
             let file_content = read_file_content(pending, &file_path)?;
             let new_content = insert_before_heading_in(&file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdUpsertBullet {
@@ -544,7 +549,7 @@ fn execute_operation(
             let file_content = read_file_content(pending, &file_path)?;
             let new_content = upsert_bullet_in(&file_content, heading, bullet)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdTableAppend { path, heading, row } => {
@@ -552,14 +557,14 @@ fn execute_operation(
             let file_content = read_file_content(pending, &file_path)?;
             let new_content = table_append_for_tx(&file_content, heading, row)
                 .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdDedupeHeadings { path } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(&file_content);
-            update_file_content(pending, &file_path, new_content);
+            update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::HygieneFix {
@@ -572,7 +577,7 @@ fn execute_operation(
             if ensure_final_newline.unwrap_or(true) {
                 new = crate::write::ensure_final_newline(&new);
             }
-            update_file_content(pending, &file_path, new);
+            update_file_content(pending, deletions, &file_path, new);
         }
 
         Operation::FileCreate {
@@ -586,7 +591,7 @@ fn execute_operation(
                 if pending.contains_key(&file_path) || file_path.exists() {
                     let current = read_file_content(pending, &file_path)?;
                     let _ = current; // Just ensure it's loaded.
-                    update_file_content(pending, &file_path, content.clone());
+                    update_file_content(pending, deletions, &file_path, content.clone());
                 } else {
                     pending.insert(file_path, (String::new(), content.clone()));
                 }
@@ -604,7 +609,7 @@ fn execute_operation(
                 let file_path = PathBuf::from(&rel_path);
                 // Ensure the original is loaded.
                 let _ = read_file_content(pending, &file_path)?;
-                update_file_content(pending, &file_path, patched_content);
+                update_file_content(pending, deletions, &file_path, patched_content);
             }
         }
 
@@ -612,7 +617,7 @@ fn execute_operation(
             let file_path = PathBuf::from(path);
             let content = read_file_content(pending, &file_path)?;
             // Mark current content as empty so the diff shows full deletion.
-            update_file_content(pending, &file_path, String::new());
+            update_file_content(pending, deletions, &file_path, String::new());
             // If the file was created in this plan (original is empty AND
             // it doesn't exist on disk), remove from pending; no disk delete.
             // Otherwise, schedule for actual deletion (covers empty on-disk files).
