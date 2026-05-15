@@ -7,7 +7,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 317 passing tests.
+V2 with 10 commands and 326 passing tests.
 
 ## Install
 
@@ -155,7 +155,7 @@ patchloom doc has config.yaml database.host
 List keys of an object:
 
 ```
-patchloom doc keys package.json --json
+patchloom doc keys package.json .
 ```
 
 Get the length of an array or object:
@@ -176,10 +176,10 @@ Delete a key:
 patchloom doc delete config.json deprecated_field --apply
 ```
 
-Merge an object into an existing key:
+Merge an object into a document:
 
 ```
-patchloom doc merge config.json settings '{"debug": true}' --apply
+patchloom doc merge config.json --value '{"settings": {"debug": true}}' --apply
 ```
 
 Append to an array:

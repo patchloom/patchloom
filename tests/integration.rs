@@ -4241,6 +4241,10 @@ fn quickstart_path() -> PathBuf {
         .join("quickstart.md")
 }
 
+fn readme_path() -> PathBuf {
+    repo_root().join("README.md")
+}
+
 fn patchloom_in(cwd: &Path) -> Command {
     let mut cmd = Command::cargo_bin("patchloom").unwrap();
     cmd.arg("--cwd").arg(cwd);
@@ -4270,6 +4274,11 @@ fn seed_docs_smoke_fixture(root: &Path) {
         root,
         "src/write.rs",
         "pub fn existing_write() -> &'static str {\n    \"write\"\n}\n",
+    );
+    write_fixture_file(
+        root,
+        "src/rename.rs",
+        "pub fn old_name() -> &'static str {\n    \"old_name\"\n}\n",
     );
     write_fixture_file(
         root,
@@ -4622,4 +4631,85 @@ fn test_smoke_quickstart_transaction_snippet() {
     assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
         .unwrap()
         .contains("- Bumped to v2.0.0"));
+}
+
+#[test]
+fn test_smoke_readme_command_examples() {
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    let merge_value = r#"{"settings": {"debug": true}}"#;
+    let merge_command = format!("patchloom doc merge config.json --value '{merge_value}' --apply");
+    assert!(readme.contains("patchloom search 'TODO' src/"));
+    assert!(readme.contains("patchloom replace --from 'old_name' --to 'new_name' src/ --apply"));
+    assert!(readme.contains("patchloom doc keys package.json ."));
+    assert!(readme.contains(&merge_command));
+    assert!(readme.contains("patchloom hygiene check src/"));
+    assert!(readme.contains("patchloom hygiene fix . --ensure-final-newline --apply"));
+
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("search")
+        .arg("TODO")
+        .arg("src/")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TODO"));
+
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("--from")
+        .arg("old_name")
+        .arg("--to")
+        .arg("new_name")
+        .arg("src/")
+        .arg("--apply")
+        .assert()
+        .success();
+    let rename_module = fs::read_to_string(dir.path().join("src/rename.rs")).unwrap();
+    assert!(rename_module.contains("new_name"));
+    assert!(!rename_module.contains("old_name"));
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("keys")
+        .arg("package.json")
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("name"))
+        .stdout(predicate::str::contains("version"));
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("merge")
+        .arg("config.json")
+        .arg("--value")
+        .arg(merge_value)
+        .arg("--apply")
+        .assert()
+        .success();
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(config["settings"]["debug"], true);
+
+    let hygiene_target = dir.path().join("notes.txt");
+    fs::write(&hygiene_target, "line with space \nsecond line").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("hygiene")
+        .arg("check")
+        .arg("notes.txt")
+        .assert()
+        .code(2);
+
+    patchloom_in(dir.path())
+        .arg("hygiene")
+        .arg("fix")
+        .arg(".")
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .assert()
+        .success();
+    assert!(fs::read(&hygiene_target).unwrap().ends_with(b"\n"));
 }
