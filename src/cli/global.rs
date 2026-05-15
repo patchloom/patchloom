@@ -14,7 +14,7 @@ pub enum EolMode {
 }
 
 /// Global flags shared by all subcommands.
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 pub struct GlobalFlags {
     /// Emit machine-readable JSON output.
     #[arg(long, global = true)]

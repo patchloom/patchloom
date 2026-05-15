@@ -31,12 +31,7 @@ pub struct HygieneIssue {
     pub line: Option<usize>,
 }
 
-/// Returns `true` if the buffer looks like binary content (contains a NUL byte
-/// in the first 8 KiB, the same heuristic Git uses).
-fn is_binary(data: &[u8]) -> bool {
-    let check_len = data.len().min(8192);
-    data[..check_len].contains(&0)
-}
+use crate::is_binary;
 
 /// Check a single file for hygiene issues.
 fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
@@ -306,22 +301,11 @@ mod tests {
     use crate::cli::global::GlobalFlags;
     use tempfile::TempDir;
 
-    /// Helper: create a default `GlobalFlags` pointing at the given dir.
+    /// Helper: default `GlobalFlags` pointing at the given dir.
     fn flags_for(dir: &Path) -> GlobalFlags {
         GlobalFlags {
-            json: false,
-            jsonl: false,
-            diff: false,
-            apply: false,
-            check: false,
             cwd: Some(dir.to_string_lossy().to_string()),
-            glob: None,
-            files_from: None,
-            atomic: false,
-            ensure_final_newline: false,
-            normalize_eol: None,
-            trim_trailing_whitespace: false,
-            respect_editorconfig: false,
+            ..GlobalFlags::default()
         }
     }
 

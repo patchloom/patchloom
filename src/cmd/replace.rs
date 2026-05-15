@@ -55,12 +55,7 @@ struct FileReplacement {
     match_count: usize,
 }
 
-/// Returns `true` if the buffer looks like binary content (contains a NUL byte
-/// in the first 8 KiB).
-fn is_binary(data: &[u8]) -> bool {
-    let check_len = data.len().min(8192);
-    data[..check_len].contains(&0)
-}
+use crate::is_binary;
 
 /// Count occurrences and produce replaced content.
 fn replace_content(
@@ -292,21 +287,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn default_global() -> GlobalFlags {
-        GlobalFlags {
-            json: false,
-            jsonl: false,
-            diff: false,
-            apply: false,
-            check: false,
-            cwd: None,
-            glob: None,
-            files_from: None,
-            atomic: false,
-            ensure_final_newline: false,
-            normalize_eol: None,
-            trim_trailing_whitespace: false,
-            respect_editorconfig: false,
-        }
+        GlobalFlags::default()
     }
 
     fn make_args(from: &str, to: &str, paths: Vec<String>) -> ReplaceArgs {

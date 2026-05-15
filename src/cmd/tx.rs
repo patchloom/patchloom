@@ -564,21 +564,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn default_global() -> GlobalFlags {
-        GlobalFlags {
-            json: false,
-            jsonl: false,
-            diff: false,
-            apply: false,
-            check: false,
-            cwd: None,
-            glob: None,
-            files_from: None,
-            atomic: false,
-            ensure_final_newline: false,
-            normalize_eol: None,
-            trim_trailing_whitespace: false,
-            respect_editorconfig: false,
-        }
+        GlobalFlags::default()
     }
 
     #[test]

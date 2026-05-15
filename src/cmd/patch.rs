@@ -460,19 +460,8 @@ mod tests {
     /// Helper: default `GlobalFlags` pointing at a directory.
     fn flags_for(dir: &std::path::Path) -> GlobalFlags {
         GlobalFlags {
-            json: false,
-            jsonl: false,
-            diff: false,
-            apply: false,
-            check: false,
             cwd: Some(dir.to_string_lossy().to_string()),
-            glob: None,
-            files_from: None,
-            atomic: false,
-            ensure_final_newline: false,
-            normalize_eol: None,
-            trim_trailing_whitespace: false,
-            respect_editorconfig: false,
+            ..GlobalFlags::default()
         }
     }
 

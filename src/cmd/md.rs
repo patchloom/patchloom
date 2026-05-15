@@ -577,19 +577,8 @@ mod tests {
     /// Default global flags with `--apply` enabled for write tests.
     fn default_global() -> GlobalFlags {
         GlobalFlags {
-            json: false,
-            jsonl: false,
-            diff: false,
             apply: true,
-            check: false,
-            cwd: None,
-            glob: None,
-            files_from: None,
-            atomic: false,
-            ensure_final_newline: false,
-            normalize_eol: None,
-            trim_trailing_whitespace: false,
-            respect_editorconfig: false,
+            ..GlobalFlags::default()
         }
     }
 
