@@ -437,6 +437,26 @@ mod tests {
     }
 
     #[test]
+    fn binary_files_are_skipped() {
+        let dir = TempDir::new().unwrap();
+        let bin_file = dir.path().join("data.bin");
+        // Write a file with NUL bytes (binary content).
+        fs::write(&bin_file, b"hello\x00world").unwrap();
+
+        let args = make_args(
+            "hello",
+            "replaced",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        assert!(
+            replacements.is_empty(),
+            "binary files should be skipped, got {} matches",
+            replacements.len()
+        );
+    }
+
+    #[test]
     fn write_policy_ensure_final_newline_applied() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");

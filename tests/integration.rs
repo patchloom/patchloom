@@ -37,6 +37,40 @@ fn test_search_no_matches_exit_3() {
 }
 
 // ---------------------------------------------------------------------------
+// --cwd flag
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_cwd_search_finds_files_in_directory() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("search")
+        .arg("hello")
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hello"));
+}
+
+#[test]
+fn test_cwd_nonexistent_directory_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg("/nonexistent/dir/12345")
+        .arg("search")
+        .arg("hello")
+        .arg(".")
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
 // replace
 // ---------------------------------------------------------------------------
 
