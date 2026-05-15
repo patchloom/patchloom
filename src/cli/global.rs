@@ -116,6 +116,16 @@ impl GlobalFlags {
         self.respect_editorconfig = w.respect_editorconfig;
     }
 
+    /// Resolve the working directory from `--cwd`, defaulting to the process
+    /// current directory.
+    pub fn resolve_cwd(&self) -> anyhow::Result<std::path::PathBuf> {
+        if let Some(ref cwd) = self.cwd {
+            Ok(std::path::PathBuf::from(cwd))
+        } else {
+            std::env::current_dir().map_err(Into::into)
+        }
+    }
+
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
     pub fn read_files_from(&self) -> Option<Vec<String>> {

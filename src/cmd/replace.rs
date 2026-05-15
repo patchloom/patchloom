@@ -165,9 +165,7 @@ fn make_diff_output(replacements: &[FileReplacement]) -> String {
 }
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    if let Some(ref cwd) = global.cwd {
-        std::env::set_current_dir(cwd)?;
-    }
+    std::env::set_current_dir(global.resolve_cwd()?)?;
 
     let replacements = collect_replacements(&args, global)?;
 

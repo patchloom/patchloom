@@ -46,9 +46,7 @@ fn make_diff_output(path: &str, content: &str) -> String {
 }
 
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    if let Some(ref cwd) = global.cwd {
-        std::env::set_current_dir(cwd)?;
-    }
+    std::env::set_current_dir(global.resolve_cwd()?)?;
 
     // Resolve content from --content or --stdin.
     let content = if let Some(ref c) = args.content {

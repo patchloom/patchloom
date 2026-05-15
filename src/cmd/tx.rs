@@ -365,8 +365,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 3. Set working directory (plan.cwd overrides global --cwd).
     if let Some(ref cwd) = plan.cwd {
         std::env::set_current_dir(cwd)?;
-    } else if let Some(ref cwd) = global.cwd {
-        std::env::set_current_dir(cwd)?;
+    } else {
+        std::env::set_current_dir(global.resolve_cwd()?)?;
     }
 
     // 4. Build write policy from plan.

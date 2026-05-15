@@ -382,11 +382,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    let root = if let Some(ref cwd) = global.cwd {
-        std::path::PathBuf::from(cwd)
-    } else {
-        std::env::current_dir()?
-    };
+    let root = global.resolve_cwd()?;
 
     match args.action {
         PatchAction::Check { .. } => {

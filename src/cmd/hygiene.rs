@@ -102,11 +102,7 @@ fn collect_hygiene_paths(
     paths: &[String],
     global: &GlobalFlags,
 ) -> anyhow::Result<(std::path::PathBuf, Vec<std::path::PathBuf>)> {
-    let root = if let Some(ref cwd) = global.cwd {
-        std::path::PathBuf::from(cwd)
-    } else {
-        std::env::current_dir()?
-    };
+    let root = global.resolve_cwd()?;
 
     let glob_matcher = crate::build_glob_matcher(global)?;
     let explicit_files = global.read_files_from();

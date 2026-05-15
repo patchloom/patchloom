@@ -216,9 +216,7 @@ fn format_results(
 }
 
 pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    if let Some(ref cwd) = global.cwd {
-        std::env::set_current_dir(cwd)?;
-    }
+    std::env::set_current_dir(global.resolve_cwd()?)?;
 
     if args.invert_match && args.multiline {
         bail!("--invert-match and --multiline cannot be combined");
