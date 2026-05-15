@@ -34,6 +34,7 @@ src/
   cmd/md.rs            Markdown section-aware operations (replace section, insert after heading)
   cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (set, delete, merge, append)
   cmd/hygiene.rs       Final newline, line ending, and trailing whitespace normalization
+  cmd/create.rs        Create a new file with content
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)

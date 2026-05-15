@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 7 core commands and 112 passing tests.
+V1 with 8 commands and 126 passing tests.
 
 ## Install
 
@@ -30,6 +30,7 @@ cargo install patchloom
 | `md`      | Markdown section-aware operations                    |
 | `doc`     | Parser-backed JSON, YAML, and TOML operations        |
 | `hygiene` | Final newline, line ending, and whitespace normalization |
+| `create`  | Create a new file with content                       |
 | `tx`      | Execute a multi-operation plan atomically            |
 
 ## Usage
@@ -64,6 +65,30 @@ Replace a section in a Markdown file:
 patchloom md replace-section --file AGENTS.md --heading "Rules" --content "New rules here" --apply
 ```
 
+Create a new file:
+
+```
+patchloom create --file AGENTS.md --content "# Project Rules" --apply
+```
+
+Delete items from a YAML array by predicate:
+
+```
+patchloom doc delete-where config.yml contact_links --predicate 'name=Old Entry' --apply
+```
+
+Idempotent replace (succeeds even if text not found):
+
+```
+patchloom replace --from 'legacy_name' --to 'new_name' --if-exists --apply
+```
+
+Append a row to a markdown table:
+
+```
+patchloom md table-append --file README.md --heading "## Features" --row "| new | feature |" --apply
+```
+
 Fix missing final newlines across a directory:
 
 ```
@@ -87,6 +112,7 @@ patchloom tx --plan plan.json --apply
 | `--check`                    | Compute and report changes without writing         |
 | `--cwd <dir>`               | Set working directory                              |
 | `--glob <pattern>`          | Restrict target files by glob pattern              |
+| `--files-from <path>`        | Read file list from a file or stdin (`-`)          |
 | `--atomic`                   | Require all-or-nothing multi-file apply            |
 | `--ensure-final-newline`     | Ensure non-empty written files end with a newline  |
 | `--normalize-eol <mode>`    | Normalize line endings after write (keep, lf, crlf)|
