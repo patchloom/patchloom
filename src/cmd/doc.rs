@@ -341,12 +341,8 @@ fn update_matching(
 /// Flags controlling write behaviour, extracted from [`GlobalFlags`].
 #[derive(Default)]
 struct WriteContext {
-    #[allow(dead_code)]
-    diff: bool,
     check: bool,
     apply: bool,
-    #[allow(dead_code)]
-    json: bool,
     write_policy: write::WritePolicy,
 }
 
@@ -830,10 +826,8 @@ pub fn run(args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             _ => None,
         };
         let ctx = WriteContext {
-            diff: global.diff,
             check: global.check,
             apply: global.apply,
-            json: global.json,
             write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
         };
         let (output, code) = execute_write(&args.action, &ctx)?;
