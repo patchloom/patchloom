@@ -413,7 +413,7 @@ Read-only flags (available on all commands):
 | `--files-from <path>` | Read file list from a file or stdin (`-`)         |
 | `-q`, `--quiet`       | Suppress non-JSON human-readable output            |
 
-Write flags (available on write commands: replace, patch, md, doc, hygiene, create, tx):
+Write flags (available on write commands: replace, patch, md, doc, hygiene, create, delete, tx):
 
 | Flag                         | Description                                       |
 |------------------------------|---------------------------------------------------|
