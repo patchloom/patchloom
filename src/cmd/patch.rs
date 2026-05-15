@@ -393,6 +393,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         PatchAction::Apply { .. } => {
             let mut diffs = Vec::new();
+            let mut file_changes: Vec<(std::path::PathBuf, String)> = Vec::new();
 
             for pf in &patch_files {
                 let file_path = root.join(&pf.path);
@@ -400,27 +401,48 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 let patched = match apply_hunks(&original, &pf.hunks) {
                     Ok(p) => p,
                     Err(msg) => {
-                        eprintln!("patch apply: {} — STALE: {}", pf.path, msg);
+                        eprintln!("patch apply: {} -- STALE: {}", pf.path, msg);
                         return Ok(exit::AMBIGUOUS);
                     }
                 };
 
-                if global.diff {
-                    diffs.push(unified_diff(&pf.path, &original, &patched));
-                } else {
-                    let policy = policy_from_flags(global, Some(&file_path));
-                    atomic_write(&file_path, &patched, &policy)?;
-                    eprintln!("patch apply: {} — written", pf.path);
-                }
+                diffs.push(unified_diff(&pf.path, &original, &patched));
+                file_changes.push((file_path, patched));
             }
 
-            if global.diff {
-                let result = DiffResult {
-                    diffs,
-                    total_files_changed: patch_files.len(),
-                };
-                print!("{}", format_diff_result(&result));
+            // --check mode: report whether changes would be made, exit 2.
+            if global.check {
+                let has_changes = diffs.iter().any(|d| d.has_changes);
+                if has_changes {
+                    println!("{} file(s) would change", file_changes.len());
+                    return Ok(exit::CHANGES_DETECTED);
+                }
+                return Ok(exit::SUCCESS);
             }
+
+            // --apply mode: write files to disk.
+            if global.apply {
+                for (file_path, patched) in &file_changes {
+                    let policy = policy_from_flags(global, Some(file_path));
+                    atomic_write(file_path, patched, &policy)?;
+                    eprintln!("patch apply: {} -- written", file_path.display());
+                }
+                if global.diff {
+                    let result = DiffResult {
+                        diffs,
+                        total_files_changed: patch_files.len(),
+                    };
+                    print!("{}", format_diff_result(&result));
+                }
+                return Ok(exit::SUCCESS);
+            }
+
+            // Default / --diff mode: show unified diffs without writing.
+            let result = DiffResult {
+                diffs,
+                total_files_changed: patch_files.len(),
+            };
+            print!("{}", format_diff_result(&result));
 
             Ok(exit::SUCCESS)
         }
@@ -660,7 +682,8 @@ mod tests {
         )
         .unwrap();
 
-        let global = flags_for(tmp.path());
+        let mut global = flags_for(tmp.path());
+        global.apply = true;
         let args = PatchArgs {
             action: PatchAction::Apply {
                 file: Some(diff_path.to_string_lossy().to_string()),
@@ -672,6 +695,46 @@ mod tests {
 
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content, "line1\nnew line\nline3\n");
+    }
+
+    #[test]
+    fn apply_dry_run_does_not_write() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("hello.txt");
+        std::fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+        let diff_path = tmp.path().join("change.patch");
+        std::fs::write(
+            &diff_path,
+            "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,3 +1,3 @@
+ line1
+-old line
++new line
+ line3
+",
+        )
+        .unwrap();
+
+        // Without --apply, default is dry-run (show diff, don't write).
+        let global = flags_for(tmp.path());
+        let args = PatchArgs {
+            action: PatchAction::Apply {
+                file: Some(diff_path.to_string_lossy().to_string()),
+                stdin: false,
+            },
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // File should NOT have been modified.
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            content, "line1\nold line\nline3\n",
+            "file should remain unchanged in dry-run mode"
+        );
     }
 
     // ── Malformed diff ──────────────────────────────────────────────

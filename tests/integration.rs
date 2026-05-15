@@ -67,6 +67,96 @@ fn test_replace_apply_modifies_file() {
 }
 
 #[test]
+fn test_replace_dry_run_does_not_modify_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "old_text content\n").unwrap();
+
+    // Without --apply, patchloom should show a diff but NOT modify the file.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("old_text")
+        .arg("--to")
+        .arg("new_text")
+        .arg(&file)
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("old_text"),
+        "file should be unchanged in dry-run mode"
+    );
+    assert!(
+        !content.contains("new_text"),
+        "file should not be modified in dry-run mode"
+    );
+}
+
+#[test]
+fn test_patch_apply_dry_run_does_not_modify_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    // Without --apply, patchloom patch apply should show diff but NOT write.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "line1\nold line\nline3\n",
+        "file should be unchanged in dry-run mode"
+    );
+}
+
+#[test]
+fn test_patch_apply_with_apply_flag_writes_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "line1\nnew line\nline3\n");
+}
+
+#[test]
 fn test_replace_if_exists_no_match_exit_0() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
