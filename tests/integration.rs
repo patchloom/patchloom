@@ -3496,6 +3496,131 @@ fn test_tx_format_timeout_kills_hanging_command() {
 }
 
 #[test]
+fn test_replace_nth_regex_replaces_only_nth() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "v1.0 and v2.0 and v3.0\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--regex")
+        .arg("--from")
+        .arg(r"v\d+\.\d+")
+        .arg("--to")
+        .arg("vX.Y")
+        .arg("--nth")
+        .arg("2")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "v1.0 and vX.Y and v3.0\n");
+}
+
+#[test]
+fn test_delete_default_dry_run_does_not_remove() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    // Default mode (no --apply, no --check) is a dry-run.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("would delete"));
+
+    assert!(file.exists(), "dry-run should not delete the file");
+}
+
+#[test]
+fn test_md_insert_before_heading_not_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\n\nContent.\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("insert-before-heading")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("Nonexistent")
+        .arg("--content")
+        .arg("text")
+        .arg("--apply")
+        .assert()
+        .code(3); // NO_MATCHES
+}
+
+#[test]
+fn test_tx_doc_prepend_on_non_array_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name": "not_an_array"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.prepend",
+            "path": file.to_str().unwrap(),
+            "key": "name",
+            "value": "oops"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // Original content unchanged.
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"name": "not_an_array"}"#
+    );
+}
+
+#[test]
+fn test_tx_doc_update_no_match_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items": []}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.update",
+            "path": file.to_str().unwrap(),
+            "key": "items[*].status",
+            "value": "archived"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+}
+
+#[test]
 fn test_tx_multi_op_batch_all_new_ops() {
     // A realistic batch: replace + doc ops + md ops + file create in one plan.
     let dir = TempDir::new().unwrap();
