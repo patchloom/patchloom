@@ -42,14 +42,20 @@ fn test_search_no_matches_exit_3() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_completions_bash() {
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("completions")
-        .arg("bash")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("_patchloom"));
+fn test_completions_supported_shells() {
+    for (shell, expected_marker) in [
+        ("bash", "_patchloom"),
+        ("zsh", "#compdef patchloom"),
+        ("fish", "function __fish_patchloom_global_optspecs"),
+        ("elvish", "edit:completion:arg-completer[patchloom]"),
+    ] {
+        Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["completions", shell])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(expected_marker));
+    }
 }
 
 // ---------------------------------------------------------------------------
