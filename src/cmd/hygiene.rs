@@ -147,12 +147,25 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     Ok(issues)
 }
 
+/// JSON wrapper for hygiene check output.
+#[derive(Debug, Serialize)]
+struct HygieneCheckOutput {
+    ok: bool,
+    issue_count: usize,
+    issues: Vec<HygieneIssue>,
+}
+
 /// Render issues to stdout.
 fn render_issues(issues: &[HygieneIssue], global: &GlobalFlags) {
     if global.json {
+        let output = HygieneCheckOutput {
+            ok: issues.is_empty(),
+            issue_count: issues.len(),
+            issues: issues.to_vec(),
+        };
         println!(
             "{}",
-            serde_json::to_string_pretty(issues).expect("serialize issues")
+            serde_json::to_string_pretty(&output).expect("serialize output")
         );
     } else if global.jsonl {
         for issue in issues {

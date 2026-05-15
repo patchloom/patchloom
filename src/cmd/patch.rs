@@ -3,6 +3,7 @@ use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
+use serde::Serialize;
 
 #[derive(Debug, Args)]
 pub struct PatchArgs {
@@ -339,6 +340,22 @@ fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, u8
     }
 }
 
+// ── JSON output types ───────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+struct PatchCheckResult {
+    path: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PatchCheckOutput {
+    ok: bool,
+    files: Vec<PatchCheckResult>,
+}
+
 // ── Public entry point ──────────────────────────────────────────────
 
 pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -374,17 +391,43 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     match args.action {
         PatchAction::Check { .. } => {
             let mut all_clean = true;
+            let mut results: Vec<PatchCheckResult> = Vec::new();
             for pf in &patch_files {
                 let file_path = root.join(&pf.path);
                 let original = std::fs::read_to_string(&file_path).unwrap_or_default();
                 match apply_hunks(&original, &pf.hunks) {
                     Ok(_) => {
-                        eprintln!("patch check: {} — clean", pf.path);
+                        results.push(PatchCheckResult {
+                            path: pf.path.clone(),
+                            status: "clean".to_string(),
+                            error: None,
+                        });
+                        if !global.json && !global.jsonl {
+                            eprintln!("patch check: {} -- clean", pf.path);
+                        }
                     }
                     Err(msg) => {
-                        eprintln!("patch check: {} — STALE: {}", pf.path, msg);
+                        results.push(PatchCheckResult {
+                            path: pf.path.clone(),
+                            status: "stale".to_string(),
+                            error: Some(msg.clone()),
+                        });
+                        if !global.json && !global.jsonl {
+                            eprintln!("patch check: {} -- STALE: {}", pf.path, msg);
+                        }
                         all_clean = false;
                     }
+                }
+            }
+            if global.json {
+                let output = PatchCheckOutput {
+                    ok: all_clean,
+                    files: results,
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else if global.jsonl {
+                for r in &results {
+                    println!("{}", serde_json::to_string(r)?);
                 }
             }
             if all_clean {
