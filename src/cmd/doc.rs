@@ -678,7 +678,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let target = navigate_mut(&mut root, &sel, false)?;
             match target.as_array_mut() {
                 Some(arr) => arr.push(parsed),
-                None => return Ok((String::new(), exit::PARSE_ERROR)),
+                None => return Ok((String::new(), exit::FAILURE)),
             }
 
             let new_content = serialize_value(&root, &format)?;
@@ -698,7 +698,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let target = navigate_mut(&mut root, &sel, false)?;
             match target.as_array_mut() {
                 Some(arr) => arr.insert(0, parsed),
-                None => return Ok((String::new(), exit::PARSE_ERROR)),
+                None => return Ok((String::new(), exit::FAILURE)),
             }
 
             let new_content = serialize_value(&root, &format)?;
@@ -879,7 +879,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
                     let keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
                     Ok((keys.join("\n"), exit::SUCCESS))
                 }
-                None => Ok((String::new(), exit::PARSE_ERROR)),
+                None => Ok((String::new(), exit::FAILURE)),
             }
         }
 
@@ -897,7 +897,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             } else if let Some(obj) = target.as_object() {
                 Ok((obj.len().to_string(), exit::SUCCESS))
             } else {
-                Ok((String::new(), exit::PARSE_ERROR))
+                Ok((String::new(), exit::FAILURE))
             }
         }
 

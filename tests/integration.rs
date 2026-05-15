@@ -2730,6 +2730,27 @@ fn test_replace_directory_modifies_all_matching_files() {
 }
 
 // ---------------------------------------------------------------------------
+// --files-from error on bad path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_files_from_nonexistent_path_fails() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--files-from")
+        .arg("/nonexistent/file_list_xyz.txt")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--files-from"));
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 

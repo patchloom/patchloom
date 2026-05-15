@@ -41,7 +41,7 @@ pub(crate) fn collect_file_paths_opts(
     include_hidden: bool,
     root: Option<&Path>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    if let Some(files) = global.read_files_from() {
+    if let Some(files) = global.read_files_from()? {
         return Ok(files
             .iter()
             .map(|f| match root {

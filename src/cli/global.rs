@@ -121,8 +121,11 @@ impl GlobalFlags {
 
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
-    pub fn read_files_from(&self) -> Option<Vec<String>> {
-        let source = self.files_from.as_deref()?;
+    pub fn read_files_from(&self) -> anyhow::Result<Option<Vec<String>>> {
+        let source = match self.files_from.as_deref() {
+            Some(s) => s,
+            None => return Ok(None),
+        };
         let lines: Vec<String> = if source == "-" {
             std::io::stdin()
                 .lock()
@@ -132,12 +135,12 @@ impl GlobalFlags {
                 .collect()
         } else {
             std::fs::read_to_string(source)
-                .unwrap_or_default()
+                .map_err(|e| anyhow::anyhow!("failed to read --files-from '{}': {e}", source))?
                 .lines()
                 .filter(|l| !l.is_empty())
                 .map(String::from)
                 .collect()
         };
-        Some(lines)
+        Ok(Some(lines))
     }
 }

@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 267 passing tests.
+V1 with 9 commands and 268 passing tests.
 
 ## Install
 
@@ -177,13 +177,13 @@ patchloom doc move config.json old_name new_name --apply
 Filter array items by selector:
 
 ```
-patchloom doc select config.json "users[?active==true]"
+patchloom doc select config.json "users[active=true]"
 ```
 
 Update all matching nodes:
 
 ```
-patchloom doc update config.json "servers.*.enabled" true --apply
+patchloom doc update config.json "servers[*].enabled" true --apply
 ```
 
 List all leaf key paths and values in a file:
@@ -336,6 +336,8 @@ The `tx` command accepts a JSON plan with an array of operations:
 
 All operations run in order. If any fails, all changes are rolled back (exit code 7). Pass `--apply` to write to disk.
 
+Plans may include a `validate` array with shell commands that run after writes. Validation steps execute via `sh -c` on the host; only use plans from trusted sources.
+
 ## Symlink behavior
 
 `atomic_write` follows symlinks: it writes to the target of the symlink, not the symlink itself. This is because the write creates a temp file in the parent directory and renames it over the target path, which `rename(2)` resolves through symlinks. If you need to replace a symlink itself, delete and recreate it.
@@ -360,7 +362,6 @@ Write flags (available on write commands: replace, patch, md, doc, hygiene, crea
 | `--diff`                     | Print unified diff for any write operation         |
 | `--apply`                    | Actually mutate files                              |
 | `--check`                    | Compute and report changes without writing         |
-| `--atomic`                   | Require all-or-nothing multi-file apply            |
 | `--ensure-final-newline`     | Ensure non-empty written files end with a newline  |
 | `--normalize-eol <mode>`    | Normalize line endings after write (keep, lf, crlf)|
 | `--trim-trailing-whitespace` | Remove trailing whitespace on touched lines        |

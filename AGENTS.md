@@ -27,7 +27,7 @@ src/
   lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports all modules
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
   cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
-                       --files-from) and WriteFlags (--diff, --apply, --check, --atomic,
+                       --files-from) and WriteFlags (--diff, --apply, --check,
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
                        --respect-editorconfig). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
@@ -42,7 +42,7 @@ src/
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
-  error.rs             PatchloomError enum with typed exit codes; implements Display + Error
+  error.rs             Reserved for future structured error types (currently a placeholder)
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
@@ -73,12 +73,12 @@ The `Command` enum in `src/cmd/mod.rs` has one variant per command. The `dispatc
 
 ### Global flags
 
-All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob`, `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--atomic`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
+All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob`, `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
 
 ### Error handling
 
 - Use `anyhow::Result` for propagating errors.
-- Use `PatchloomError` (in `src/error.rs`) when a specific exit code is needed. Each variant maps to a constant in `src/exit.rs`.
+- Return exit codes directly using constants from `src/exit.rs` (e.g. `exit::NO_MATCHES`, `exit::CHANGES_DETECTED`).
 - Return `Ok(exit::SUCCESS)` for success, `Ok(exit::NO_MATCHES)` for no-match, etc.
 
 ### Testing
