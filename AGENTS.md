@@ -15,6 +15,7 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides nine comman
 | `make integration-test` | Run integration tests (`cargo test --test integration`) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
 | `make check` | Run all of the above in sequence: `fmt-check`, `build`, `test`, `clippy` |
+| `make update-readme` | Update the test count in README.md from actual `cargo test` output |
 
 Always run `make check` before committing. It is the full CI gate.
 
@@ -163,6 +164,8 @@ Command::<Name>(args) => <name>::run(args, &global),
 - Prefer returning exit codes over panicking. Never use `unwrap()` in non-test code.
 - `#![deny(unsafe_code)]` is enforced. No unsafe Rust.
 - Use `anyhow::Context` to add context to errors rather than custom `.map_err()` chains.
+
+- When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
 ## Safety rules
 
