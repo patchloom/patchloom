@@ -304,6 +304,34 @@ fn test_quiet_suppresses_replace_output() {
     assert_eq!(content, "hi world\n", "file should still be modified");
 }
 
+#[test]
+fn test_quiet_suppresses_create_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("quiet_create.txt");
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "quiet mode should suppress create output, got: {stdout}"
+    );
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "hello", "file should still be created");
+}
+
 // ---------------------------------------------------------------------------
 // search: incompatible flags
 // ---------------------------------------------------------------------------

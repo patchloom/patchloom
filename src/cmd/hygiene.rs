@@ -186,7 +186,9 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     match args.action {
         HygieneAction::Check { paths } => {
             let issues = collect_issues(&paths, global)?;
-            render_issues(&issues, global);
+            if !global.quiet {
+                render_issues(&issues, global);
+            }
             if issues.is_empty() {
                 Ok(exit::SUCCESS)
             } else {
@@ -259,11 +261,13 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     .to_string();
 
                 if global.check {
-                    println!("{rel_path}");
+                    if !global.quiet {
+                        println!("{rel_path}");
+                    }
                 } else if global.apply {
                     let noop = WritePolicy::default();
                     atomic_write(file_path, &fixed, &noop)?;
-                } else {
+                } else if !global.quiet {
                     let diff = unified_diff(&rel_path, &original, &fixed);
                     if diff.has_changes {
                         println!("--- a/{rel_path}");

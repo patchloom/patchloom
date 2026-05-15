@@ -398,7 +398,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if changes.is_empty() {
             return Ok(exit::SUCCESS);
         }
-        println!("{} file(s) would change", changes.len());
+        if !global.quiet {
+            println!("{} file(s) would change", changes.len());
+        }
         return Ok(exit::CHANGES_DETECTED);
     }
 

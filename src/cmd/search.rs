@@ -230,8 +230,10 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::NO_MATCHES);
     }
 
-    let output = format_results(&results, &args, global)?;
-    print!("{output}");
+    if !global.quiet {
+        let output = format_results(&results, &args, global)?;
+        print!("{output}");
+    }
 
     Ok(exit::SUCCESS)
 }
