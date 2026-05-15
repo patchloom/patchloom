@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 8 commands and 166 passing tests.
+V1 with 8 commands and 172 passing tests.
 
 ## Install
 
@@ -35,10 +35,36 @@ cargo install patchloom
 
 ## Usage
 
+### search
+
 Search for a pattern across all files:
 
 ```
 patchloom search 'TODO' src/
+```
+
+Regex search with context lines:
+
+```
+patchloom search 'fn\s+\w+' src/ -C 2
+```
+
+List only file paths with matches:
+
+```
+patchloom search 'TODO' --files-with-matches src/
+```
+
+Count matches per file:
+
+```
+patchloom search 'error' --count src/
+```
+
+Literal string search (no regex):
+
+```
+patchloom search --literal 'foo(bar)' src/
 ```
 
 Replace text across files (preview diff by default, write with `--apply`):
@@ -113,18 +139,52 @@ Run a multi-operation plan atomically:
 patchloom tx --plan plan.json --apply
 ```
 
+## Transaction plan format
+
+The `tx` command accepts a JSON plan with an array of operations:
+
+```json
+{
+  "operations": [
+    { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new" },
+    { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
+    { "op": "doc.delete", "path": "config.json", "key": "deprecated" },
+    { "op": "doc.merge", "path": "config.json", "key": ".", "value": {"new_key": true} },
+    { "op": "doc.append", "path": "config.json", "key": "items", "value": "new_item" },
+    { "op": "md.replace_section", "path": "README.md", "heading": "## Notes", "body": "Updated." },
+    { "op": "md.insert_after_heading", "path": "README.md", "heading": "## Notes", "body": "Inserted." },
+    { "op": "hygiene.fix", "paths": ["src/"] },
+    { "op": "file.create", "path": "new.txt", "content": "hello" },
+    { "op": "file.delete", "path": "obsolete.txt" }
+  ]
+}
+```
+
+All operations run in order. If any fails, all changes are rolled back (exit code 7). Pass `--apply` to write to disk.
+
+## Symlink behavior
+
+`atomic_write` follows symlinks: it writes to the target of the symlink, not the symlink itself. This is because the write creates a temp file in the parent directory and renames it over the target path, which `rename(2)` resolves through symlinks. If you need to replace a symlink itself, delete and recreate it.
+
 ## Global flags
+
+Read-only flags (available on all commands):
+
+| Flag                  | Description                                       |
+|-----------------------|---------------------------------------------------|
+| `--json`              | Emit machine-readable JSON output                 |
+| `--jsonl`             | Emit one JSON object per result line              |
+| `--cwd <dir>`         | Set working directory                             |
+| `--glob <pattern>`    | Restrict target files by glob pattern             |
+| `--files-from <path>` | Read file list from a file or stdin (`-`)         |
+
+Write flags (available on write commands: replace, patch, md, doc, hygiene, create, tx):
 
 | Flag                         | Description                                       |
 |------------------------------|---------------------------------------------------|
-| `--json`                     | Emit machine-readable JSON output                 |
-| `--jsonl`                    | Emit one JSON object per result line               |
 | `--diff`                     | Print unified diff for any write operation         |
 | `--apply`                    | Actually mutate files                              |
 | `--check`                    | Compute and report changes without writing         |
-| `--cwd <dir>`               | Set working directory                              |
-| `--glob <pattern>`          | Restrict target files by glob pattern              |
-| `--files-from <path>`        | Read file list from a file or stdin (`-`)          |
 | `--atomic`                   | Require all-or-nothing multi-file apply            |
 | `--ensure-final-newline`     | Ensure non-empty written files end with a newline  |
 | `--normalize-eol <mode>`    | Normalize line endings after write (keep, lf, crlf)|
