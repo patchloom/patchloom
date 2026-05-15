@@ -27,6 +27,9 @@ pub struct SearchArgs {
     /// Only print match counts per file.
     #[arg(long)]
     pub count: bool,
+    /// Show lines that do NOT match the pattern.
+    #[arg(long, short = 'v')]
+    pub invert_match: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,7 +88,14 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         let mut count = 0usize;
 
         for (i, line) in lines.iter().enumerate() {
-            if let Some(m) = re.find(line) {
+            let found = re.find(line);
+            let is_match = if args.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+
+            if is_match {
                 count += 1;
                 let context_before = args.context.map(|n| {
                     let start = i.saturating_sub(n);
@@ -99,7 +109,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                 all_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line: i + 1,
-                    column: m.start() + 1,
+                    column: found.map_or(1, |m| m.start() + 1),
                     text: line.to_string(),
                     context_before,
                     context_after,
@@ -227,6 +237,7 @@ mod tests {
             context: None,
             files_with_matches: false,
             count: false,
+            invert_match: false,
         }
     }
 
@@ -288,6 +299,25 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
         assert!(lines[0].contains("hello.txt:"));
+    }
+
+    #[test]
+    fn invert_match_excludes_matching_lines() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        // hello.txt has 3 lines, 2 match "Hello", so 1 non-matching line.
+        // world.txt has 3 lines, 0 match "Hello", so 3 non-matching lines.
+        // Total: 4 non-matching lines.
+        assert_eq!(results.matches.len(), 4);
+        for m in &results.matches {
+            assert!(
+                !m.text.contains("Hello"),
+                "inverted match should not contain 'Hello': {}",
+                m.text
+            );
+        }
     }
 
     #[test]

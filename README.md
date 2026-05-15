@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 183 passing tests.
+V1 with 9 commands and 184 passing tests.
 
 ## Install
 
@@ -66,6 +66,12 @@ Literal string search (no regex):
 
 ```
 patchloom search --literal 'foo(bar)' src/
+```
+
+Show lines that do NOT match a pattern:
+
+```
+patchloom search -v 'TODO' src/
 ```
 
 Replace text across files (preview diff by default, write with `--apply`):
