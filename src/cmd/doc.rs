@@ -1406,15 +1406,29 @@ mod tests {
     #[test]
     fn deep_merge_depth_guard_caps_recursion() {
         // Build a JSON tree nested 200 levels deep (exceeds MAX_MERGE_DEPTH of 128).
+        // The guard stops recursing at depth 128 and overwrites with the
+        // remaining subtree, preventing stack overflow on adversarial input.
         let mut base = serde_json::json!(null);
         let mut other = serde_json::json!({"leaf": true});
         for _ in 0..200 {
             other = serde_json::json!({"nested": other});
         }
-        // This should not stack overflow; at depth 128 it overwrites instead of recursing.
         deep_merge(&mut base, &other);
-        // The result should be valid JSON (not a crash).
+        // Verify the result is a valid object (not a crash) and the
+        // top-level structure was preserved.
         assert!(base.is_object());
+        assert!(
+            base.get("nested").is_some(),
+            "top-level 'nested' key must exist"
+        );
+        // Walk down to verify nesting was preserved (not just top level).
+        let mut cursor = &base;
+        for _ in 0..10 {
+            cursor = cursor
+                .get("nested")
+                .expect("nesting should be at least 10 levels deep");
+        }
+        assert!(cursor.is_object());
     }
 
     #[test]
