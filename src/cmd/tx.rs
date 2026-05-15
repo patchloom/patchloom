@@ -167,6 +167,26 @@ fn do_replace(
 // Operation execution
 // ---------------------------------------------------------------------------
 
+/// Load a structured document from the pending buffer, apply a mutation closure,
+/// and write the result back. Reduces boilerplate across 9 doc.* operations.
+fn with_doc<F>(
+    pending: &mut HashMap<PathBuf, (String, String)>,
+    path: &str,
+    mutate: F,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(&mut serde_json::Value) -> anyhow::Result<()>,
+{
+    let file_path = PathBuf::from(path);
+    let content = read_file_content(pending, &file_path)?;
+    let format = detect_format(path)?;
+    let mut root = parse_doc(&content, &format)?;
+    mutate(&mut root)?;
+    let new_content = serialize_value(&root, &format)?;
+    update_file_content(pending, &file_path, new_content);
+    Ok(())
+}
+
 fn execute_operation(
     op: &Operation,
     pending: &mut HashMap<PathBuf, (String, String)>,
@@ -222,184 +242,161 @@ fn execute_operation(
         }
 
         Operation::DocSet { path, key, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            let last = sel
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
-            let parent_path = &sel[..sel.len() - 1];
-            let parent = navigate_mut(&mut root, parent_path, true)?;
-
-            match last {
-                selector::Segment::Key(k) => {
-                    parent
-                        .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
-                        .insert(k.clone(), value.clone());
-                }
-                selector::Segment::Index(i) => {
-                    let arr = parent
-                        .as_array_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
-                    if *i < arr.len() {
-                        arr[*i] = value.clone();
-                    } else {
-                        anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
-                    }
-                }
-                _ => anyhow::bail!("cannot set at wildcard/predicate"),
-            }
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocDelete { path, key } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            if sel.is_empty() {
-                return Ok(());
-            }
-
-            let last = sel.last().unwrap();
-            let parent_path = &sel[..sel.len() - 1];
-            let parent = navigate_mut(&mut root, parent_path, false)?;
-
-            match last {
-                selector::Segment::Key(k) => {
-                    if let Some(obj) = parent.as_object_mut() {
-                        obj.remove(k.as_str());
-                    }
-                }
-                selector::Segment::Index(i) => {
-                    if let Some(arr) = parent.as_array_mut() {
-                        if *i < arr.len() {
-                            arr.remove(*i);
-                        }
-                    }
-                }
-                _ => anyhow::bail!("cannot delete at wildcard/predicate"),
-            }
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocMerge { path, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-            deep_merge(&mut root, value);
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocAppend { path, key, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            let target = navigate_mut(&mut root, &sel, false)?;
-            let arr = target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("target is not an array"))?;
-            arr.push(value.clone());
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocPrepend { path, key, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            let target = navigate_mut(&mut root, &sel, false)?;
-            let arr = target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("target is not an array"))?;
-            arr.insert(0, value.clone());
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocUpdate { path, key, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-            let count = update_matching(&mut root, &sel, value);
-            if count == 0 {
-                anyhow::bail!("no matching nodes found for selector '{key}'");
-            }
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
-        }
-
-        Operation::DocMove { path, from, to } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
-
-            let from_sel =
-                selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-            let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            // Remove value at source path.
-            let removed = {
-                let last = from_sel
+            let key = key.clone();
+            let value = value.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let last = sel
                     .last()
-                    .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
-                let parent_path = &from_sel[..from_sel.len() - 1];
-                let parent = navigate_mut(&mut root, parent_path, false)?;
+                    .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
+                let parent_path = &sel[..sel.len() - 1];
+                let parent = navigate_mut(root, parent_path, true)?;
                 match last {
-                    selector::Segment::Key(k) => parent
-                        .as_object_mut()
-                        .and_then(|obj| obj.remove(k.as_str()))
-                        .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
+                    selector::Segment::Key(k) => {
+                        parent
+                            .as_object_mut()
+                            .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
+                            .insert(k.clone(), value);
+                    }
                     selector::Segment::Index(i) => {
                         let arr = parent
                             .as_array_mut()
                             .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
                         if *i < arr.len() {
-                            arr.remove(*i)
+                            arr[*i] = value;
                         } else {
-                            anyhow::bail!("source index {i} out of bounds");
+                            anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
                         }
                     }
-                    _ => anyhow::bail!("cannot move from wildcard/predicate"),
+                    _ => anyhow::bail!("cannot set at wildcard/predicate"),
                 }
-            };
+                Ok(())
+            })?;
+        }
 
-            // Insert at destination path.
-            {
+        Operation::DocDelete { path, key } => {
+            let key = key.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                if sel.is_empty() {
+                    return Ok(());
+                }
+                let last = sel.last().unwrap();
+                let parent_path = &sel[..sel.len() - 1];
+                let parent = navigate_mut(root, parent_path, false)?;
+                match last {
+                    selector::Segment::Key(k) => {
+                        if let Some(obj) = parent.as_object_mut() {
+                            obj.remove(k.as_str());
+                        }
+                    }
+                    selector::Segment::Index(i) => {
+                        if let Some(arr) = parent.as_array_mut() {
+                            if *i < arr.len() {
+                                arr.remove(*i);
+                            }
+                        }
+                    }
+                    _ => anyhow::bail!("cannot delete at wildcard/predicate"),
+                }
+                Ok(())
+            })?;
+        }
+
+        Operation::DocMerge { path, value } => {
+            let value = value.clone();
+            with_doc(pending, path, |root| {
+                deep_merge(root, &value);
+                Ok(())
+            })?;
+        }
+
+        Operation::DocAppend { path, key, value } => {
+            let key = key.clone();
+            let value = value.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let target = navigate_mut(root, &sel, false)?;
+                target
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target is not an array"))?
+                    .push(value);
+                Ok(())
+            })?;
+        }
+
+        Operation::DocPrepend { path, key, value } => {
+            let key = key.clone();
+            let value = value.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let target = navigate_mut(root, &sel, false)?;
+                target
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target is not an array"))?
+                    .insert(0, value);
+                Ok(())
+            })?;
+        }
+
+        Operation::DocUpdate { path, key, value } => {
+            let key = key.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let count = update_matching(root, &sel, value);
+                if count == 0 {
+                    anyhow::bail!("no matching nodes found for selector '{key}'");
+                }
+                Ok(())
+            })?;
+        }
+
+        Operation::DocMove { path, from, to } => {
+            let from = from.clone();
+            let to = to.clone();
+            with_doc(pending, path, |root| {
+                let from_sel =
+                    selector::parse(&from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let to_sel =
+                    selector::parse(&to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+                // Remove value at source path.
+                let removed = {
+                    let last = from_sel
+                        .last()
+                        .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
+                    let parent_path = &from_sel[..from_sel.len() - 1];
+                    let parent = navigate_mut(root, parent_path, false)?;
+                    match last {
+                        selector::Segment::Key(k) => parent
+                            .as_object_mut()
+                            .and_then(|obj| obj.remove(k.as_str()))
+                            .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
+                        selector::Segment::Index(i) => {
+                            let arr = parent
+                                .as_array_mut()
+                                .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+                            if *i < arr.len() {
+                                arr.remove(*i)
+                            } else {
+                                anyhow::bail!("source index {i} out of bounds");
+                            }
+                        }
+                        _ => anyhow::bail!("cannot move from wildcard/predicate"),
+                    }
+                };
+
+                // Insert at destination path.
                 let last = to_sel
                     .last()
                     .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
                 let parent_path = &to_sel[..to_sel.len() - 1];
-                let parent = navigate_mut(&mut root, parent_path, true)?;
+                let parent = navigate_mut(root, parent_path, true)?;
                 match last {
                     selector::Segment::Key(k) => {
                         parent
@@ -419,53 +416,48 @@ fn execute_operation(
                     }
                     _ => anyhow::bail!("cannot move to wildcard/predicate"),
                 }
-            }
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
+                Ok(())
+            })?;
         }
 
         Operation::DocEnsure { path, key, value } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
+            let key = key.clone();
+            let value = value.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-
-            // If the path already exists, no-op.
-            if !selector::eval(&root, &sel).is_empty() {
-                return Ok(());
-            }
-
-            let last = sel
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
-            let parent_path = &sel[..sel.len() - 1];
-            let parent = navigate_mut(&mut root, parent_path, true)?;
-
-            match last {
-                selector::Segment::Key(k) => {
-                    parent
-                        .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
-                        .insert(k.clone(), value.clone());
+                // If the path already exists, no-op.
+                if !selector::eval(root, &sel).is_empty() {
+                    return Ok(());
                 }
-                selector::Segment::Index(i) => {
-                    let arr = parent
-                        .as_array_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
-                    if *i < arr.len() {
-                        arr[*i] = value.clone();
-                    } else {
-                        anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
+
+                let last = sel
+                    .last()
+                    .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
+                let parent_path = &sel[..sel.len() - 1];
+                let parent = navigate_mut(root, parent_path, true)?;
+                match last {
+                    selector::Segment::Key(k) => {
+                        parent
+                            .as_object_mut()
+                            .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
+                            .insert(k.clone(), value);
                     }
+                    selector::Segment::Index(i) => {
+                        let arr = parent
+                            .as_array_mut()
+                            .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+                        if *i < arr.len() {
+                            arr[*i] = value;
+                        } else {
+                            anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
+                        }
+                    }
+                    _ => anyhow::bail!("cannot ensure at wildcard/predicate"),
                 }
-                _ => anyhow::bail!("cannot ensure at wildcard/predicate"),
-            }
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
+                Ok(())
+            })?;
         }
 
         Operation::DocDeleteWhere {
@@ -473,40 +465,37 @@ fn execute_operation(
             key,
             predicate,
         } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
-            let format = detect_format(path)?;
-            let mut root = parse_doc(&content, &format)?;
+            let key = key.clone();
+            let predicate = predicate.clone();
+            with_doc(pending, path, |root| {
+                let sel =
+                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let eq_pos = predicate
+                    .find('=')
+                    .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
+                let pred_key = &predicate[..eq_pos];
+                let pred_val = &predicate[eq_pos + 1..];
 
-            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let target = navigate_mut(root, &sel, false)?;
+                let arr = target
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
 
-            let eq_pos = predicate
-                .find('=')
-                .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
-            let pred_key = &predicate[..eq_pos];
-            let pred_val = &predicate[eq_pos + 1..];
-
-            let target = navigate_mut(&mut root, &sel, false)?;
-            let arr = target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
-
-            arr.retain(|item| {
-                if let Some(field) = item.get(pred_key) {
-                    let matches = match field {
-                        serde_json::Value::String(s) => s == pred_val,
-                        serde_json::Value::Number(n) => n.to_string() == pred_val,
-                        serde_json::Value::Bool(b) => b.to_string() == pred_val,
-                        _ => false,
-                    };
-                    !matches
-                } else {
-                    true
-                }
-            });
-
-            let new_content = serialize_value(&root, &format)?;
-            update_file_content(pending, &file_path, new_content);
+                arr.retain(|item| {
+                    if let Some(field) = item.get(pred_key) {
+                        let matches = match field {
+                            serde_json::Value::String(s) => s == pred_val,
+                            serde_json::Value::Number(n) => n.to_string() == pred_val,
+                            serde_json::Value::Bool(b) => b.to_string() == pred_val,
+                            _ => false,
+                        };
+                        !matches
+                    } else {
+                        true
+                    }
+                });
+                Ok(())
+            })?;
         }
 
         Operation::MdReplaceSection {
