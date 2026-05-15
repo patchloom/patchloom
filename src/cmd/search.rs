@@ -69,31 +69,34 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         Regex::new(&args.pattern)?
     };
 
+    let explicit_files = global.read_files_from();
+
     let paths: Vec<&str> = if args.paths.is_empty() {
         vec!["."]
     } else {
         args.paths.iter().map(String::as_str).collect()
     };
 
-    let mut builder = WalkBuilder::new(paths[0]);
-    for path in &paths[1..] {
-        builder.add(path);
-    }
-
     let mut all_matches: Vec<SearchMatch> = Vec::new();
     let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
 
-    for entry in builder.build() {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
-            continue;
+    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
+        files.iter().map(std::path::PathBuf::from).collect()
+    } else {
+        let mut builder = WalkBuilder::new(paths[0]);
+        for path in &paths[1..] {
+            builder.add(path);
         }
+        builder
+            .build()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+            .map(|e| e.into_path())
+            .collect()
+    };
 
-        let path = entry.path();
+    for path in &file_paths {
+        let path = path.as_path();
 
         if let Some(ref matcher) = glob_matcher {
             if !matcher.is_match(path) && !path.file_name().is_some_and(|n| matcher.is_match(n)) {
@@ -249,6 +252,7 @@ mod tests {
             check: false,
             cwd: None,
             glob: None,
+            files_from: None,
             atomic: false,
             ensure_final_newline: false,
             normalize_eol: None,

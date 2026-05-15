@@ -42,7 +42,7 @@ fn detect_format(path: &str) -> anyhow::Result<DocFormat> {
 fn parse_doc(content: &str, format: &DocFormat) -> anyhow::Result<serde_json::Value> {
     match format {
         DocFormat::Json => Ok(serde_json::from_str(content)?),
-        DocFormat::Yaml => Ok(serde_yaml::from_str(content)?),
+        DocFormat::Yaml => Ok(serde_yaml_ng::from_str(content)?),
         DocFormat::Toml => {
             let value: serde_json::Value = toml_edit::de::from_str(content)?;
             Ok(value)
@@ -57,7 +57,7 @@ fn serialize_doc(value: &serde_json::Value, format: &DocFormat) -> anyhow::Resul
             s.push('\n');
             Ok(s)
         }
-        DocFormat::Yaml => Ok(serde_yaml::to_string(value)?),
+        DocFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
         DocFormat::Toml => {
             let s = toml_edit::ser::to_string_pretty(value)
                 .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
@@ -538,6 +538,7 @@ mod tests {
             check: false,
             cwd: None,
             glob: None,
+            files_from: None,
             atomic: false,
             ensure_final_newline: false,
             normalize_eol: None,

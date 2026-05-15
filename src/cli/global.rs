@@ -1,4 +1,5 @@
 use clap::Args;
+use std::io::BufRead;
 
 /// Write policy for EOL normalization.
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
@@ -43,6 +44,10 @@ pub struct GlobalFlags {
     #[arg(long, global = true)]
     pub glob: Option<String>,
 
+    /// Read file list from stdin (one path per line). Pass `-` as the value.
+    #[arg(long, global = true)]
+    pub files_from: Option<String>,
+
     /// Require all-or-nothing multi-file apply.
     #[arg(long, global = true)]
     pub atomic: bool,
@@ -58,4 +63,28 @@ pub struct GlobalFlags {
     /// Remove trailing whitespace on touched lines.
     #[arg(long, global = true)]
     pub trim_trailing_whitespace: bool,
+}
+
+impl GlobalFlags {
+    /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
+    /// When the value is `-`, reads from stdin (one path per line).
+    pub fn read_files_from(&self) -> Option<Vec<String>> {
+        let source = self.files_from.as_deref()?;
+        let lines: Vec<String> = if source == "-" {
+            std::io::stdin()
+                .lock()
+                .lines()
+                .map_while(Result::ok)
+                .filter(|l| !l.is_empty())
+                .collect()
+        } else {
+            std::fs::read_to_string(source)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect()
+        };
+        Some(lines)
+    }
 }

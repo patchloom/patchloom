@@ -454,6 +454,7 @@ mod tests {
             check: false,
             cwd: Some(dir.to_string_lossy().to_string()),
             glob: None,
+            files_from: None,
             atomic: false,
             ensure_final_newline: false,
             normalize_eol: None,

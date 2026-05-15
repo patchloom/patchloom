@@ -103,31 +103,34 @@ fn collect_replacements(
         .map(|p| Glob::new(p).map(|g| g.compile_matcher()))
         .transpose()?;
 
+    let explicit_files = global.read_files_from();
+
     let paths: Vec<&str> = if args.paths.is_empty() {
         vec!["."]
     } else {
         args.paths.iter().map(String::as_str).collect()
     };
 
-    let mut builder = WalkBuilder::new(paths[0]);
-    for path in &paths[1..] {
-        builder.add(path);
-    }
+    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
+        files.iter().map(std::path::PathBuf::from).collect()
+    } else {
+        let mut builder = WalkBuilder::new(paths[0]);
+        for path in &paths[1..] {
+            builder.add(path);
+        }
+        builder
+            .build()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+            .map(|e| e.into_path())
+            .collect()
+    };
 
     let use_regex = args.regex;
     let mut replacements = Vec::new();
 
-    for entry in builder.build() {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
-            continue;
-        }
-
-        let path = entry.path();
+    for path_buf in &file_paths {
+        let path = path_buf.as_path();
 
         if let Some(ref matcher) = glob_matcher {
             if !matcher.is_match(path) && !path.file_name().is_some_and(|n| matcher.is_match(n)) {
@@ -299,6 +302,7 @@ mod tests {
             check: false,
             cwd: None,
             glob: None,
+            files_from: None,
             atomic: false,
             ensure_final_newline: false,
             normalize_eol: None,

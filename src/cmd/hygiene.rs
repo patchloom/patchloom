@@ -113,6 +113,8 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
         None => None,
     };
 
+    let explicit_files = global.read_files_from();
+
     let effective_paths: Vec<String> = if paths.is_empty() {
         vec![".".to_string()]
     } else {
@@ -121,35 +123,42 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
 
     let mut issues = Vec::new();
 
-    for start in &effective_paths {
-        let start_path = root.join(start);
-        let walker = WalkBuilder::new(&start_path).hidden(false).build();
-
-        for entry in walker {
-            let entry = entry?;
-            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-                continue;
-            }
-            let file_path = entry.path();
-
-            // Apply glob filter if set.
-            if let Some(ref matcher) = glob_matcher {
-                let name = file_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                if !matcher.is_match(&name) {
-                    // Also try the relative path.
-                    let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
-                    if !matcher.is_match(rel) {
-                        continue;
-                    }
+    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
+        files.iter().map(|f| root.join(f)).collect()
+    } else {
+        let mut collected = Vec::new();
+        for start in &effective_paths {
+            let start_path = root.join(start);
+            let walker = WalkBuilder::new(&start_path).hidden(false).build();
+            for entry in walker {
+                let entry = entry?;
+                if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                    collected.push(entry.into_path());
                 }
             }
-
-            let file_issues = check_file(file_path)?;
-            issues.extend(file_issues);
         }
+        collected
+    };
+
+    for path_buf in &file_paths {
+        let file_path = path_buf.as_path();
+
+        // Apply glob filter if set.
+        if let Some(ref matcher) = glob_matcher {
+            let name = file_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !matcher.is_match(&name) {
+                let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
+                if !matcher.is_match(rel) {
+                    continue;
+                }
+            }
+        }
+
+        let file_issues = check_file(file_path)?;
+        issues.extend(file_issues);
     }
 
     Ok(issues)
@@ -200,6 +209,8 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 None => None,
             };
 
+            let explicit_fix_files = global.read_files_from();
+
             let effective_paths: Vec<String> = if paths.is_empty() {
                 vec![".".to_string()]
             } else {
@@ -214,66 +225,72 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             let mut any_changed = false;
 
-            for start in &effective_paths {
-                let start_path = root.join(start);
-                let walker = WalkBuilder::new(&start_path).hidden(false).build();
-
-                for entry in walker {
-                    let entry = entry?;
-                    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-                        continue;
-                    }
-                    let file_path = entry.path();
-
-                    // Apply glob filter if set.
-                    if let Some(ref matcher) = glob_matcher {
-                        let name = file_path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        if !matcher.is_match(&name) {
-                            let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
-                            if !matcher.is_match(rel) {
-                                continue;
+            let fix_file_paths: Vec<std::path::PathBuf> =
+                if let Some(ref files) = explicit_fix_files {
+                    files.iter().map(|f| root.join(f)).collect()
+                } else {
+                    let mut collected = Vec::new();
+                    for start in &effective_paths {
+                        let start_path = root.join(start);
+                        let walker = WalkBuilder::new(&start_path).hidden(false).build();
+                        for entry in walker {
+                            let entry = entry?;
+                            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                                collected.push(entry.into_path());
                             }
                         }
                     }
+                    collected
+                };
 
-                    let data = std::fs::read(file_path)?;
-                    if data.is_empty() || is_binary(&data) {
-                        continue;
+            for path_buf in &fix_file_paths {
+                let file_path = path_buf.as_path();
+
+                if let Some(ref matcher) = glob_matcher {
+                    let name = file_path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if !matcher.is_match(&name) {
+                        let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
+                        if !matcher.is_match(rel) {
+                            continue;
+                        }
                     }
+                }
 
-                    let original = String::from_utf8_lossy(&data);
-                    let fixed = apply_policy(&original, &policy);
+                let data = std::fs::read(file_path)?;
+                if data.is_empty() || is_binary(&data) {
+                    continue;
+                }
 
-                    if fixed == *original {
-                        continue;
-                    }
+                let original = String::from_utf8_lossy(&data);
+                let fixed = apply_policy(&original, &policy);
 
-                    any_changed = true;
+                if fixed == *original {
+                    continue;
+                }
 
-                    let rel_path = file_path
-                        .strip_prefix(&root)
-                        .unwrap_or(file_path)
-                        .to_string_lossy()
-                        .to_string();
+                any_changed = true;
 
-                    if global.check {
-                        println!("{rel_path}");
-                    } else if global.apply {
-                        // Write with a no-op policy since we already applied it.
-                        let noop = WritePolicy::default();
-                        atomic_write(file_path, &fixed, &noop)?;
-                    } else {
-                        // Default and --diff: show unified diff.
-                        let diff = unified_diff(&rel_path, &original, &fixed);
-                        if diff.has_changes {
-                            println!("--- a/{rel_path}");
-                            println!("+++ b/{rel_path}");
-                            for hunk in &diff.hunks {
-                                print!("{hunk}");
-                            }
+                let rel_path = file_path
+                    .strip_prefix(&root)
+                    .unwrap_or(file_path)
+                    .to_string_lossy()
+                    .to_string();
+
+                if global.check {
+                    println!("{rel_path}");
+                } else if global.apply {
+                    let noop = WritePolicy::default();
+                    atomic_write(file_path, &fixed, &noop)?;
+                } else {
+                    let diff = unified_diff(&rel_path, &original, &fixed);
+                    if diff.has_changes {
+                        println!("--- a/{rel_path}");
+                        println!("+++ b/{rel_path}");
+                        for hunk in &diff.hunks {
+                            print!("{hunk}");
                         }
                     }
                 }
@@ -304,6 +321,7 @@ mod tests {
             check: false,
             cwd: Some(dir.to_string_lossy().to_string()),
             glob: None,
+            files_from: None,
             atomic: false,
             ensure_final_newline: false,
             normalize_eol: None,

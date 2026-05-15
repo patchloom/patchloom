@@ -97,7 +97,7 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
     let format = detect_format(path)?;
     match format {
         FileFormat::Json => Ok(serde_json::from_str(&content)?),
-        FileFormat::Yaml => Ok(serde_yaml::from_str(&content)?),
+        FileFormat::Yaml => Ok(serde_yaml_ng::from_str(&content)?),
         FileFormat::Toml => {
             // Parse with DocumentMut, then deserialize to serde_json::Value.
             let _doc: toml_edit::DocumentMut = content
@@ -182,7 +182,7 @@ fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow::Re
             s.push('\n');
             Ok(s)
         }
-        FileFormat::Yaml => Ok(serde_yaml::to_string(value)?),
+        FileFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
         FileFormat::Toml => {
             let s = toml_edit::ser::to_string_pretty(value)
                 .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
@@ -197,7 +197,7 @@ fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Val
     let format = detect_format(path)?;
     let value = match &format {
         FileFormat::Json => serde_json::from_str(&content)?,
-        FileFormat::Yaml => serde_yaml::from_str(&content)?,
+        FileFormat::Yaml => serde_yaml_ng::from_str(&content)?,
         FileFormat::Toml => toml_edit::de::from_str(&content)?,
     };
     Ok((content, value, format))
