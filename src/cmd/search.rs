@@ -349,6 +349,50 @@ mod tests {
     }
 
     #[test]
+    fn count_only_skips_match_construction() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.count = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        // count_only optimization: matches vec should be empty
+        assert!(
+            results.matches.is_empty(),
+            "count mode should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 2);
+    }
+
+    #[test]
+    fn files_with_matches_skips_match_construction() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_with_matches = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "files_with_matches should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.len(), 1);
+    }
+
+    #[test]
+    fn multiline_count_skips_match_construction() {
+        let dir = make_test_dir();
+        let mut args = make_args(
+            r"fn main\(\).*\}",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        args.multiline = true;
+        args.count = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "multiline count should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 1);
+    }
+
+    #[test]
     fn invert_match_excludes_matching_lines() {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
