@@ -343,7 +343,7 @@ mod tests {
         args.invert_match = true;
         let results = collect_matches(&args, &default_global()).unwrap();
         // hello.txt has 3 lines, 2 match "Hello", so 1 non-matching line.
-        // world.txt has 3 lines, 0 match "Hello", so 3 non-matching lines.
+        // code.rs has 3 lines, 0 match "Hello" (case-sensitive), so 3 non-matching.
         // Total: 4 non-matching lines.
         assert_eq!(results.matches.len(), 4);
         for m in &results.matches {

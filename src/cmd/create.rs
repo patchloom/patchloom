@@ -233,6 +233,28 @@ mod tests {
     }
 
     #[test]
+    fn create_default_mode_shows_diff() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("diff_preview.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("hello world\n".to_string()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        // Default mode: no --apply, no --check.
+        let global = default_global();
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // File should NOT be created in default diff-preview mode.
+        assert!(!file.exists());
+    }
+
+    #[test]
     fn create_with_no_content_source_returns_error() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("no_content.txt");
