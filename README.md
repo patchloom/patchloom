@@ -23,6 +23,16 @@ Once published:
 cargo install patchloom
 ```
 
+## Getting Started
+
+- Start with [`docs/getting-started/installation.md`](./docs/getting-started/installation.md)
+  for install options and shell completions.
+- Read [`docs/getting-started/concepts.md`](./docs/getting-started/concepts.md)
+  for write modes, transaction plans, and exit codes.
+- Follow [`docs/getting-started/quickstart.md`](./docs/getting-started/quickstart.md)
+  for a 5-minute walkthrough.
+- Browse [`examples/README.md`](./examples/README.md) for transaction plan templates.
+
 ## Commands
 
 | Command   | Description                                          |

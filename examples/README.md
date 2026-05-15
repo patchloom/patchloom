@@ -1,10 +1,14 @@
 # Examples
 
-Sample transaction plans demonstrating Patchloom's capabilities. Each plan can be previewed or applied:
+Sample transaction plans demonstrating Patchloom's capabilities.
+
+These plans are **illustrative templates**, not guaranteed to run unchanged in
+this repo. Read the target paths in each file first, then adapt them to your
+project before applying.
 
 ```
 patchloom tx --plan examples/01-basic-replace.json --diff     # preview
-patchloom tx --plan examples/01-basic-replace.json --apply    # apply
+patchloom tx --plan examples/01-basic-replace.json --apply    # apply after adapting paths
 patchloom --json tx --plan examples/01-basic-replace.json --apply  # JSON output
 ```
 

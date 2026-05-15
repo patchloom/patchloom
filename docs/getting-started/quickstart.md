@@ -51,6 +51,11 @@ patchloom doc set package.json version "2.0.0" --apply
 
 ## Step 4: Run an atomic transaction
 
+Create a plan file called `bump.json`.
+Adapt the paths and heading to files that actually exist in your repo.
+This example assumes `package.json`, `README.md`, and `CHANGELOG.md`
+exist, and that `CHANGELOG.md` contains a `## Unreleased` heading:
+
 Create a plan file called `bump.json`:
 
 ```json
@@ -98,7 +103,7 @@ Returns:
 ```json
 {
   "ok": true,
-  "status": "applied",
+  "status": "success",
   "files_changed": 3,
   "changes": [
     { "path": "package.json", "action": "modified" },

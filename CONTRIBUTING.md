@@ -24,6 +24,8 @@ Patchloom aims to be a low-friction, high-trust open-source CLI. Keep contributi
 - Add or update tests when behavior changes.
 - Call out breaking changes clearly.
 - Include enough context in the PR description for a reviewer to understand the change quickly.
+- Run `make check` before requesting review.
+- Use `make help` to see the available local development commands.
 
 ## Commit Sign-off Requirement (DCO)
 
