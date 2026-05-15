@@ -79,6 +79,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
 
     let mut all_matches: Vec<SearchMatch> = Vec::new();
     let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let count_only = args.count || args.files_with_matches;
 
     let file_paths = crate::collect_file_paths(&args.paths, global)?;
 
@@ -98,9 +99,14 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         let mut count = 0usize;
 
         if args.multiline {
-            // Multiline mode: match against the full file content.
             for m in re.find_iter(&content) {
                 count += 1;
+                if count_only {
+                    if args.files_with_matches {
+                        break;
+                    }
+                    continue;
+                }
                 let line_num = content[..m.start()].matches('\n').count() + 1;
                 let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |pos| pos + 1) + 1;
                 all_matches.push(SearchMatch {
@@ -124,6 +130,12 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
 
                 if is_match {
                     count += 1;
+                    if count_only {
+                        if args.files_with_matches {
+                            break;
+                        }
+                        continue;
+                    }
                     let context_before = args.context.map(|n| {
                         let start = i.saturating_sub(n);
                         lines[start..i].iter().map(|s| s.to_string()).collect()
@@ -150,7 +162,9 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         }
     }
 
-    all_matches.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
+    if !count_only {
+        all_matches.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
+    }
 
     Ok(SearchResults {
         matches: all_matches,
