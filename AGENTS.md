@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides eight commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `tx`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, and multi-operation atomic transactions. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides nine commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `tx`, `completions`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, multi-operation atomic transactions, and shell completion generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -24,10 +24,10 @@ src/
   main.rs             Thin entrypoint; calls patchloom::run(), maps Result to ExitCode
   lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports all modules
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
-  cli/global.rs        GlobalFlags struct (derives Default): --json, --jsonl, --diff, --apply,
-                       --check, --cwd, --glob, --files-from, --atomic, --ensure-final-newline,
-                       --normalize-eol, --trim-trailing-whitespace, --respect-editorconfig;
-                       also defines EolMode enum
+  cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
+                       --files-from) and WriteFlags (--diff, --apply, --check, --atomic,
+                       --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
+                       --respect-editorconfig). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches
   cmd/replace.rs       Literal/regex string replacement with diff preview and atomic write
@@ -71,7 +71,7 @@ The `Command` enum in `src/cmd/mod.rs` has one variant per command. The `dispatc
 
 ### Global flags
 
-All subcommands receive a `&GlobalFlags` reference. Output format (`--json`, `--jsonl`, `--diff`), write mode (`--apply`, `--check`), and file transformations (`--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`) are controlled here.
+All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob`, `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--atomic`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
 
 ### Error handling
 
@@ -102,6 +102,10 @@ use clap::Args;
 #[derive(Debug, Args)]
 pub struct <Name>Args {
     // command-specific arguments
+
+    // Include WriteFlags if the command mutates files:
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 pub fn run(args: <Name>Args, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -137,7 +141,13 @@ mod tests {
 4. Add a dispatch arm in `dispatch()`:
 
 ```rust
-Command::<Name>(args) => <name>::run(args, &cli.global),
+// For write commands:
+Command::<Name>(args) => {
+    global.merge_write(&args.write);
+    <name>::run(args, &global)
+}
+// For read-only commands:
+Command::<Name>(args) => <name>::run(args, &global),
 ```
 
 5. Add tests that cover success, failure, and edge-case exit codes.
@@ -152,6 +162,7 @@ Command::<Name>(args) => <name>::run(args, &cli.global),
 - All commits require a `Signed-off-by` line (DCO). Use `git commit -s`.
 - Keep `main.rs` thin. No business logic in `main.rs` or `lib.rs`.
 - Prefer returning exit codes over panicking. Never use `unwrap()` in non-test code.
+- `#![deny(unsafe_code)]` is enforced. No unsafe Rust.
 - Use `anyhow::Context` to add context to errors rather than custom `.map_err()` chains.
 
 ## Safety rules
