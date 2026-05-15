@@ -179,10 +179,11 @@ where
 {
     let file_path = PathBuf::from(path);
     let content = read_file_content(pending, &file_path)?;
-    let format = detect_format(path)?;
-    let mut root = parse_doc(&content, &format)?;
-    mutate(&mut root)?;
-    let new_content = serialize_value(&root, &format)?;
+    let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    let mut root = parse_doc(&content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    let new_content =
+        serialize_value(&root, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     update_file_content(pending, &file_path, new_content);
     Ok(())
 }
