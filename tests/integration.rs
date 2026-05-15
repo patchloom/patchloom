@@ -3496,6 +3496,107 @@ fn test_tx_format_timeout_kills_hanging_command() {
 }
 
 #[test]
+fn test_tx_strict_mode_reverts_on_format_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": "exit 1"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // File should be restored to original content.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+}
+
+#[test]
+fn test_tx_strict_mode_reverts_on_validate_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "validate": [{
+            "cmd": "exit 1",
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+}
+
+#[test]
+fn test_tx_strict_mode_removes_created_files_on_failure() {
+    let dir = TempDir::new().unwrap();
+    let new_file = dir.path().join("new.txt");
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "file.create",
+            "path": new_file.to_str().unwrap(),
+            "content": "should be removed"
+        }],
+        "validate": [{
+            "cmd": "exit 1",
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // Newly created file should be removed.
+    assert!(!new_file.exists());
+}
+
+#[test]
 fn test_tx_write_policy_ensure_final_newline_on_file_create() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("newfile.txt");

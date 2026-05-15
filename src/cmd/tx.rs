@@ -43,21 +43,31 @@ fn run_shell_with_timeout(
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    let timeout = Duration::from_secs(timeout_secs);
-    let start = std::time::Instant::now();
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
 
-    loop {
-        match child.try_wait()? {
-            Some(status) => return Ok(status),
-            None => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    anyhow::bail!("timed out after {timeout_secs}s");
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
+    // Wait for the child in a dedicated thread so the main thread
+    // can enforce the timeout without polling.
+    std::thread::spawn(move || {
+        let result = child.wait();
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+        Ok(result) => Ok(result?),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // Kill the child process so the wait thread can exit.
+            let _ = std::process::Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            // Drain the channel so the thread can exit cleanly.
+            let _ = rx.recv();
+            anyhow::bail!("timed out after {timeout_secs}s");
         }
+        Err(e) => anyhow::bail!("wait channel error: {e}"),
     }
 }
 
@@ -770,17 +780,20 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         // 8. Run format steps (between writes and validation).
+        let mut lifecycle_failed = false;
         if let Some(ref format_steps) = plan.format {
             for step in format_steps {
                 let timeout_secs = step.timeout.unwrap_or(60);
                 match run_shell_with_timeout(&step.cmd, timeout_secs) {
                     Ok(status) if !status.success() => {
                         eprintln!("tx: format step failed: {}", step.cmd);
-                        return Ok(exit::VALIDATION_FAILED);
+                        lifecycle_failed = true;
+                        break;
                     }
                     Err(e) => {
                         eprintln!("tx: format step error: {} -- {e}", step.cmd);
-                        return Ok(exit::VALIDATION_FAILED);
+                        lifecycle_failed = true;
+                        break;
                     }
                     _ => {}
                 }
@@ -788,22 +801,51 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         // 9. Run validation steps.
-        if let Some(ref validate) = plan.validate {
-            for step in validate {
-                let timeout_secs = step.timeout.unwrap_or(60);
-                let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
-                    Ok(status) => status.success(),
-                    Err(e) => {
-                        eprintln!("tx: validation error: {} -- {e}", step.cmd);
-                        false
-                    }
-                };
+        if !lifecycle_failed {
+            if let Some(ref validate) = plan.validate {
+                for step in validate {
+                    let timeout_secs = step.timeout.unwrap_or(60);
+                    let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
+                        Ok(status) => status.success(),
+                        Err(e) => {
+                            eprintln!("tx: validation error: {} -- {e}", step.cmd);
+                            false
+                        }
+                    };
 
-                if !success && step.required.unwrap_or(false) {
-                    eprintln!("tx: required validation failed: {}", step.cmd);
-                    return Ok(exit::VALIDATION_FAILED);
+                    if !success && step.required.unwrap_or(false) {
+                        eprintln!("tx: required validation failed: {}", step.cmd);
+                        lifecycle_failed = true;
+                        break;
+                    }
                 }
             }
+        }
+
+        if lifecycle_failed {
+            if plan.strict {
+                // Restore original file contents.
+                let noop_policy = WritePolicy::default();
+                for (path, original, _) in &changes {
+                    if original.is_empty() && !deletions.contains(path) {
+                        // File was created by the tx; remove it.
+                        let _ = std::fs::remove_file(path);
+                    } else {
+                        let _ = atomic_write(path, original, &noop_policy);
+                    }
+                }
+                // Restore files that were deleted.
+                for path in &deletions {
+                    if let Some((_, (orig, _))) = pending.iter().find(|(p, _)| **p == *path) {
+                        if !orig.is_empty() {
+                            let _ = atomic_write(path, orig, &noop_policy);
+                        }
+                    }
+                }
+                eprintln!("tx: strict mode -- all changes reverted");
+                return Ok(exit::ROLLBACK);
+            }
+            return Ok(exit::VALIDATION_FAILED);
         }
 
         return Ok(exit::SUCCESS);

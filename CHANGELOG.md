@@ -28,7 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `--plan -` reads tx plan from stdin
 - Documentation for tx operation ordering semantics
 - Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
-- 305 tests (152 unit + 153 integration)
+- `strict` mode for tx plans: reverts all writes on format/validate failure (exit code 7)
+- Thread-based timeout for format/validate steps (replaces polling loop)
+- 308 tests (152 unit + 156 integration)
 
 ### Fixed
 

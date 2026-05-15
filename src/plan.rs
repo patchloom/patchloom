@@ -7,6 +7,8 @@ use serde::Deserialize;
 pub struct Plan {
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
+    #[serde(default)]
+    pub strict: bool,
     pub operations: Vec<Operation>,
     pub format: Option<Vec<FormatStep>>,
     pub validate: Option<Vec<ValidationStep>>,
