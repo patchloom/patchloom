@@ -509,6 +509,58 @@ fn test_doc_get_json() {
 }
 
 #[test]
+fn test_doc_has_existing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom","version":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("has")
+        .arg(&file)
+        .arg("name")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_doc_has_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("has")
+        .arg(&file)
+        .arg("missing")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("false"));
+}
+
+#[test]
+fn test_doc_keys_lists_object_keys() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"alpha":1,"beta":2,"gamma":3}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alpha"))
+        .stdout(predicate::str::contains("beta"))
+        .stdout(predicate::str::contains("gamma"));
+}
+
+#[test]
 fn test_doc_set_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
