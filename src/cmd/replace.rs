@@ -197,7 +197,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             for f in &files {
                 println!("{}", serde_json::to_string(f)?);
             }
-        } else {
+        } else if !global.quiet {
             println!("{total_matches} match(es) in {file_count} file(s)");
             for f in &files {
                 println!("  {}: {} match(es)", f.path, f.match_count);
@@ -233,7 +233,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         } else if global.diff {
             print!("{}", make_diff_output(&replacements));
-        } else {
+        } else if !global.quiet {
             println!("replaced {total_matches} match(es) in {file_count} file(s)");
             for f in &files {
                 println!("  {}: {} match(es)", f.path, f.match_count);

@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 197 passing tests.
+V1 with 9 commands and 198 passing tests.
 
 ## Install
 
@@ -79,6 +79,8 @@ Multiline search (dot matches newlines, pattern spans lines):
 ```
 patchloom search --multiline 'fn main\(\).*\}' src/
 ```
+
+### replace
 
 Replace text across files (preview diff by default, write with `--apply`):
 

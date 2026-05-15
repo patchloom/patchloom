@@ -271,6 +271,40 @@ fn test_replace_if_exists_no_match_exit_0() {
 }
 
 // ---------------------------------------------------------------------------
+// --quiet flag
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_quiet_suppresses_replace_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("hi")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "quiet mode should suppress text output, got: {stdout}"
+    );
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "hi world\n", "file should still be modified");
+}
+
+// ---------------------------------------------------------------------------
 // search: incompatible flags
 // ---------------------------------------------------------------------------
 

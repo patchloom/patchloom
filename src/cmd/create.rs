@@ -77,7 +77,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
-        } else {
+        } else if !global.quiet {
             println!("would create {}", args.file);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -110,7 +110,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if global.diff {
             print!("{}", make_diff_output(&args.file, &content));
-        } else {
+        } else if !global.quiet {
             println!("created {}", args.file);
         }
         return Ok(exit::SUCCESS);
