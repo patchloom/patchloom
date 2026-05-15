@@ -29,19 +29,47 @@ pub(crate) fn collect_file_paths(
     paths: &[String],
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<PathBuf>> {
+    collect_file_paths_opts(paths, global, false, None)
+}
+
+/// Like [`collect_file_paths`] but with options for hidden files and a root
+/// directory.  When `root` is `Some`, paths are joined with it before walking.
+/// Hygiene commands set `include_hidden = true` so dotfiles are checked.
+pub(crate) fn collect_file_paths_opts(
+    paths: &[String],
+    global: &GlobalFlags,
+    include_hidden: bool,
+    root: Option<&Path>,
+) -> anyhow::Result<Vec<PathBuf>> {
     if let Some(files) = global.read_files_from() {
-        return Ok(files.iter().map(PathBuf::from).collect());
+        return Ok(files
+            .iter()
+            .map(|f| match root {
+                Some(r) => r.join(f),
+                None => PathBuf::from(f),
+            })
+            .collect());
     }
     let defaults;
-    let roots: &[String] = if paths.is_empty() {
+    let effective: &[String] = if paths.is_empty() {
         defaults = [".".to_string()];
         &defaults
     } else {
         paths
     };
-    let mut builder = WalkBuilder::new(&roots[0]);
-    for p in &roots[1..] {
-        builder.add(p);
+    let resolve = |p: &str| -> PathBuf {
+        match root {
+            Some(r) => r.join(p),
+            None => PathBuf::from(p),
+        }
+    };
+    let first = resolve(&effective[0]);
+    let mut builder = WalkBuilder::new(&first);
+    for p in &effective[1..] {
+        builder.add(resolve(p));
+    }
+    if include_hidden {
+        builder.hidden(false);
     }
     Ok(builder
         .build()

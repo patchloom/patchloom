@@ -3,7 +3,6 @@ use crate::diff::unified_diff;
 use crate::exit;
 use crate::write::{apply_policy, atomic_write, policy_from_flags, WritePolicy};
 use clap::Args;
-use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
 
@@ -95,55 +94,18 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
     Ok(issues)
 }
 
-/// Walk `paths` (including hidden files) and return the root directory plus
-/// glob-filtered file list.  Shared between `Check` and `Fix` to avoid
-/// duplicating the walk + filter logic.
-fn collect_hygiene_paths(
-    paths: &[String],
-    global: &GlobalFlags,
-) -> anyhow::Result<(std::path::PathBuf, Vec<std::path::PathBuf>)> {
-    let root = global.resolve_cwd()?;
-
-    let glob_matcher = crate::build_glob_matcher(global)?;
-    let explicit_files = global.read_files_from();
-
-    let effective_paths: Vec<String> = if paths.is_empty() {
-        vec![".".to_string()]
-    } else {
-        paths.to_vec()
-    };
-
-    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
-        files.iter().map(|f| root.join(f)).collect()
-    } else {
-        let mut collected = Vec::new();
-        for start in &effective_paths {
-            let start_path = root.join(start);
-            let walker = WalkBuilder::new(&start_path).hidden(false).build();
-            for entry in walker {
-                let entry = entry?;
-                if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                    collected.push(entry.into_path());
-                }
-            }
-        }
-        collected
-    };
-
-    let filtered: Vec<std::path::PathBuf> = file_paths
-        .into_iter()
-        .filter(|p| crate::matches_glob(p, glob_matcher.as_ref()))
-        .collect();
-
-    Ok((root, filtered))
-}
-
 /// Collect all issues from the given paths, honouring .gitignore and optional
-/// glob filtering.
+/// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
+/// so dotfiles are also checked.
 fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<HygieneIssue>> {
-    let (_root, file_paths) = collect_hygiene_paths(paths, global)?;
+    let root = global.resolve_cwd()?;
+    let glob_matcher = crate::build_glob_matcher(global)?;
+    let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
     let mut issues = Vec::new();
     for path_buf in &file_paths {
+        if !crate::matches_glob(path_buf, glob_matcher.as_ref()) {
+            continue;
+        }
         let file_issues = check_file(path_buf.as_path())?;
         issues.extend(file_issues);
     }
@@ -199,11 +161,17 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
         HygieneAction::Fix { paths } => {
-            let (root, fix_file_paths) = collect_hygiene_paths(&paths, global)?;
+            let root = global.resolve_cwd()?;
+            let glob_matcher = crate::build_glob_matcher(global)?;
+            let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
             let mut any_changed = false;
 
             for path_buf in &fix_file_paths {
                 let file_path = path_buf.as_path();
+
+                if !crate::matches_glob(file_path, glob_matcher.as_ref()) {
+                    continue;
+                }
 
                 let data = std::fs::read(file_path)?;
                 if data.is_empty() || is_binary(&data) {
