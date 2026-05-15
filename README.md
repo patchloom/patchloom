@@ -378,10 +378,10 @@ The `tx` command accepts a JSON plan with an array of operations:
     { "op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new" }
   ],
   "format": [
-    { "cmd": "cargo fmt --all" }
+    { "cmd": "cargo fmt --all", "timeout": 30 }
   ],
   "validate": [
-    { "cmd": "make check", "required": true }
+    { "cmd": "make check", "required": true, "timeout": 120 }
   ]
 }
 ```
@@ -391,8 +391,8 @@ All operations run in order. If any fails, all changes are rolled back (exit cod
 Plans support three lifecycle arrays:
 
 - **operations**: The mutations to apply.
-- **format**: Shell commands that run after all operations are written but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`).
-- **validate**: Shell commands that run after format steps. If a required step fails, the transaction aborts.
+- **format**: Shell commands that run after all operations are written but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60).
+- **validate**: Shell commands that run after format steps. If a required step fails, the transaction aborts. Each step accepts an optional `timeout` in seconds (default: 60).
 
 All shell commands in `format` and `validate` execute via `sh -c` on the host; only use plans from trusted sources.
 
