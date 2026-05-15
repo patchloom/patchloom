@@ -611,7 +611,10 @@ fn test_tx_rollback_preserves_original_content() {
 
     // a.json should be unchanged (rolled back).
     let content = fs::read_to_string(&file_a).unwrap();
-    assert_eq!(content, r#"{"key": "original"}"#, "a.json should be rolled back");
+    assert_eq!(
+        content, r#"{"key": "original"}"#,
+        "a.json should be rolled back"
+    );
 }
 
 #[test]
