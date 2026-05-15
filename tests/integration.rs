@@ -633,6 +633,37 @@ fn test_md_table_append() {
     );
 }
 
+#[test]
+fn test_md_insert_after_heading() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    fs::write(&file, "# Title\n\nExisting content\n\n## Other\n\nMore\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("insert-after-heading")
+        .arg("--file")
+        .arg(&file)
+        .arg("--heading")
+        .arg("# Title")
+        .arg("--content")
+        .arg("Inserted line")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("Inserted line"),
+        "inserted content should appear"
+    );
+    assert!(
+        content.contains("Existing content"),
+        "existing content should be preserved"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // hygiene
 // ---------------------------------------------------------------------------
