@@ -250,6 +250,18 @@ Create a new file:
 patchloom create --file AGENTS.md --content "# Project Rules" --apply
 ```
 
+Create from stdin:
+
+```
+echo "generated content" | patchloom create --file output.txt --stdin --apply
+```
+
+Overwrite an existing file:
+
+```
+patchloom create --file config.json --content '{}' --force --apply
+```
+
 ### patch
 
 Apply a unified diff:
