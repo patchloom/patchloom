@@ -110,9 +110,7 @@ pub struct <Name>Args {
 }
 
 pub fn run(args: <Name>Args, global: &GlobalFlags) -> anyhow::Result<u8> {
-    if let Some(ref cwd) = global.cwd {
-        std::env::set_current_dir(cwd)?;
-    }
+    std::env::set_current_dir(global.resolve_cwd()?)?;
 
     // implementation
 
