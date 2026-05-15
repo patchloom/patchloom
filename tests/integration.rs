@@ -3496,6 +3496,50 @@ fn test_tx_format_timeout_kills_hanging_command() {
 }
 
 #[test]
+fn test_tx_format_and_validate_success_path() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let marker = dir.path().join("format_ran.marker");
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "content",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": format!("touch {}", marker.to_str().unwrap()),
+            "timeout": 10
+        }],
+        "validate": [{
+            "cmd": format!("test -f {}", marker.to_str().unwrap()),
+            "required": true,
+            "timeout": 10
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+    assert!(
+        marker.exists(),
+        "format step should have created the marker"
+    );
+}
+
+#[test]
 fn test_replace_nth_regex_replaces_only_nth() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
