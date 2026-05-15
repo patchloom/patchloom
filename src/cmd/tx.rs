@@ -17,9 +17,28 @@ use globset::Glob;
 use ignore::WalkBuilder;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+/// JSON output for the tx command.
+#[derive(Serialize)]
+struct TxOutput {
+    ok: bool,
+    status: &'static str,
+    files_changed: usize,
+    files_created: usize,
+    files_deleted: usize,
+    changes: Vec<TxChange>,
+}
+
+/// A single file change in the tx output.
+#[derive(Serialize)]
+struct TxChange {
+    path: String,
+    action: &'static str,
+}
 
 #[derive(Debug, Args)]
 pub struct TxArgs {
@@ -665,6 +684,51 @@ fn build_write_policy(plan: &Plan) -> WritePolicy {
 // Diff output helper
 // ---------------------------------------------------------------------------
 
+fn build_tx_output(
+    status: &'static str,
+    ok: bool,
+    changes: &[(PathBuf, String, String)],
+    deletions: &HashSet<PathBuf>,
+) -> TxOutput {
+    let mut tx_changes = Vec::new();
+    let mut created = 0usize;
+    let mut deleted_count = 0usize;
+    let mut modified = 0usize;
+
+    for (path, original, _) in changes {
+        let path_str = path.to_string_lossy().to_string();
+        if deletions.contains(path) {
+            tx_changes.push(TxChange { path: path_str, action: "deleted" });
+            deleted_count += 1;
+        } else if original.is_empty() {
+            tx_changes.push(TxChange { path: path_str, action: "created" });
+            created += 1;
+        } else {
+            tx_changes.push(TxChange { path: path_str, action: "modified" });
+            modified += 1;
+        }
+    }
+    // Deletions not captured in changes (empty files).
+    for path in deletions {
+        if !changes.iter().any(|(c, _, _)| c == path) {
+            tx_changes.push(TxChange {
+                path: path.to_string_lossy().to_string(),
+                action: "deleted",
+            });
+            deleted_count += 1;
+        }
+    }
+
+    TxOutput {
+        ok,
+        status,
+        files_changed: modified,
+        files_created: created,
+        files_deleted: deleted_count,
+        changes: tx_changes,
+    }
+}
+
 fn print_diffs(changes: &[(PathBuf, String, String)]) {
     let diffs: Vec<_> = changes
         .iter()
@@ -742,9 +806,16 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .count();
     if global.check {
         if changes.is_empty() && pending_deletions == 0 {
+            if global.json {
+                let output = build_tx_output("success", true, &changes, &deletions);
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
             return Ok(exit::SUCCESS);
         }
-        if !global.quiet {
+        if global.json {
+            let output = build_tx_output("changes_detected", true, &changes, &deletions);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if !global.quiet {
             println!("{} file(s) would change", changes.len() + pending_deletions);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -848,11 +919,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::VALIDATION_FAILED);
         }
 
+        if global.json {
+            let output = build_tx_output("success", true, &changes, &deletions);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
         return Ok(exit::SUCCESS);
     }
 
     // Default / --diff mode: show unified diffs.
-    if !changes.is_empty() {
+    if global.json {
+        let output = build_tx_output("success", true, &changes, &deletions);
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if !changes.is_empty() {
         print_diffs(&changes);
     }
 

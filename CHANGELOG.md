@@ -30,7 +30,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
 - `strict` mode for tx plans: reverts all writes on format/validate failure (exit code 7)
 - Thread-based timeout for format/validate steps (replaces polling loop)
-- 310 tests (152 unit + 158 integration)
+- JSON output mode for `tx` command via `--json` flag
+- 313 tests (152 unit + 161 integration)
 
 ### Fixed
 
