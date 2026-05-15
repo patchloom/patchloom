@@ -355,7 +355,7 @@ fn test_hygiene_fix_apply() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .code(2);
+        .success();
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -698,7 +698,7 @@ fn test_editorconfig_final_newline() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .code(2);
+        .success();
 
     let content = fs::read(&file).unwrap();
     assert!(

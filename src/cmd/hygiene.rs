@@ -286,7 +286,10 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
 
-            if any_changed {
+            if global.apply {
+                // After --apply, success regardless of changes.
+                Ok(exit::SUCCESS)
+            } else if any_changed {
                 Ok(exit::CHANGES_DETECTED)
             } else {
                 Ok(exit::SUCCESS)
@@ -455,7 +458,7 @@ mod tests {
             },
         };
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(code, exit::SUCCESS);
 
         let content = std::fs::read(&file).unwrap();
         assert!(
@@ -480,7 +483,7 @@ mod tests {
             },
         };
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(code, exit::SUCCESS);
 
         let content = std::fs::read(&file).unwrap();
         assert!(
@@ -505,7 +508,7 @@ mod tests {
             },
         };
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(code, exit::SUCCESS);
 
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content, "hello\nworld\n");
