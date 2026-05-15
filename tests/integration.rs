@@ -332,6 +332,52 @@ fn test_quiet_suppresses_create_output() {
     assert_eq!(content, "hello", "file should still be created");
 }
 
+#[test]
+fn test_quiet_suppresses_search_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("search_quiet.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("search")
+        .arg("hello")
+        .arg(&file)
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "quiet mode should suppress search output, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_quiet_suppresses_hygiene_check_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("no_newline.txt");
+    fs::write(&file, "missing newline").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("hygiene")
+        .arg("check")
+        .arg(dir.path())
+        .assert()
+        .code(2); // CHANGES_DETECTED
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.is_empty(),
+        "quiet mode should suppress hygiene check output, got: {stdout}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // search: incompatible flags
 // ---------------------------------------------------------------------------
