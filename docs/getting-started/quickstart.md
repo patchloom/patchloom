@@ -105,12 +105,13 @@ Returns:
   "ok": true,
   "status": "success",
   "files_changed": 3,
+  "files_created": 0,
+  "files_deleted": 0,
   "changes": [
-    { "path": "package.json", "action": "modified" },
+    { "path": "CHANGELOG.md", "action": "modified" },
     { "path": "README.md", "action": "modified" },
-    { "path": "CHANGELOG.md", "action": "modified" }
-  ],
-  "error": null
+    { "path": "package.json", "action": "modified" }
+  ]
 }
 ```
 
