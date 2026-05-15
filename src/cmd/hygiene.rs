@@ -3,7 +3,6 @@ use crate::diff::unified_diff;
 use crate::exit;
 use crate::write::{apply_policy, atomic_write, policy_from_flags, WritePolicy};
 use clap::Args;
-use globset::Glob;
 use ignore::WalkBuilder;
 use serde::Serialize;
 use std::path::Path;
@@ -103,10 +102,7 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
         std::env::current_dir()?
     };
 
-    let glob_matcher = match &global.glob {
-        Some(pattern) => Some(Glob::new(pattern)?.compile_matcher()),
-        None => None,
-    };
+    let glob_matcher = crate::build_glob_matcher(global)?;
 
     let explicit_files = global.read_files_from();
 
@@ -138,18 +134,8 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     for path_buf in &file_paths {
         let file_path = path_buf.as_path();
 
-        // Apply glob filter if set.
-        if let Some(ref matcher) = glob_matcher {
-            let name = file_path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if !matcher.is_match(&name) {
-                let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
-                if !matcher.is_match(rel) {
-                    continue;
-                }
-            }
+        if !crate::matches_glob(file_path, glob_matcher.as_ref()) {
+            continue;
         }
 
         let file_issues = check_file(file_path)?;
@@ -199,10 +185,7 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::env::current_dir()?
             };
 
-            let glob_matcher = match &global.glob {
-                Some(pattern) => Some(Glob::new(pattern)?.compile_matcher()),
-                None => None,
-            };
+            let glob_matcher = crate::build_glob_matcher(global)?;
 
             let explicit_fix_files = global.read_files_from();
 
@@ -235,17 +218,8 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             for path_buf in &fix_file_paths {
                 let file_path = path_buf.as_path();
 
-                if let Some(ref matcher) = glob_matcher {
-                    let name = file_path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    if !matcher.is_match(&name) {
-                        let rel = file_path.strip_prefix(&root).unwrap_or(file_path);
-                        if !matcher.is_match(rel) {
-                            continue;
-                        }
-                    }
+                if !crate::matches_glob(file_path, glob_matcher.as_ref()) {
+                    continue;
                 }
 
                 let data = std::fs::read(file_path)?;

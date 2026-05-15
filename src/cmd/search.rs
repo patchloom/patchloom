@@ -1,8 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::Args;
-use globset::Glob;
-use ignore::WalkBuilder;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -57,11 +55,7 @@ struct SearchResults {
 }
 
 fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<SearchResults> {
-    let glob_matcher = global
-        .glob
-        .as_ref()
-        .map(|p| Glob::new(p).map(|g| g.compile_matcher()))
-        .transpose()?;
+    let glob_matcher = crate::build_glob_matcher(global)?;
 
     let re = if args.literal {
         Regex::new(&regex::escape(&args.pattern))?
@@ -69,39 +63,16 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         Regex::new(&args.pattern)?
     };
 
-    let explicit_files = global.read_files_from();
-
-    let paths: Vec<&str> = if args.paths.is_empty() {
-        vec!["."]
-    } else {
-        args.paths.iter().map(String::as_str).collect()
-    };
-
     let mut all_matches: Vec<SearchMatch> = Vec::new();
     let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
 
-    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
-        files.iter().map(std::path::PathBuf::from).collect()
-    } else {
-        let mut builder = WalkBuilder::new(paths[0]);
-        for path in &paths[1..] {
-            builder.add(path);
-        }
-        builder
-            .build()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-            .map(|e| e.into_path())
-            .collect()
-    };
+    let file_paths = crate::collect_file_paths(&args.paths, global)?;
 
     for path in &file_paths {
         let path = path.as_path();
 
-        if let Some(ref matcher) = glob_matcher {
-            if !matcher.is_match(path) && !path.file_name().is_some_and(|n| matcher.is_match(n)) {
-                continue;
-            }
+        if !crate::matches_glob(path, glob_matcher.as_ref()) {
+            continue;
         }
 
         let content = match fs::read_to_string(path) {

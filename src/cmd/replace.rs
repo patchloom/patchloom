@@ -3,8 +3,6 @@ use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
-use globset::Glob;
-use ignore::WalkBuilder;
 use regex::Regex;
 use serde::Serialize;
 use std::fs;
@@ -86,34 +84,8 @@ fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<FileReplacement>> {
-    let glob_matcher = global
-        .glob
-        .as_ref()
-        .map(|p| Glob::new(p).map(|g| g.compile_matcher()))
-        .transpose()?;
-
-    let explicit_files = global.read_files_from();
-
-    let paths: Vec<&str> = if args.paths.is_empty() {
-        vec!["."]
-    } else {
-        args.paths.iter().map(String::as_str).collect()
-    };
-
-    let file_paths: Vec<std::path::PathBuf> = if let Some(ref files) = explicit_files {
-        files.iter().map(std::path::PathBuf::from).collect()
-    } else {
-        let mut builder = WalkBuilder::new(paths[0]);
-        for path in &paths[1..] {
-            builder.add(path);
-        }
-        builder
-            .build()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-            .map(|e| e.into_path())
-            .collect()
-    };
+    let glob_matcher = crate::build_glob_matcher(global)?;
+    let file_paths = crate::collect_file_paths(&args.paths, global)?;
 
     let compiled_re = if args.regex {
         Some(Regex::new(&args.from)?)
@@ -125,10 +97,8 @@ fn collect_replacements(
     for path_buf in &file_paths {
         let path = path_buf.as_path();
 
-        if let Some(ref matcher) = glob_matcher {
-            if !matcher.is_match(path) && !path.file_name().is_some_and(|n| matcher.is_match(n)) {
-                continue;
-            }
+        if !crate::matches_glob(path, glob_matcher.as_ref()) {
+            continue;
         }
 
         let data = match fs::read(path) {
