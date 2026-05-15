@@ -25,5 +25,6 @@ update-readme:
 	@unit=$$(cargo test --lib 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	integ=$$(cargo test --test integration 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	total=$$((unit + integ)); \
-	sed -i "s/V[0-9]* with [0-9]* commands and [0-9]* passing tests\./V2 with 10 commands and $$total passing tests./" README.md; \
-	echo "README.md updated: $$total tests ($$unit unit + $$integ integration)"
+	cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
+	sed -i "s/V[0-9]* with [0-9]* commands and [0-9]* passing tests\./V2 with $$cmds commands and $$total passing tests./" README.md; \
+	echo "README.md updated: $$cmds commands, $$total tests ($$unit unit + $$integ integration)"
