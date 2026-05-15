@@ -30,6 +30,9 @@ pub struct SearchArgs {
     /// Show lines that do NOT match the pattern.
     #[arg(long, short = 'v')]
     pub invert_match: bool,
+    /// Enable multiline matching (dot matches newlines).
+    #[arg(long, short = 'U')]
+    pub multiline: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -60,10 +63,17 @@ struct SearchResults {
 fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<SearchResults> {
     let glob_matcher = crate::build_glob_matcher(global)?;
 
-    let re = if args.literal {
-        Regex::new(&regex::escape(&args.pattern))?
+    let pattern = if args.literal {
+        regex::escape(&args.pattern)
     } else {
-        Regex::new(&args.pattern)?
+        args.pattern.clone()
+    };
+    let re = if args.multiline {
+        regex::RegexBuilder::new(&pattern)
+            .dot_matches_new_line(true)
+            .build()?
+    } else {
+        Regex::new(&pattern)?
     };
 
     let mut all_matches: Vec<SearchMatch> = Vec::new();
@@ -83,37 +93,54 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
             Err(_) => continue,
         };
 
-        let lines: Vec<&str> = content.lines().collect();
         let path_str = path.to_string_lossy().to_string();
         let mut count = 0usize;
 
-        for (i, line) in lines.iter().enumerate() {
-            let found = re.find(line);
-            let is_match = if args.invert_match {
-                found.is_none()
-            } else {
-                found.is_some()
-            };
-
-            if is_match {
+        if args.multiline {
+            // Multiline mode: match against the full file content.
+            for m in re.find_iter(&content) {
                 count += 1;
-                let context_before = args.context.map(|n| {
-                    let start = i.saturating_sub(n);
-                    lines[start..i].iter().map(|s| s.to_string()).collect()
-                });
-                let context_after = args.context.map(|n| {
-                    let end = (i + 1 + n).min(lines.len());
-                    lines[i + 1..end].iter().map(|s| s.to_string()).collect()
-                });
-
+                let line_num = content[..m.start()].matches('\n').count() + 1;
+                let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |pos| pos + 1) + 1;
                 all_matches.push(SearchMatch {
                     path: path_str.clone(),
-                    line: i + 1,
-                    column: found.map_or(1, |m| m.start() + 1),
-                    text: line.to_string(),
-                    context_before,
-                    context_after,
+                    line: line_num,
+                    column: col,
+                    text: m.as_str().to_string(),
+                    context_before: None,
+                    context_after: None,
                 });
+            }
+        } else {
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                let found = re.find(line);
+                let is_match = if args.invert_match {
+                    found.is_none()
+                } else {
+                    found.is_some()
+                };
+
+                if is_match {
+                    count += 1;
+                    let context_before = args.context.map(|n| {
+                        let start = i.saturating_sub(n);
+                        lines[start..i].iter().map(|s| s.to_string()).collect()
+                    });
+                    let context_after = args.context.map(|n| {
+                        let end = (i + 1 + n).min(lines.len());
+                        lines[i + 1..end].iter().map(|s| s.to_string()).collect()
+                    });
+
+                    all_matches.push(SearchMatch {
+                        path: path_str.clone(),
+                        line: i + 1,
+                        column: found.map_or(1, |m| m.start() + 1),
+                        text: line.to_string(),
+                        context_before,
+                        context_after,
+                    });
+                }
             }
         }
 
@@ -238,6 +265,7 @@ mod tests {
             files_with_matches: false,
             count: false,
             invert_match: false,
+            multiline: false,
         }
     }
 
@@ -318,6 +346,31 @@ mod tests {
                 m.text
             );
         }
+    }
+
+    #[test]
+    fn multiline_match_spans_lines() {
+        let dir = make_test_dir();
+        let mut args = make_args(
+            r"fn main\(\).*\}",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        args.multiline = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert_eq!(results.matches.len(), 1);
+        let m = &results.matches[0];
+        assert!(
+            m.path.ends_with("code.rs"),
+            "should match code.rs: {}",
+            m.path
+        );
+        assert!(m.text.contains("fn main()"), "text: {}", m.text);
+        assert!(
+            m.text.contains('}'),
+            "text should span to closing brace: {}",
+            m.text
+        );
+        assert_eq!(m.line, 1, "match starts on line 1");
     }
 
     #[test]

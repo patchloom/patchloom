@@ -109,6 +109,28 @@ fn test_cwd_nonexistent_directory_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// search --multiline
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_search_multiline_spans_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn main() {\n    println!(\"hi\");\n}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--multiline")
+        .arg(r"fn main\(\).*\}")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fn main()"))
+        .stdout(predicate::str::contains("}"));
+}
+
+// ---------------------------------------------------------------------------
 // replace
 // ---------------------------------------------------------------------------
 

@@ -1522,7 +1522,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn diff_detects_added_removed_changed() {
         let dir = TempDir::new().unwrap();
         let a = write_file(
@@ -1567,6 +1566,7 @@ mod tests {
         assert_eq!(output, "identical\n");
     }
 
+    #[test]
     fn flatten_enumerates_leaf_paths() {
         let dir = TempDir::new().unwrap();
         let path = write_file(
