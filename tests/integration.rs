@@ -3431,6 +3431,71 @@ fn test_tx_patch_apply_in_plan() {
 }
 
 #[test]
+fn test_tx_validate_timeout_kills_hanging_command() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "content",
+            "to": "changed"
+        }],
+        "validate": [{
+            "cmd": "sleep 300",
+            "required": true,
+            "timeout": 1
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .timeout(std::time::Duration::from_secs(10))
+        .assert()
+        .code(6); // VALIDATION_FAILED, not hanging forever
+}
+
+#[test]
+fn test_tx_format_timeout_kills_hanging_command() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "content",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": "sleep 300",
+            "timeout": 1
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .timeout(std::time::Duration::from_secs(10))
+        .assert()
+        .code(6); // VALIDATION_FAILED
+}
+
+#[test]
 fn test_tx_multi_op_batch_all_new_ops() {
     // A realistic batch: replace + doc ops + md ops + file create in one plan.
     let dir = TempDir::new().unwrap();

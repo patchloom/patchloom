@@ -393,7 +393,19 @@ pub(crate) fn navigate_mut<'a>(
 
 /// Deep-merge `other` into `base`.  Object keys are merged recursively;
 /// all other types are overwritten.
+/// Maximum nesting depth for recursive operations.
+const MAX_MERGE_DEPTH: usize = 128;
+
 pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
+    deep_merge_inner(base, other, 0);
+}
+
+fn deep_merge_inner(base: &mut serde_json::Value, other: &serde_json::Value, depth: usize) {
+    if depth >= MAX_MERGE_DEPTH {
+        // At the depth limit, overwrite instead of recursing.
+        *base = other.clone();
+        return;
+    }
     if base.is_object() && other.is_object() {
         let other_map = other.as_object().unwrap();
         let base_map = base.as_object_mut().unwrap();
@@ -401,7 +413,7 @@ pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value
             let entry = base_map
                 .entry(key.clone())
                 .or_insert(serde_json::Value::Null);
-            deep_merge(entry, value);
+            deep_merge_inner(entry, value, depth + 1);
         }
     } else {
         *base = other.clone();
@@ -1390,6 +1402,20 @@ mod tests {
     }
 
     // -- merge --------------------------------------------------------------
+
+    #[test]
+    fn deep_merge_depth_guard_caps_recursion() {
+        // Build a JSON tree nested 200 levels deep (exceeds MAX_MERGE_DEPTH of 128).
+        let mut base = serde_json::json!(null);
+        let mut other = serde_json::json!({"leaf": true});
+        for _ in 0..200 {
+            other = serde_json::json!({"nested": other});
+        }
+        // This should not stack overflow; at depth 128 it overwrites instead of recursing.
+        deep_merge(&mut base, &other);
+        // The result should be valid JSON (not a crash).
+        assert!(base.is_object());
+    }
 
     #[test]
     fn merge_combines_objects() {

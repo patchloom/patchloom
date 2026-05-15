@@ -16,6 +16,8 @@ pub struct Plan {
 #[derive(Debug, Deserialize)]
 pub struct FormatStep {
     pub cmd: String,
+    /// Timeout in seconds (default: 60).
+    pub timeout: Option<u64>,
 }
 
 /// Write policy settings specified in the plan.
@@ -145,6 +147,8 @@ pub enum Operation {
 pub struct ValidationStep {
     pub cmd: String,
     pub required: Option<bool>,
+    /// Timeout in seconds (default: 60).
+    pub timeout: Option<u64>,
 }
 
 /// Parse a plan from a JSON string.

@@ -19,6 +19,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 #[derive(Debug, Args)]
 pub struct TxArgs {
@@ -27,6 +28,37 @@ pub struct TxArgs {
     pub plan: String,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
+}
+
+/// Run a shell command with a timeout. Returns the exit status on success,
+/// or an error if the command times out or fails to start.
+fn run_shell_with_timeout(
+    cmd: &str,
+    timeout_secs: u64,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = std::time::Instant::now();
+
+    loop {
+        match child.try_wait()? {
+            Some(status) => return Ok(status),
+            None => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    anyhow::bail!("timed out after {timeout_secs}s");
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
 }
 
 /// Short label for an operation, used in error messages.
@@ -745,17 +777,17 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 8. Run format steps (between writes and validation).
         if let Some(ref format_steps) = plan.format {
             for step in format_steps {
-                let output = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&step.cmd)
-                    .output()?;
-
-                if !output.status.success() {
-                    eprintln!("tx: format step failed: {}", step.cmd);
-                    if !output.stderr.is_empty() {
-                        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                let timeout_secs = step.timeout.unwrap_or(60);
+                match run_shell_with_timeout(&step.cmd, timeout_secs) {
+                    Ok(status) if !status.success() => {
+                        eprintln!("tx: format step failed: {}", step.cmd);
+                        return Ok(exit::VALIDATION_FAILED);
                     }
-                    return Ok(exit::VALIDATION_FAILED);
+                    Err(e) => {
+                        eprintln!("tx: format step error: {} -- {e}", step.cmd);
+                        return Ok(exit::VALIDATION_FAILED);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -763,12 +795,16 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 9. Run validation steps.
         if let Some(ref validate) = plan.validate {
             for step in validate {
-                let output = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&step.cmd)
-                    .output()?;
+                let timeout_secs = step.timeout.unwrap_or(60);
+                let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
+                    Ok(status) => status.success(),
+                    Err(e) => {
+                        eprintln!("tx: validation error: {} -- {e}", step.cmd);
+                        false
+                    }
+                };
 
-                if !output.status.success() && step.required.unwrap_or(false) {
+                if !success && step.required.unwrap_or(false) {
                     eprintln!("tx: required validation failed: {}", step.cmd);
                     return Ok(exit::VALIDATION_FAILED);
                 }
