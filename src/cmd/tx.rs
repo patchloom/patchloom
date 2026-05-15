@@ -178,12 +178,11 @@ fn update_file_content(
 // String replacement helper
 // ---------------------------------------------------------------------------
 
-fn do_replace(content: &str, from: &str, to: &str, use_regex: bool) -> anyhow::Result<String> {
-    if use_regex {
-        let re = Regex::new(from)?;
-        Ok(re.replace_all(content, to).to_string())
+fn do_replace(content: &str, from: &str, to: &str, compiled_re: Option<&Regex>) -> String {
+    if let Some(re) = compiled_re {
+        re.replace_all(content, to).to_string()
     } else {
-        Ok(content.replace(from, to))
+        content.replace(from, to)
     }
 }
 
@@ -204,12 +203,16 @@ fn execute_operation(
             from,
             to,
         } => {
-            let use_regex = mode.as_deref() == Some("regex");
+            let compiled_re = if mode.as_deref() == Some("regex") {
+                Some(Regex::new(from)?)
+            } else {
+                None
+            };
 
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let replaced = do_replace(&content, from, to, use_regex)?;
+                let replaced = do_replace(&content, from, to, compiled_re.as_ref());
                 update_file_content(pending, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
@@ -232,7 +235,7 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let replaced = do_replace(&content, from, to, use_regex)?;
+                    let replaced = do_replace(&content, from, to, compiled_re.as_ref());
                     update_file_content(pending, &file_path, replaced);
                 }
             } else {

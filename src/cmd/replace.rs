@@ -62,23 +62,22 @@ fn replace_content(
     content: &str,
     from: &str,
     to: &str,
-    use_regex: bool,
-) -> anyhow::Result<(String, usize)> {
-    if use_regex {
-        let re = Regex::new(from)?;
+    compiled_re: Option<&Regex>,
+) -> (String, usize) {
+    if let Some(re) = compiled_re {
         let count = re.find_iter(content).count();
         if count == 0 {
-            return Ok((content.to_owned(), 0));
+            return (content.to_owned(), 0);
         }
         let replaced = re.replace_all(content, to).to_string();
-        Ok((replaced, count))
+        (replaced, count)
     } else {
         let count = content.matches(from).count();
         if count == 0 {
-            return Ok((content.to_owned(), 0));
+            return (content.to_owned(), 0);
         }
         let replaced = content.replace(from, to);
-        Ok((replaced, count))
+        (replaced, count)
     }
 }
 
@@ -116,7 +115,11 @@ fn collect_replacements(
             .collect()
     };
 
-    let use_regex = args.regex;
+    let compiled_re = if args.regex {
+        Some(Regex::new(&args.from)?)
+    } else {
+        None
+    };
     let mut replacements = Vec::new();
 
     for path_buf in &file_paths {
@@ -142,7 +145,8 @@ fn collect_replacements(
             Err(_) => continue,
         };
 
-        let (replaced, count) = replace_content(&content, &args.from, &args.to, use_regex)?;
+        let (replaced, count) =
+            replace_content(&content, &args.from, &args.to, compiled_re.as_ref());
 
         if count > 0 {
             replacements.push(FileReplacement {
