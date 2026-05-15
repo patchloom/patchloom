@@ -337,7 +337,10 @@ mod tests {
         atomic_write(&target, "#!/bin/sh\necho new\n", &policy).unwrap();
 
         let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o755, "permissions should be preserved after atomic_write");
+        assert_eq!(
+            mode, 0o755,
+            "permissions should be preserved after atomic_write"
+        );
     }
 
     #[test]

@@ -556,7 +556,11 @@ fn test_doc_set_yaml_apply() {
 fn test_doc_get_toml() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.toml");
-    fs::write(&file, "[package]\nname = \"patchloom\"\nversion = \"1.0\"\n").unwrap();
+    fs::write(
+        &file,
+        "[package]\nname = \"patchloom\"\nversion = \"1.0\"\n",
+    )
+    .unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -613,7 +617,10 @@ fn test_replace_check_exits_2() {
         .code(2);
 
     let content = fs::read_to_string(&file).unwrap();
-    assert_eq!(content, "hello world\n", "file should be unchanged in --check mode");
+    assert_eq!(
+        content, "hello world\n",
+        "file should be unchanged in --check mode"
+    );
 }
 
 #[test]

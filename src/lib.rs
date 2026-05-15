@@ -8,8 +8,8 @@ pub mod selector;
 pub mod write;
 
 use clap::Parser;
-use cli::Cli;
 use cli::global::GlobalFlags;
+use cli::Cli;
 use globset::{Glob, GlobMatcher};
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
