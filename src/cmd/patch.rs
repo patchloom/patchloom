@@ -1,7 +1,7 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
-use crate::write::{atomic_write, WritePolicy};
+use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
 
 #[derive(Debug, Args)]
@@ -337,15 +337,6 @@ fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, u8
     }
 }
 
-/// Build a [`WritePolicy`] from [`GlobalFlags`].
-fn policy_from_global(global: &GlobalFlags) -> WritePolicy {
-    WritePolicy {
-        ensure_final_newline: global.ensure_final_newline,
-        normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
-        trim_trailing_whitespace: global.trim_trailing_whitespace,
-    }
-}
-
 // ── Public entry point ──────────────────────────────────────────────
 
 pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -401,7 +392,6 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
         PatchAction::Apply { .. } => {
-            let policy = policy_from_global(global);
             let mut diffs = Vec::new();
 
             for pf in &patch_files {
@@ -418,6 +408,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 if global.diff {
                     diffs.push(unified_diff(&pf.path, &original, &patched));
                 } else {
+                    let policy = policy_from_flags(global, Some(&file_path));
                     atomic_write(&file_path, &patched, &policy)?;
                     eprintln!("patch apply: {} — written", pf.path);
                 }
@@ -459,6 +450,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

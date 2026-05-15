@@ -3,6 +3,7 @@ use crate::diff;
 use crate::exit;
 use crate::selector;
 use crate::write;
+use crate::write::policy_from_flags;
 use clap::Args;
 use std::path::Path;
 
@@ -815,16 +816,25 @@ pub fn run(args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     );
 
     if is_write {
+        // Extract the file path from the action for EditorConfig lookup.
+        let doc_file_path: Option<&str> = match &args.action {
+            DocAction::Set { file, .. }
+            | DocAction::Delete { file, .. }
+            | DocAction::DeleteWhere { file, .. }
+            | DocAction::Merge { file, .. }
+            | DocAction::Append { file, .. }
+            | DocAction::Prepend { file, .. }
+            | DocAction::Update { file, .. }
+            | DocAction::Ensure { file, .. } => Some(file.as_str()),
+            DocAction::Move { file, .. } => Some(file.as_str()),
+            _ => None,
+        };
         let ctx = WriteContext {
             diff: global.diff,
             check: global.check,
             apply: global.apply,
             json: global.json,
-            write_policy: write::WritePolicy {
-                ensure_final_newline: global.ensure_final_newline,
-                normalize_eol: global.normalize_eol.unwrap_or_default(),
-                trim_trailing_whitespace: global.trim_trailing_whitespace,
-            },
+            write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
         };
         let (output, code) = execute_write(&args.action, &ctx)?;
         if !output.is_empty() {

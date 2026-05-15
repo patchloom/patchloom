@@ -21,6 +21,7 @@ regex = "1"
 similar = { version = "3", features = ["text"] }
 tempfile = "3"
 anyhow = "1"
+ec4rs = "1"
 
 [dev-dependencies]
 assert_cmd = "2"

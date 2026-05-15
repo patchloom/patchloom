@@ -97,6 +97,66 @@ pub fn apply_policy(content: &str, policy: &WritePolicy) -> String {
     s
 }
 
+/// Build a [`WritePolicy`] from [`GlobalFlags`], optionally merging
+/// EditorConfig properties for the given file path.
+///
+/// Explicit CLI flags always win.  When `--respect-editorconfig` is set and
+/// `file_path` is provided, EditorConfig values fill in any flag that was not
+/// explicitly set by the user.
+pub fn policy_from_flags(
+    global: &crate::cli::global::GlobalFlags,
+    file_path: Option<&std::path::Path>,
+) -> WritePolicy {
+    let mut efn = global.ensure_final_newline;
+    let mut eol = global.normalize_eol.map(|m| match m {
+        EolMode::Keep => EolMode::Keep,
+        EolMode::Lf => EolMode::Lf,
+        EolMode::Crlf => EolMode::Crlf,
+    });
+    let mut ttw = global.trim_trailing_whitespace;
+
+    if global.respect_editorconfig {
+        if let Some(path) = file_path {
+            if let Ok(props) = ec4rs::properties_of(path) {
+                // insert_final_newline
+                if !global.ensure_final_newline {
+                    if let Ok(ec4rs::property::FinalNewline::Value(true)) =
+                        props.get::<ec4rs::property::FinalNewline>()
+                    {
+                        efn = true;
+                    }
+                }
+
+                // end_of_line
+                if global.normalize_eol.is_none() {
+                    if let Ok(val) = props.get::<ec4rs::property::EndOfLine>() {
+                        eol = Some(match val {
+                            ec4rs::property::EndOfLine::Lf => EolMode::Lf,
+                            ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
+                            ec4rs::property::EndOfLine::Cr => EolMode::Keep,
+                        });
+                    }
+                }
+
+                // trim_trailing_whitespace
+                if !global.trim_trailing_whitespace {
+                    if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
+                        props.get::<ec4rs::property::TrimTrailingWs>()
+                    {
+                        ttw = true;
+                    }
+                }
+            }
+        }
+    }
+
+    WritePolicy {
+        ensure_final_newline: efn,
+        normalize_eol: eol.unwrap_or(EolMode::Keep),
+        trim_trailing_whitespace: ttw,
+    }
+}
+
 /// Atomically write `content` to `path` after applying `policy`.
 ///
 /// A temporary file is created in the same directory as `path`, written to, then
@@ -125,6 +185,7 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::global::GlobalFlags;
     use std::fs;
 
     #[test]
@@ -197,5 +258,81 @@ mod tests {
 
         let got = fs::read_to_string(&target).unwrap();
         assert_eq!(got, "foo\nbar\n");
+    }
+
+    fn test_global_flags() -> GlobalFlags {
+        GlobalFlags {
+            json: false,
+            jsonl: false,
+            diff: false,
+            apply: false,
+            check: false,
+            cwd: None,
+            glob: None,
+            files_from: None,
+            atomic: false,
+            ensure_final_newline: false,
+            normalize_eol: None,
+            trim_trailing_whitespace: false,
+            respect_editorconfig: false,
+        }
+    }
+
+    #[test]
+    fn policy_from_flags_explicit_flags_win() {
+        let dir = tempfile::tempdir().unwrap();
+        let ec_path = dir.path().join(".editorconfig");
+        fs::write(
+            &ec_path,
+            "root = true\n\n[*]\ninsert_final_newline = false\nend_of_line = crlf\ntrim_trailing_whitespace = false\n",
+        )
+        .unwrap();
+
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "content\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+        global.ensure_final_newline = true;
+        global.normalize_eol = Some(EolMode::Lf);
+        global.trim_trailing_whitespace = true;
+
+        let policy = policy_from_flags(&global, Some(&file));
+        // Explicit flags should win over EditorConfig values.
+        assert!(policy.ensure_final_newline);
+        assert!(matches!(policy.normalize_eol, EolMode::Lf));
+        assert!(policy.trim_trailing_whitespace);
+    }
+
+    #[test]
+    fn policy_from_flags_editorconfig_provides_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let ec_path = dir.path().join(".editorconfig");
+        fs::write(
+            &ec_path,
+            "root = true\n\n[*]\ninsert_final_newline = true\nend_of_line = lf\ntrim_trailing_whitespace = true\n",
+        )
+        .unwrap();
+
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "content\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+
+        let policy = policy_from_flags(&global, Some(&file));
+        assert!(policy.ensure_final_newline);
+        assert!(matches!(policy.normalize_eol, EolMode::Lf));
+        assert!(policy.trim_trailing_whitespace);
+    }
+
+    #[test]
+    fn policy_from_flags_no_editorconfig_uses_defaults() {
+        let global = test_global_flags();
+
+        let policy = policy_from_flags(&global, None);
+        assert!(!policy.ensure_final_newline);
+        assert!(matches!(policy.normalize_eol, EolMode::Keep));
+        assert!(!policy.trim_trailing_whitespace);
     }
 }

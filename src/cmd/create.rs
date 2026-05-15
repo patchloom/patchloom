@@ -1,7 +1,7 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
-use crate::write::{atomic_write, WritePolicy};
+use crate::write::{atomic_write, policy_from_flags};
 use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
@@ -31,14 +31,6 @@ struct CreateOutput {
     path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
-}
-
-fn build_write_policy(global: &GlobalFlags) -> WritePolicy {
-    WritePolicy {
-        ensure_final_newline: global.ensure_final_newline,
-        normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
-        trim_trailing_whitespace: global.trim_trailing_whitespace,
-    }
 }
 
 fn make_diff_output(path: &str, content: &str) -> String {
@@ -91,7 +83,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write file using atomic_write.
     if global.apply {
-        let policy = build_write_policy(global);
+        let policy = policy_from_flags(global, Some(path));
 
         // Ensure parent directories exist.
         if let Some(parent) = path.parent() {
@@ -157,6 +149,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

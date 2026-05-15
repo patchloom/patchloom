@@ -1,7 +1,7 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::unified_diff;
 use crate::exit;
-use crate::write::{apply_policy, atomic_write, WritePolicy};
+use crate::write::{apply_policy, atomic_write, policy_from_flags, WritePolicy};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -217,12 +217,6 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 paths.to_vec()
             };
 
-            let policy = WritePolicy {
-                ensure_final_newline: global.ensure_final_newline,
-                normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
-                trim_trailing_whitespace: global.trim_trailing_whitespace,
-            };
-
             let mut any_changed = false;
 
             let fix_file_paths: Vec<std::path::PathBuf> =
@@ -265,6 +259,7 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
 
                 let original = String::from_utf8_lossy(&data);
+                let policy = policy_from_flags(global, Some(file_path));
                 let fixed = apply_policy(&original, &policy);
 
                 if fixed == *original {
@@ -326,6 +321,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

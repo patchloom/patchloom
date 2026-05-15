@@ -577,6 +577,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

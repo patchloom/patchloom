@@ -1,7 +1,7 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
-use crate::write::{atomic_write, WritePolicy};
+use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -60,14 +60,6 @@ struct FileReplacement {
 fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(8192);
     data[..check_len].contains(&0)
-}
-
-fn build_write_policy(global: &GlobalFlags) -> WritePolicy {
-    WritePolicy {
-        ensure_final_newline: global.ensure_final_newline,
-        normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
-        trim_trailing_whitespace: global.trim_trailing_whitespace,
-    }
 }
 
 /// Count occurrences and produce replaced content.
@@ -238,8 +230,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write changes using atomic_write with write policy.
     if global.apply {
-        let policy = build_write_policy(global);
         for r in &replacements {
+            let policy = policy_from_flags(global, Some(Path::new(&r.path)));
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
 
@@ -313,6 +305,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

@@ -1,7 +1,7 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
-use crate::write::{atomic_write, WritePolicy};
+use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -199,14 +199,6 @@ fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<Str
     }
 }
 
-fn build_write_policy(global: &GlobalFlags) -> WritePolicy {
-    WritePolicy {
-        ensure_final_newline: global.ensure_final_newline,
-        normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
-        trim_trailing_whitespace: global.trim_trailing_whitespace,
-    }
-}
-
 /// Compare original with policy-applied new content, then diff/check/apply.
 fn apply_mutation(
     file: &str,
@@ -215,7 +207,7 @@ fn apply_mutation(
     global: &GlobalFlags,
 ) -> anyhow::Result<u8> {
     let path = Path::new(file);
-    let policy = build_write_policy(global);
+    let policy = policy_from_flags(global, Some(path));
     let final_content = crate::write::apply_policy(new_content, &policy);
     let has_changes = original != final_content;
 
@@ -597,6 +589,7 @@ mod tests {
             ensure_final_newline: false,
             normalize_eol: None,
             trim_trailing_whitespace: false,
+            respect_editorconfig: false,
         }
     }
 

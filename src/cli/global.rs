@@ -63,6 +63,10 @@ pub struct GlobalFlags {
     /// Remove trailing whitespace on touched lines.
     #[arg(long, global = true)]
     pub trim_trailing_whitespace: bool,
+
+    /// Read write policy from .editorconfig when present.
+    #[arg(long, global = true)]
+    pub respect_editorconfig: bool,
 }
 
 impl GlobalFlags {

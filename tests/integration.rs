@@ -580,3 +580,39 @@ fn test_parse_unknown_subcommand_fails() {
         .assert()
         .failure();
 }
+
+// ---------------------------------------------------------------------------
+// editorconfig integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_editorconfig_final_newline() {
+    let dir = TempDir::new().unwrap();
+
+    // Create .editorconfig with insert_final_newline = true
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ninsert_final_newline = true\n",
+    )
+    .unwrap();
+
+    // Create a file without trailing newline
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "no trailing newline").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("hygiene")
+        .arg("fix")
+        .arg(&file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .code(2);
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        content.ends_with(b"\n"),
+        "file should end with a newline after editorconfig-driven fix"
+    );
+}
