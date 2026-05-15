@@ -716,6 +716,56 @@ fn test_md_insert_after_heading() {
     );
 }
 
+#[test]
+fn test_md_upsert_bullet_adds_new() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("notes.md");
+    fs::write(&file, "## Rules\n\n- existing rule\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("upsert-bullet")
+        .arg("--file")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Rules")
+        .arg("--bullet")
+        .arg("new rule")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("new rule"), "new bullet should be added");
+    assert!(
+        content.contains("- existing rule"),
+        "existing bullet should be preserved"
+    );
+}
+
+#[test]
+fn test_md_upsert_bullet_skips_duplicate() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("notes.md");
+    fs::write(&file, "## Rules\n\n- existing rule\n").unwrap();
+
+    // Upsert the same bullet; should be idempotent.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("upsert-bullet")
+        .arg("--file")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Rules")
+        .arg("--bullet")
+        .arg("existing rule")
+        .arg("--check")
+        .assert()
+        .success(); // no changes -> exit 0
+}
+
 // ---------------------------------------------------------------------------
 // hygiene
 // ---------------------------------------------------------------------------
