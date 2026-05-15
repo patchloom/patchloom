@@ -386,13 +386,13 @@ The `tx` command accepts a JSON plan with an array of operations:
 }
 ```
 
-All operations run in order. If any fails, all changes are rolled back (exit code 7). Pass `--apply` to write to disk.
+All operations run in order. If any operation fails, all changes are rolled back and no files are written (exit code 7). Pass `--apply` to write to disk.
 
 Plans support three lifecycle arrays:
 
 - **operations**: The mutations to apply.
-- **format**: Shell commands that run after all operations are written but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60).
-- **validate**: Shell commands that run after format steps. If a required step fails, the transaction aborts. Each step accepts an optional `timeout` in seconds (default: 60).
+- **format**: Shell commands that run after all operations are written to disk but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60). Note: files are already on disk when format runs; a format failure exits with code 6 but does not undo the writes.
+- **validate**: Shell commands that run after format steps. If a required step fails, the transaction exits with code 6. Each step accepts an optional `timeout` in seconds (default: 60). Like format, validation runs after writes are committed.
 
 All shell commands in `format` and `validate` execute via `sh -c` on the host; only use plans from trusted sources.
 
