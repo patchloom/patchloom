@@ -1,0 +1,19 @@
+{
+  "strict": true,
+  "write_policy": {
+    "ensure_final_newline": true,
+    "trim_trailing_whitespace": true
+  },
+  "operations": [
+    { "op": "file.create", "path": "src/new_module.rs", "content": "pub fn hello() -> &'static str {\n    \"hello\"\n}\n" },
+    { "op": "replace", "path": "src/lib.rs", "from": "// modules", "to": "// modules\npub mod new_module;" },
+    { "op": "md.insert_after_heading", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Added new_module" }
+  ],
+  "format": [
+    { "cmd": "cargo fmt --all", "timeout": 30 }
+  ],
+  "validate": [
+    { "cmd": "cargo build", "required": true, "timeout": 120 },
+    { "cmd": "cargo test --lib", "required": true, "timeout": 120 }
+  ]
+}

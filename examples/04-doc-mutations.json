@@ -1,0 +1,10 @@
+{
+  "operations": [
+    { "op": "doc.set", "path": "config.json", "key": "database.port", "value": 5432 },
+    { "op": "doc.ensure", "path": "config.json", "key": "database.pool_size", "value": 10 },
+    { "op": "doc.merge", "path": "config.json", "key": "logging", "value": { "level": "info", "format": "json" } },
+    { "op": "doc.append", "path": "config.json", "key": "allowed_origins", "value": "https://example.com" },
+    { "op": "doc.delete", "path": "config.json", "key": "deprecated_field" },
+    { "op": "doc.delete_where", "path": "config.yaml", "key": "users", "predicate": "active=false" }
+  ]
+}

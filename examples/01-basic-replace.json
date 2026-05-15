@@ -1,0 +1,5 @@
+{
+  "operations": [
+    { "op": "replace", "path": "README.md", "from": "v1.0.0", "to": "v2.0.0" }
+  ]
+}
