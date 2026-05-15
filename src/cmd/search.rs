@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn json_output_shape() {
+    fn json_output_values() {
         let dir = make_test_dir();
         let args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         let mut global = default_global();
@@ -300,13 +300,18 @@ mod tests {
         let output = format_results(&results, &args, &global).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
-        assert!(v["matches"].is_array());
-        assert!(v["match_count"].as_u64().unwrap() > 0);
-        assert!(v["file_count"].as_u64().unwrap() > 0);
-        let first = &v["matches"][0];
-        assert!(first["path"].is_string());
-        assert!(first["line"].is_number());
-        assert!(first["column"].is_number());
-        assert!(first["text"].is_string());
+        // "Hello" appears in two lines of hello.txt, one file.
+        assert_eq!(v["match_count"], serde_json::json!(2));
+        assert_eq!(v["file_count"], serde_json::json!(1));
+        let matches = v["matches"].as_array().expect("matches is array");
+        assert_eq!(matches.len(), 2);
+        for m in matches {
+            let path = m["path"].as_str().unwrap();
+            assert!(path.ends_with("hello.txt"), "unexpected path: {path}");
+            assert!(m["line"].as_u64().unwrap() > 0);
+            assert!(m["column"].as_u64().unwrap() > 0);
+            let text = m["text"].as_str().unwrap();
+            assert!(text.contains("Hello"), "match text missing 'Hello': {text}");
+        }
     }
 }

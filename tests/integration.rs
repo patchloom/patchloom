@@ -524,7 +524,10 @@ fn test_doc_get_yaml() {
         .arg("name")
         .assert()
         .success()
-        .stdout(predicate::str::contains("patchloom"));
+        .stdout(
+            predicate::str::starts_with("\"patchloom\"")
+                .or(predicate::str::starts_with("patchloom")),
+        );
 }
 
 #[test]

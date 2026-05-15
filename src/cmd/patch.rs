@@ -630,7 +630,7 @@ mod tests {
     // ── Integration: check subcommand ───────────────────────────────
 
     #[test]
-    fn check_reports_clean_apply() {
+    fn check_reports_clean_when_hunks_match() {
         let tmp = TempDir::new().unwrap();
         let file = tmp.path().join("hello.txt");
         std::fs::write(&file, "line1\nold line\nline3\n").unwrap();
