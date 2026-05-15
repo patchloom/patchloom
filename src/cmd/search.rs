@@ -95,8 +95,14 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
             Err(_) => continue,
         };
 
-        let path_str = path.to_string_lossy().to_string();
         let mut count = 0usize;
+        // Defer the allocation until we know the file has matches.
+        let mut path_str: Option<String> = None;
+        let mut get_path_str = || -> String {
+            path_str
+                .get_or_insert_with(|| path.to_string_lossy().to_string())
+                .clone()
+        };
 
         if args.multiline {
             for m in re.find_iter(&content) {
@@ -110,7 +116,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                 let line_num = content[..m.start()].matches('\n').count() + 1;
                 let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |pos| pos + 1) + 1;
                 all_matches.push(SearchMatch {
-                    path: path_str.clone(),
+                    path: get_path_str(),
                     line: line_num,
                     column: col,
                     text: m.as_str().to_string(),
@@ -146,7 +152,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                     });
 
                     all_matches.push(SearchMatch {
-                        path: path_str.clone(),
+                        path: get_path_str(),
                         line: i + 1,
                         column: found.map_or(1, |m| m.start() + 1),
                         text: line.to_string(),
@@ -158,7 +164,8 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         }
 
         if count > 0 {
-            file_match_counts.insert(path_str, count);
+            let key = path_str.unwrap_or_else(|| path.to_string_lossy().to_string());
+            file_match_counts.insert(key, count);
         }
     }
 
