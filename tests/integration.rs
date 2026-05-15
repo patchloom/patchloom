@@ -1093,6 +1093,45 @@ fn test_doc_set_toml_apply() {
 }
 
 #[test]
+fn test_doc_len_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items":[1,2,3,4,5]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .arg("items")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("5"));
+}
+
+#[test]
+fn test_doc_append_to_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"tags":["a","b"]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("tags")
+        .arg(r#""c""#)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+}
+
+#[test]
 fn test_doc_flatten_json() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");
