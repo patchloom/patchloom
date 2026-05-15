@@ -85,13 +85,13 @@ pub enum DocAction {
 // File format detection & loading
 // ---------------------------------------------------------------------------
 
-enum FileFormat {
+pub(crate) enum FileFormat {
     Json,
     Yaml,
     Toml,
 }
 
-fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
+pub(crate) fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
     match Path::new(path).extension().and_then(|e| e.to_str()) {
         Some("json") => Ok(FileFormat::Json),
         Some("yaml" | "yml") => Ok(FileFormat::Yaml),
@@ -184,7 +184,7 @@ fn parse_value(s: &str) -> serde_json::Value {
 }
 
 /// Serialize a [`serde_json::Value`] back to the original file format.
-fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow::Result<String> {
+pub(crate) fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow::Result<String> {
     match format {
         FileFormat::Json => {
             let mut s = serde_json::to_string_pretty(value)?;
@@ -197,6 +197,15 @@ fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow::Re
                 .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
             Ok(s)
         }
+    }
+}
+
+/// Parse a string as the given format into a serde_json::Value.
+pub(crate) fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
+    match format {
+        FileFormat::Json => Ok(serde_json::from_str(content)?),
+        FileFormat::Yaml => Ok(serde_yaml_ng::from_str(content)?),
+        FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
     }
 }
 
@@ -221,7 +230,7 @@ fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Val
 /// When `create` is true, missing intermediate object keys are created as
 /// empty objects.  Returns an error if navigation is impossible (e.g.
 /// traversing through a scalar or an out-of-bounds index).
-fn navigate_mut<'a>(
+pub(crate) fn navigate_mut<'a>(
     root: &'a mut serde_json::Value,
     segments: &[selector::Segment],
     create: bool,
@@ -257,7 +266,7 @@ fn navigate_mut<'a>(
 
 /// Deep-merge `other` into `base`.  Object keys are merged recursively;
 /// all other types are overwritten.
-fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
+pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
     if base.is_object() && other.is_object() {
         let other_map = other.as_object().unwrap();
         let base_map = base.as_object_mut().unwrap();

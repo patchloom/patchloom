@@ -1,4 +1,5 @@
 use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cmd::doc::{deep_merge, detect_format, navigate_mut, parse_doc, serialize_value};
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::plan::{self, Operation, Plan};
@@ -17,102 +18,6 @@ pub struct TxArgs {
     /// Path to a plan JSON file, or `-` for stdin.
     #[arg(long)]
     pub plan: String,
-}
-
-// ---------------------------------------------------------------------------
-// Doc format helpers (adapted from cmd/doc.rs)
-// ---------------------------------------------------------------------------
-
-enum DocFormat {
-    Json,
-    Yaml,
-    Toml,
-}
-
-fn detect_format(path: &str) -> anyhow::Result<DocFormat> {
-    match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some("json") => Ok(DocFormat::Json),
-        Some("yaml" | "yml") => Ok(DocFormat::Yaml),
-        Some("toml") => Ok(DocFormat::Toml),
-        Some(ext) => anyhow::bail!("unsupported file extension: .{ext}"),
-        None => anyhow::bail!("file has no extension"),
-    }
-}
-
-fn parse_doc(content: &str, format: &DocFormat) -> anyhow::Result<serde_json::Value> {
-    match format {
-        DocFormat::Json => Ok(serde_json::from_str(content)?),
-        DocFormat::Yaml => Ok(serde_yaml_ng::from_str(content)?),
-        DocFormat::Toml => {
-            let value: serde_json::Value = toml_edit::de::from_str(content)?;
-            Ok(value)
-        }
-    }
-}
-
-fn serialize_doc(value: &serde_json::Value, format: &DocFormat) -> anyhow::Result<String> {
-    match format {
-        DocFormat::Json => {
-            let mut s = serde_json::to_string_pretty(value)?;
-            s.push('\n');
-            Ok(s)
-        }
-        DocFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
-        DocFormat::Toml => {
-            let s = toml_edit::ser::to_string_pretty(value)
-                .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
-            Ok(s)
-        }
-    }
-}
-
-fn navigate_mut<'a>(
-    root: &'a mut serde_json::Value,
-    segments: &[selector::Segment],
-    create: bool,
-) -> anyhow::Result<&'a mut serde_json::Value> {
-    let mut current = root;
-    for seg in segments {
-        current = match seg {
-            selector::Segment::Key(k) => {
-                if create {
-                    let needs_create = match current.as_object() {
-                        Some(obj) => !obj.contains_key(k.as_str()),
-                        None => false,
-                    };
-                    if needs_create {
-                        current
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("not an object at key '{k}'"))?
-                            .insert(k.clone(), serde_json::Value::Object(serde_json::Map::new()));
-                    }
-                }
-                current
-                    .get_mut(k.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("key not found: {k}"))?
-            }
-            selector::Segment::Index(i) => current
-                .get_mut(*i)
-                .ok_or_else(|| anyhow::anyhow!("index out of bounds: {i}"))?,
-            _ => anyhow::bail!("wildcard/predicate not supported in write navigation"),
-        };
-    }
-    Ok(current)
-}
-
-fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
-    if base.is_object() && other.is_object() {
-        let other_map = other.as_object().unwrap();
-        let base_map = base.as_object_mut().unwrap();
-        for (key, value) in other_map {
-            let entry = base_map
-                .entry(key.clone())
-                .or_insert(serde_json::Value::Null);
-            deep_merge(entry, value);
-        }
-    } else {
-        *base = other.clone();
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,7 +182,7 @@ fn execute_operation(
                 _ => anyhow::bail!("cannot set at wildcard/predicate"),
             }
 
-            let new_content = serialize_doc(&root, &format)?;
+            let new_content = serialize_value(&root, &format)?;
             update_file_content(pending, &file_path, new_content);
         }
 
@@ -313,7 +218,7 @@ fn execute_operation(
                 _ => anyhow::bail!("cannot delete at wildcard/predicate"),
             }
 
-            let new_content = serialize_doc(&root, &format)?;
+            let new_content = serialize_value(&root, &format)?;
             update_file_content(pending, &file_path, new_content);
         }
 
@@ -323,7 +228,7 @@ fn execute_operation(
             let format = detect_format(path)?;
             let mut root = parse_doc(&content, &format)?;
             deep_merge(&mut root, value);
-            let new_content = serialize_doc(&root, &format)?;
+            let new_content = serialize_value(&root, &format)?;
             update_file_content(pending, &file_path, new_content);
         }
 
@@ -341,7 +246,7 @@ fn execute_operation(
                 .ok_or_else(|| anyhow::anyhow!("target is not an array"))?;
             arr.push(value.clone());
 
-            let new_content = serialize_doc(&root, &format)?;
+            let new_content = serialize_value(&root, &format)?;
             update_file_content(pending, &file_path, new_content);
         }
 
