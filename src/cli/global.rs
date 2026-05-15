@@ -52,8 +52,6 @@ pub struct GlobalFlags {
     #[clap(skip)]
     pub check: bool,
     #[clap(skip)]
-    pub atomic: bool,
-    #[clap(skip)]
     pub ensure_final_newline: bool,
     #[clap(skip)]
     pub normalize_eol: Option<EolMode>,
@@ -82,10 +80,6 @@ pub struct WriteFlags {
     #[arg(long, global = true)]
     pub check: bool,
 
-    /// Require all-or-nothing multi-file apply.
-    #[arg(long, global = true)]
-    pub atomic: bool,
-
     /// Ensure non-empty written files end with a newline.
     #[arg(long, global = true)]
     pub ensure_final_newline: bool,
@@ -109,7 +103,6 @@ impl GlobalFlags {
         self.diff = w.diff;
         self.apply = w.apply;
         self.check = w.check;
-        self.atomic = w.atomic;
         self.ensure_final_newline = w.ensure_final_newline;
         self.normalize_eol = w.normalize_eol;
         self.trim_trailing_whitespace = w.trim_trailing_whitespace;
