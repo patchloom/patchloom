@@ -81,6 +81,8 @@ pub enum DocAction {
         selector: String,
         value: String,
     },
+    /// List all leaf key paths and their values.
+    Flatten { file: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +125,35 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
 // ---------------------------------------------------------------------------
 // Output formatting
 // ---------------------------------------------------------------------------
+
+/// Recursively enumerate all leaf key paths in a JSON value.
+fn flatten_value<'a>(
+    value: &'a serde_json::Value,
+    prefix: String,
+    out: &mut Vec<(String, &'a serde_json::Value)>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let path = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten_value(v, path, out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for (i, v) in arr.iter().enumerate() {
+                let path = format!("{prefix}[{i}]");
+                flatten_value(v, path, out);
+            }
+        }
+        _ => {
+            out.push((prefix, value));
+        }
+    }
+}
 
 fn format_value(value: &serde_json::Value, json_mode: bool) -> String {
     if json_mode {
@@ -792,6 +823,29 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             Ok((lines.join("\n"), exit::SUCCESS))
         }
 
+        DocAction::Flatten { file } => {
+            let root = load_file(file)?;
+            let mut entries = Vec::new();
+            flatten_value(&root, String::new(), &mut entries);
+            if entries.is_empty() {
+                return Ok((String::new(), exit::NO_MATCHES));
+            }
+            if json_mode {
+                let obj: serde_json::Map<String, serde_json::Value> =
+                    entries.into_iter().map(|(k, v)| (k, v.clone())).collect();
+                Ok((
+                    serde_json::to_string_pretty(&obj).expect("serialize"),
+                    exit::SUCCESS,
+                ))
+            } else {
+                let lines: Vec<String> = entries
+                    .iter()
+                    .map(|(k, v)| format!("{k} = {}", format_value(v, false)))
+                    .collect();
+                Ok((lines.join("\n"), exit::SUCCESS))
+            }
+        }
+
         // Write-mode subcommands are dispatched through execute_write() via run().
         DocAction::Set { .. }
         | DocAction::Delete { .. }
@@ -1334,5 +1388,23 @@ mod tests {
         };
         let (_, code) = execute_write(&action, &ctx).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
+    fn flatten_enumerates_leaf_paths() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(
+            &dir,
+            "test.json",
+            r#"{"a":1,"b":{"c":2,"d":3},"e":[10,20]}"#,
+        );
+        let action = DocAction::Flatten { file: path };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(output.contains("a = 1"), "missing a: {output}");
+        assert!(output.contains("b.c = 2"), "missing b.c: {output}");
+        assert!(output.contains("b.d = 3"), "missing b.d: {output}");
+        assert!(output.contains("e[0] = 10"), "missing e[0]: {output}");
+        assert!(output.contains("e[1] = 20"), "missing e[1]: {output}");
     }
 }

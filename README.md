@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 180 passing tests.
+V1 with 9 commands and 183 passing tests.
 
 ## Install
 
@@ -152,6 +152,12 @@ Update all matching nodes:
 
 ```
 patchloom doc update config.json "servers.*.enabled" true --apply
+```
+
+List all leaf key paths and values in a file:
+
+```
+patchloom doc flatten config.json
 ```
 
 ### md

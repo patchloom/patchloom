@@ -740,6 +740,43 @@ fn test_doc_set_toml_apply() {
     assert!(content.contains("new"), "TOML should contain updated value");
 }
 
+#[test]
+fn test_doc_flatten_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a":1,"b":{"c":2},"d":[10,20]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a = 1"))
+        .stdout(predicate::str::contains("b.c = 2"))
+        .stdout(predicate::str::contains("d[0] = 10"))
+        .stdout(predicate::str::contains("d[1] = 20"));
+}
+
+#[test]
+fn test_doc_flatten_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\""))
+        .stdout(predicate::str::contains("\"patchloom\""));
+}
+
 // ---------------------------------------------------------------------------
 // --check mode: exits 2 when changes detected, does NOT write
 // ---------------------------------------------------------------------------
