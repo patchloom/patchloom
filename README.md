@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 184 passing tests.
+V1 with 9 commands and 185 passing tests.
 
 ## Install
 
@@ -78,6 +78,12 @@ Replace text across files (preview diff by default, write with `--apply`):
 
 ```
 patchloom replace --from 'old_name' --to 'new_name' src/ --apply
+```
+
+Regex replace with capture groups:
+
+```
+patchloom replace --regex --from 'version = "(\d+)\.(\d+)\.(\d+)"' --to 'version = "$1.$2.99"' Cargo.toml --apply
 ```
 
 ### doc

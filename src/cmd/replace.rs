@@ -319,6 +319,29 @@ mod tests {
     }
 
     #[test]
+    fn regex_capture_groups_in_replacement() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "version = \"1.2.3\"\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: r#"version = "(\d+)\.(\d+)\.(\d+)""#.to_string(),
+            to: r#"version = "$1.$2.99""#.to_string(),
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: false,
+            regex: true,
+            if_exists: false,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(
+            replacements[0].replaced, "version = \"1.2.99\"\n",
+            "capture groups $1/$2 should work in replacement text"
+        );
+    }
+
+    #[test]
     fn no_matches_returns_exit_3() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
