@@ -129,6 +129,32 @@ Prepend to an array:
 patchloom doc prepend config.json tags '"first-tag"' --apply
 ```
 
+Ensure a key exists (idempotent set, only writes if missing):
+
+```
+patchloom doc ensure config.json defaults.timeout 30 --apply
+```
+
+Move or rename a key:
+
+```
+patchloom doc move config.json old_name new_name --apply
+```
+
+Filter array items by selector:
+
+```
+patchloom doc select config.json "users[?active==true]"
+```
+
+Update all matching nodes:
+
+```
+patchloom doc update config.json "servers.*.enabled" true --apply
+```
+
+### md
+
 Replace a section in a Markdown file:
 
 ```
@@ -158,6 +184,20 @@ Append a row to a markdown table:
 ```
 patchloom md table-append --file README.md --heading "## Features" --row "| new | feature |" --apply
 ```
+
+Lint an AGENTS.md file for common issues:
+
+```
+patchloom md lint-agents --file AGENTS.md
+```
+
+Remove duplicate headings:
+
+```
+patchloom md dedupe-headings --file AGENTS.md --apply
+```
+
+### patch
 
 Apply a unified diff:
 
