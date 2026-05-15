@@ -132,4 +132,31 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn parse_unclosed_bracket_returns_error() {
+        let err = parse("items[0").unwrap_err();
+        assert!(
+            err.contains("unclosed bracket"),
+            "expected 'unclosed bracket', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_empty_predicate_key_returns_error() {
+        let err = parse("items[=value]").unwrap_err();
+        assert!(
+            err.contains("empty predicate key"),
+            "expected 'empty predicate key', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_invalid_bracket_content_returns_error() {
+        let err = parse("items[abc]").unwrap_err();
+        assert!(
+            err.contains("invalid bracket content"),
+            "expected 'invalid bracket content', got: {err}"
+        );
+    }
 }

@@ -1965,6 +1965,160 @@ fn test_search_invert_match_normal() {
 }
 
 // ---------------------------------------------------------------------------
+// tx: file.create, file.delete, write_policy, validate
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_file_create_and_delete() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.create", "path": "new.txt", "content": "hello"},
+            {"op": "file.delete", "path": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // Create then immediately delete in same tx: file should not exist after.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(
+        !dir.path().join("new.txt").exists(),
+        "file should not exist after create+delete in same tx"
+    );
+}
+
+#[test]
+fn test_tx_file_delete_existing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doomed.txt");
+    fs::write(&file, "goodbye\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.delete", "path": "doomed.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!file.exists(), "file should be deleted");
+}
+
+#[test]
+fn test_tx_write_policy_ensure_final_newline() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "no newline").unwrap();
+
+    let plan = serde_json::json!({
+        "write_policy": {
+            "ensure_final_newline": true
+        },
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        content.ends_with(b"\n"),
+        "write_policy should add final newline"
+    );
+    assert!(
+        String::from_utf8_lossy(&content).contains("has newline"),
+        "replace should still work"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc/patch error paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_nonexistent_file_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg("/nonexistent/file_xyz.json")
+        .arg("key")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_doc_get_unsupported_extension_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.ini");
+    fs::write(&file, "key=value\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("key")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_patch_malformed_file_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let patch_file = dir.path().join("bad.patch");
+    fs::write(&patch_file, "this is not a valid unified diff\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 
