@@ -1,5 +1,6 @@
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::cmd::doc::{deep_merge, detect_format, navigate_mut, parse_doc, serialize_value};
+use crate::cmd::md::{insert_after_heading_in, replace_section_in};
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::plan::{self, Operation, Plan};
@@ -20,10 +21,6 @@ pub struct TxArgs {
     pub plan: String,
 }
 
-// ---------------------------------------------------------------------------
-// Markdown helpers (adapted from cmd/md.rs)
-// ---------------------------------------------------------------------------
-
 /// Short label for an operation, used in error messages.
 fn op_label(op: &Operation) -> &'static str {
     match op {
@@ -38,32 +35,6 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
     }
-}
-
-fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
-    let (body_start, body_end) = crate::cmd::md::find_section(content, heading)?;
-    let mut out = String::with_capacity(content.len());
-    out.push_str(&content[..body_start]);
-    if !replacement.is_empty() {
-        out.push_str(replacement);
-        if !replacement.ends_with('\n') {
-            out.push('\n');
-        }
-    }
-    out.push_str(&content[body_end..]);
-    Some(out)
-}
-
-fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
-    let (body_start, _) = crate::cmd::md::find_section(content, heading)?;
-    let mut out = String::with_capacity(content.len() + insertion.len());
-    out.push_str(&content[..body_start]);
-    out.push_str(insertion);
-    if !insertion.is_empty() && !insertion.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push_str(&content[body_start..]);
-    Some(out)
 }
 
 // ---------------------------------------------------------------------------

@@ -237,7 +237,7 @@ fn apply_mutation(
 // Content mutation functions (pure, no I/O)
 // ---------------------------------------------------------------------------
 
-fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
+pub(crate) fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
     let (body_start, body_end) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
@@ -251,7 +251,7 @@ fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option
     Some(out)
 }
 
-fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+pub(crate) fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
     let (body_start, _) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len());
     out.push_str(&content[..body_start]);
