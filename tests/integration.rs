@@ -3699,6 +3699,41 @@ fn test_tx_json_output_with_create_and_delete() {
 }
 
 #[test]
+fn test_tx_json_output_on_operation_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": file.to_str().unwrap(),
+            "content": "should fail"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert!(json["error"]
+        .as_str()
+        .unwrap()
+        .contains("file already exists"));
+}
+
+#[test]
 fn test_tx_strict_mode_restores_deleted_file_on_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

@@ -16,8 +16,8 @@ use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -31,6 +31,8 @@ struct TxOutput {
     files_created: usize,
     files_deleted: usize,
     changes: Vec<TxChange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// A single file change in the tx output.
@@ -698,13 +700,22 @@ fn build_tx_output(
     for (path, original, _) in changes {
         let path_str = path.to_string_lossy().to_string();
         if deletions.contains(path) {
-            tx_changes.push(TxChange { path: path_str, action: "deleted" });
+            tx_changes.push(TxChange {
+                path: path_str,
+                action: "deleted",
+            });
             deleted_count += 1;
         } else if original.is_empty() {
-            tx_changes.push(TxChange { path: path_str, action: "created" });
+            tx_changes.push(TxChange {
+                path: path_str,
+                action: "created",
+            });
             created += 1;
         } else {
-            tx_changes.push(TxChange { path: path_str, action: "modified" });
+            tx_changes.push(TxChange {
+                path: path_str,
+                action: "modified",
+            });
             modified += 1;
         }
     }
@@ -726,6 +737,23 @@ fn build_tx_output(
         files_created: created,
         files_deleted: deleted_count,
         changes: tx_changes,
+        error: None,
+    }
+}
+
+fn emit_error_json(status: &str, error: &str) {
+    let output = TxOutput {
+        ok: false,
+        status: "error",
+        files_changed: 0,
+        files_created: 0,
+        files_deleted: 0,
+        changes: Vec::new(),
+        error: Some(format!("{status}: {error}")),
+    };
+    // Best-effort: if serialization fails, we can't do much.
+    if let Ok(json) = serde_json::to_string_pretty(&output) {
+        println!("{json}");
     }
 }
 
@@ -761,7 +789,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let plan = match plan::parse_plan(&plan_text) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("tx: plan parse error: {e}");
+            if global.json {
+                emit_error_json("parse_error", &e.to_string());
+            } else {
+                eprintln!("tx: plan parse error: {e}");
+            }
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -782,7 +814,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     for (i, op) in plan.operations.iter().enumerate() {
         if let Err(e) = execute_operation(op, &mut pending, &mut deletions) {
-            eprintln!("tx: operation {} ({}) failed: {e}", i + 1, op_label(op));
+            let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+            if global.json {
+                emit_error_json("rollback", &msg);
+            } else {
+                eprintln!("tx: {msg}");
+            }
             return Ok(exit::ROLLBACK);
         }
     }
@@ -913,8 +950,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         }
                     }
                 }
-                eprintln!("tx: strict mode -- all changes reverted");
+                if global.json {
+                    emit_error_json("rollback", "strict mode -- all changes reverted");
+                } else {
+                    eprintln!("tx: strict mode -- all changes reverted");
+                }
                 return Ok(exit::ROLLBACK);
+            }
+            if global.json {
+                emit_error_json("validation_failed", "format or validation step failed");
             }
             return Ok(exit::VALIDATION_FAILED);
         }

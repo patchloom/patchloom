@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 313 passing tests.
+V2 with 10 commands and 314 passing tests.
 
 ## Install
 
@@ -335,6 +335,12 @@ Read the plan from stdin:
 
 ```
 echo '{"operations": [...]}' | patchloom tx --plan - --apply
+```
+
+Get structured JSON output for CI pipelines:
+
+```
+patchloom --json tx --plan plan.json --apply
 ```
 
 ## Shell completions
