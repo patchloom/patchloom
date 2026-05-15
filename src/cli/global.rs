@@ -28,6 +28,10 @@ pub struct GlobalFlags {
     #[arg(long, global = true)]
     pub jsonl: bool,
 
+    /// Suppress non-JSON human-readable output.
+    #[arg(long, short = 'q', global = true)]
+    pub quiet: bool,
+
     /// Set working directory.
     #[arg(long, global = true)]
     pub cwd: Option<String>,

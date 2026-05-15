@@ -509,7 +509,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         "{}",
                         serde_json::to_string_pretty(&removed).expect("serialize removed")
                     );
-                } else {
+                } else if !global.quiet {
                     for h in &removed {
                         eprintln!("removed duplicate: {h}");
                     }

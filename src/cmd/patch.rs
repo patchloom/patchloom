@@ -403,7 +403,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             status: "missing".to_string(),
                             error: Some(msg.clone()),
                         });
-                        if !global.json && !global.jsonl {
+                        if !global.json && !global.jsonl && !global.quiet {
                             eprintln!("patch check: {} -- MISSING: {}", pf.path, msg);
                         }
                         all_clean = false;
@@ -417,7 +417,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             status: "clean".to_string(),
                             error: None,
                         });
-                        if !global.json && !global.jsonl {
+                        if !global.json && !global.jsonl && !global.quiet {
                             eprintln!("patch check: {} -- clean", pf.path);
                         }
                     }
@@ -427,7 +427,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             status: "stale".to_string(),
                             error: Some(msg.clone()),
                         });
-                        if !global.json && !global.jsonl {
+                        if !global.json && !global.jsonl && !global.quiet {
                             eprintln!("patch check: {} -- STALE: {}", pf.path, msg);
                         }
                         all_clean = false;
@@ -485,7 +485,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 for (file_path, patched) in &file_changes {
                     let policy = policy_from_flags(global, Some(file_path));
                     atomic_write(file_path, patched, &policy)?;
-                    eprintln!("patch apply: {} -- written", file_path.display());
+                    if !global.quiet {
+                        eprintln!("patch apply: {} -- written", file_path.display());
+                    }
                 }
                 if global.diff {
                     let result = DiffResult {
