@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 190 passing tests.
+V1 with 9 commands and 193 passing tests.
 
 ## Install
 
@@ -84,6 +84,12 @@ Replace text across files (preview diff by default, write with `--apply`):
 
 ```
 patchloom replace --from 'old_name' --to 'new_name' src/ --apply
+```
+
+Multiline regex replace (dot matches newlines, pattern spans lines):
+
+```
+patchloom replace --regex --multiline --from 'fn main\(\).*\}' --to 'fn main() {}' src/ --apply
 ```
 
 Regex replace with capture groups:

@@ -3,7 +3,7 @@ use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -27,6 +27,9 @@ pub struct ReplaceArgs {
     /// Return success even if no matches found (idempotent mode).
     #[arg(long)]
     pub if_exists: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    #[arg(long, short = 'U')]
+    pub multiline: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -90,7 +93,11 @@ fn collect_replacements(
     let file_paths = crate::collect_file_paths(&args.paths, global)?;
 
     let compiled_re = if args.regex {
-        Some(Regex::new(&args.from)?)
+        Some(
+            RegexBuilder::new(&args.from)
+                .dot_matches_new_line(args.multiline)
+                .build()?,
+        )
     } else {
         None
     };
@@ -274,6 +281,7 @@ mod tests {
             literal: true,
             regex: false,
             if_exists: false,
+            multiline: false,
             write: Default::default(),
         }
     }
@@ -309,6 +317,7 @@ mod tests {
             literal: false,
             regex: true,
             if_exists: false,
+            multiline: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -331,6 +340,7 @@ mod tests {
             literal: false,
             regex: true,
             if_exists: false,
+            multiline: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -428,6 +438,7 @@ mod tests {
             literal: true,
             regex: false,
             if_exists: true,
+            multiline: false,
             write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
@@ -447,6 +458,7 @@ mod tests {
             literal: true,
             regex: false,
             if_exists: true,
+            multiline: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -499,5 +511,52 @@ mod tests {
 
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "hi world\n");
+    }
+
+    #[test]
+    fn multiline_regex_spans_newlines() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "start\nmiddle\nend\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: r"start.*end".to_string(),
+            to: "replaced".to_string(),
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: false,
+            regex: true,
+            if_exists: false,
+            multiline: true,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 1);
+        assert_eq!(replacements[0].replaced, "replaced\n");
+    }
+
+    #[test]
+    fn multiline_false_does_not_span_newlines() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "start\nmiddle\nend\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: r"start.*end".to_string(),
+            to: "replaced".to_string(),
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: false,
+            regex: true,
+            if_exists: false,
+            multiline: false,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert!(
+            replacements.is_empty(),
+            "without multiline, dot should not match newlines"
+        );
     }
 }

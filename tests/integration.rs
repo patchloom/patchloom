@@ -271,6 +271,37 @@ fn test_replace_if_exists_no_match_exit_0() {
 }
 
 // ---------------------------------------------------------------------------
+// replace --multiline
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_multiline_regex() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn main() {\n    println!(\"hi\");\n}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--regex")
+        .arg("--multiline")
+        .arg("--from")
+        .arg(r"fn main\(\) \{.*\}")
+        .arg("--to")
+        .arg("fn main() { /* replaced */ }")
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("/* replaced */"),
+        "multiline replace should span newlines"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // doc
 // ---------------------------------------------------------------------------
 
