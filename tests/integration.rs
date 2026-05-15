@@ -778,6 +778,29 @@ fn test_doc_flatten_json_output() {
 }
 
 // ---------------------------------------------------------------------------
+// doc diff
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_diff_shows_changes() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"name":"old","keep":1}"#).unwrap();
+    fs::write(&b, r#"{"name":"new","keep":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("~ name"));
+}
+
+// ---------------------------------------------------------------------------
 // --check mode: exits 2 when changes detected, does NOT write
 // ---------------------------------------------------------------------------
 

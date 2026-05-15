@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 185 passing tests.
+V1 with 9 commands and 188 passing tests.
 
 ## Install
 
@@ -170,6 +170,12 @@ List all leaf key paths and values in a file:
 
 ```
 patchloom doc flatten config.json
+```
+
+Compare two structured files:
+
+```
+patchloom doc diff old.json new.json
 ```
 
 ### md

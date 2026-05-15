@@ -5,6 +5,7 @@ use crate::selector;
 use crate::write;
 use crate::write::policy_from_flags;
 use clap::Args;
+use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Args)]
@@ -83,6 +84,8 @@ pub enum DocAction {
     },
     /// List all leaf key paths and their values.
     Flatten { file: String },
+    /// Compare two structured files and show differences.
+    Diff { file_a: String, file_b: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +154,94 @@ fn flatten_value<'a>(
         }
         _ => {
             out.push((prefix, value));
+        }
+    }
+}
+
+/// Entry in a structured diff.
+#[derive(Debug, Clone, Serialize)]
+struct DiffEntry {
+    path: String,
+    kind: String, // "added", "removed", "changed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_value: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_value: Option<serde_json::Value>,
+}
+
+/// Compute structural differences between two JSON values.
+fn diff_values(
+    a: &serde_json::Value,
+    b: &serde_json::Value,
+    prefix: &str,
+    out: &mut Vec<DiffEntry>,
+) {
+    match (a, b) {
+        (serde_json::Value::Object(ma), serde_json::Value::Object(mb)) => {
+            for (k, va) in ma {
+                let path = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                if let Some(vb) = mb.get(k) {
+                    diff_values(va, vb, &path, out);
+                } else {
+                    out.push(DiffEntry {
+                        path,
+                        kind: "removed".to_string(),
+                        old_value: Some(va.clone()),
+                        new_value: None,
+                    });
+                }
+            }
+            for (k, vb) in mb {
+                if !ma.contains_key(k) {
+                    let path = if prefix.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{prefix}.{k}")
+                    };
+                    out.push(DiffEntry {
+                        path,
+                        kind: "added".to_string(),
+                        old_value: None,
+                        new_value: Some(vb.clone()),
+                    });
+                }
+            }
+        }
+        (serde_json::Value::Array(aa), serde_json::Value::Array(ab)) => {
+            let max_len = aa.len().max(ab.len());
+            for i in 0..max_len {
+                let path = format!("{prefix}[{i}]");
+                match (aa.get(i), ab.get(i)) {
+                    (Some(va), Some(vb)) => diff_values(va, vb, &path, out),
+                    (Some(va), None) => out.push(DiffEntry {
+                        path,
+                        kind: "removed".to_string(),
+                        old_value: Some(va.clone()),
+                        new_value: None,
+                    }),
+                    (None, Some(vb)) => out.push(DiffEntry {
+                        path,
+                        kind: "added".to_string(),
+                        old_value: None,
+                        new_value: Some(vb.clone()),
+                    }),
+                    (None, None) => {}
+                }
+            }
+        }
+        _ => {
+            if a != b {
+                out.push(DiffEntry {
+                    path: prefix.to_string(),
+                    kind: "changed".to_string(),
+                    old_value: Some(a.clone()),
+                    new_value: Some(b.clone()),
+                });
+            }
         }
     }
 }
@@ -846,6 +937,46 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             }
         }
 
+        DocAction::Diff { file_a, file_b } => {
+            let val_a = load_file(file_a)?;
+            let val_b = load_file(file_b)?;
+            let mut entries = Vec::new();
+            diff_values(&val_a, &val_b, "", &mut entries);
+            if entries.is_empty() {
+                return Ok(("identical\n".to_string(), exit::SUCCESS));
+            }
+            if json_mode {
+                Ok((
+                    serde_json::to_string_pretty(&entries).expect("serialize"),
+                    exit::SUCCESS,
+                ))
+            } else {
+                let mut out = String::new();
+                for e in &entries {
+                    match e.kind.as_str() {
+                        "added" => out.push_str(&format!(
+                            "+ {} = {}\n",
+                            e.path,
+                            format_value(e.new_value.as_ref().unwrap(), false)
+                        )),
+                        "removed" => out.push_str(&format!(
+                            "- {} = {}\n",
+                            e.path,
+                            format_value(e.old_value.as_ref().unwrap(), false)
+                        )),
+                        "changed" => out.push_str(&format!(
+                            "~ {} = {} -> {}\n",
+                            e.path,
+                            format_value(e.old_value.as_ref().unwrap(), false),
+                            format_value(e.new_value.as_ref().unwrap(), false)
+                        )),
+                        _ => {}
+                    }
+                }
+                Ok((out, exit::SUCCESS))
+            }
+        }
+
         // Write-mode subcommands are dispatched through execute_write() via run().
         DocAction::Set { .. }
         | DocAction::Delete { .. }
@@ -1391,6 +1522,51 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn diff_detects_added_removed_changed() {
+        let dir = TempDir::new().unwrap();
+        let a = write_file(
+            &dir,
+            "a.json",
+            r#"{"name":"old","version":1,"removed":true}"#,
+        );
+        let b = write_file(
+            &dir,
+            "b.json",
+            r#"{"name":"new","version":1,"added":"yes"}"#,
+        );
+        let action = DocAction::Diff {
+            file_a: a,
+            file_b: b,
+        };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(output.contains("~ name"), "should show changed: {output}");
+        assert!(
+            output.contains("- removed"),
+            "should show removed: {output}"
+        );
+        assert!(output.contains("+ added"), "should show added: {output}");
+        assert!(
+            !output.contains("version"),
+            "unchanged key should not appear: {output}"
+        );
+    }
+
+    #[test]
+    fn diff_identical_files() {
+        let dir = TempDir::new().unwrap();
+        let a = write_file(&dir, "a.json", r#"{"k":1}"#);
+        let b = write_file(&dir, "b.json", r#"{"k":1}"#);
+        let action = DocAction::Diff {
+            file_a: a,
+            file_b: b,
+        };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(output, "identical\n");
+    }
+
     fn flatten_enumerates_leaf_paths() {
         let dir = TempDir::new().unwrap();
         let path = write_file(
