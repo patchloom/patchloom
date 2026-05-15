@@ -52,6 +52,29 @@ fn test_completions_bash() {
 }
 
 // ---------------------------------------------------------------------------
+// --glob flag
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_glob_filters_by_pattern() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.rs"), "fn main() {}\n").unwrap();
+    fs::write(dir.path().join("skip.txt"), "fn main() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--glob")
+        .arg("*.rs")
+        .arg("search")
+        .arg("fn main")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("keep.rs"))
+        .stdout(predicate::str::contains("skip.txt").not());
+}
+
+// ---------------------------------------------------------------------------
 // --cwd flag
 // ---------------------------------------------------------------------------
 
@@ -553,6 +576,74 @@ fn test_tx_rollback_on_failure() {
         txt_content, "hello world\n",
         "file should not be modified on rollback"
     );
+}
+
+// ---------------------------------------------------------------------------
+// tx: atomic rollback
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_rollback_preserves_original_content() {
+    let dir = TempDir::new().unwrap();
+    let file_a = dir.path().join("a.json");
+    fs::write(&file_a, r#"{"key": "original"}"#).unwrap();
+    // b.json does not exist, so doc.set on it will fail.
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.set", "path": "a.json", "key": "key", "value": "changed"},
+            {"op": "doc.set", "path": "b.json", "key": "missing", "value": "fail"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // a.json should be unchanged (rolled back).
+    let content = fs::read_to_string(&file_a).unwrap();
+    assert_eq!(content, r#"{"key": "original"}"#, "a.json should be rolled back");
+}
+
+#[test]
+fn test_tx_success_applies_all() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"name": "old", "version": 1}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.set", "path": "config.json", "key": "name", "value": "new"},
+            {"op": "doc.set", "path": "config.json", "key": "version", "value": 2}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["name"], serde_json::json!("new"));
+    assert_eq!(v["version"], serde_json::json!(2));
 }
 
 // ---------------------------------------------------------------------------
