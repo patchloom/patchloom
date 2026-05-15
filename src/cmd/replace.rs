@@ -68,11 +68,19 @@ fn replace_content(
     compiled_re: Option<&Regex>,
 ) -> (String, usize) {
     if let Some(re) = compiled_re {
-        let count = re.find_iter(content).count();
+        // Single-pass: count replacements while producing the result.
+        let mut count = 0usize;
+        let replaced = re
+            .replace_all(content, |caps: &regex::Captures| {
+                count += 1;
+                let mut dst = String::new();
+                caps.expand(to, &mut dst);
+                dst
+            })
+            .to_string();
         if count == 0 {
             return (content.to_owned(), 0);
         }
-        let replaced = re.replace_all(content, to).to_string();
         (replaced, count)
     } else {
         let count = content.matches(from).count();
