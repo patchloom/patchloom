@@ -1192,6 +1192,31 @@ fn test_json_output() {
     assert!(v["matches"].is_array(), "matches should be an array");
 }
 
+#[test]
+fn test_replace_json_check_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("file.txt"), "hello world\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("bye")
+        .arg("--check")
+        .arg(dir.path())
+        .assert()
+        .code(2); // CHANGES_DETECTED
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+    assert_eq!(v["ok"], serde_json::json!(true));
+    assert!(v["files"].is_array(), "files should list affected paths");
+}
+
 // ---------------------------------------------------------------------------
 // CLI flags
 // ---------------------------------------------------------------------------
