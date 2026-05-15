@@ -269,7 +269,7 @@ fn format_value(value: &serde_json::Value, json_mode: bool) -> String {
 ///
 /// Recognition order: JSON-quoted string, JSON object/array, boolean, null,
 /// i64, f64, then fallback to bare string.
-fn parse_value(s: &str) -> serde_json::Value {
+pub(crate) fn parse_value(s: &str) -> serde_json::Value {
     // JSON-quoted string
     if s.starts_with('"') && s.ends_with('"') {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
@@ -410,7 +410,7 @@ pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value
 
 /// Recursively update all values matched by `segments`, replacing each with
 /// `new_val`.  Returns the number of values updated.
-fn update_matching(
+pub(crate) fn update_matching(
     value: &mut serde_json::Value,
     segments: &[selector::Segment],
     new_val: &serde_json::Value,

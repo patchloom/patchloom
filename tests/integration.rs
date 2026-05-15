@@ -2785,3 +2785,711 @@ fn test_editorconfig_final_newline() {
         "file should end with a newline after editorconfig-driven fix"
     );
 }
+
+// ---------------------------------------------------------------------------
+// New features: tx plan ops, --nth, --case-insensitive, multi-glob, delete,
+// md insert-before-heading, file.create force, format steps, patch.apply in tx
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_nth_replaces_only_nth_occurrence() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo bar foo baz foo\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("foo")
+        .arg("--to")
+        .arg("REPLACED")
+        .arg("--nth")
+        .arg("2")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "foo bar REPLACED baz foo\n");
+}
+
+#[test]
+fn test_replace_nth_no_match_when_out_of_range() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo bar\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("foo")
+        .arg("--to")
+        .arg("REPLACED")
+        .arg("--nth")
+        .arg("5")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .code(3); // NO_MATCHES
+
+    // File unchanged.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "foo bar\n");
+}
+
+#[test]
+fn test_search_case_insensitive() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "Hello World\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-i")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Hello World"));
+}
+
+#[test]
+fn test_replace_case_insensitive() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "Hello HELLO hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("HI")
+        .arg("-i")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "HI HI HI\n");
+}
+
+#[test]
+fn test_multi_glob_filters_multiple_patterns() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "match\n").unwrap();
+    fs::write(dir.path().join("b.md"), "match\n").unwrap();
+    fs::write(dir.path().join("c.txt"), "match\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("match")
+        .arg("--glob")
+        .arg("*.rs")
+        .arg("--glob")
+        .arg("*.md")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("a.rs"));
+    assert!(stdout.contains("b.md"));
+    assert!(!stdout.contains("c.txt"));
+}
+
+#[test]
+fn test_delete_removes_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doomed.txt");
+    fs::write(&file, "bye\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!file.exists());
+}
+
+#[test]
+fn test_delete_check_mode_does_not_remove() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "still here\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    assert!(file.exists());
+}
+
+#[test]
+fn test_delete_nonexistent_file_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ghost.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_md_insert_before_heading() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Title\n\nIntro.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("insert-before-heading")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("Section B")
+        .arg("--content")
+        .arg("Inserted before B.")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("Inserted before B.\n\n## Section B"));
+}
+
+#[test]
+fn test_tx_file_create_force_overwrites() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": file.to_str().unwrap(),
+            "content": "overwritten\n",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "overwritten\n");
+}
+
+#[test]
+fn test_tx_file_create_without_force_fails_on_existing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": file.to_str().unwrap(),
+            "content": "should fail\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+}
+
+#[test]
+fn test_tx_format_step_runs_between_write_and_validate() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "before\n").unwrap();
+
+    // The format step creates a marker file to prove it ran.
+    let marker = dir.path().join("format_ran");
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "before",
+            "to": "after"
+        }],
+        "format": [{"cmd": format!("touch {}", marker.to_str().unwrap())}],
+        "validate": [{"cmd": format!("test -f {}", marker.to_str().unwrap()), "required": true}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
+    assert!(marker.exists(), "format step should have created marker");
+}
+
+#[test]
+fn test_tx_doc_prepend_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items": [1, 2, 3]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.prepend",
+            "path": file.to_str().unwrap(),
+            "key": "items",
+            "value": 0
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["items"][0], 0);
+    assert_eq!(v["items"][1], 1);
+}
+
+#[test]
+fn test_tx_doc_ensure_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"name": "test"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "version", "value": "1.0"},
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "name", "value": "ignored"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["version"], "1.0");
+    assert_eq!(v["name"], "test"); // Not overwritten.
+}
+
+#[test]
+fn test_tx_doc_move_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"old_key": "value"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.move",
+            "path": file.to_str().unwrap(),
+            "from": "old_key",
+            "to": "new_key"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["new_key"], "value");
+    assert!(v.get("old_key").is_none());
+}
+
+#[test]
+fn test_tx_doc_delete_where_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(
+        &file,
+        r#"{"items": [{"name": "keep"}, {"name": "remove"}, {"name": "keep2"}]}"#,
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.delete_where",
+            "path": file.to_str().unwrap(),
+            "key": "items",
+            "predicate": "name=remove"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "keep");
+    assert_eq!(items[1]["name"], "keep2");
+}
+
+#[test]
+fn test_tx_doc_update_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(
+        &file,
+        r#"{"items": [{"status": "open"}, {"status": "open"}, {"status": "closed"}]}"#,
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.update",
+            "path": file.to_str().unwrap(),
+            "key": "items[*].status",
+            "value": "archived"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert!(items.iter().all(|i| i["status"] == "archived"));
+}
+
+#[test]
+fn test_tx_md_insert_before_heading_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\n\n## Section\n\nContent.\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "md.insert_before_heading",
+            "path": file.to_str().unwrap(),
+            "heading": "Section",
+            "content": "Inserted before."
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("Inserted before.\n\n## Section"));
+}
+
+#[test]
+fn test_tx_md_upsert_bullet_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Rules\n\n- existing rule\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "md.upsert_bullet",
+            "path": file.to_str().unwrap(),
+            "heading": "Rules",
+            "bullet": "- new rule"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("- existing rule"));
+    assert!(content.contains("- new rule"));
+}
+
+#[test]
+fn test_tx_md_table_append_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Targets\n\n| Name | Desc |\n|------|------|\n| build | compile |\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "md.table_append",
+            "path": file.to_str().unwrap(),
+            "heading": "Targets",
+            "row": "| test | run tests |"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("| test | run tests |"));
+}
+
+#[test]
+fn test_tx_md_dedupe_headings_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Title\n\nFirst.\n\n## Dupe\n\nA.\n\n## Dupe\n\nB.\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "md.dedupe_headings",
+            "path": file.to_str().unwrap()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    // Only one "## Dupe" heading should remain.
+    assert_eq!(content.matches("## Dupe").count(), 1);
+}
+
+#[test]
+fn test_tx_replace_nth_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa bbb aaa ccc aaa\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "aaa",
+            "to": "ZZZ",
+            "nth": 2
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa bbb ZZZ ccc aaa\n");
+}
+
+#[test]
+fn test_tx_patch_apply_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let diff = format!(
+        "--- a/{f}\n+++ b/{f}\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+        f = file.to_str().unwrap()
+    );
+
+    let plan = serde_json::json!({
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": diff
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nnew line\nline3\n"
+    );
+}
+
+#[test]
+fn test_tx_multi_op_batch_all_new_ops() {
+    // A realistic batch: replace + doc ops + md ops + file create in one plan.
+    let dir = TempDir::new().unwrap();
+
+    let txt = dir.path().join("code.txt");
+    fs::write(&txt, "foo bar foo baz\n").unwrap();
+
+    let json_file = dir.path().join("config.json");
+    fs::write(
+        &json_file,
+        r#"{"name": "old", "items": [{"id": 1}, {"id": 2}]}"#,
+    )
+    .unwrap();
+
+    let md_file = dir.path().join("agents.md");
+    fs::write(
+        &md_file,
+        "# Rules\n\n- rule one\n\n## Targets\n\n| Name | Desc |\n|------|------|\n| build | compile |\n",
+    )
+    .unwrap();
+
+    let new_file = dir.path().join("new.txt");
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": txt.to_str().unwrap(), "from": "foo", "to": "XXX", "nth": 1},
+            {"op": "doc.set", "path": json_file.to_str().unwrap(), "key": "name", "value": "new"},
+            {"op": "doc.ensure", "path": json_file.to_str().unwrap(), "key": "version", "value": "1.0"},
+            {"op": "md.upsert_bullet", "path": md_file.to_str().unwrap(), "heading": "Rules", "bullet": "- rule two"},
+            {"op": "md.table_append", "path": md_file.to_str().unwrap(), "heading": "Targets", "row": "| test | run tests |"},
+            {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "created!\n"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    // Verify replace --nth 1.
+    assert_eq!(fs::read_to_string(&txt).unwrap(), "XXX bar foo baz\n");
+
+    // Verify doc.set + doc.ensure.
+    let v: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&json_file).unwrap()).unwrap();
+    assert_eq!(v["name"], "new");
+    assert_eq!(v["version"], "1.0");
+
+    // Verify md.upsert_bullet + md.table_append.
+    let md = fs::read_to_string(&md_file).unwrap();
+    assert!(md.contains("- rule two"));
+    assert!(md.contains("| test | run tests |"));
+
+    // Verify file.create.
+    assert_eq!(fs::read_to_string(&new_file).unwrap(), "created!\n");
+}

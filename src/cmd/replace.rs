@@ -30,6 +30,12 @@ pub struct ReplaceArgs {
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[arg(long, short = 'U')]
     pub multiline: bool,
+    /// Replace only the Nth occurrence (1-based).
+    #[arg(long)]
+    pub nth: Option<usize>,
+    /// Case-insensitive matching.
+    #[arg(long, short = 'i')]
+    pub case_insensitive: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -66,8 +72,42 @@ fn replace_content(
     from: &str,
     to: &str,
     compiled_re: Option<&Regex>,
+    nth: Option<usize>,
 ) -> (String, usize) {
-    if let Some(re) = compiled_re {
+    if let Some(n) = nth {
+        // Replace only the Nth occurrence (1-based).
+        if let Some(re) = compiled_re {
+            let mut count = 0usize;
+            let mut result = String::with_capacity(content.len());
+            for m in re.find_iter(content) {
+                count += 1;
+                if count == n {
+                    result.push_str(&content[..m.start()]);
+                    let mut dst = String::new();
+                    if let Some(caps) = re.captures(&content[m.start()..]) {
+                        caps.expand(to, &mut dst);
+                    }
+                    result.push_str(&dst);
+                    result.push_str(&content[m.end()..]);
+                    return (result, 1);
+                }
+            }
+            (content.to_owned(), 0)
+        } else {
+            let mut count = 0usize;
+            let mut result = String::with_capacity(content.len());
+            for (start, _) in content.match_indices(from) {
+                count += 1;
+                if count == n {
+                    result.push_str(&content[..start]);
+                    result.push_str(to);
+                    result.push_str(&content[start + from.len()..]);
+                    return (result, 1);
+                }
+            }
+            (content.to_owned(), 0)
+        }
+    } else if let Some(re) = compiled_re {
         // Single-pass: count replacements while producing the result.
         let mut count = 0usize;
         let replaced = re
@@ -104,6 +144,14 @@ fn collect_replacements(
         Some(
             RegexBuilder::new(&args.from)
                 .dot_matches_new_line(args.multiline)
+                .case_insensitive(args.case_insensitive)
+                .build()?,
+        )
+    } else if args.case_insensitive {
+        // For literal mode with case-insensitive, use regex with escaped pattern.
+        Some(
+            RegexBuilder::new(&regex::escape(&args.from))
+                .case_insensitive(true)
                 .build()?,
         )
     } else {
@@ -132,8 +180,13 @@ fn collect_replacements(
             Err(_) => continue,
         };
 
-        let (replaced, count) =
-            replace_content(&content, &args.from, &args.to, compiled_re.as_ref());
+        let (replaced, count) = replace_content(
+            &content,
+            &args.from,
+            &args.to,
+            compiled_re.as_ref(),
+            args.nth,
+        );
 
         if count > 0 {
             replacements.push(FileReplacement {
@@ -288,6 +341,8 @@ mod tests {
             regex: false,
             if_exists: false,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         }
     }
@@ -324,6 +379,8 @@ mod tests {
             regex: true,
             if_exists: false,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -347,6 +404,8 @@ mod tests {
             regex: true,
             if_exists: false,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -445,6 +504,8 @@ mod tests {
             regex: false,
             if_exists: true,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
@@ -465,6 +526,8 @@ mod tests {
             regex: false,
             if_exists: true,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -533,6 +596,8 @@ mod tests {
             regex: true,
             if_exists: false,
             multiline: true,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -556,6 +621,8 @@ mod tests {
             regex: true,
             if_exists: false,
             multiline: false,
+            nth: None,
+            case_insensitive: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();

@@ -8,7 +8,14 @@ pub struct Plan {
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
     pub operations: Vec<Operation>,
+    pub format: Option<Vec<FormatStep>>,
     pub validate: Option<Vec<ValidationStep>>,
+}
+
+/// A format step to run after applying operations but before validation.
+#[derive(Debug, Deserialize)]
+pub struct FormatStep {
+    pub cmd: String,
 }
 
 /// Write policy settings specified in the plan.
@@ -30,6 +37,7 @@ pub enum Operation {
         mode: Option<String>,
         from: String,
         to: String,
+        nth: Option<usize>,
     },
     #[serde(rename = "doc.set")]
     DocSet {
@@ -50,6 +58,36 @@ pub enum Operation {
         key: String,
         value: serde_json::Value,
     },
+    #[serde(rename = "doc.prepend")]
+    DocPrepend {
+        path: String,
+        key: String,
+        value: serde_json::Value,
+    },
+    #[serde(rename = "doc.update")]
+    DocUpdate {
+        path: String,
+        key: String,
+        value: serde_json::Value,
+    },
+    #[serde(rename = "doc.move")]
+    DocMove {
+        path: String,
+        from: String,
+        to: String,
+    },
+    #[serde(rename = "doc.ensure")]
+    DocEnsure {
+        path: String,
+        key: String,
+        value: serde_json::Value,
+    },
+    #[serde(rename = "doc.delete_where")]
+    DocDeleteWhere {
+        path: String,
+        key: String,
+        predicate: String,
+    },
     #[serde(rename = "md.replace_section")]
     MdReplaceSection {
         path: String,
@@ -62,15 +100,44 @@ pub enum Operation {
         heading: String,
         content: String,
     },
+    #[serde(rename = "md.insert_before_heading")]
+    MdInsertBeforeHeading {
+        path: String,
+        heading: String,
+        content: String,
+    },
+    #[serde(rename = "md.upsert_bullet")]
+    MdUpsertBullet {
+        path: String,
+        heading: String,
+        bullet: String,
+    },
+    #[serde(rename = "md.table_append")]
+    MdTableAppend {
+        path: String,
+        heading: String,
+        row: String,
+    },
+    #[serde(rename = "md.dedupe_headings")]
+    MdDedupeHeadings { path: String },
     #[serde(rename = "hygiene.fix")]
     HygieneFix {
         path: String,
         ensure_final_newline: Option<bool>,
     },
     #[serde(rename = "file.create")]
-    FileCreate { path: String, content: String },
+    FileCreate {
+        path: String,
+        content: String,
+        force: Option<bool>,
+    },
     #[serde(rename = "file.delete")]
     FileDelete { path: String },
+    #[serde(rename = "patch.apply")]
+    PatchApply {
+        /// Inline diff text to apply.
+        diff: String,
+    },
 }
 
 /// A validation step to run after applying operations.
@@ -132,17 +199,42 @@ mod tests {
     fn parse_all_operation_variants() {
         let json = r#"{"operations": [
             {"op": "replace", "from": "a", "to": "b"},
+            {"op": "replace", "from": "a", "to": "b", "nth": 2},
             {"op": "doc.set", "path": "f.json", "key": "k", "value": 1},
             {"op": "doc.delete", "path": "f.json", "key": "k"},
             {"op": "doc.merge", "path": "f.json", "value": {}},
             {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "key": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "key": "k", "value": 2},
+            {"op": "doc.move", "path": "f.json", "from": "a", "to": "b"},
+            {"op": "doc.ensure", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "key": "arr", "predicate": "name=x"},
             {"op": "md.replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_after_heading", "path": "f.md", "heading": "H", "content": "c"},
+            {"op": "md.insert_before_heading", "path": "f.md", "heading": "H", "content": "c"},
+            {"op": "md.upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
+            {"op": "md.table_append", "path": "f.md", "heading": "H", "row": "| a | b |"},
+            {"op": "md.dedupe_headings", "path": "f.md"},
             {"op": "hygiene.fix", "path": "f.txt"},
             {"op": "file.create", "path": "f.txt", "content": "c"},
-            {"op": "file.delete", "path": "f.txt"}
+            {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
+            {"op": "file.delete", "path": "f.txt"},
+            {"op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 10);
+        assert_eq!(plan.operations.len(), 22);
+    }
+
+    #[test]
+    fn parse_plan_with_format_steps() {
+        let json = r#"{
+            "operations": [],
+            "format": [{"cmd": "cargo fmt"}],
+            "validate": [{"cmd": "make check"}]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+        let fmt = plan.format.unwrap();
+        assert_eq!(fmt.len(), 1);
+        assert_eq!(fmt[0].cmd, "cargo fmt");
     }
 }

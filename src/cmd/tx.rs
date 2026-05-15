@@ -1,6 +1,12 @@
 use crate::cli::global::{EolMode, GlobalFlags};
-use crate::cmd::doc::{deep_merge, detect_format, navigate_mut, parse_doc, serialize_value};
-use crate::cmd::md::{insert_after_heading_in, replace_section_in};
+use crate::cmd::doc::{
+    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, update_matching,
+};
+use crate::cmd::md::{
+    dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
+    table_append_for_tx, upsert_bullet_in,
+};
+use crate::cmd::patch::apply_patch_to_content;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::plan::{self, Operation, Plan};
@@ -31,11 +37,21 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::DocDelete { .. } => "doc.delete",
         Operation::DocMerge { .. } => "doc.merge",
         Operation::DocAppend { .. } => "doc.append",
+        Operation::DocPrepend { .. } => "doc.prepend",
+        Operation::DocUpdate { .. } => "doc.update",
+        Operation::DocMove { .. } => "doc.move",
+        Operation::DocEnsure { .. } => "doc.ensure",
+        Operation::DocDeleteWhere { .. } => "doc.delete_where",
         Operation::MdReplaceSection { .. } => "md.replace_section",
         Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
+        Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
+        Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
+        Operation::MdTableAppend { .. } => "md.table_append",
+        Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
         Operation::HygieneFix { .. } => "hygiene.fix",
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
+        Operation::PatchApply { .. } => "patch.apply",
     }
 }
 
@@ -72,8 +88,43 @@ fn update_file_content(
 // String replacement helper
 // ---------------------------------------------------------------------------
 
-fn do_replace(content: &str, from: &str, to: &str, compiled_re: Option<&Regex>) -> String {
-    if let Some(re) = compiled_re {
+fn do_replace(
+    content: &str,
+    from: &str,
+    to: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+) -> String {
+    if let Some(n) = nth {
+        // Replace only the Nth occurrence (1-based).
+        let mut count = 0usize;
+        if let Some(re) = compiled_re {
+            let mut result = String::with_capacity(content.len());
+            for m in re.find_iter(content) {
+                count += 1;
+                if count == n {
+                    result.push_str(&content[..m.start()]);
+                    result.push_str(to);
+                    result.push_str(&content[m.end()..]);
+                    return result;
+                }
+            }
+            // Nth occurrence not found; return content unchanged.
+            content.to_string()
+        } else {
+            let mut result = String::with_capacity(content.len());
+            for (start, _) in content.match_indices(from) {
+                count += 1;
+                if count == n {
+                    result.push_str(&content[..start]);
+                    result.push_str(to);
+                    result.push_str(&content[start + from.len()..]);
+                    return result;
+                }
+            }
+            content.to_string()
+        }
+    } else if let Some(re) = compiled_re {
         re.replace_all(content, to).to_string()
     } else {
         content.replace(from, to)
@@ -96,6 +147,7 @@ fn execute_operation(
             mode,
             from,
             to,
+            nth,
         } => {
             let compiled_re = if mode.as_deref() == Some("regex") {
                 Some(Regex::new(from)?)
@@ -106,7 +158,7 @@ fn execute_operation(
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let replaced = do_replace(&content, from, to, compiled_re.as_ref());
+                let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
                 update_file_content(pending, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
@@ -129,7 +181,7 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let replaced = do_replace(&content, from, to, compiled_re.as_ref());
+                    let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
                     update_file_content(pending, &file_path, replaced);
                 }
             } else {
@@ -239,6 +291,192 @@ fn execute_operation(
             update_file_content(pending, &file_path, new_content);
         }
 
+        Operation::DocPrepend { path, key, value } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            let format = detect_format(path)?;
+            let mut root = parse_doc(&content, &format)?;
+
+            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+            let target = navigate_mut(&mut root, &sel, false)?;
+            let arr = target
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("target is not an array"))?;
+            arr.insert(0, value.clone());
+
+            let new_content = serialize_value(&root, &format)?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::DocUpdate { path, key, value } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            let format = detect_format(path)?;
+            let mut root = parse_doc(&content, &format)?;
+
+            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let count = update_matching(&mut root, &sel, value);
+            if count == 0 {
+                anyhow::bail!("no matching nodes found for selector '{key}'");
+            }
+
+            let new_content = serialize_value(&root, &format)?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::DocMove { path, from, to } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            let format = detect_format(path)?;
+            let mut root = parse_doc(&content, &format)?;
+
+            let from_sel =
+                selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+            // Remove value at source path.
+            let removed = {
+                let last = from_sel
+                    .last()
+                    .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
+                let parent_path = &from_sel[..from_sel.len() - 1];
+                let parent = navigate_mut(&mut root, parent_path, false)?;
+                match last {
+                    selector::Segment::Key(k) => parent
+                        .as_object_mut()
+                        .and_then(|obj| obj.remove(k.as_str()))
+                        .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
+                    selector::Segment::Index(i) => {
+                        let arr = parent
+                            .as_array_mut()
+                            .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+                        if *i < arr.len() {
+                            arr.remove(*i)
+                        } else {
+                            anyhow::bail!("source index {i} out of bounds");
+                        }
+                    }
+                    _ => anyhow::bail!("cannot move from wildcard/predicate"),
+                }
+            };
+
+            // Insert at destination path.
+            {
+                let last = to_sel
+                    .last()
+                    .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
+                let parent_path = &to_sel[..to_sel.len() - 1];
+                let parent = navigate_mut(&mut root, parent_path, true)?;
+                match last {
+                    selector::Segment::Key(k) => {
+                        parent
+                            .as_object_mut()
+                            .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
+                            .insert(k.clone(), removed);
+                    }
+                    selector::Segment::Index(i) => {
+                        let arr = parent
+                            .as_array_mut()
+                            .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                        if *i <= arr.len() {
+                            arr.insert(*i, removed);
+                        } else {
+                            anyhow::bail!("target index {i} out of bounds");
+                        }
+                    }
+                    _ => anyhow::bail!("cannot move to wildcard/predicate"),
+                }
+            }
+
+            let new_content = serialize_value(&root, &format)?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::DocEnsure { path, key, value } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            let format = detect_format(path)?;
+            let mut root = parse_doc(&content, &format)?;
+
+            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+            // If the path already exists, no-op.
+            if !selector::eval(&root, &sel).is_empty() {
+                return Ok(());
+            }
+
+            let last = sel
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
+            let parent_path = &sel[..sel.len() - 1];
+            let parent = navigate_mut(&mut root, parent_path, true)?;
+
+            match last {
+                selector::Segment::Key(k) => {
+                    parent
+                        .as_object_mut()
+                        .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
+                        .insert(k.clone(), value.clone());
+                }
+                selector::Segment::Index(i) => {
+                    let arr = parent
+                        .as_array_mut()
+                        .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+                    if *i < arr.len() {
+                        arr[*i] = value.clone();
+                    } else {
+                        anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
+                    }
+                }
+                _ => anyhow::bail!("cannot ensure at wildcard/predicate"),
+            }
+
+            let new_content = serialize_value(&root, &format)?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::DocDeleteWhere {
+            path,
+            key,
+            predicate,
+        } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            let format = detect_format(path)?;
+            let mut root = parse_doc(&content, &format)?;
+
+            let sel = selector::parse(key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+            let eq_pos = predicate
+                .find('=')
+                .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
+            let pred_key = &predicate[..eq_pos];
+            let pred_val = &predicate[eq_pos + 1..];
+
+            let target = navigate_mut(&mut root, &sel, false)?;
+            let arr = target
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
+
+            arr.retain(|item| {
+                if let Some(field) = item.get(pred_key) {
+                    let matches = match field {
+                        serde_json::Value::String(s) => s == pred_val,
+                        serde_json::Value::Number(n) => n.to_string() == pred_val,
+                        serde_json::Value::Bool(b) => b.to_string() == pred_val,
+                        _ => false,
+                    };
+                    !matches
+                } else {
+                    true
+                }
+            });
+
+            let new_content = serialize_value(&root, &format)?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
         Operation::MdReplaceSection {
             path,
             heading,
@@ -263,6 +501,45 @@ fn execute_operation(
             update_file_content(pending, &file_path, new_content);
         }
 
+        Operation::MdInsertBeforeHeading {
+            path,
+            heading,
+            content,
+        } => {
+            let file_path = PathBuf::from(path);
+            let file_content = read_file_content(pending, &file_path)?;
+            let new_content = insert_before_heading_in(&file_content, heading, content)
+                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::MdUpsertBullet {
+            path,
+            heading,
+            bullet,
+        } => {
+            let file_path = PathBuf::from(path);
+            let file_content = read_file_content(pending, &file_path)?;
+            let new_content = upsert_bullet_in(&file_content, heading, bullet)
+                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::MdTableAppend { path, heading, row } => {
+            let file_path = PathBuf::from(path);
+            let file_content = read_file_content(pending, &file_path)?;
+            let new_content = table_append_for_tx(&file_content, heading, row)
+                .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
+            update_file_content(pending, &file_path, new_content);
+        }
+
+        Operation::MdDedupeHeadings { path } => {
+            let file_path = PathBuf::from(path);
+            let file_content = read_file_content(pending, &file_path)?;
+            let (new_content, _removed) = dedupe_headings_in(&file_content);
+            update_file_content(pending, &file_path, new_content);
+        }
+
         Operation::HygieneFix {
             path,
             ensure_final_newline,
@@ -276,12 +553,37 @@ fn execute_operation(
             update_file_content(pending, &file_path, new);
         }
 
-        Operation::FileCreate { path, content } => {
+        Operation::FileCreate {
+            path,
+            content,
+            force,
+        } => {
             let file_path = PathBuf::from(path);
-            if pending.contains_key(&file_path) || file_path.exists() {
-                anyhow::bail!("file already exists: {path}");
+            if force.unwrap_or(false) {
+                // Force mode: overwrite existing content.
+                if pending.contains_key(&file_path) || file_path.exists() {
+                    let current = read_file_content(pending, &file_path)?;
+                    let _ = current; // Just ensure it's loaded.
+                    update_file_content(pending, &file_path, content.clone());
+                } else {
+                    pending.insert(file_path, (String::new(), content.clone()));
+                }
+            } else {
+                if pending.contains_key(&file_path) || file_path.exists() {
+                    anyhow::bail!("file already exists: {path}");
+                }
+                pending.insert(file_path, (String::new(), content.clone()));
             }
-            pending.insert(file_path, (String::new(), content.clone()));
+        }
+
+        Operation::PatchApply { diff } => {
+            let patched_files = apply_patch_to_content(diff)?;
+            for (rel_path, patched_content) in patched_files {
+                let file_path = PathBuf::from(&rel_path);
+                // Ensure the original is loaded.
+                let _ = read_file_content(pending, &file_path)?;
+                update_file_content(pending, &file_path, patched_content);
+            }
         }
 
         Operation::FileDelete { path } => {
@@ -440,7 +742,25 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             print_diffs(&changes);
         }
 
-        // 8. Run validation steps.
+        // 8. Run format steps (between writes and validation).
+        if let Some(ref format_steps) = plan.format {
+            for step in format_steps {
+                let output = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(&step.cmd)
+                    .output()?;
+
+                if !output.status.success() {
+                    eprintln!("tx: format step failed: {}", step.cmd);
+                    if !output.stderr.is_empty() {
+                        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                    }
+                    return Ok(exit::VALIDATION_FAILED);
+                }
+            }
+        }
+
+        // 9. Run validation steps.
         if let Some(ref validate) = plan.validate {
             for step in validate {
                 let output = std::process::Command::new("sh")

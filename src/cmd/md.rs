@@ -42,6 +42,17 @@ pub enum MdAction {
         #[arg(long)]
         content: Option<String>,
     },
+    /// Insert content before a heading.
+    InsertBeforeHeading {
+        #[arg(long)]
+        file: String,
+        #[arg(long)]
+        heading: String,
+        #[arg(long)]
+        stdin: bool,
+        #[arg(long)]
+        content: Option<String>,
+    },
     /// Add a bullet under a heading if not already present.
     UpsertBullet {
         #[arg(long)]
@@ -273,7 +284,38 @@ pub(crate) fn insert_after_heading_in(
     Some(out)
 }
 
-fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
+pub(crate) fn insert_before_heading_in(
+    content: &str,
+    heading: &str,
+    insertion: &str,
+) -> Option<String> {
+    let headings = parse_headings(content);
+    let offsets = line_byte_starts(content);
+    let query = normalize_heading_query(heading);
+
+    for h in &headings {
+        if h.text.trim() == query {
+            let heading_start = offsets[h.line_start];
+            let mut out = String::with_capacity(content.len() + insertion.len());
+            out.push_str(&content[..heading_start]);
+            if !insertion.is_empty() {
+                out.push_str(insertion);
+                if !insertion.ends_with('\n') {
+                    out.push('\n');
+                }
+                // Ensure a blank line between inserted content and the heading.
+                if !out.ends_with("\n\n") {
+                    out.push('\n');
+                }
+            }
+            out.push_str(&content[heading_start..]);
+            return Some(out);
+        }
+    }
+    None
+}
+
+pub(crate) fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
     let (body_start, body_end) = find_section(content, heading)?;
     let body = &content[body_start..body_end];
 
@@ -304,7 +346,7 @@ fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String
     Some(out)
 }
 
-fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
+pub(crate) fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
     let mut seen: HashSet<(usize, String)> = HashSet::new();
@@ -399,6 +441,13 @@ fn table_append_in(content: &str, body_start: usize, body_end: usize, row: &str)
     Some(out)
 }
 
+/// Table-append wrapper for use from tx plans. Finds the heading section,
+/// then delegates to `table_append_in`.
+pub(crate) fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
+    let (body_start, body_end) = find_section(content, heading)?;
+    table_append_in(content, body_start, body_end, row)
+}
+
 // ---------------------------------------------------------------------------
 // Lint
 // ---------------------------------------------------------------------------
@@ -483,6 +532,20 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let insertion = read_content(stdin, &content)?;
             let original = std::fs::read_to_string(&file)?;
             match insert_after_heading_in(&original, &heading, &insertion) {
+                Some(new) => apply_mutation(&file, &original, &new, global),
+                None => Ok(exit::NO_MATCHES),
+            }
+        }
+
+        MdAction::InsertBeforeHeading {
+            file,
+            heading,
+            stdin,
+            content,
+        } => {
+            let insertion = read_content(stdin, &content)?;
+            let original = std::fs::read_to_string(&file)?;
+            match insert_before_heading_in(&original, &heading, &insertion) {
                 Some(new) => apply_mutation(&file, &original, &new, global),
                 None => Ok(exit::NO_MATCHES),
             }

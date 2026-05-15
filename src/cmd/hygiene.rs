@@ -352,7 +352,7 @@ mod tests {
 
         // Filter to only *.rs — should find no issues.
         let mut global = flags_for(tmp.path());
-        global.glob = Some("*.rs".to_string());
+        global.glob = vec!["*.rs".to_string()];
 
         let issues = collect_issues(&[".".to_string()], &global).unwrap();
         assert!(
@@ -361,7 +361,7 @@ mod tests {
         );
 
         // Filter to only *.txt — should find the missing newline.
-        global.glob = Some("*.txt".to_string());
+        global.glob = vec!["*.txt".to_string()];
         let issues = collect_issues(&[".".to_string()], &global).unwrap();
         assert!(
             !issues.is_empty(),

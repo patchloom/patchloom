@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 9 commands and 268 passing tests.
+V2 with 10 commands and 293 passing tests.
 
 ## Install
 
@@ -31,6 +31,7 @@ cargo install patchloom
 | `doc`     | Parser-backed JSON, YAML, and TOML operations        |
 | `hygiene` | Final newline, line ending, and whitespace normalization |
 | `create`  | Create a new file with content                       |
+| `delete`  | Delete a file                                        |
 | `tx`      | Execute a multi-operation plan atomically            |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 
@@ -80,6 +81,12 @@ Multiline search (dot matches newlines, pattern spans lines):
 patchloom search --multiline 'fn main\(\).*\}' src/
 ```
 
+Case-insensitive search:
+
+```
+patchloom search -i 'todo' src/
+```
+
 ### replace
 
 Replace text across files (preview diff by default, write with `--apply`):
@@ -104,6 +111,18 @@ Idempotent replace (succeeds even if text not found):
 
 ```
 patchloom replace --from 'legacy_name' --to 'new_name' --if-exists --apply
+```
+
+Replace only the Nth occurrence (1-based):
+
+```
+patchloom replace --from 'TODO' --to 'DONE' --nth 2 src/main.rs --apply
+```
+
+Case-insensitive replace:
+
+```
+patchloom replace --from 'error' --to 'warning' -i src/ --apply
 ```
 
 ### doc
@@ -218,6 +237,12 @@ Insert content after a heading (without replacing the existing section):
 patchloom md insert-after-heading --file CHANGELOG.md --heading "## Unreleased" --content "- Added new feature" --apply
 ```
 
+Insert content before a heading:
+
+```
+patchloom md insert-before-heading --file AGENTS.md --heading "## Safety rules" --content "New section content" --apply
+```
+
 Add a bullet under a heading if not already present (idempotent):
 
 ```
@@ -260,6 +285,14 @@ Overwrite an existing file:
 
 ```
 patchloom create --file config.json --content '{}' --force --apply
+```
+
+### delete
+
+Delete a file:
+
+```
+patchloom delete --file obsolete.txt --apply
 ```
 
 ### patch
@@ -321,22 +354,47 @@ The `tx` command accepts a JSON plan with an array of operations:
 {
   "operations": [
     { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new" },
+    { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new", "nth": 2 },
+    { "op": "replace", "glob": "*.rs", "mode": "regex", "from": "v\\d+", "to": "v2" },
     { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
     { "op": "doc.delete", "path": "config.json", "key": "deprecated" },
-    { "op": "doc.merge", "path": "config.json", "key": ".", "value": {"new_key": true} },
+    { "op": "doc.merge", "path": "config.json", "value": {"new_key": true} },
     { "op": "doc.append", "path": "config.json", "key": "items", "value": "new_item" },
-    { "op": "md.replace_section", "path": "README.md", "heading": "## Notes", "body": "Updated." },
-    { "op": "md.insert_after_heading", "path": "README.md", "heading": "## Notes", "body": "Inserted." },
-    { "op": "hygiene.fix", "paths": ["src/"] },
+    { "op": "doc.prepend", "path": "config.json", "key": "items", "value": "first_item" },
+    { "op": "doc.update", "path": "config.json", "key": "servers[*].enabled", "value": true },
+    { "op": "doc.move", "path": "config.json", "from": "old_key", "to": "new_key" },
+    { "op": "doc.ensure", "path": "config.json", "key": "defaults.timeout", "value": 30 },
+    { "op": "doc.delete_where", "path": "config.yaml", "key": "items", "predicate": "name=old" },
+    { "op": "md.replace_section", "path": "README.md", "heading": "Notes", "content": "Updated." },
+    { "op": "md.insert_after_heading", "path": "README.md", "heading": "Notes", "content": "After." },
+    { "op": "md.insert_before_heading", "path": "README.md", "heading": "Notes", "content": "Before." },
+    { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "Rules", "bullet": "- New rule" },
+    { "op": "md.table_append", "path": "README.md", "heading": "Features", "row": "| new | feat |" },
+    { "op": "md.dedupe_headings", "path": "AGENTS.md" },
+    { "op": "hygiene.fix", "path": "src/main.rs" },
     { "op": "file.create", "path": "new.txt", "content": "hello" },
-    { "op": "file.delete", "path": "obsolete.txt" }
+    { "op": "file.create", "path": "existing.txt", "content": "overwrite", "force": true },
+    { "op": "file.delete", "path": "obsolete.txt" },
+    { "op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new" }
+  ],
+  "format": [
+    { "cmd": "cargo fmt --all" }
+  ],
+  "validate": [
+    { "cmd": "make check", "required": true }
   ]
 }
 ```
 
 All operations run in order. If any fails, all changes are rolled back (exit code 7). Pass `--apply` to write to disk.
 
-Plans may include a `validate` array with shell commands that run after writes. Validation steps execute via `sh -c` on the host; only use plans from trusted sources.
+Plans support three lifecycle arrays:
+
+- **operations**: The mutations to apply.
+- **format**: Shell commands that run after all operations are written but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`).
+- **validate**: Shell commands that run after format steps. If a required step fails, the transaction aborts.
+
+All shell commands in `format` and `validate` execute via `sh -c` on the host; only use plans from trusted sources.
 
 ## Symlink behavior
 
@@ -351,7 +409,7 @@ Read-only flags (available on all commands):
 | `--json`              | Emit machine-readable JSON output                 |
 | `--jsonl`             | Emit one JSON object per result line              |
 | `--cwd <dir>`         | Set working directory                             |
-| `--glob <pattern>`    | Restrict target files by glob pattern             |
+| `--glob <pattern>`    | Restrict target files by glob (repeatable)        |
 | `--files-from <path>` | Read file list from a file or stdin (`-`)         |
 | `-q`, `--quiet`       | Suppress non-JSON human-readable output            |
 

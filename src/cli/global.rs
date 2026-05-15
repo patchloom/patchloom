@@ -36,9 +36,9 @@ pub struct GlobalFlags {
     #[arg(long, global = true)]
     pub cwd: Option<String>,
 
-    /// Restrict target files by glob pattern.
-    #[arg(long, global = true)]
-    pub glob: Option<String>,
+    /// Restrict target files by glob pattern (may be repeated).
+    #[arg(long, global = true, action = clap::ArgAction::Append)]
+    pub glob: Vec<String>,
 
     /// Read file list from a file or stdin (`-`), one path per line.
     #[arg(long, global = true)]

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides nine commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `tx`, `completions`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, multi-operation atomic transactions, and shell completion generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides ten commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `tx`, `completions`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, and shell completion generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -31,11 +31,14 @@ src/
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
                        --respect-editorconfig). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
-  cmd/search.rs        Literal/regex search across files with context, count, files-with-matches
-  cmd/replace.rs       Literal/regex string replacement with diff preview and atomic write
+  cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
+  cmd/replace.rs       Literal/regex string replacement with diff preview, --nth, -i, atomic write
+  cmd/delete.rs        Delete a file (with --apply/--check modes)
   cmd/patch.rs         Preview or apply unified diffs
-  cmd/md.rs            Markdown section-aware operations (replace section, insert after heading)
-  cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (set, delete, merge, append)
+  cmd/md.rs            Markdown section-aware operations (replace section, insert before/after heading,
+                       upsert bullet, table append, dedupe headings, lint)
+  cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (set, delete, merge, append,
+                       prepend, update, move, ensure, delete-where, select, flatten, diff)
   cmd/hygiene.rs       Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
@@ -47,7 +50,8 @@ src/
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
-  plan.rs              Transaction plan format: Plan, Operation, ValidationStep; JSON deserialization
+  plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
+                       22 operation types including all doc/md/replace/hygiene/file/patch ops
 ```
 
 ## Architecture conventions
@@ -73,7 +77,7 @@ The `Command` enum in `src/cmd/mod.rs` has one variant per command. The `dispatc
 
 ### Global flags
 
-All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob`, `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
+All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob` (repeatable), `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
 
 ### Error handling
 

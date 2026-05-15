@@ -34,6 +34,9 @@ pub struct SearchArgs {
     /// Enable multiline matching (dot matches newlines).
     #[arg(long, short = 'U')]
     pub multiline: bool,
+    /// Case-insensitive matching.
+    #[arg(long, short = 'i')]
+    pub case_insensitive: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,9 +72,10 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     } else {
         args.pattern.clone()
     };
-    let re = if args.multiline {
+    let re = if args.multiline || args.case_insensitive {
         regex::RegexBuilder::new(&pattern)
-            .dot_matches_new_line(true)
+            .dot_matches_new_line(args.multiline)
+            .case_insensitive(args.case_insensitive)
             .build()?
     } else {
         Regex::new(&pattern)?
@@ -312,6 +316,7 @@ mod tests {
             count: false,
             invert_match: false,
             multiline: false,
+            case_insensitive: false,
         }
     }
 

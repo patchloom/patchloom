@@ -322,6 +322,25 @@ fn find_match(haystack: &[&str], needle: &[&str], expected: isize, fuzz: usize) 
     None
 }
 
+// ── Public API for tx integration ───────────────────────────────────
+
+/// Parse a unified diff and apply it to files on disk, returning the patched
+/// content for each file as `(relative_path, patched_content)` pairs.
+///
+/// Used by `tx.rs` for `patch.apply` operations within transaction plans.
+pub fn apply_patch_to_content(diff_text: &str) -> anyhow::Result<Vec<(String, String)>> {
+    let patch_files =
+        parse_patch(diff_text).map_err(|msg| anyhow::anyhow!("patch parse error: {msg}"))?;
+    let mut results = Vec::new();
+    for pf in &patch_files {
+        let original = std::fs::read_to_string(&pf.path).unwrap_or_default();
+        let patched = apply_hunks(&original, &pf.hunks)
+            .map_err(|msg| anyhow::anyhow!("patch apply: {} -- {msg}", pf.path))?;
+        results.push((pf.path.clone(), patched));
+    }
+    Ok(results)
+}
+
 // ── Read diff input ────────────────────────────────────────────────
 
 /// Read diff text from the source indicated by the user.

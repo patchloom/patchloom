@@ -12,7 +12,7 @@ pub mod write;
 use clap::Parser;
 use cli::global::GlobalFlags;
 use cli::Cli;
-use globset::{Glob, GlobMatcher};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
@@ -79,18 +79,20 @@ pub(crate) fn collect_file_paths_opts(
         .collect())
 }
 
-/// Build a compiled glob matcher from `--glob`, or `None` if unset.
-pub(crate) fn build_glob_matcher(global: &GlobalFlags) -> anyhow::Result<Option<GlobMatcher>> {
-    global
-        .glob
-        .as_ref()
-        .map(|p| Glob::new(p).map(|g| g.compile_matcher()))
-        .transpose()
-        .map_err(Into::into)
+/// Build a compiled glob matcher from `--glob`, or `None` if no globs given.
+pub(crate) fn build_glob_matcher(global: &GlobalFlags) -> anyhow::Result<Option<GlobSet>> {
+    if global.glob.is_empty() {
+        return Ok(None);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in &global.glob {
+        builder.add(Glob::new(pattern)?);
+    }
+    Ok(Some(builder.build()?))
 }
 
-/// Check whether `path` matches the glob (always true if no glob).
-pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobMatcher>) -> bool {
+/// Check whether `path` matches any of the globs (always true if no globs).
+pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     match matcher {
         None => true,
         Some(m) => m.is_match(path) || path.file_name().is_some_and(|n| m.is_match(n)),

@@ -1,4 +1,5 @@
 pub mod create;
+pub mod delete;
 pub mod doc;
 pub mod hygiene;
 pub mod md;
@@ -14,6 +15,8 @@ use clap::Subcommand;
 pub enum Command {
     /// Create a new file with specified content.
     Create(create::CreateArgs),
+    /// Delete a file.
+    Delete(delete::DeleteArgs),
     /// Fast literal or regex search across a repo.
     Search(search::SearchArgs),
     /// Mechanical string replacement with diff preview.
@@ -48,6 +51,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Create(args) => {
             global.merge_write(&args.write);
             create::run(args, &global)
+        }
+        Command::Delete(args) => {
+            global.merge_write(&args.write);
+            delete::run(args, &global)
         }
         Command::Replace(args) => {
             global.merge_write(&args.write);
