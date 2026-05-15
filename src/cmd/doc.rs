@@ -184,7 +184,10 @@ fn parse_value(s: &str) -> serde_json::Value {
 }
 
 /// Serialize a [`serde_json::Value`] back to the original file format.
-pub(crate) fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow::Result<String> {
+pub(crate) fn serialize_value(
+    value: &serde_json::Value,
+    format: &FileFormat,
+) -> anyhow::Result<String> {
     match format {
         FileFormat::Json => {
             let mut s = serde_json::to_string_pretty(value)?;

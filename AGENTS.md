@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides seven commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `tx`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, and multi-operation atomic transactions. All write operations support `--check` (dry-run), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides eight commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `tx`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, and multi-operation atomic transactions. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -24,9 +24,10 @@ src/
   main.rs             Thin entrypoint; calls patchloom::run(), maps Result to ExitCode
   lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports all modules
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
-  cli/global.rs        GlobalFlags struct: --json, --jsonl, --diff, --apply, --check, --cwd,
-                       --glob, --atomic, --ensure-final-newline, --normalize-eol,
-                       --trim-trailing-whitespace; also defines EolMode enum
+  cli/global.rs        GlobalFlags struct (derives Default): --json, --jsonl, --diff, --apply,
+                       --check, --cwd, --glob, --files-from, --atomic, --ensure-final-newline,
+                       --normalize-eol, --trim-trailing-whitespace, --respect-editorconfig;
+                       also defines EolMode enum
   cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches
   cmd/replace.rs       Literal/regex string replacement with diff preview and atomic write
@@ -39,7 +40,6 @@ src/
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
-  output.rs            Output rendering: Human, Json, Jsonl, Diff modes; SuccessResult/ErrorResult
   error.rs             PatchloomError enum with typed exit codes; implements Display + Error
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
@@ -83,7 +83,7 @@ All subcommands receive a `&GlobalFlags` reference. Output format (`--json`, `--
 
 - Tests go in `#[cfg(test)] mod tests` blocks at the bottom of each file.
 - Use `tempfile::TempDir` for test fixtures that need a filesystem.
-- Build a `GlobalFlags` with all fields set to defaults for test helpers. Do not use `Default` on `GlobalFlags` (it does not implement `Default`); construct it manually.
+- Use `GlobalFlags::default()` for test helpers. Override specific fields with struct update syntax: `GlobalFlags { apply: true, ..GlobalFlags::default() }`.
 - Test both the internal functions and the public `run()` function to verify exit codes.
 
 ### Writes
