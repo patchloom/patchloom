@@ -8,7 +8,7 @@ use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -194,6 +194,7 @@ fn do_replace(content: &str, from: &str, to: &str, use_regex: bool) -> anyhow::R
 fn execute_operation(
     op: &Operation,
     pending: &mut HashMap<PathBuf, (String, String)>,
+    deletions: &mut HashSet<PathBuf>,
 ) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
@@ -377,6 +378,28 @@ fn execute_operation(
             }
             update_file_content(pending, &file_path, new);
         }
+
+        Operation::FileCreate { path, content } => {
+            let file_path = PathBuf::from(path);
+            if pending.contains_key(&file_path) || file_path.exists() {
+                anyhow::bail!("file already exists: {path}");
+            }
+            pending.insert(file_path, (String::new(), content.clone()));
+        }
+
+        Operation::FileDelete { path } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?;
+            // Mark current content as empty so the diff shows full deletion.
+            update_file_content(pending, &file_path, String::new());
+            // If the file was just created in this plan (original is empty),
+            // simply remove it from pending instead of deleting on disk.
+            if content.is_empty() {
+                pending.remove(&file_path);
+            } else {
+                deletions.insert(file_path);
+            }
+        }
     }
 
     Ok(())
@@ -454,9 +477,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // 5. Execute all operations, collecting changes in memory (no writes).
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
+    let mut deletions: HashSet<PathBuf> = HashSet::new();
 
     for op in &plan.operations {
-        if let Err(e) = execute_operation(op, &mut pending) {
+        if let Err(e) = execute_operation(op, &mut pending, &mut deletions) {
             eprintln!("tx: operation failed: {e}");
             return Ok(exit::ROLLBACK);
         }
@@ -485,7 +509,17 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Write all files atomically (policy already applied).
         let noop_policy = WritePolicy::default();
         for (path, _, new_content) in &changes {
-            atomic_write(path, new_content, &noop_policy)?;
+            if deletions.contains(path) {
+                std::fs::remove_file(path)?;
+            } else {
+                // Ensure parent directories exist (needed for file.create).
+                if let Some(parent) = path.parent() {
+                    if !parent.as_os_str().is_empty() && !parent.exists() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                }
+                atomic_write(path, new_content, &noop_policy)?;
+            }
         }
 
         // Show diffs if --diff flag is set.
@@ -719,5 +753,71 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
+    }
+
+    #[test]
+    fn tx_file_create_in_plan() {
+        let dir = TempDir::new().unwrap();
+
+        let new_file = dir.path().join("created.txt");
+
+        let plan_json = serde_json::json!({
+            "operations": [
+                {
+                    "op": "file.create",
+                    "path": new_file.to_str().unwrap(),
+                    "content": "brand new file\n"
+                }
+            ]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // Verify the file was created with the correct content.
+        assert!(new_file.exists());
+        assert_eq!(fs::read_to_string(&new_file).unwrap(), "brand new file\n");
+    }
+
+    #[test]
+    fn tx_file_create_existing_fails() {
+        let dir = TempDir::new().unwrap();
+
+        let existing = dir.path().join("existing.txt");
+        fs::write(&existing, "original content\n").unwrap();
+
+        let plan_json = serde_json::json!({
+            "operations": [
+                {
+                    "op": "file.create",
+                    "path": existing.to_str().unwrap(),
+                    "content": "should not overwrite\n"
+                }
+            ]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::ROLLBACK);
+
+        // Verify the original file was NOT modified.
+        assert_eq!(fs::read_to_string(&existing).unwrap(), "original content\n");
     }
 }

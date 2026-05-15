@@ -67,6 +67,10 @@ pub enum Operation {
         path: String,
         ensure_final_newline: Option<bool>,
     },
+    #[serde(rename = "file.create")]
+    FileCreate { path: String, content: String },
+    #[serde(rename = "file.delete")]
+    FileDelete { path: String },
 }
 
 /// A validation step to run after applying operations.

@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check build test clippy check
+.PHONY: fmt fmt-check build test integration-test clippy check
 
 fmt:
 	cargo fmt --all
@@ -10,9 +10,12 @@ build:
 	cargo build
 
 test:
-	cargo test
+	cargo test --lib
+
+integration-test:
+	cargo test --test integration
 
 clippy:
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check build test clippy
+check: fmt-check build test integration-test clippy
