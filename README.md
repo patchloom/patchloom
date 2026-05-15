@@ -218,6 +218,18 @@ Idempotent replace (succeeds even if text not found):
 patchloom replace --from 'legacy_name' --to 'new_name' --if-exists --apply
 ```
 
+Insert content after a heading (without replacing the existing section):
+
+```
+patchloom md insert-after-heading --file CHANGELOG.md --heading "## Unreleased" --content "- Added new feature" --apply
+```
+
+Add a bullet under a heading if not already present (idempotent):
+
+```
+patchloom md upsert-bullet --file AGENTS.md --heading "## Rules" --bullet "- Always run tests before committing" --apply
+```
+
 Append a row to a markdown table:
 
 ```
