@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -4219,4 +4220,406 @@ fn test_tx_multi_op_batch_all_new_ops() {
 
     // Verify file.create.
     assert_eq!(fs::read_to_string(&new_file).unwrap(), "created!\n");
+}
+
+// ---------------------------------------------------------------------------
+// smoke tests: docs and examples
+// ---------------------------------------------------------------------------
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn example_plan_path(name: &str) -> PathBuf {
+    repo_root().join("examples").join(name)
+}
+
+fn quickstart_path() -> PathBuf {
+    repo_root()
+        .join("docs")
+        .join("getting-started")
+        .join("quickstart.md")
+}
+
+fn patchloom_in(cwd: &Path) -> Command {
+    let mut cmd = Command::cargo_bin("patchloom").unwrap();
+    cmd.arg("--cwd").arg(cwd);
+    cmd
+}
+
+fn write_fixture_file(root: &Path, relative: &str, content: &str) {
+    let path = root.join(relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(path, content).unwrap();
+}
+
+fn seed_docs_smoke_fixture(root: &Path) {
+    write_fixture_file(
+        root,
+        "Cargo.toml",
+        "[package]\nname = \"smoke-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    write_fixture_file(
+        root,
+        "src/lib.rs",
+        "pub mod write;\n\n// TODO: rename old_function\n// TODO: update docs\npub fn old_function() -> &'static str {\n    \"old\"\n}\n",
+    );
+    write_fixture_file(
+        root,
+        "src/write.rs",
+        "pub fn existing_write() -> &'static str {\n    \"write\"\n}\n",
+    );
+    write_fixture_file(
+        root,
+        "README.md",
+        "# Smoke Fixture\n\nCurrent release: v1.0.0\nDocs version: v0.1.0\n\n## Commands\n\n| Command | Description |\n|---|---|\n| `search` | Search repo |\n",
+    );
+    write_fixture_file(
+        root,
+        "CHANGELOG.md",
+        "# Changelog\n\n## Unreleased\n\n- Existing entry\n\n## 0.1.0\n\n- Initial release\n",
+    );
+    write_fixture_file(
+        root,
+        "AGENTS.md",
+        "# AGENTS.md\n\n## Safety rules\n\n- existing rule\n\n## Safety rules\n\n- duplicate rule\n",
+    );
+    write_fixture_file(
+        root,
+        "package.json",
+        "{\n  \"name\": \"smoke-fixture\",\n  \"version\": \"1.0.0\"\n}\n",
+    );
+    write_fixture_file(
+        root,
+        "config.json",
+        "{\n  \"database\": {\n    \"host\": \"localhost\",\n    \"port\": 3306\n  },\n  \"allowed_origins\": [\"http://localhost:3000\"],\n  \"deprecated_field\": true\n}\n",
+    );
+    write_fixture_file(
+        root,
+        "config.yaml",
+        "users:\n  - name: alice\n    active: true\n  - name: bob\n    active: false\n",
+    );
+}
+
+fn extract_markdown_code_block_after(markdown: &str, marker: &str, language: &str) -> String {
+    let (_, after_marker) = markdown
+        .split_once(marker)
+        .expect("marker should exist in markdown");
+    let fence = format!("```{language}\n");
+    let (_, after_fence) = after_marker
+        .split_once(&fence)
+        .expect("fenced code block should exist after marker");
+    let (block, _) = after_fence
+        .split_once("\n```")
+        .expect("fenced code block should terminate");
+    block.to_string()
+}
+
+#[test]
+fn test_smoke_example_01_basic_replace_plan() {
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(example_plan_path("01-basic-replace.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
+    assert!(readme.contains("v2.0.0"));
+    assert!(!readme.contains("v1.0.0"));
+}
+
+#[test]
+fn test_smoke_example_02_multi_file_batch_plan() {
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(example_plan_path("02-multi-file-batch.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let cargo_toml = fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
+    assert!(cargo_toml.contains("version = \"0.2.0\""));
+    assert!(!cargo_toml.contains("version = \"0.1.0\""));
+
+    let package: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package["version"], "0.2.0");
+
+    let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
+    assert!(readme.contains("v0.2.0"));
+    assert!(!readme.contains("v0.1.0"));
+}
+
+#[test]
+fn test_smoke_example_03_markdown_editing_plan() {
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(example_plan_path("03-markdown-editing.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap();
+    assert!(changelog.contains("- Added new feature"));
+    assert!(changelog.contains("- Fixed bug in parser"));
+    assert!(!changelog.contains("- Existing entry"));
+
+    let agents = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert_eq!(agents.matches("## Safety rules").count(), 1);
+    assert!(agents.contains("Always run `make check` before committing"));
+
+    let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
+    assert!(readme.contains("| `new-cmd` | Description of the new command |"));
+}
+
+#[test]
+fn test_smoke_example_04_doc_mutations_plan() {
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(example_plan_path("04-doc-mutations.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let config: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(config["database"]["port"], 5432);
+    assert_eq!(config["database"]["pool_size"], 10);
+    assert_eq!(config["logging"]["level"], "info");
+    assert_eq!(config["logging"]["format"], "json");
+    assert!(config["allowed_origins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item.as_str() == Some("https://example.com")));
+    assert!(config.get("deprecated_field").is_none());
+
+    let yaml = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
+    assert!(yaml.contains("active: true"));
+    assert!(!yaml.contains("active: false"));
+    assert!(!yaml.contains("bob"));
+}
+
+#[test]
+fn test_smoke_example_05_strict_mode_plan() {
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(example_plan_path("05-strict-mode.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let new_module = fs::read_to_string(dir.path().join("src/new_module.rs")).unwrap();
+    assert!(new_module.contains("pub fn hello() -> &'static str"));
+
+    let lib_rs = fs::read_to_string(dir.path().join("src/lib.rs")).unwrap();
+    assert!(lib_rs.contains("pub mod new_module;"));
+
+    let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap();
+    assert!(changelog.contains("- Added new_module"));
+}
+
+#[test]
+fn test_doc_get_honors_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("package.json"),
+        "{\n  \"version\": \"1.0.0\"\n}\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("get")
+        .arg("package.json")
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1.0.0"));
+}
+
+#[test]
+fn test_smoke_quickstart_command_flow() {
+    let quickstart = fs::read_to_string(quickstart_path()).unwrap();
+    assert!(quickstart.contains("patchloom search 'TODO' src/"));
+    assert!(quickstart.contains("patchloom search 'TODO' --count src/"));
+    assert!(quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/"));
+    assert!(quickstart
+        .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply"));
+    assert!(quickstart.contains("patchloom doc get package.json version"));
+    assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
+
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+    let lib_path = dir.path().join("src/lib.rs");
+
+    patchloom_in(dir.path())
+        .arg("search")
+        .arg("TODO")
+        .arg("src/")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TODO"));
+
+    patchloom_in(dir.path())
+        .arg("search")
+        .arg("TODO")
+        .arg("--count")
+        .arg("src/")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(":2"));
+
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("--from")
+        .arg("old_function")
+        .arg("--to")
+        .arg("new_function")
+        .arg("src/")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("new_function"));
+    assert!(fs::read_to_string(&lib_path)
+        .unwrap()
+        .contains("old_function"));
+
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("--from")
+        .arg("old_function")
+        .arg("--to")
+        .arg("new_function")
+        .arg("src/")
+        .arg("--apply")
+        .assert()
+        .success();
+    assert!(fs::read_to_string(&lib_path)
+        .unwrap()
+        .contains("new_function"));
+    assert!(!fs::read_to_string(&lib_path)
+        .unwrap()
+        .contains("old_function"));
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("get")
+        .arg("package.json")
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1.0.0"));
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("set")
+        .arg("package.json")
+        .arg("version")
+        .arg("\"2.0.0\"")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let package: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package["version"], "2.0.0");
+}
+
+#[test]
+fn test_smoke_quickstart_transaction_snippet() {
+    let quickstart = fs::read_to_string(quickstart_path()).unwrap();
+    let plan_text = extract_markdown_code_block_after(
+        &quickstart,
+        "Create a plan file called `bump.json`:",
+        "json",
+    );
+    let expected_json: serde_json::Value = serde_json::from_str(
+        &extract_markdown_code_block_after(&quickstart, "Returns:", "json"),
+    )
+    .unwrap();
+
+    let dir = TempDir::new().unwrap();
+    seed_docs_smoke_fixture(dir.path());
+    let plan_file = dir.path().join("bump.json");
+    fs::write(&plan_file, plan_text).unwrap();
+
+    let diff_output = patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert!(diff_output.status.success());
+    let diff_stdout = String::from_utf8_lossy(&diff_output.stdout);
+    assert!(diff_stdout.contains("package.json"));
+    assert!(diff_stdout.contains("README.md"));
+    assert!(diff_stdout.contains("CHANGELOG.md"));
+
+    let package_before: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_before["version"], "1.0.0");
+    assert!(fs::read_to_string(dir.path().join("README.md"))
+        .unwrap()
+        .contains("v1.0.0"));
+    assert!(!fs::read_to_string(dir.path().join("CHANGELOG.md"))
+        .unwrap()
+        .contains("- Bumped to v2.0.0"));
+
+    let check_output = patchloom_in(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .output()
+        .unwrap();
+    assert_eq!(check_output.status.code(), Some(2));
+
+    let apply_output = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert!(apply_output.status.success());
+    let actual_json: serde_json::Value = serde_json::from_slice(&apply_output.stdout).unwrap();
+    assert_eq!(actual_json, expected_json);
+
+    let package_after: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_after["version"], "2.0.0");
+    assert!(fs::read_to_string(dir.path().join("README.md"))
+        .unwrap()
+        .contains("v2.0.0"));
+    assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
+        .unwrap()
+        .contains("- Bumped to v2.0.0"));
 }

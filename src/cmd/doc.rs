@@ -1009,6 +1009,8 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
 // ---------------------------------------------------------------------------
 
 pub fn run(args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    std::env::set_current_dir(global.resolve_cwd()?)?;
+
     let is_write = matches!(
         &args.action,
         DocAction::Set { .. }
