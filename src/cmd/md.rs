@@ -59,6 +59,16 @@ pub enum MdAction {
         #[arg(long)]
         file: String,
     },
+    /// Append a row to a markdown table under a heading.
+    TableAppend {
+        #[arg(long)]
+        file: String,
+        #[arg(long)]
+        heading: String,
+        /// The row to append, in markdown table format (e.g., "| col1 | col2 | col3 |").
+        #[arg(long)]
+        row: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +340,63 @@ fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
     (out, removed)
 }
 
+fn is_table_row(line: &str) -> bool {
+    let t = line.trim();
+    t.len() > 1 && t.starts_with('|') && t.ends_with('|')
+}
+
+fn is_separator_row(line: &str) -> bool {
+    let t = line.trim();
+    if t.len() < 3 || !t.starts_with('|') || !t.ends_with('|') {
+        return false;
+    }
+    t[1..t.len() - 1]
+        .chars()
+        .all(|c| matches!(c, '-' | ':' | '|' | ' '))
+}
+
+fn table_append_in(content: &str, body_start: usize, body_end: usize, row: &str) -> Option<String> {
+    let body = &content[body_start..body_end];
+    let mut last_data_end: Option<usize> = None;
+    let mut in_table = false;
+    let mut pos = body_start;
+
+    for line in body.lines() {
+        let line_byte_end = pos + line.len();
+        let next_pos = if content.as_bytes().get(line_byte_end) == Some(&b'\r')
+            && content.as_bytes().get(line_byte_end + 1) == Some(&b'\n')
+        {
+            line_byte_end + 2
+        } else if content.as_bytes().get(line_byte_end) == Some(&b'\n') {
+            line_byte_end + 1
+        } else {
+            line_byte_end
+        };
+
+        if is_table_row(line) {
+            in_table = true;
+            if !is_separator_row(line) {
+                last_data_end = Some(next_pos);
+            }
+        } else if in_table {
+            break;
+        }
+
+        pos = next_pos;
+    }
+
+    let insert_pos = last_data_end?;
+
+    let mut out = String::with_capacity(content.len() + row.len() + 2);
+    out.push_str(&content[..insert_pos]);
+    out.push_str(row);
+    if !row.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&content[insert_pos..]);
+    Some(out)
+}
+
 // ---------------------------------------------------------------------------
 // Lint
 // ---------------------------------------------------------------------------
@@ -485,6 +552,21 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(exit::SUCCESS)
             } else {
                 Ok(exit::CHANGES_DETECTED)
+            }
+        }
+
+        MdAction::TableAppend { file, heading, row } => {
+            let original = std::fs::read_to_string(&file)?;
+            match find_section(&original, &heading) {
+                None => Ok(exit::NO_MATCHES),
+                Some((body_start, body_end)) => {
+                    match table_append_in(&original, body_start, body_end, &row) {
+                        Some(new) => apply_mutation(&file, &original, &new, global),
+                        None => {
+                            anyhow::bail!("no markdown table found under heading {:?}", heading)
+                        }
+                    }
+                }
             }
         }
     }
@@ -771,5 +853,100 @@ mod tests {
         let content = "## Sub\ndata\n";
         let (start, end) = find_section(content, "## Sub").unwrap();
         assert_eq!(&content[start..end], "data\n");
+    }
+
+    // -- table-append -------------------------------------------------------
+
+    #[test]
+    fn table_append_adds_row() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Table\n| H1 | H2 |\n|---|---|\n| A | B |\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::TableAppend {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Table".into(),
+                row: "| C | D |".into(),
+            },
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let result = fs::read_to_string(&file).unwrap();
+        assert!(result.contains("| C | D |"), "new row missing");
+        let a_pos = result.find("| A | B |").unwrap();
+        let c_pos = result.find("| C | D |").unwrap();
+        assert!(c_pos > a_pos, "new row not after existing data row");
+    }
+
+    #[test]
+    fn table_append_heading_not_found_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\n| H1 |\n|---|\n| A |\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::TableAppend {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                row: "| X |".into(),
+            },
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn table_append_no_table_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\nsome text but no table\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::TableAppend {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Title".into(),
+                row: "| X |".into(),
+            },
+        };
+        let result = run(args, &default_global());
+        assert!(result.is_err(), "expected error when no table is present");
+    }
+
+    #[test]
+    fn table_append_preserves_surrounding_content() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(
+            &file,
+            "# Before\npre-content\n# Table\n| H1 |\n|---|\n| A |\n\nAfter table text.\n# After\npost-content\n",
+        )
+        .unwrap();
+
+        let args = MdArgs {
+            action: MdAction::TableAppend {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Table".into(),
+                row: "| B |".into(),
+            },
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let result = fs::read_to_string(&file).unwrap();
+        assert!(
+            result.contains("# Before\npre-content\n"),
+            "content before heading damaged"
+        );
+        assert!(
+            result.contains("After table text.\n"),
+            "content after table damaged"
+        );
+        assert!(
+            result.contains("# After\npost-content\n"),
+            "next section damaged"
+        );
+        assert!(result.contains("| B |"), "new row missing");
     }
 }

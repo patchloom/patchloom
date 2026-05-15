@@ -30,6 +30,14 @@ pub enum DocAction {
     },
     /// Remove a key path.
     Delete { file: String, selector: String },
+    /// Delete array items matching a predicate.
+    DeleteWhere {
+        file: String,
+        selector: String,
+        /// Predicate in key=value format.
+        #[arg(long)]
+        predicate: String,
+    },
     /// Merge a partial object from stdin or argument.
     Merge {
         file: String,
@@ -463,6 +471,49 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             write_result(file, &original, &new_content, ctx)
         }
 
+        DocAction::DeleteWhere {
+            file,
+            selector,
+            predicate,
+        } => {
+            let (original, mut root, format) = load_file_with_content(file)?;
+            let sel =
+                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+
+            let eq_pos = predicate
+                .find('=')
+                .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
+            let pred_key = &predicate[..eq_pos];
+            let pred_val = &predicate[eq_pos + 1..];
+
+            let target = navigate_mut(&mut root, &sel, false)?;
+            let arr = target
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
+
+            let before_len = arr.len();
+            arr.retain(|item| {
+                if let Some(field) = item.get(pred_key) {
+                    let matches = match field {
+                        serde_json::Value::String(s) => s == pred_val,
+                        serde_json::Value::Number(n) => n.to_string() == pred_val,
+                        serde_json::Value::Bool(b) => b.to_string() == pred_val,
+                        _ => false,
+                    };
+                    !matches
+                } else {
+                    true
+                }
+            });
+
+            if arr.len() == before_len {
+                return Ok((String::new(), exit::NO_MATCHES));
+            }
+
+            let new_content = serialize_value(&root, &format)?;
+            write_result(file, &original, &new_content, ctx)
+        }
+
         DocAction::Merge { file, stdin, value } => {
             let (original, mut root, format) = load_file_with_content(file)?;
 
@@ -733,6 +784,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
         // Write-mode subcommands are dispatched through execute_write() via run().
         DocAction::Set { .. }
         | DocAction::Delete { .. }
+        | DocAction::DeleteWhere { .. }
         | DocAction::Merge { .. }
         | DocAction::Append { .. }
         | DocAction::Prepend { .. }
@@ -753,6 +805,7 @@ pub fn run(args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         &args.action,
         DocAction::Set { .. }
             | DocAction::Delete { .. }
+            | DocAction::DeleteWhere { .. }
             | DocAction::Merge { .. }
             | DocAction::Append { .. }
             | DocAction::Prepend { .. }
@@ -1003,6 +1056,79 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("-"));
         assert!(output.contains("age"));
+    }
+
+    // -- delete-where -------------------------------------------------------
+
+    #[test]
+    fn delete_where_removes_matching_items() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(
+            &dir,
+            "test.json",
+            r#"{"users": [{"name": "alice"}, {"name": "bob"}, {"name": "carol"}]}"#,
+        );
+        let action = DocAction::DeleteWhere {
+            file: path.clone(),
+            selector: "users".into(),
+            predicate: "name=bob".into(),
+        };
+        let ctx = WriteContext {
+            apply: true,
+            ..WriteContext::default()
+        };
+        let (_, code) = execute_write(&action, &ctx).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let content = fs::read_to_string(&path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let arr = val["users"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["name"], serde_json::json!("alice"));
+        assert_eq!(arr[1]["name"], serde_json::json!("carol"));
+    }
+
+    #[test]
+    fn delete_where_no_match_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(
+            &dir,
+            "test.json",
+            r#"{"users": [{"name": "alice"}, {"name": "bob"}]}"#,
+        );
+        let action = DocAction::DeleteWhere {
+            file: path,
+            selector: "users".into(),
+            predicate: "name=nobody".into(),
+        };
+        let ctx = WriteContext::default();
+        let (_, code) = execute_write(&action, &ctx).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn delete_where_removes_multiple_matches() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(
+            &dir,
+            "test.json",
+            r#"{"items": [{"status": "done"}, {"status": "pending"}, {"status": "done"}]}"#,
+        );
+        let action = DocAction::DeleteWhere {
+            file: path.clone(),
+            selector: "items".into(),
+            predicate: "status=done".into(),
+        };
+        let ctx = WriteContext {
+            apply: true,
+            ..WriteContext::default()
+        };
+        let (_, code) = execute_write(&action, &ctx).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let content = fs::read_to_string(&path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let arr = val["items"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["status"], serde_json::json!("pending"));
     }
 
     #[test]

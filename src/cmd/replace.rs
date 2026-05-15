@@ -26,6 +26,9 @@ pub struct ReplaceArgs {
     /// Treat --from as a regex.
     #[arg(long)]
     pub regex: bool,
+    /// Return success even if no matches found (idempotent mode).
+    #[arg(long)]
+    pub if_exists: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -199,6 +202,9 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let replacements = collect_replacements(&args, global)?;
 
     if replacements.is_empty() {
+        if args.if_exists {
+            return Ok(exit::SUCCESS);
+        }
         return Ok(exit::NO_MATCHES);
     }
 
@@ -317,6 +323,7 @@ mod tests {
             paths,
             literal: true,
             regex: false,
+            if_exists: false,
         }
     }
 
@@ -350,6 +357,7 @@ mod tests {
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: false,
             regex: true,
+            if_exists: false,
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
 
@@ -430,6 +438,48 @@ mod tests {
         assert_eq!(replacements.len(), 2);
         let total: usize = replacements.iter().map(|r| r.match_count).sum();
         assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn if_exists_returns_success_on_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "zzz_no_match_zzz".to_string(),
+            to: "replacement".to_string(),
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: true,
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn if_exists_still_replaces_when_found() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "hello".to_string(),
+            to: "hi".to_string(),
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: true,
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hi world\n");
     }
 
     #[test]

@@ -1,0 +1,266 @@
+use crate::cli::global::{EolMode, GlobalFlags};
+use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::exit;
+use crate::write::{atomic_write, WritePolicy};
+use anyhow::bail;
+use clap::Args;
+use serde::Serialize;
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+
+#[derive(Debug, Args)]
+pub struct CreateArgs {
+    /// Path of the file to create.
+    #[arg(long)]
+    pub file: String,
+    /// Content to write (alternative to --stdin).
+    #[arg(long)]
+    pub content: Option<String>,
+    /// Read content from stdin.
+    #[arg(long)]
+    pub stdin: bool,
+    /// Overwrite if file already exists.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct CreateOutput {
+    ok: bool,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+}
+
+fn build_write_policy(global: &GlobalFlags) -> WritePolicy {
+    WritePolicy {
+        ensure_final_newline: global.ensure_final_newline,
+        normalize_eol: global.normalize_eol.unwrap_or(EolMode::Keep),
+        trim_trailing_whitespace: global.trim_trailing_whitespace,
+    }
+}
+
+fn make_diff_output(path: &str, content: &str) -> String {
+    let diff = unified_diff(path, "", content);
+    let total_files_changed = usize::from(diff.has_changes);
+    let diff_result = DiffResult {
+        diffs: vec![diff],
+        total_files_changed,
+    };
+    format_diff_result(&diff_result)
+}
+
+pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    if let Some(ref cwd) = global.cwd {
+        std::env::set_current_dir(cwd)?;
+    }
+
+    // Resolve content from --content or --stdin.
+    let content = if let Some(ref c) = args.content {
+        c.clone()
+    } else if args.stdin {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        buf
+    } else {
+        bail!("either --content or --stdin must be provided");
+    };
+
+    let path = Path::new(&args.file);
+
+    // Check if file already exists.
+    if path.exists() && !args.force {
+        bail!("file already exists: {}", args.file);
+    }
+
+    // --check mode: report that file would be created, exit 2.
+    if global.check {
+        if global.json {
+            let output = CreateOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: None,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!("would create {}", args.file);
+        }
+        return Ok(exit::CHANGES_DETECTED);
+    }
+
+    // --apply mode: write file using atomic_write.
+    if global.apply {
+        let policy = build_write_policy(global);
+
+        // Ensure parent directories exist.
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+
+        atomic_write(path, &content, &policy)?;
+
+        if global.json {
+            let diff_text = if global.diff {
+                Some(make_diff_output(&args.file, &content))
+            } else {
+                None
+            };
+            let output = CreateOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: diff_text,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.diff {
+            print!("{}", make_diff_output(&args.file, &content));
+        } else {
+            println!("created {}", args.file);
+        }
+        return Ok(exit::SUCCESS);
+    }
+
+    // Default / --diff mode: show unified diff of changes.
+    if global.json {
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: Some(make_diff_output(&args.file, &content)),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print!("{}", make_diff_output(&args.file, &content));
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn default_global() -> GlobalFlags {
+        GlobalFlags {
+            json: false,
+            jsonl: false,
+            diff: false,
+            apply: false,
+            check: false,
+            cwd: None,
+            glob: None,
+            files_from: None,
+            atomic: false,
+            ensure_final_newline: false,
+            normalize_eol: None,
+            trim_trailing_whitespace: false,
+        }
+    }
+
+    #[test]
+    fn create_writes_file_with_correct_content() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("new.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("hello world\n".to_string()),
+            stdin: false,
+            force: false,
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello world\n");
+    }
+
+    #[test]
+    fn create_refuses_to_overwrite_existing_file_without_force() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("existing.txt");
+        fs::write(&file, "original\n").unwrap();
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("new content\n".to_string()),
+            stdin: false,
+            force: false,
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let err = run(args, &global).unwrap_err();
+        assert!(err.to_string().contains("file already exists:"));
+
+        // Original content should be unchanged.
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "original\n");
+    }
+
+    #[test]
+    fn create_with_force_overwrites_existing_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("existing.txt");
+        fs::write(&file, "original\n").unwrap();
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("overwritten\n".to_string()),
+            stdin: false,
+            force: true,
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "overwritten\n");
+    }
+
+    #[test]
+    fn create_with_check_returns_exit_2() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("check.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("content\n".to_string()),
+            stdin: false,
+            force: false,
+        };
+        let mut global = default_global();
+        global.check = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        // File should NOT have been created.
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn create_with_no_content_source_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("no_content.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: None,
+            stdin: false,
+            force: false,
+        };
+        let global = default_global();
+
+        let err = run(args, &global).unwrap_err();
+        assert!(err.to_string().contains("--content or --stdin"));
+    }
+}

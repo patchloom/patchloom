@@ -1,3 +1,4 @@
+pub mod create;
 pub mod doc;
 pub mod hygiene;
 pub mod md;
@@ -11,6 +12,8 @@ use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Create a new file with specified content.
+    Create(create::CreateArgs),
     /// Fast literal or regex search across a repo.
     Search(search::SearchArgs),
     /// Mechanical string replacement with diff preview.
@@ -29,6 +32,7 @@ pub enum Command {
 
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     match cli.command {
+        Command::Create(args) => create::run(args, &cli.global),
         Command::Search(args) => search::run(args, &cli.global),
         Command::Replace(args) => replace::run(args, &cli.global),
         Command::Patch(args) => patch::run(args, &cli.global),
