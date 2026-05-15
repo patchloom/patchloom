@@ -85,3 +85,64 @@ pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
     let plan: Plan = serde_json::from_str(input)?;
     Ok(plan)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_minimal_plan() {
+        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(plan.cwd.is_none());
+        assert!(plan.write_policy.is_none());
+        assert!(plan.validate.is_none());
+        assert_eq!(plan.operations.len(), 1);
+    }
+
+    #[test]
+    fn parse_plan_with_all_fields() {
+        let json = r#"{
+            "cwd": "/tmp",
+            "write_policy": {"ensure_final_newline": true, "normalize_eol": "lf"},
+            "operations": [{"op": "file.create", "path": "f.txt", "content": "hi"}],
+            "validate": [{"cmd": "echo ok"}]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.cwd.as_deref(), Some("/tmp"));
+        let wp = plan.write_policy.unwrap();
+        assert_eq!(wp.ensure_final_newline, Some(true));
+        assert_eq!(wp.normalize_eol.as_deref(), Some("lf"));
+        assert!(plan.validate.unwrap()[0].required.is_none());
+    }
+
+    #[test]
+    fn parse_plan_unknown_op_fails() {
+        let json = r#"{"operations": [{"op": "unknown", "x": 1}]}"#;
+        assert!(parse_plan(json).is_err());
+    }
+
+    #[test]
+    fn parse_plan_missing_operations_fails() {
+        let json = r#"{"cwd": "/tmp"}"#;
+        assert!(parse_plan(json).is_err());
+    }
+
+    #[test]
+    fn parse_all_operation_variants() {
+        let json = r#"{"operations": [
+            {"op": "replace", "from": "a", "to": "b"},
+            {"op": "doc.set", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "key": "k"},
+            {"op": "doc.merge", "path": "f.json", "value": {}},
+            {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
+            {"op": "md.replace_section", "path": "f.md", "heading": "H", "content": "c"},
+            {"op": "md.insert_after_heading", "path": "f.md", "heading": "H", "content": "c"},
+            {"op": "hygiene.fix", "path": "f.txt"},
+            {"op": "file.create", "path": "f.txt", "content": "c"},
+            {"op": "file.delete", "path": "f.txt"}
+        ]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.operations.len(), 10);
+    }
+}
