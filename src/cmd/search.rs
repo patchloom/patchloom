@@ -1,5 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
+use anyhow::bail;
 use clap::Args;
 use regex::Regex;
 use serde::Serialize;
@@ -219,6 +220,10 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::env::set_current_dir(cwd)?;
     }
 
+    if args.invert_match && args.multiline {
+        bail!("--invert-match and --multiline cannot be combined");
+    }
+
     let results = collect_matches(&args, global)?;
 
     if results.matches.is_empty() {
@@ -371,6 +376,46 @@ mod tests {
             m.text
         );
         assert_eq!(m.line, 1, "match starts on line 1");
+    }
+
+    #[test]
+    fn invert_match_multiline_is_rejected() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.multiline = true;
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(
+            err.to_string().contains("--invert-match and --multiline"),
+            "should reject incompatible flags: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn context_lines_included_in_output() {
+        let dir = make_test_dir();
+        let mut args = make_args("test file", vec![dir.path().to_string_lossy().into_owned()]);
+        args.context = Some(1);
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert_eq!(results.matches.len(), 1);
+        let m = &results.matches[0];
+        assert!(m.context_before.is_some(), "should have context_before");
+        assert!(m.context_after.is_some(), "should have context_after");
+        let before = m.context_before.as_ref().unwrap();
+        assert_eq!(before.len(), 1);
+        assert!(
+            before[0].contains("Hello, world!"),
+            "context before: {:?}",
+            before
+        );
+        let after = m.context_after.as_ref().unwrap();
+        assert_eq!(after.len(), 1);
+        assert!(
+            after[0].contains("Hello again!"),
+            "context after: {:?}",
+            after
+        );
     }
 
     #[test]

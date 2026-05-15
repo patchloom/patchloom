@@ -271,6 +271,50 @@ fn test_replace_if_exists_no_match_exit_0() {
 }
 
 // ---------------------------------------------------------------------------
+// search: incompatible flags
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_search_invert_match_multiline_rejected() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--multiline")
+        .arg("-v")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--invert-match and --multiline"));
+}
+
+// ---------------------------------------------------------------------------
+// replace: invalid regex
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_invalid_regex_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--regex")
+        .arg("--from")
+        .arg("[invalid(regex")
+        .arg("--to")
+        .arg("x")
+        .arg(&file)
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
 // replace --multiline
 // ---------------------------------------------------------------------------
 
