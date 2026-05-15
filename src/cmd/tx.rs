@@ -289,9 +289,10 @@ fn execute_operation(
             let content = read_file_content(pending, &file_path)?;
             // Mark current content as empty so the diff shows full deletion.
             update_file_content(pending, &file_path, String::new());
-            // If the file was just created in this plan (original is empty),
-            // simply remove it from pending instead of deleting on disk.
-            if content.is_empty() {
+            // If the file was created in this plan (original is empty AND
+            // it doesn't exist on disk), remove from pending; no disk delete.
+            // Otherwise, schedule for actual deletion (covers empty on-disk files).
+            if content.is_empty() && !file_path.exists() {
                 pending.remove(&file_path);
             } else {
                 deletions.insert(file_path);
@@ -394,12 +395,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 7. Output based on mode.
+    // Deletions of empty files won't appear in `changes` (original == final == ""),
+    // but they still count as changes for --check reporting.
+    let pending_deletions = deletions
+        .iter()
+        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
+        .count();
     if global.check {
-        if changes.is_empty() {
+        if changes.is_empty() && pending_deletions == 0 {
             return Ok(exit::SUCCESS);
         }
         if !global.quiet {
-            println!("{} file(s) would change", changes.len());
+            println!("{} file(s) would change", changes.len() + pending_deletions);
         }
         return Ok(exit::CHANGES_DETECTED);
     }
@@ -418,6 +425,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }
                 }
                 atomic_write(path, new_content, &noop_policy)?;
+            }
+        }
+        // Handle deletions not captured in changes (e.g. empty files whose
+        // original == final content == "").
+        for path in &deletions {
+            if path.exists() {
+                std::fs::remove_file(path)?;
             }
         }
 

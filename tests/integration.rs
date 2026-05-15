@@ -2387,6 +2387,133 @@ fn test_doc_set_check_exits_2() {
 }
 
 // ---------------------------------------------------------------------------
+// tx: file.delete on empty file (bug fix), validation optional step
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_file_delete_empty_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.txt");
+    fs::write(&file, "").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.delete", "path": "empty.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!file.exists(), "empty file should be deleted");
+}
+
+#[test]
+fn test_tx_optional_validation_failure_ignored() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
+        ],
+        "validate": [
+            {"cmd": "false", "required": false}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // Optional validation failure should still succeed.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("new"),
+        "file should be modified despite optional validation failure"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// md --check leaves file untouched
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_replace_section_check_exits_2_no_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    let original = "# Title\n\n## Section\n\nold content\n\n## Other\n\nkept\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("replace-section")
+        .arg("--file")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Section")
+        .arg("--content")
+        .arg("new content")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, original,
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// hygiene fix --check
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_hygiene_fix_check_exits_2_no_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "trailing whitespace   ").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("hygiene")
+        .arg("fix")
+        .arg(&file)
+        .arg("--ensure-final-newline")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "trailing whitespace   ",
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 
