@@ -8,6 +8,8 @@ use clap::Args;
 pub struct PatchArgs {
     #[command(subcommand)]
     pub action: PatchAction,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -611,6 +613,7 @@ mod tests {
                 file: Some(diff_path.to_string_lossy().to_string()),
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -643,6 +646,7 @@ mod tests {
                 file: Some(diff_path.to_string_lossy().to_string()),
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::AMBIGUOUS);
@@ -678,6 +682,7 @@ mod tests {
                 file: Some(diff_path.to_string_lossy().to_string()),
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -714,6 +719,7 @@ mod tests {
                 file: Some(diff_path.to_string_lossy().to_string()),
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -740,6 +746,7 @@ mod tests {
                 file: Some(diff_path.to_string_lossy().to_string()),
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
@@ -754,6 +761,7 @@ mod tests {
                 file: None,
                 stdin: false,
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);

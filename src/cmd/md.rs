@@ -12,6 +12,8 @@ use std::path::Path;
 pub struct MdArgs {
     #[command(subcommand)]
     pub action: MdAction,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -597,6 +599,7 @@ mod tests {
                 stdin: false,
                 content: Some("new content".into()),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -623,6 +626,7 @@ mod tests {
                 stdin: false,
                 content: Some("new".into()),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -643,6 +647,7 @@ mod tests {
                 stdin: false,
                 content: Some("inserted".into()),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -669,6 +674,7 @@ mod tests {
                 heading: "List".into(),
                 bullet: "item2".into(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -690,6 +696,7 @@ mod tests {
                 heading: "List".into(),
                 bullet: "- item1".into(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -718,6 +725,7 @@ mod tests {
             action: MdAction::DedupeHeadings {
                 file: file.to_str().unwrap().to_string(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -748,6 +756,7 @@ mod tests {
             action: MdAction::LintAgents {
                 file: file.to_str().unwrap().to_string(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
@@ -763,6 +772,7 @@ mod tests {
             action: MdAction::LintAgents {
                 file: file.to_str().unwrap().to_string(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
@@ -786,6 +796,7 @@ mod tests {
                 stdin: false,
                 content: Some("replaced".into()),
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -851,6 +862,7 @@ mod tests {
                 heading: "Table".into(),
                 row: "| C | D |".into(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -874,6 +886,7 @@ mod tests {
                 heading: "Missing".into(),
                 row: "| X |".into(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -891,6 +904,7 @@ mod tests {
                 heading: "Title".into(),
                 row: "| X |".into(),
             },
+            write: Default::default(),
         };
         let result = run(args, &default_global());
         assert!(result.is_err(), "expected error when no table is present");
@@ -912,6 +926,7 @@ mod tests {
                 heading: "Table".into(),
                 row: "| B |".into(),
             },
+            write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::SUCCESS);

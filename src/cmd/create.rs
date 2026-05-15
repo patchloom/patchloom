@@ -23,6 +23,8 @@ pub struct CreateArgs {
     /// Overwrite if file already exists.
     #[arg(long)]
     pub force: bool,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +151,7 @@ mod tests {
             content: Some("hello world\n".to_string()),
             stdin: false,
             force: false,
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -171,6 +174,7 @@ mod tests {
             content: Some("new content\n".to_string()),
             stdin: false,
             force: false,
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -194,6 +198,7 @@ mod tests {
             content: Some("overwritten\n".to_string()),
             stdin: false,
             force: true,
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -215,6 +220,7 @@ mod tests {
             content: Some("content\n".to_string()),
             stdin: false,
             force: false,
+            write: Default::default(),
         };
         let mut global = default_global();
         global.check = true;
@@ -236,6 +242,7 @@ mod tests {
             content: None,
             stdin: false,
             force: false,
+            write: Default::default(),
         };
         let global = default_global();
 

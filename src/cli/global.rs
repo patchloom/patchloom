@@ -13,7 +13,11 @@ pub enum EolMode {
     Crlf,
 }
 
-/// Global flags shared by all subcommands.
+/// Flags available to all subcommands (read and write).
+///
+/// Write-only flags are `#[clap(skip)]` here so they don't appear in
+/// read-only subcommand help. Write commands flatten [`WriteFlags`]
+/// separately and the dispatcher merges them via [`GlobalFlags::merge_write`].
 #[derive(Debug, Default, Args)]
 pub struct GlobalFlags {
     /// Emit machine-readable JSON output.
@@ -23,18 +27,6 @@ pub struct GlobalFlags {
     /// Emit one JSON object per result line.
     #[arg(long, global = true)]
     pub jsonl: bool,
-
-    /// Print unified diff for any write operation.
-    #[arg(long, global = true)]
-    pub diff: bool,
-
-    /// Actually mutate files.
-    #[arg(long, global = true)]
-    pub apply: bool,
-
-    /// Compute and report changes without writing.
-    #[arg(long, global = true)]
-    pub check: bool,
 
     /// Set working directory.
     #[arg(long, global = true)]
@@ -47,6 +39,44 @@ pub struct GlobalFlags {
     /// Read file list from a file or stdin (`-`), one path per line.
     #[arg(long, global = true)]
     pub files_from: Option<String>,
+
+    // -- Write-only flags (populated via merge_write in dispatch) -----------
+    #[clap(skip)]
+    pub diff: bool,
+    #[clap(skip)]
+    pub apply: bool,
+    #[clap(skip)]
+    pub check: bool,
+    #[clap(skip)]
+    pub atomic: bool,
+    #[clap(skip)]
+    pub ensure_final_newline: bool,
+    #[clap(skip)]
+    pub normalize_eol: Option<EolMode>,
+    #[clap(skip)]
+    pub trim_trailing_whitespace: bool,
+    #[clap(skip)]
+    pub respect_editorconfig: bool,
+}
+
+/// Write-only flags exposed in subcommands that mutate files.
+///
+/// Use `global = true` so these propagate into nested subcommands
+/// (e.g. `doc set`, `patch apply`). They only appear in help when
+/// the parent command flattens this struct.
+#[derive(Debug, Default, Args)]
+pub struct WriteFlags {
+    /// Print unified diff for any write operation.
+    #[arg(long, global = true)]
+    pub diff: bool,
+
+    /// Actually mutate files.
+    #[arg(long, global = true)]
+    pub apply: bool,
+
+    /// Compute and report changes without writing.
+    #[arg(long, global = true)]
+    pub check: bool,
 
     /// Require all-or-nothing multi-file apply.
     #[arg(long, global = true)]
@@ -70,6 +100,18 @@ pub struct GlobalFlags {
 }
 
 impl GlobalFlags {
+    /// Copy write-only flags from a [`WriteFlags`] into this struct.
+    pub fn merge_write(&mut self, w: &WriteFlags) {
+        self.diff = w.diff;
+        self.apply = w.apply;
+        self.check = w.check;
+        self.atomic = w.atomic;
+        self.ensure_final_newline = w.ensure_final_newline;
+        self.normalize_eol = w.normalize_eol;
+        self.trim_trailing_whitespace = w.trim_trailing_whitespace;
+        self.respect_editorconfig = w.respect_editorconfig;
+    }
+
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
     pub fn read_files_from(&self) -> Option<Vec<String>> {

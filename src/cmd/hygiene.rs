@@ -11,6 +11,8 @@ use std::path::Path;
 pub struct HygieneArgs {
     #[command(subcommand)]
     pub action: HygieneAction,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -342,6 +344,7 @@ mod tests {
             action: HygieneAction::Check {
                 paths: vec![".".to_string()],
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -430,6 +433,7 @@ mod tests {
             action: HygieneAction::Fix {
                 paths: vec![".".to_string()],
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -455,6 +459,7 @@ mod tests {
             action: HygieneAction::Fix {
                 paths: vec![".".to_string()],
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -480,6 +485,7 @@ mod tests {
             action: HygieneAction::Fix {
                 paths: vec![".".to_string()],
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -504,6 +510,7 @@ mod tests {
             action: HygieneAction::Fix {
                 paths: vec![".".to_string()],
             },
+            write: Default::default(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);

@@ -645,19 +645,19 @@ fn test_parse_global_flag_json() {
 }
 
 #[test]
-fn test_parse_global_flag_ensure_final_newline() {
+fn test_parse_write_flag_ensure_final_newline() {
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["--ensure-final-newline", "search", "--help"])
+        .args(["hygiene", "--ensure-final-newline", "--help"])
         .assert()
         .success();
 }
 
 #[test]
-fn test_parse_global_flag_normalize_eol() {
+fn test_parse_write_flag_normalize_eol() {
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["--normalize-eol", "lf", "search", "--help"])
+        .args(["replace", "--normalize-eol", "lf", "--help"])
         .assert()
         .success();
 }

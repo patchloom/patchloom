@@ -11,6 +11,8 @@ use std::path::Path;
 pub struct DocArgs {
     #[command(subcommand)]
     pub action: DocAction,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, clap::Subcommand)]

@@ -19,6 +19,8 @@ pub struct TxArgs {
     /// Path to a plan JSON file, or `-` for stdin.
     #[arg(long)]
     pub plan: String,
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
 }
 
 /// Short label for an operation, used in error messages.
@@ -504,6 +506,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -554,6 +557,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -581,6 +585,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -605,6 +610,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -630,6 +636,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let global = default_global();
 
@@ -658,6 +665,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
@@ -692,6 +700,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;

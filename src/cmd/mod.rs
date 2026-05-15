@@ -31,14 +31,36 @@ pub enum Command {
 }
 
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
+    let mut global = cli.global;
     match cli.command {
-        Command::Create(args) => create::run(args, &cli.global),
-        Command::Search(args) => search::run(args, &cli.global),
-        Command::Replace(args) => replace::run(args, &cli.global),
-        Command::Patch(args) => patch::run(args, &cli.global),
-        Command::Md(args) => md::run(args, &cli.global),
-        Command::Doc(args) => doc::run(args, &cli.global),
-        Command::Hygiene(args) => hygiene::run(args, &cli.global),
-        Command::Tx(args) => tx::run(args, &cli.global),
+        Command::Search(args) => search::run(args, &global),
+        Command::Create(args) => {
+            global.merge_write(&args.write);
+            create::run(args, &global)
+        }
+        Command::Replace(args) => {
+            global.merge_write(&args.write);
+            replace::run(args, &global)
+        }
+        Command::Patch(args) => {
+            global.merge_write(&args.write);
+            patch::run(args, &global)
+        }
+        Command::Md(args) => {
+            global.merge_write(&args.write);
+            md::run(args, &global)
+        }
+        Command::Doc(args) => {
+            global.merge_write(&args.write);
+            doc::run(args, &global)
+        }
+        Command::Hygiene(args) => {
+            global.merge_write(&args.write);
+            hygiene::run(args, &global)
+        }
+        Command::Tx(args) => {
+            global.merge_write(&args.write);
+            tx::run(args, &global)
+        }
     }
 }
