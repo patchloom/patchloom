@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 8 commands and 126 passing tests.
+V1 with 8 commands and 166 passing tests.
 
 ## Install
 
@@ -89,6 +89,18 @@ Append a row to a markdown table:
 patchloom md table-append --file README.md --heading "## Features" --row "| new | feature |" --apply
 ```
 
+Apply a unified diff:
+
+```
+patchloom patch apply --file changes.patch --apply
+```
+
+Check whether a patch applies cleanly (without writing):
+
+```
+patchloom patch check --file changes.patch
+```
+
 Fix missing final newlines across a directory:
 
 ```
@@ -117,6 +129,7 @@ patchloom tx --plan plan.json --apply
 | `--ensure-final-newline`     | Ensure non-empty written files end with a newline  |
 | `--normalize-eol <mode>`    | Normalize line endings after write (keep, lf, crlf)|
 | `--trim-trailing-whitespace` | Remove trailing whitespace on touched lines        |
+| `--respect-editorconfig`     | Read write policy from `.editorconfig` when present |
 
 ## Exit codes
 
