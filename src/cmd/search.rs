@@ -196,9 +196,24 @@ fn format_results(
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
     } else if global.jsonl {
-        for m in &results.matches {
-            out.push_str(&serde_json::to_string(m)?);
-            out.push('\n');
+        if args.files_with_matches {
+            // count_only mode: matches is empty, emit one line per file.
+            for path in results.file_match_counts.keys() {
+                out.push_str(&serde_json::to_string(&serde_json::json!({"path": path}))?);
+                out.push('\n');
+            }
+        } else if args.count {
+            for (path, count) in &results.file_match_counts {
+                out.push_str(&serde_json::to_string(
+                    &serde_json::json!({"path": path, "count": count}),
+                )?);
+                out.push('\n');
+            }
+        } else {
+            for m in &results.matches {
+                out.push_str(&serde_json::to_string(m)?);
+                out.push('\n');
+            }
         }
     } else if args.files_with_matches {
         for path in results.file_match_counts.keys() {

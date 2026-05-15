@@ -2119,6 +2119,274 @@ fn test_patch_malformed_file_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// --jsonl + count/files-with-matches (bug fix: count_only + jsonl)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_jsonl_files_with_matches_emits_per_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hello\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--files-with-matches")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "should have one JSONL line per matched file"
+    );
+    for line in &lines {
+        assert!(
+            line["path"].is_string(),
+            "each line should have a path field"
+        );
+    }
+}
+
+#[test]
+fn test_jsonl_count_emits_per_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\nhello\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--count")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["count"], serde_json::json!(2));
+    assert!(v["path"].is_string());
+}
+
+// ---------------------------------------------------------------------------
+// json + count combination
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_json_count_produces_valid_envelope() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\nhello\nhello\n").unwrap();
+
+    let result = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("--count")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    let output = result.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["ok"], serde_json::json!(true));
+    assert_eq!(v["match_count"], serde_json::json!(3));
+    assert_eq!(v["file_count"], serde_json::json!(1));
+}
+
+// ---------------------------------------------------------------------------
+// tx: validate steps, doc operations in plan
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_validate_required_failure_exits_6() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
+        ],
+        "validate": [
+            {"cmd": "false", "required": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(6);
+}
+
+#[test]
+fn test_tx_doc_delete_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"keep":1,"remove":2}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.delete", "path": "config.json", "key": "remove"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(v.get("remove").is_none());
+    assert_eq!(v["keep"], serde_json::json!(1));
+}
+
+// ---------------------------------------------------------------------------
+// doc: edge cases
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_select_no_matches_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"status":"active"}]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("select")
+        .arg(&file)
+        .arg("items[status=nonexistent]")
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_doc_move_missing_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("nonexistent")
+        .arg("target")
+        .arg("--apply")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_doc_merge_nested_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"x":{"existing":"old"}}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"x":{"nested":"new"}}"#)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["x"]["existing"],
+        serde_json::json!("old"),
+        "existing key preserved"
+    );
+    assert_eq!(v["x"]["nested"], serde_json::json!("new"), "new key merged");
+}
+
+#[test]
+fn test_doc_ensure_noop_when_value_differs() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    // ensure a=99 when a already exists with value 1: should NOT change the value
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("a")
+        .arg("99")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["a"],
+        serde_json::json!(1),
+        "ensure should not overwrite existing key"
+    );
+}
+
+#[test]
+fn test_doc_set_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("1.0"),
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // editorconfig integration
 // ---------------------------------------------------------------------------
 
