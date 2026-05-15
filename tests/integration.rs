@@ -3597,6 +3597,72 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
 }
 
 #[test]
+fn test_tx_strict_mode_restores_deleted_file_on_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep me\n").unwrap();
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "file.delete",
+            "path": file.to_str().unwrap()
+        }],
+        "validate": [{
+            "cmd": "exit 1",
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // Deleted file should be restored.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep me\n");
+}
+
+#[test]
+fn test_tx_non_strict_format_failure_exits_6_not_7() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": "exit 1"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(6); // VALIDATION_FAILED (not ROLLBACK)
+
+    // File should still be modified (non-strict doesn't revert).
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+#[test]
 fn test_tx_write_policy_ensure_final_newline_on_file_create() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("newfile.txt");

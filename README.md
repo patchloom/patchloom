@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 308 passing tests.
+V2 with 10 commands and 310 passing tests.
 
 ## Install
 
@@ -358,6 +358,8 @@ The `tx` command accepts a JSON plan with an array of operations:
 
 ```json
 {
+  "strict": true,
+  "write_policy": { "ensure_final_newline": true },
   "operations": [
     { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new" },
     { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new", "nth": 2 },
@@ -397,7 +399,7 @@ All operations run in order. If any operation fails, all changes are rolled back
 Plans support three lifecycle arrays and an optional write policy:
 
 - **operations**: The mutations to apply.
-- **format**: Shell commands that run after all operations are written to disk but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60). Note: files are already on disk when format runs; a format failure exits with code 6 but does not undo the writes.
+- **format**: Shell commands that run after all operations are written to disk but before validation. Use for code formatters (`cargo fmt`, `prettier`, `black`). Each step accepts an optional `timeout` in seconds (default: 60). Note: files are already on disk when format runs; a format failure exits with code 6 (or code 7 in strict mode, which also reverts all writes).
 - **validate**: Shell commands that run after format steps. If a required step fails, the transaction exits with code 6. Each step accepts an optional `timeout` in seconds (default: 60). Like format, validation runs after writes are committed.
 - **write_policy**: Optional object with `ensure_final_newline` (bool), `normalize_eol` (`"lf"` or `"crlf"`), and `trim_trailing_whitespace` (bool). Applied to all pending content (including `file.create`) before writing to disk.
 - **strict**: Optional boolean (default: `false`). When `true`, a format or validation failure reverts all file writes and exits with code 7 (ROLLBACK) instead of code 6. Created files are removed; modified files are restored to their original content.

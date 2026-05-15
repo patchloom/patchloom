@@ -836,7 +836,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 // Restore files that were deleted.
                 for path in &deletions {
-                    if let Some((_, (orig, _))) = pending.iter().find(|(p, _)| **p == *path) {
+                    if let Some((orig, _)) = pending.get(path) {
                         if !orig.is_empty() {
                             let _ = atomic_write(path, orig, &noop_policy);
                         }
