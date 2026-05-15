@@ -1,27 +1,31 @@
-.PHONY: fmt fmt-check build test integration-test clippy check update-readme
+.PHONY: help fmt fmt-check build test integration-test clippy check update-readme
 
-fmt:
+.DEFAULT_GOAL := help
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+fmt: ## Run cargo fmt
 	cargo fmt --all
 
-fmt-check:
+fmt-check: ## Check formatting without modifying files
 	cargo fmt --all -- --check
 
-build:
+build: ## Run cargo build
 	cargo build
 
-test:
+test: ## Run unit tests
 	cargo test --lib
 
-integration-test:
+integration-test: ## Run integration tests
 	cargo test --test integration
 
-clippy:
+clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check build test integration-test clippy
+check: fmt-check build test integration-test clippy ## Run all checks (full CI gate)
 
-# Update the test count in README.md from actual cargo test output.
-update-readme:
+update-readme: ## Update test count in README.md
 	@unit=$$(cargo test --lib 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	integ=$$(cargo test --test integration 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	total=$$((unit + integ)); \
