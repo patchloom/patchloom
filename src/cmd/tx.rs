@@ -24,6 +24,22 @@ pub struct TxArgs {
 // Markdown helpers (adapted from cmd/md.rs)
 // ---------------------------------------------------------------------------
 
+/// Short label for an operation, used in error messages.
+fn op_label(op: &Operation) -> &'static str {
+    match op {
+        Operation::Replace { .. } => "replace",
+        Operation::DocSet { .. } => "doc.set",
+        Operation::DocDelete { .. } => "doc.delete",
+        Operation::DocMerge { .. } => "doc.merge",
+        Operation::DocAppend { .. } => "doc.append",
+        Operation::MdReplaceSection { .. } => "md.replace_section",
+        Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
+        Operation::HygieneFix { .. } => "hygiene.fix",
+        Operation::FileCreate { .. } => "file.create",
+        Operation::FileDelete { .. } => "file.delete",
+    }
+}
+
 fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
     let (body_start, body_end) = crate::cmd::md::find_section(content, heading)?;
     let mut out = String::with_capacity(content.len());
@@ -387,9 +403,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
 
-    for op in &plan.operations {
+    for (i, op) in plan.operations.iter().enumerate() {
         if let Err(e) = execute_operation(op, &mut pending, &mut deletions) {
-            eprintln!("tx: operation failed: {e}");
+            eprintln!("tx: operation {} ({}) failed: {e}", i + 1, op_label(op));
             return Ok(exit::ROLLBACK);
         }
     }
