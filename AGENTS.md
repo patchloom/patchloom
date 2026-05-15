@@ -11,7 +11,8 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides nine comman
 | `make fmt` | Run `cargo fmt --all` |
 | `make fmt-check` | Check formatting without modifying files |
 | `make build` | Run `cargo build` |
-| `make test` | Run `cargo test` |
+| `make test` | Run unit tests (`cargo test --lib`) |
+| `make integration-test` | Run integration tests (`cargo test --test integration`) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
 | `make check` | Run all of the above in sequence: `fmt-check`, `build`, `test`, `clippy` |
 
