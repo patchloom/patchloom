@@ -28,11 +28,22 @@ pub enum Command {
     Hygiene(hygiene::HygieneArgs),
     /// Execute a multi-operation plan atomically.
     Tx(tx::TxArgs),
+    /// Generate shell completions for bash, zsh, fish, or elvish.
+    Completions {
+        /// Shell to generate completions for.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     let mut global = cli.global;
     match cli.command {
+        Command::Completions { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
+            Ok(crate::exit::SUCCESS)
+        }
         Command::Search(args) => search::run(args, &global),
         Command::Create(args) => {
             global.merge_write(&args.write);

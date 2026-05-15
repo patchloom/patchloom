@@ -4,7 +4,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V1 with 8 commands and 176 passing tests.
+V1 with 9 commands and 177 passing tests.
 
 ## Install
 
@@ -32,6 +32,7 @@ cargo install patchloom
 | `hygiene` | Final newline, line ending, and whitespace normalization |
 | `create`  | Create a new file with content                       |
 | `tx`      | Execute a multi-operation plan atomically            |
+| `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 
 ## Usage
 
@@ -229,6 +230,21 @@ Run a multi-operation plan atomically:
 
 ```
 patchloom tx --plan plan.json --apply
+```
+
+## Shell completions
+
+Generate shell completions for your shell:
+
+```
+# bash
+patchloom completions bash > /etc/bash_completion.d/patchloom
+
+# zsh
+patchloom completions zsh > ~/.zfunc/_patchloom
+
+# fish
+patchloom completions fish > ~/.config/fish/completions/patchloom.fish
 ```
 
 ## Transaction plan format
