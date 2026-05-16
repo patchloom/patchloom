@@ -239,7 +239,7 @@ fn execute_operation(
     op: &Operation,
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     match op {
         Operation::Replace {
             glob,
@@ -263,12 +263,14 @@ fn execute_operation(
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let (replaced, _) =
+                let (replaced, match_count) =
                     replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
                 update_file_content(pending, deletions, &file_path, replaced);
+                return Ok(match_count);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
                 let walker = WalkBuilder::new(".").build();
+                let mut total_matches = 0usize;
                 for entry in walker {
                     let entry = match entry {
                         Ok(e) => e,
@@ -287,10 +289,12 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let (replaced, _) =
+                    let (replaced, match_count) =
                         replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
+                    total_matches += match_count;
                     update_file_content(pending, deletions, &file_path, replaced);
                 }
+                return Ok(total_matches);
             } else {
                 anyhow::bail!("replace operation requires either 'path' or 'glob'");
             }
@@ -671,7 +675,7 @@ fn execute_operation(
         }
     }
 
-    Ok(())
+    Ok(0)
 }
 
 // ---------------------------------------------------------------------------
@@ -873,16 +877,26 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
+    let mut has_replace_operation = false;
+    let mut total_replace_matches = 0usize;
 
     for (i, op) in plan.operations.iter().enumerate() {
-        if let Err(e) = execute_operation(op, &mut pending, &mut deletions) {
-            let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
-            if global.json {
-                emit_error_json("rollback", &msg);
-            } else {
-                eprintln!("tx: {msg}");
+        if matches!(op, Operation::Replace { .. }) {
+            has_replace_operation = true;
+        }
+        match execute_operation(op, &mut pending, &mut deletions) {
+            Ok(match_count) => {
+                total_replace_matches += match_count;
             }
-            return Ok(exit::ROLLBACK);
+            Err(e) => {
+                let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+                if global.json {
+                    emit_error_json("rollback", &msg);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::ROLLBACK);
+            }
         }
     }
 
@@ -910,8 +924,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .iter()
         .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
         .count();
+    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
+    let replace_no_matches =
+        has_replace_operation && total_replace_matches == 0 && no_effective_changes;
+
     if global.check {
-        if changes.is_empty() && pending_deletions == 0 {
+        if no_effective_changes {
+            if replace_no_matches {
+                return Ok(exit::NO_MATCHES);
+            }
             if global.json {
                 let output =
                     build_tx_output("success", true, &changes, &deletions, &existed_before);
@@ -1071,11 +1092,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::VALIDATION_FAILED);
         }
 
+        if replace_no_matches {
+            return Ok(exit::NO_MATCHES);
+        }
         if global.json {
             let output = build_tx_output("success", true, &changes, &deletions, &existed_before);
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         return Ok(exit::SUCCESS);
+    }
+
+    if replace_no_matches {
+        return Ok(exit::NO_MATCHES);
     }
 
     // Default / --diff mode: show unified diffs.
