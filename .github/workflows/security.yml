@@ -27,7 +27,7 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@v6
-      - uses: aquasecurity/trivy-action@master
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
