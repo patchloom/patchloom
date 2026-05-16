@@ -189,6 +189,10 @@ fn make_diff_output(replacements: &[FileReplacement]) -> String {
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     std::env::set_current_dir(global.resolve_cwd()?)?;
 
+    if args.from.is_empty() {
+        anyhow::bail!("--from must not be empty");
+    }
+
     match validate_replace_mode(
         args.to.is_some(),
         args.insert_before.is_some(),

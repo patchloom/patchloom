@@ -135,28 +135,34 @@ fn op_label(op: &Operation) -> &'static str {
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
+            from,
             to,
             insert_before,
             insert_after,
             ..
-        } => match validate_replace_mode(
-            to.is_some(),
-            insert_before.is_some(),
-            insert_after.is_some(),
-        ) {
-            Ok(()) => Ok(()),
-            Err(ReplaceModeError::MissingMode) => {
-                anyhow::bail!(
-                    "replace operation requires one of to, insert_before, or insert_after"
-                )
+        } => {
+            if from.is_empty() {
+                anyhow::bail!("replace operation requires a non-empty from field");
             }
-            Err(ReplaceModeError::BothInsertModes) => {
-                anyhow::bail!("insert_before and insert_after cannot both be set")
+            match validate_replace_mode(
+                to.is_some(),
+                insert_before.is_some(),
+                insert_after.is_some(),
+            ) {
+                Ok(()) => Ok(()),
+                Err(ReplaceModeError::MissingMode) => {
+                    anyhow::bail!(
+                        "replace operation requires one of to, insert_before, or insert_after"
+                    )
+                }
+                Err(ReplaceModeError::BothInsertModes) => {
+                    anyhow::bail!("insert_before and insert_after cannot both be set")
+                }
+                Err(ReplaceModeError::ToWithInsert) => {
+                    anyhow::bail!("to cannot be combined with insert_before or insert_after")
+                }
             }
-            Err(ReplaceModeError::ToWithInsert) => {
-                anyhow::bail!("to cannot be combined with insert_before or insert_after")
-            }
-        },
+        }
         _ => Ok(()),
     }
 }
