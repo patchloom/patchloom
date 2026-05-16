@@ -129,6 +129,63 @@ fn op_label(op: &Operation) -> &'static str {
     }
 }
 
+fn validate_replace_fields(
+    to: &Option<String>,
+    insert_before: &Option<String>,
+    insert_after: &Option<String>,
+) -> anyhow::Result<()> {
+    let has_to = to.is_some();
+    let has_insert_before = insert_before.is_some();
+    let has_insert_after = insert_after.is_some();
+
+    if has_insert_before && has_insert_after {
+        anyhow::bail!("insert_before and insert_after cannot both be set");
+    }
+
+    if has_to && (has_insert_before || has_insert_after) {
+        anyhow::bail!("to cannot be combined with insert_before or insert_after");
+    }
+
+    Ok(())
+}
+
+fn validate_operation(op: &Operation) -> anyhow::Result<()> {
+    match op {
+        Operation::Replace {
+            to,
+            insert_before,
+            insert_after,
+            ..
+        } => validate_replace_fields(to, insert_before, insert_after),
+        _ => Ok(()),
+    }
+}
+
+fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
+    for op in &plan.operations {
+        validate_operation(op)?;
+    }
+
+    Ok(())
+}
+
+fn replacement_text(
+    from: &str,
+    to: &Option<String>,
+    insert_before: &Option<String>,
+    insert_after: &Option<String>,
+) -> String {
+    if let Some(text) = insert_before {
+        return format!("{text}{from}");
+    }
+
+    if let Some(text) = insert_after {
+        return format!("{from}{text}");
+    }
+
+    to.clone().unwrap_or_default()
+}
+
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
     selector::parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
 }
@@ -258,13 +315,7 @@ fn execute_operation(
             insert_before,
             insert_after,
         } => {
-            let effective_to = if let Some(ref text) = insert_before {
-                format!("{text}{from}")
-            } else if let Some(ref text) = insert_after {
-                format!("{from}{text}")
-            } else {
-                to.clone().unwrap_or_default()
-            };
+            let effective_to = replacement_text(from, to, insert_before, insert_after);
             let compiled_re = if mode.as_deref() == Some("regex") {
                 Some(Regex::new(from)?)
             } else {
@@ -864,6 +915,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
+    if let Err(e) = validate_plan_operations(&plan) {
+        if global.json {
+            emit_error_json("parse_error", &e.to_string());
+        } else {
+            eprintln!("tx: plan parse error: {e}");
+        }
+        return Ok(exit::PARSE_ERROR);
+    }
+
     // 3. Set working directory (plan.cwd overrides global --cwd).
     if let Some(ref cwd) = plan.cwd {
         std::env::set_current_dir(cwd)?;
@@ -1405,6 +1465,48 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
+    }
+
+    #[test]
+    fn replace_conflicting_insert_fields_return_parse_error() {
+        let plan_json = serde_json::json!({
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "from": "hello",
+                "insert_before": "X",
+                "insert_after": "Y"
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "insert_before and insert_after cannot both be set"
+        );
+    }
+
+    #[test]
+    fn replace_to_with_insert_returns_parse_error() {
+        let plan_json = serde_json::json!({
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "from": "hello",
+                "to": "world",
+                "insert_before": "X"
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "to cannot be combined with insert_before or insert_after"
+        );
     }
 
     #[test]
