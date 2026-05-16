@@ -129,7 +129,12 @@ fn collect_replacements(
 
         let data = match fs::read(path) {
             Ok(d) => d,
-            Err(_) => continue,
+            Err(e) => {
+                if !global.quiet {
+                    eprintln!("replace: skipping {}: {e}", path.display());
+                }
+                continue;
+            }
         };
 
         if data.is_empty() || is_binary(&data) {
@@ -138,7 +143,12 @@ fn collect_replacements(
 
         let content = match String::from_utf8(data) {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(_) => {
+                if !global.quiet {
+                    eprintln!("replace: skipping {} (invalid UTF-8)", path.display());
+                }
+                continue;
+            }
         };
 
         let (replaced, count) = replace_content(
