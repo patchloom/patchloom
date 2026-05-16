@@ -18,7 +18,7 @@ use crate::write::{apply_policy, atomic_write, WritePolicy};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
-use regex::Regex;
+use regex::RegexBuilder;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -250,12 +250,25 @@ fn execute_operation(
             nth,
             insert_before,
             insert_after,
+            case_insensitive,
+            multiline,
         } => {
-            let use_match_anchor = mode.as_deref() == Some("regex");
-            let replacement =
-                replacement_text(from, to, insert_before, insert_after, use_match_anchor);
-            let compiled_re = if use_match_anchor {
-                Some(Regex::new(from)?)
+            let regex_mode = mode.as_deref() == Some("regex");
+            let use_regex = regex_mode || *case_insensitive;
+            let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
+            let compiled_re = if regex_mode {
+                Some(
+                    RegexBuilder::new(from)
+                        .case_insensitive(*case_insensitive)
+                        .dot_matches_new_line(*multiline)
+                        .build()?,
+                )
+            } else if *case_insensitive {
+                Some(
+                    RegexBuilder::new(&regex::escape(from))
+                        .case_insensitive(true)
+                        .build()?,
+                )
             } else {
                 None
             };
