@@ -11,7 +11,7 @@ It describes the default workflow for triaging outside issues, reviewing pull re
 | Issues | open to everyone |
 | Outside code contributions | via fork + pull request |
 | Protected branch | `main` once the repo is public or on a plan that supports private branch protection |
-| Merge requirements | DCO, green CI, resolved review conversations, 1 approval |
+| Merge requirements | DCO, green CI and Security checks, resolved review conversations, 1 approval |
 | Merge method | squash merge |
 | Direct pushes to `main` | no |
 
@@ -93,7 +93,7 @@ Recommended settings:
 - require 1 approval
 - dismiss stale approvals on new commits
 - require resolved conversations
-- require DCO and CI checks
+- require DCO, CI, and Security checks
 - do not require signed commits
 - do not allow force pushes to `main`
 
