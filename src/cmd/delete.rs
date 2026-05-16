@@ -1,6 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::Args;
+use serde::Serialize;
 
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
@@ -9,6 +10,13 @@ pub struct DeleteArgs {
     pub file: String,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
+}
+
+#[derive(Debug, Serialize)]
+struct DeleteOutput {
+    ok: bool,
+    path: String,
+    applied: bool,
 }
 
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -21,7 +29,14 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.check {
-        if !global.quiet {
+        if global.json {
+            let output = DeleteOutput {
+                ok: true,
+                path: args.file.clone(),
+                applied: false,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if !global.quiet {
             println!("would delete {}", args.file);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -29,13 +44,29 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.apply {
         std::fs::remove_file(path)?;
-        if !global.quiet {
+        if global.json {
+            let output = DeleteOutput {
+                ok: true,
+                path: args.file.clone(),
+                applied: true,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if !global.quiet {
             println!("deleted {}", args.file);
         }
         return Ok(exit::SUCCESS);
     }
 
     // Default: dry-run.
-    println!("would delete {}", args.file);
+    if global.json {
+        let output = DeleteOutput {
+            ok: true,
+            path: args.file.clone(),
+            applied: false,
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("would delete {}", args.file);
+    }
     Ok(exit::SUCCESS)
 }
