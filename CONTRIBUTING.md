@@ -8,7 +8,7 @@ Patchloom aims to be a low-friction, high-trust open-source CLI. Keep contributi
 
 - Check whether an issue or discussion already covers the work.
 - Prefer one logical change per pull request.
-- If the change affects CLI behavior, flags, output, or docs examples, update the relevant docs in the same pull request.
+- If the change affects CLI behavior, commands, subcommands, tx operations, flags, output, or docs examples, update the relevant docs in the same pull request, including `docs/reference/README.md` when the feature surface changes.
 - Run the relevant tests, lint, and formatting steps for the files you changed.
 
 ## Issues and Proposal Workflow
@@ -63,7 +63,7 @@ Before requesting review, make sure that:
 
 - all commits in the pull request are signed off
 - relevant tests, lint, and formatting checks were run
-- docs and examples were updated when behavior changed
+- docs and examples were updated when behavior changed, including `docs/reference/README.md` for meaningful CLI surface changes
 - the pull request description explains what changed, why, and how it was verified
 
 ## Review and Merge Policy

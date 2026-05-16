@@ -7,7 +7,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 350 passing tests.
+V2 with 10 commands and 352 passing tests.
 
 ## Install
 
@@ -33,6 +33,8 @@ cargo install patchloom
   for write modes, transaction plans, and exit codes.
 - Follow [`docs/getting-started/quickstart.md`](./docs/getting-started/quickstart.md)
   for a 5-minute walkthrough.
+- Browse [`docs/reference/README.md`](./docs/reference/README.md)
+  for feature-by-feature guidance on commands, operations, and notable modes.
 - Browse [`examples/README.md`](./examples/README.md) for transaction plan templates.
 
 ## Commands

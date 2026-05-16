@@ -117,5 +117,5 @@ Returns:
 ## Next steps
 
 - Browse the [examples/](../../examples/) directory for more tx plan patterns
-- See the full [command reference](../../README.md#commands) in the README
+- See the full [reference guide](../reference/README.md) for command, operation, and notable mode guidance
 - Read [concepts.md](concepts.md) for write modes, exit codes, and glob filtering
