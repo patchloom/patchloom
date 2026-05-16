@@ -32,4 +32,4 @@ All plans support three modes via CLI flags:
 
 ## Strict mode
 
-Plans with `"strict": true` revert all writes if any `format` or `validate` step fails (exit code 7). Without strict mode, the JSON `error` string keeps the legacy `validation_failed` prefix for both failure types; use the additive `error_kind` field to tell `format_failed` from `validation_failed`.
+Plans with `"strict": true` revert all writes if any `format` or `validate` step fails (exit code 7). In strict mode, the JSON `error` string uses the legacy `rollback` prefix because the transaction was reverted, but the additive `error_kind` field still preserves the underlying `format_failed` or `validation_failed` cause. Without strict mode, the JSON `error` string keeps the legacy `validation_failed` prefix for both failure types; use the additive `error_kind` field to tell `format_failed` from `validation_failed`.

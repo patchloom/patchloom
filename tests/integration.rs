@@ -4329,6 +4329,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
     assert_eq!(output.status.code(), Some(7)); // ROLLBACK
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
@@ -4512,6 +4513,49 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert!(error.contains("validation_failed"));
     assert!(error.contains("format step failed (step 1, exit code 1)"));
     assert!(!error.contains(secret));
+}
+
+#[test]
+fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": shell_false(),
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "format_failed");
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("rollback"));
+    assert!(error.contains("strict mode -- all changes reverted"));
+    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(error.contains("exit code 1"));
 }
 
 #[test]
