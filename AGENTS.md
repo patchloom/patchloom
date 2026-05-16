@@ -24,7 +24,9 @@ Always run `make check` before committing. It is the full CI gate.
 ```
 src/
   main.rs             Thin entrypoint; calls patchloom::run(), maps Result to ExitCode
-  lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports all modules
+  lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports modules
+  files.rs             File-walking utilities: is_binary, collect_file_paths, build_glob_matcher,
+                       matches_glob. Used by search, replace, hygiene, and status commands.
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
   cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
                        --files-from) and WriteFlags (--diff, --apply, --check,
@@ -51,6 +53,10 @@ src/
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
+  ops.rs               Shared operation helpers used by tx.rs: replace (validation, replacement
+                       text, content replacement), doc (format detection, navigation, merge),
+                       md (heading parse, section replace, bullet upsert, table append),
+                       patch (apply with loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
                        22 operation types including all doc/md/replace/hygiene/file/patch ops
