@@ -48,6 +48,9 @@ patchloom completions zsh > ~/.zfunc/_patchloom
 
 # fish
 patchloom completions fish > ~/.config/fish/completions/patchloom.fish
+
+# elvish
+patchloom completions elvish > ~/.config/elvish/rc.elv
 ```
 
 ## Verify

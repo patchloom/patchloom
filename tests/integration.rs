@@ -4304,6 +4304,13 @@ fn quickstart_path() -> PathBuf {
         .join("quickstart.md")
 }
 
+fn installation_path() -> PathBuf {
+    repo_root()
+        .join("docs")
+        .join("getting-started")
+        .join("installation.md")
+}
+
 fn readme_path() -> PathBuf {
     repo_root().join("README.md")
 }
@@ -4694,6 +4701,20 @@ fn test_smoke_quickstart_transaction_snippet() {
     assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
         .unwrap()
         .contains("- Bumped to v2.0.0"));
+}
+
+#[test]
+fn test_smoke_shell_completion_docs_include_elvish() {
+    for (path, label) in [
+        (installation_path(), "installation guide"),
+        (readme_path(), "README"),
+    ] {
+        let content = fs::read_to_string(path).unwrap();
+        assert!(
+            content.contains("patchloom completions elvish"),
+            "{label} should document elvish completions"
+        );
+    }
 }
 
 #[test]
