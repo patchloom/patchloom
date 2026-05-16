@@ -708,13 +708,14 @@ fn build_tx_output(
     ok: bool,
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
+    existed_before: &HashSet<PathBuf>,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
     let mut deleted_count = 0usize;
     let mut modified = 0usize;
 
-    for (path, original, _) in changes {
+    for (path, _original, _) in changes {
         let path_str = path.to_string_lossy().to_string();
         if deletions.contains(path) {
             tx_changes.push(TxChange {
@@ -722,7 +723,7 @@ fn build_tx_output(
                 action: "deleted",
             });
             deleted_count += 1;
-        } else if original.is_empty() {
+        } else if !existed_before.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "created",
@@ -852,6 +853,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
+    let existed_before: HashSet<PathBuf> = pending
+        .keys()
+        .filter(|path| path.exists())
+        .cloned()
+        .collect();
+
     // 5. Apply write policy and collect actual file changes.
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
     for (path, (original, current)) in &pending {
@@ -873,13 +880,20 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if global.check {
         if changes.is_empty() && pending_deletions == 0 {
             if global.json {
-                let output = build_tx_output("success", true, &changes, &deletions);
+                let output =
+                    build_tx_output("success", true, &changes, &deletions, &existed_before);
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
             return Ok(exit::SUCCESS);
         }
         if global.json {
-            let output = build_tx_output("changes_detected", true, &changes, &deletions);
+            let output = build_tx_output(
+                "changes_detected",
+                true,
+                &changes,
+                &deletions,
+                &existed_before,
+            );
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if !global.quiet {
             println!("{} file(s) would change", changes.len() + pending_deletions);
@@ -987,7 +1001,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // Restore original file contents.
                 let noop_policy = WritePolicy::default();
                 for (path, original, _) in &changes {
-                    if original.is_empty() && !deletions.contains(path) {
+                    if !existed_before.contains(path) && !deletions.contains(path) {
                         // File was created by the tx; remove it.
                         let _ = std::fs::remove_file(path);
                     } else {
@@ -997,7 +1011,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // Restore files that were deleted.
                 for path in &deletions {
                     if let Some((orig, _)) = pending.get(path) {
-                        if !orig.is_empty() {
+                        if existed_before.contains(path) {
                             let _ = atomic_write(path, orig, &noop_policy);
                         }
                     }
@@ -1025,7 +1039,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         if global.json {
-            let output = build_tx_output("success", true, &changes, &deletions);
+            let output = build_tx_output("success", true, &changes, &deletions, &existed_before);
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         return Ok(exit::SUCCESS);
@@ -1033,7 +1047,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show unified diffs.
     if global.json {
-        let output = build_tx_output("success", true, &changes, &deletions);
+        let output = build_tx_output("success", true, &changes, &deletions, &existed_before);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if !changes.is_empty() {
         print_diffs(&changes);
