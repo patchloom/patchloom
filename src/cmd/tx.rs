@@ -121,6 +121,10 @@ fn op_label(op: &Operation) -> &'static str {
     }
 }
 
+fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
+    selector::parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
+}
+
 // ---------------------------------------------------------------------------
 // Pending file changes
 // ---------------------------------------------------------------------------
@@ -285,8 +289,7 @@ fn execute_operation(
             let key = key.clone();
             let value = value.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
                 let last = sel
                     .last()
                     .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
@@ -318,12 +321,10 @@ fn execute_operation(
         Operation::DocDelete { path, key } => {
             let key = key.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-                if sel.is_empty() {
+                let sel = parse_selector(&key)?;
+                let Some(last) = sel.last() else {
                     return Ok(());
-                }
-                let last = sel.last().unwrap();
+                };
                 let parent_path = &sel[..sel.len() - 1];
                 let parent = navigate_mut(root, parent_path, false)?;
                 match last {
@@ -357,8 +358,7 @@ fn execute_operation(
             let key = key.clone();
             let value = value.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
                     .as_array_mut()
@@ -372,8 +372,7 @@ fn execute_operation(
             let key = key.clone();
             let value = value.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
                     .as_array_mut()
@@ -386,8 +385,7 @@ fn execute_operation(
         Operation::DocUpdate { path, key, value } => {
             let key = key.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
                 let count = update_matching(root, &sel, value);
                 if count == 0 {
                     anyhow::bail!("no matching nodes found for selector '{key}'");
@@ -400,10 +398,8 @@ fn execute_operation(
             let from = from.clone();
             let to = to.clone();
             with_doc(pending, deletions, path, |root| {
-                let from_sel =
-                    selector::parse(&from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-                let to_sel =
-                    selector::parse(&to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let from_sel = parse_selector(&from)?;
+                let to_sel = parse_selector(&to)?;
 
                 // Remove value at source path.
                 let removed = {
@@ -464,8 +460,7 @@ fn execute_operation(
             let key = key.clone();
             let value = value.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
 
                 // If the path already exists, no-op.
                 if !selector::eval(root, &sel).is_empty() {
@@ -508,8 +503,7 @@ fn execute_operation(
             let key = key.clone();
             let predicate = predicate.clone();
             with_doc(pending, deletions, path, |root| {
-                let sel =
-                    selector::parse(&key).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+                let sel = parse_selector(&key)?;
                 let eq_pos = predicate
                     .find('=')
                     .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
