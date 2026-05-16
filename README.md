@@ -13,8 +13,11 @@ V2 with 10 commands and 327 passing tests.
 
 Not yet published to crates.io. Build from source:
 
-```
+```bash
+git clone https://github.com/patchloom/patchloom.git
+cd patchloom
 cargo build --release
+# Binary is at target/release/patchloom
 ```
 
 Once published:

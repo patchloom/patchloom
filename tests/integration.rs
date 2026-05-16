@@ -4718,6 +4718,22 @@ fn test_smoke_shell_completion_docs_include_elvish() {
 }
 
 #[test]
+fn test_smoke_readme_source_install_flow() {
+    let source_install_flow = "git clone https://github.com/patchloom/patchloom.git\ncd patchloom\ncargo build --release\n# Binary is at target/release/patchloom";
+
+    for (path, label) in [
+        (installation_path(), "installation guide"),
+        (readme_path(), "README"),
+    ] {
+        let content = fs::read_to_string(path).unwrap();
+        assert!(
+            content.contains(source_install_flow),
+            "{label} should document the first-run source install flow"
+        );
+    }
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     let readme = fs::read_to_string(readme_path()).unwrap();
     let merge_value = r#"{"settings": {"debug": true}}"#;
