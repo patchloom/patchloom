@@ -32,4 +32,4 @@ All plans support three modes via CLI flags:
 
 ## Strict mode
 
-Plans with `"strict": true` revert all writes if any `format` or `validate` step fails (exit code 7). Without strict mode, a validation failure exits with code 6 but leaves writes in place.
+Plans with `"strict": true` revert all writes if any `format` or `validate` step fails (exit code 7). Without strict mode, a format failure exits with code 6 and reports `format_failed` in JSON output, while a validation failure exits with code 6 and reports `validation_failed`.
