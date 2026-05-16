@@ -4307,7 +4307,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     let error = json["error"].as_str().unwrap();
-    assert!(error.contains("validation_failed"));
+    assert!(error.contains("format_failed"));
     assert!(error.contains("format step failed (step 1, exit code 1)"));
     assert!(!error.contains(secret));
 }
