@@ -17,6 +17,7 @@ use globset::Glob;
 use ignore::WalkBuilder;
 use regex::Regex;
 use serde::Serialize;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -130,17 +131,18 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 // ---------------------------------------------------------------------------
 
 /// Read file content from the pending map or from disk.
-fn read_file_content(
-    pending: &mut HashMap<PathBuf, (String, String)>,
+fn read_file_content<'a>(
+    pending: &'a mut HashMap<PathBuf, (String, String)>,
     path: &Path,
-) -> anyhow::Result<String> {
-    if let Some((_, current)) = pending.get(path) {
-        return Ok(current.clone());
+) -> anyhow::Result<&'a str> {
+    match pending.entry(path.to_path_buf()) {
+        Entry::Occupied(entry) => Ok(&entry.into_mut().1),
+        Entry::Vacant(entry) => {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+            Ok(&entry.insert((content.clone(), content)).1)
+        }
     }
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
-    pending.insert(path.to_path_buf(), (content.clone(), content.clone()));
-    Ok(content)
 }
 
 /// Update the current content for a file in the pending map.
@@ -225,7 +227,7 @@ where
     let file_path = PathBuf::from(path);
     let content = read_file_content(pending, &file_path)?;
     let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let mut root = parse_doc(&content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let new_content =
         serialize_value(&root, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
@@ -256,7 +258,7 @@ fn execute_operation(
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
+                let replaced = do_replace(content, from, to, compiled_re.as_ref(), *nth);
                 update_file_content(pending, deletions, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
@@ -279,7 +281,7 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let replaced = do_replace(&content, from, to, compiled_re.as_ref(), *nth);
+                    let replaced = do_replace(content, from, to, compiled_re.as_ref(), *nth);
                     update_file_content(pending, deletions, &file_path, replaced);
                 }
             } else {
@@ -541,7 +543,7 @@ fn execute_operation(
         } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let new_content = replace_section_in(&file_content, heading, content)
+            let new_content = replace_section_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -553,7 +555,7 @@ fn execute_operation(
         } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let new_content = insert_after_heading_in(&file_content, heading, content)
+            let new_content = insert_after_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -565,7 +567,7 @@ fn execute_operation(
         } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let new_content = insert_before_heading_in(&file_content, heading, content)
+            let new_content = insert_before_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -577,7 +579,7 @@ fn execute_operation(
         } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let new_content = upsert_bullet_in(&file_content, heading, bullet)
+            let new_content = upsert_bullet_in(file_content, heading, bullet)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -585,7 +587,7 @@ fn execute_operation(
         Operation::MdTableAppend { path, heading, row } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let new_content = table_append_for_tx(&file_content, heading, row)
+            let new_content = table_append_for_tx(file_content, heading, row)
                 .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -593,7 +595,7 @@ fn execute_operation(
         Operation::MdDedupeHeadings { path } => {
             let file_path = PathBuf::from(path);
             let file_content = read_file_content(pending, &file_path)?;
-            let (new_content, _removed) = dedupe_headings_in(&file_content);
+            let (new_content, _removed) = dedupe_headings_in(file_content);
             update_file_content(pending, deletions, &file_path, new_content);
         }
 
@@ -603,7 +605,7 @@ fn execute_operation(
         } => {
             let file_path = PathBuf::from(path);
             let content = read_file_content(pending, &file_path)?;
-            let mut new = content;
+            let mut new = content.to_string();
             if ensure_final_newline.unwrap_or(true) {
                 new = crate::write::ensure_final_newline(&new);
             }
@@ -642,13 +644,13 @@ fn execute_operation(
 
         Operation::FileDelete { path } => {
             let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
+            let content_was_empty = read_file_content(pending, &file_path)?.is_empty();
             // Mark current content as empty so the diff shows full deletion.
             update_file_content(pending, deletions, &file_path, String::new());
             // If the file was created in this plan (original is empty AND
             // it doesn't exist on disk), remove from pending; no disk delete.
             // Otherwise, schedule for actual deletion (covers empty on-disk files).
-            if content.is_empty() && !file_path.exists() {
+            if content_was_empty && !file_path.exists() {
                 pending.remove(&file_path);
             } else {
                 deletions.insert(file_path);
@@ -1076,6 +1078,25 @@ mod tests {
 
     fn default_global() -> GlobalFlags {
         GlobalFlags::default()
+    }
+
+    #[test]
+    fn read_file_content_populates_pending_from_disk() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("existing.txt");
+        fs::write(&path, "hello from disk\n").unwrap();
+        let mut pending = HashMap::new();
+
+        let content = read_file_content(&mut pending, &path).unwrap();
+
+        assert_eq!(content, "hello from disk\n");
+        assert_eq!(
+            pending.get(&path),
+            Some(&(
+                "hello from disk\n".to_string(),
+                "hello from disk\n".to_string()
+            ))
+        );
     }
 
     #[test]
