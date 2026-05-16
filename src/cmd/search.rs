@@ -128,9 +128,9 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                     context_after: None,
                 });
             }
-        } else {
+        } else if let Some(context) = args.context {
             let lines: Vec<&str> = content.lines().collect();
-            for (i, line) in lines.iter().enumerate() {
+            for (i, line) in lines.iter().copied().enumerate() {
                 let found = re.find(line);
                 let is_match = if args.invert_match {
                     found.is_none()
@@ -138,32 +138,65 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                     found.is_some()
                 };
 
-                if is_match {
-                    count += 1;
-                    if count_only {
-                        if args.files_with_matches {
-                            break;
-                        }
-                        continue;
-                    }
-                    let context_before = args.context.map(|n| {
-                        let start = i.saturating_sub(n);
-                        lines[start..i].iter().map(|s| s.to_string()).collect()
-                    });
-                    let context_after = args.context.map(|n| {
-                        let end = (i + 1 + n).min(lines.len());
-                        lines[i + 1..end].iter().map(|s| s.to_string()).collect()
-                    });
-
-                    all_matches.push(SearchMatch {
-                        path: get_path_str(),
-                        line: i + 1,
-                        column: found.map_or(1, |m| m.start() + 1),
-                        text: line.to_string(),
-                        context_before,
-                        context_after,
-                    });
+                if !is_match {
+                    continue;
                 }
+
+                count += 1;
+                if count_only {
+                    if args.files_with_matches {
+                        break;
+                    }
+                    continue;
+                }
+
+                let start = i.saturating_sub(context);
+                let end = (i + 1 + context).min(lines.len());
+                let column = found.map_or(1, |m| m.start() + 1);
+                let context_before =
+                    Some(lines[start..i].iter().map(|s| s.to_string()).collect());
+                let context_after =
+                    Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect());
+
+                all_matches.push(SearchMatch {
+                    path: get_path_str(),
+                    line: i + 1,
+                    column,
+                    text: line.to_string(),
+                    context_before,
+                    context_after,
+                });
+            }
+        } else {
+            for (i, line) in content.lines().enumerate() {
+                let found = re.find(line);
+                let is_match = if args.invert_match {
+                    found.is_none()
+                } else {
+                    found.is_some()
+                };
+
+                if !is_match {
+                    continue;
+                }
+
+                count += 1;
+                if count_only {
+                    if args.files_with_matches {
+                        break;
+                    }
+                    continue;
+                }
+
+                let column = found.map_or(1, |m| m.start() + 1);
+                all_matches.push(SearchMatch {
+                    path: get_path_str(),
+                    line: i + 1,
+                    column,
+                    text: line.to_string(),
+                    context_before: None,
+                    context_after: None,
+                });
             }
         }
 
