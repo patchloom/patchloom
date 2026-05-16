@@ -1,9 +1,12 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
+use crate::ops::replace::{
+    replace_content, replacement_text, validate_replace_mode, ReplaceModeError,
+};
 use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -79,93 +82,14 @@ struct FileReplacement {
 
 use crate::is_binary;
 
-/// Count occurrences and produce replaced content.
-fn replace_content(
-    content: &str,
-    from: &str,
-    to: &str,
-    compiled_re: Option<&Regex>,
-    nth: Option<usize>,
-) -> (String, usize) {
-    if let Some(n) = nth {
-        // Replace only the Nth occurrence (1-based).
-        if let Some(re) = compiled_re {
-            let mut count = 0usize;
-            let mut result = String::with_capacity(content.len());
-            for m in re.find_iter(content) {
-                count += 1;
-                if count == n {
-                    result.push_str(&content[..m.start()]);
-                    let mut dst = String::new();
-                    if let Some(caps) = re.captures(&content[m.start()..]) {
-                        caps.expand(to, &mut dst);
-                    }
-                    result.push_str(&dst);
-                    result.push_str(&content[m.end()..]);
-                    return (result, 1);
-                }
-            }
-            (content.to_owned(), 0)
-        } else {
-            let mut count = 0usize;
-            let mut result = String::with_capacity(content.len());
-            for (start, _) in content.match_indices(from) {
-                count += 1;
-                if count == n {
-                    result.push_str(&content[..start]);
-                    result.push_str(to);
-                    result.push_str(&content[start + from.len()..]);
-                    return (result, 1);
-                }
-            }
-            (content.to_owned(), 0)
-        }
-    } else if let Some(re) = compiled_re {
-        // Single-pass: count replacements while producing the result.
-        let mut count = 0usize;
-        let replaced = re
-            .replace_all(content, |caps: &regex::Captures| {
-                count += 1;
-                let mut dst = String::new();
-                caps.expand(to, &mut dst);
-                dst
-            })
-            .to_string();
-        if count == 0 {
-            return (content.to_owned(), 0);
-        }
-        (replaced, count)
-    } else {
-        let count = content.matches(from).count();
-        if count == 0 {
-            return (content.to_owned(), 0);
-        }
-        let replaced = content.replace(from, to);
-        (replaced, count)
-    }
-}
-
-/// Compute the effective replacement text from the args.
-/// When using regex mode with insert, `$0` refers to the full match so the
-/// matched text is preserved rather than the raw pattern string.
-fn effective_to(args: &ReplaceArgs) -> String {
-    if let Some(ref text) = args.insert_before {
-        let anchor = if args.regex || args.case_insensitive {
-            "$0".to_string()
-        } else {
-            args.from.clone()
-        };
-        format!("{text}{anchor}")
-    } else if let Some(ref text) = args.insert_after {
-        let anchor = if args.regex || args.case_insensitive {
-            "$0".to_string()
-        } else {
-            args.from.clone()
-        };
-        format!("{anchor}{text}")
-    } else {
-        args.to.clone().unwrap_or_default()
-    }
+fn build_replacement(args: &ReplaceArgs) -> String {
+    replacement_text(
+        &args.from,
+        &args.to,
+        &args.insert_before,
+        &args.insert_after,
+        args.regex || args.case_insensitive,
+    )
 }
 
 /// Walk files and collect all replacements.
@@ -175,7 +99,7 @@ fn collect_replacements(
 ) -> anyhow::Result<Vec<FileReplacement>> {
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths(&args.paths, global)?;
-    let to = effective_to(args);
+    let replacement = build_replacement(args);
 
     let compiled_re = if args.regex {
         Some(
@@ -217,8 +141,13 @@ fn collect_replacements(
             Err(_) => continue,
         };
 
-        let (replaced, count) =
-            replace_content(&content, &args.from, &to, compiled_re.as_ref(), args.nth);
+        let (replaced, count) = replace_content(
+            &content,
+            &args.from,
+            &replacement,
+            compiled_re.as_ref(),
+            args.nth,
+        );
 
         if count > 0 {
             replacements.push(FileReplacement {
@@ -260,12 +189,21 @@ fn make_diff_output(replacements: &[FileReplacement]) -> String {
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     std::env::set_current_dir(global.resolve_cwd()?)?;
 
-    // Validate: exactly one of --to, --insert-before, or --insert-after.
-    if args.to.is_none() && args.insert_before.is_none() && args.insert_after.is_none() {
-        anyhow::bail!("one of --to, --insert-before, or --insert-after must be provided");
-    }
-    if args.to.is_some() && (args.insert_before.is_some() || args.insert_after.is_some()) {
-        anyhow::bail!("--to cannot be combined with --insert-before or --insert-after");
+    match validate_replace_mode(
+        args.to.is_some(),
+        args.insert_before.is_some(),
+        args.insert_after.is_some(),
+    ) {
+        Ok(()) => {}
+        Err(ReplaceModeError::MissingMode) => {
+            anyhow::bail!("one of --to, --insert-before, or --insert-after must be provided")
+        }
+        Err(ReplaceModeError::BothInsertModes) => {
+            anyhow::bail!("--insert-before and --insert-after cannot be combined")
+        }
+        Err(ReplaceModeError::ToWithInsert) => {
+            anyhow::bail!("--to cannot be combined with --insert-before or --insert-after")
+        }
     }
 
     let replacements = collect_replacements(&args, global)?;
