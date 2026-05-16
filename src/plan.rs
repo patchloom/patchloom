@@ -44,6 +44,10 @@ pub enum Operation {
         nth: Option<usize>,
         insert_before: Option<String>,
         insert_after: Option<String>,
+        #[serde(default)]
+        case_insensitive: bool,
+        #[serde(default)]
+        multiline: bool,
     },
     #[serde(rename = "doc.set")]
     DocSet {

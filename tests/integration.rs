@@ -4274,6 +4274,67 @@ fn test_tx_md_dedupe_headings_in_plan() {
 }
 
 #[test]
+fn test_tx_replace_case_insensitive_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "Hello HELLO hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "HI",
+            "case_insensitive": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "HI HI HI\n");
+}
+
+#[test]
+fn test_tx_replace_multiline_regex_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "start\nmiddle\nend\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "mode": "regex",
+            "from": "start.middle",
+            "to": "REPLACED",
+            "multiline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "REPLACED\nend\n");
+}
+
+#[test]
 fn test_tx_replace_nth_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
