@@ -87,3 +87,15 @@ patchloom replace --from "old" --to "new" --glob "*.rs" --glob "*.toml" --apply
 ```
 
 In tx plans, individual operations can use `"glob"` instead of `"path"` to target multiple files.
+
+## Security model
+
+Patchloom runs with the privileges of the invoking user and treats all inputs (command-line arguments, plan files, stdin) as trusted. This is the same trust model as `make`, `sh`, or `cargo`.
+
+What this means in practice:
+
+- **Plans can execute arbitrary shell commands.** The `format` and `validate` lifecycle steps pass their `cmd` field to `sh -c` (or `cmd /C` on Windows) with the user's full privileges. Only load plans you trust.
+- **File operations are unrestricted.** `create`, `delete`, `read`, `replace`, `patch`, and all `tx` operations accept any path the invoking user can access. There is no sandbox, chroot, or path restriction.
+- **Plan `cwd` overrides the working directory.** A plan's `cwd` field changes the process working directory for all subsequent operations and lifecycle steps. This is intentional for self-contained plans, but means a malicious plan can resolve relative paths from any directory.
+
+**For AI agent authors:** Do not construct plans from untrusted conversational input without validation. A plan is equivalent to a shell script. Treat plan files with the same care you would treat a Makefile or a bash script from an unknown source.
