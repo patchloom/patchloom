@@ -646,15 +646,20 @@ fn execute_operation(
 
         Operation::FileDelete { path } => {
             let file_path = PathBuf::from(path);
-            let content_was_empty = read_file_content(pending, &file_path)?.is_empty();
-            // Mark current content as empty so the diff shows full deletion.
-            update_file_content(pending, deletions, &file_path, String::new());
-            // If the file was created in this plan (original is empty AND
-            // it doesn't exist on disk), remove from pending; no disk delete.
-            // Otherwise, schedule for actual deletion (covers empty on-disk files).
-            if content_was_empty && !file_path.exists() {
+            let created_in_tx = match pending.get(&file_path) {
+                Some((original, _)) => original.is_empty() && !file_path.exists(),
+                None => {
+                    let _ = read_file_content(pending, &file_path)?;
+                    false
+                }
+            };
+
+            if created_in_tx {
                 pending.remove(&file_path);
+                deletions.remove(&file_path);
             } else {
+                // Mark current content as empty so the diff shows full deletion.
+                update_file_content(pending, deletions, &file_path, String::new());
                 deletions.insert(file_path);
             }
         }
@@ -1196,6 +1201,31 @@ mod tests {
 
         // Verify hygiene.fix.
         assert!(fs::read_to_string(&no_nl).unwrap().ends_with('\n'));
+    }
+
+    #[test]
+    fn create_then_delete_in_same_tx_becomes_noop() {
+        let dir = TempDir::new().unwrap();
+        let new_file = dir.path().join("new.txt");
+        let plan_json = serde_json::json!({
+            "operations": [
+                {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "hello"},
+                {"op": "file.delete", "path": new_file.to_str().unwrap()}
+            ]
+        });
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.check = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!new_file.exists());
     }
 
     #[test]

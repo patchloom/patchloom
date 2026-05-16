@@ -2074,6 +2074,68 @@ fn test_tx_file_create_and_delete() {
 }
 
 #[test]
+fn test_tx_check_create_then_delete_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.create", "path": "new.txt", "content": "hello"},
+            {"op": "file.delete", "path": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .assert()
+        .success();
+
+    assert!(
+        !dir.path().join("new.txt").exists(),
+        "file should not exist after create+delete no-op check"
+    );
+}
+
+#[test]
+fn test_tx_json_output_create_then_delete_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.create", "path": "new.txt", "content": "hello"},
+            {"op": "file.delete", "path": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["files_created"], 0);
+    assert_eq!(json["files_deleted"], 0);
+    assert_eq!(json["files_changed"], 0);
+    assert_eq!(json["changes"].as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn test_tx_file_delete_existing() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doomed.txt");
