@@ -908,6 +908,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 7. Run format steps (between writes and validation).
         let mut lifecycle_failed = false;
         let mut lifecycle_error = None;
+        let mut lifecycle_error_kind = "validation_failed";
         if let Some(ref format_steps) = plan.format {
             for (index, step) in format_steps.iter().enumerate() {
                 let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
@@ -920,6 +921,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         );
                         eprintln!("tx: {msg}");
                         lifecycle_error = Some(msg);
+                        lifecycle_error_kind = "format_failed";
                         lifecycle_failed = true;
                         break;
                     }
@@ -927,6 +929,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let msg = format!("format step error (step {}): {e}", index + 1);
                         eprintln!("tx: {msg}");
                         lifecycle_error = Some(msg);
+                        lifecycle_error_kind = "format_failed";
                         lifecycle_failed = true;
                         break;
                     }
@@ -1001,7 +1004,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
             if global.json {
                 emit_error_json(
-                    "validation_failed",
+                    lifecycle_error_kind,
                     lifecycle_error
                         .as_deref()
                         .unwrap_or("format or validation step failed"),
