@@ -138,15 +138,18 @@ fn validate_replace_fields(
     let has_insert_before = insert_before.is_some();
     let has_insert_after = insert_after.is_some();
 
-    if has_insert_before && has_insert_after {
-        anyhow::bail!("insert_before and insert_after cannot both be set");
+    match (has_to, has_insert_before, has_insert_after) {
+        (false, false, false) => {
+            anyhow::bail!("replace operation requires one of to, insert_before, or insert_after");
+        }
+        (_, true, true) => {
+            anyhow::bail!("insert_before and insert_after cannot both be set");
+        }
+        (true, true, false) | (true, false, true) => {
+            anyhow::bail!("to cannot be combined with insert_before or insert_after");
+        }
+        _ => Ok(()),
     }
-
-    if has_to && (has_insert_before || has_insert_after) {
-        anyhow::bail!("to cannot be combined with insert_before or insert_after");
-    }
-
-    Ok(())
 }
 
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
@@ -1465,6 +1468,25 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
+    }
+
+    #[test]
+    fn replace_requires_replacement_mode() {
+        let plan_json = serde_json::json!({
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "from": "hello"
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "replace operation requires one of to, insert_before, or insert_after"
+        );
     }
 
     #[test]
