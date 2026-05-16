@@ -5,6 +5,7 @@ pub mod cmd;
 pub mod diff;
 pub mod error;
 pub mod exit;
+pub(crate) mod ops;
 pub mod plan;
 pub mod selector;
 pub mod write;

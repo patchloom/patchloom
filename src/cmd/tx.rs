@@ -1,14 +1,14 @@
 use crate::cli::global::{EolMode, GlobalFlags};
-use crate::cmd::doc::{
+use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::exit;
+use crate::ops::doc::{
     deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, update_matching,
 };
-use crate::cmd::md::{
+use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
     table_append_for_tx, upsert_bullet_in,
 };
-use crate::cmd::patch::apply_patch_to_content;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
-use crate::exit;
+use crate::ops::patch::apply_patch_with_loader;
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::write::{apply_policy, atomic_write, WritePolicy};
@@ -635,11 +635,12 @@ fn execute_operation(
         }
 
         Operation::PatchApply { diff } => {
-            let patched_files = apply_patch_to_content(diff)?;
+            let patched_files = apply_patch_with_loader(diff, |path| {
+                let file_path = PathBuf::from(path);
+                Ok(read_file_content(pending, &file_path)?.to_string())
+            })?;
             for (rel_path, patched_content) in patched_files {
                 let file_path = PathBuf::from(&rel_path);
-                // Ensure the original is loaded.
-                let _ = read_file_content(pending, &file_path)?;
                 update_file_content(pending, deletions, &file_path, patched_content);
             }
         }

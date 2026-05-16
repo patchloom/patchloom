@@ -441,13 +441,6 @@ fn table_append_in(content: &str, body_start: usize, body_end: usize, row: &str)
     Some(out)
 }
 
-/// Table-append wrapper for use from tx plans. Finds the heading section,
-/// then delegates to `table_append_in`.
-pub(crate) fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
-    let (body_start, body_end) = find_section(content, heading)?;
-    table_append_in(content, body_start, body_end, row)
-}
-
 // ---------------------------------------------------------------------------
 // Lint
 // ---------------------------------------------------------------------------

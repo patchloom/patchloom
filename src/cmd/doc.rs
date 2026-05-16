@@ -327,15 +327,6 @@ pub(crate) fn serialize_value(
     }
 }
 
-/// Parse a string as the given format into a serde_json::Value.
-pub(crate) fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
-    match format {
-        FileFormat::Json => Ok(serde_json::from_str(content)?),
-        FileFormat::Yaml => Ok(serde_yaml_ng::from_str(content)?),
-        FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
-    }
-}
-
 /// Load a file, returning original content, parsed value, and detected format.
 fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Value, FileFormat)> {
     let content = std::fs::read_to_string(path)?;
