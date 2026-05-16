@@ -25,11 +25,12 @@ clippy: ## Run clippy linter
 
 check: fmt-check build test integration-test clippy ## Run all checks (full CI gate)
 
-update-readme: ## Update test count in README.md
+update-readme: ## Update README.md and CHANGELOG.md test counts
 	@unit=$$(cargo test --lib 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	integ=$$(cargo test --test integration 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	total=$$((unit + integ)); \
 	cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	ver=$$(grep '^V[0-9]' README.md | head -1 | sed 's/^\(V[0-9]*\).*/\1/'); \
 	sed -i "s/V[0-9]* with [0-9]* commands and [0-9]* passing tests\./$$ver with $$cmds commands and $$total passing tests./" README.md; \
-	echo "README.md updated: $$ver, $$cmds commands, $$total tests ($$unit unit + $$integ integration)"
+	sed -i "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
+	echo "README.md and CHANGELOG.md updated: $$ver, $$cmds commands, $$total tests ($$unit unit + $$integ integration)"

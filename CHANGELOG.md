@@ -37,4 +37,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - `file.create` after `file.delete` in the same tx plan no longer silently loses the file
-- Makefile `update-readme` dynamically reads version and command count instead of hardcoding
+- Makefile `update-readme` dynamically reads version, command count, and test counts instead of hardcoding
