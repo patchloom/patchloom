@@ -4078,6 +4078,7 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
     assert_eq!(output.status.code(), Some(6));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
     assert!(error.contains("required validation failed (step 1, exit code 1)"));
@@ -4119,6 +4120,7 @@ fn test_tx_json_output_on_validation_failure() {
     assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
     assert!(error.contains("required validation failed (step 1, exit code 1)"));
@@ -4306,8 +4308,9 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert_eq!(output.status.code(), Some(6));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "format_failed");
     let error = json["error"].as_str().unwrap();
-    assert!(error.contains("format_failed"));
+    assert!(error.contains("validation_failed"));
     assert!(error.contains("format step failed (step 1, exit code 1)"));
     assert!(!error.contains(secret));
 }
