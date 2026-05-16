@@ -17,18 +17,22 @@ pub struct PatchArgs {
 pub enum PatchAction {
     /// Check whether a patch applies cleanly.
     Check {
+        // ref:patch-mode:file
         /// Path to a diff file.
         #[arg(long)]
         file: Option<String>,
+        // ref:patch-mode:stdin
         /// Read diff from stdin.
         #[arg(long)]
         stdin: bool,
     },
     /// Apply a unified diff.
     Apply {
+        // ref:patch-mode:file
         /// Path to a diff file.
         #[arg(long)]
         file: Option<String>,
+        // ref:patch-mode:stdin
         /// Read diff from stdin.
         #[arg(long)]
         stdin: bool,

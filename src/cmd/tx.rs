@@ -47,6 +47,7 @@ struct TxChange {
 
 #[derive(Debug, Args)]
 pub struct TxArgs {
+    // ref:tx-mode:plan-stdin
     /// Path to a plan JSON file, or `-` for stdin.
     #[arg(long)]
     pub plan: String,
