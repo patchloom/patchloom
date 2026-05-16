@@ -155,6 +155,8 @@ fn update_file_content(
     deletions.remove(path);
     if let Some((_, ref mut current)) = pending.get_mut(path) {
         *current = new_content;
+    } else {
+        pending.insert(path.to_path_buf(), (String::new(), new_content));
     }
 }
 
@@ -617,17 +619,14 @@ fn execute_operation(
             if force.unwrap_or(false) {
                 // Force mode: overwrite existing content.
                 if pending.contains_key(&file_path) || file_path.exists() {
-                    let current = read_file_content(pending, &file_path)?;
-                    let _ = current; // Just ensure it's loaded.
-                    update_file_content(pending, deletions, &file_path, content.clone());
-                } else {
-                    pending.insert(file_path, (String::new(), content.clone()));
+                    let _ = read_file_content(pending, &file_path)?;
                 }
+                update_file_content(pending, deletions, &file_path, content.clone());
             } else {
                 if pending.contains_key(&file_path) || file_path.exists() {
                     anyhow::bail!("file already exists: {path}");
                 }
-                pending.insert(file_path, (String::new(), content.clone()));
+                update_file_content(pending, deletions, &file_path, content.clone());
             }
         }
 
@@ -1074,6 +1073,20 @@ mod tests {
 
     fn default_global() -> GlobalFlags {
         GlobalFlags::default()
+    }
+
+    #[test]
+    fn update_file_content_inserts_missing_pending_entry() {
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let path = PathBuf::from("created.txt");
+
+        update_file_content(&mut pending, &mut deletions, &path, "brand new".to_string());
+
+        assert_eq!(
+            pending.get(&path),
+            Some(&(String::new(), "brand new".to_string()))
+        );
     }
 
     #[test]
