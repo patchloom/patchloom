@@ -33,6 +33,8 @@ struct TxOutput {
     files_deleted: usize,
     changes: Vec<TxChange>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -752,11 +754,17 @@ fn build_tx_output(
         files_created: created,
         files_deleted: deleted_count,
         changes: tx_changes,
+        error_kind: None,
         error: None,
     }
 }
 
-fn emit_error_json(error_kind: &str, error: &str) {
+fn emit_error_json(error_kind: &'static str, error: &str) {
+    let legacy_error_prefix = if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    };
     let output = TxOutput {
         ok: false,
         status: "error",
@@ -764,7 +772,8 @@ fn emit_error_json(error_kind: &str, error: &str) {
         files_created: 0,
         files_deleted: 0,
         changes: Vec::new(),
-        error: Some(format!("{error_kind}: {error}")),
+        error_kind: Some(error_kind),
+        error: Some(format!("{legacy_error_prefix}: {error}")),
     };
     // Best-effort: if serialization fails, we can't do much.
     if let Ok(json) = serde_json::to_string_pretty(&output) {

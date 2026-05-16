@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `strict` mode for tx plans: reverts all writes on format/validate failure (exit code 7)
 - Thread-based timeout for format/validate steps (replaces polling loop)
 - JSON output mode for `tx` command via `--json` flag
-- JSON error output on all tx failure paths (parse_error, rollback, validation_failed, format_failed)
+- JSON error output on all tx failure paths, with explicit `error_kind` values for parse_error, rollback, validation_failed, and format_failed while preserving backward-compatible legacy `error` prefixes
 - 337 tests (155 unit + 182 integration)
 
 ### Fixed
