@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides ten commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `tx`, `completions`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, and shell completion generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides twelve commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, and shell completion generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -41,6 +41,8 @@ src/
                        prepend, update, move, ensure, delete-where, select, flatten, diff)
   cmd/hygiene.rs       Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
+  cmd/read.rs          Read file contents with optional line range
+  cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)

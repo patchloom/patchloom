@@ -193,6 +193,22 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use standalone commands when one direct operation is enough.
 - **Related:** [examples/README.md](../../examples/README.md), `tx` fields, `tx` operations
 
+<!-- ref:command:read -->
+## `read`
+
+- **What it does:** Prints the contents of a file, optionally restricted to a line range.
+- **Use when:** An agent needs to inspect a file or file section before deciding on an edit.
+- **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
+- **Related:** `search`, `doc get`
+
+<!-- ref:command:status -->
+## `status`
+
+- **What it does:** Shows which files have uncommitted changes compared to git HEAD.
+- **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process.
+- **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
+- **Related:** `search`, `read`
+
 <!-- ref:command:completions -->
 ## `completions`
 
@@ -240,6 +256,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** The target text may appear in inconsistent capitalization across files.
 - **Prefer instead:** Use case-sensitive search when exact spelling matters and false positives would be noisy.
 
+<!-- ref:search-mode:assert-count -->
+### `search --assert-count`
+
+- **What it does:** Succeeds (exit 0) only if the total match count equals the given number. Exits 2 otherwise.
+- **Use when:** An agent or CI pipeline needs to verify an invariant (e.g. "exactly 18 markers exist") in one call instead of searching and then comparing the count manually.
+- **Prefer instead:** Use plain `search --count` when you want to see counts without a pass/fail assertion.
+
 <!-- ref:replace-mode:regex -->
 ### `replace --regex`
 
@@ -260,6 +283,20 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** Replaces only the Nth occurrence of the target.
 - **Use when:** Replacing every occurrence would be too broad and the exact positional match matters.
 - **Prefer instead:** Use plain replace when every occurrence should change, or regex when the target can be narrowed semantically.
+
+<!-- ref:replace-mode:insert-before -->
+### `replace --insert-before`
+
+- **What it does:** Inserts text before each match instead of replacing it. The matched text is preserved.
+- **Use when:** You need to add a line or annotation above an existing anchor without repeating the anchor in the replacement text.
+- **Prefer instead:** Use `--to` when the matched text should actually change, not just receive a prefix.
+
+<!-- ref:replace-mode:insert-after -->
+### `replace --insert-after`
+
+- **What it does:** Inserts text after each match instead of replacing it. The matched text is preserved.
+- **Use when:** You need to append content after an existing anchor, such as adding a comment or tag after a specific line.
+- **Prefer instead:** Use `--to` when the matched text should actually change, not just receive a suffix.
 
 <!-- ref:replace-mode:multiline -->
 ### `replace --multiline`
@@ -330,6 +367,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** Reads the transaction plan JSON from stdin instead of a plan file.
 - **Use when:** The plan is generated on the fly or piped from another tool.
 - **Prefer instead:** Use `--plan <file>` when the plan should be stored, reviewed, or reused.
+
+<!-- ref:tx-mode:plan-yaml -->
+### `tx --plan-format yaml`
+
+- **What it does:** Tells `tx` to parse the plan as YAML (or TOML) instead of JSON. Auto-detected from file extension for plan files; required when piping YAML from stdin.
+- **Use when:** The plan is easier to write or generate in YAML/TOML, or when JSON verbosity is friction for inline agent-generated plans.
+- **Prefer instead:** Use JSON plans when interoperability or strict schema validation matters more than writability.
 
 ## `doc` actions
 

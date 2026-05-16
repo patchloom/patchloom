@@ -51,6 +51,10 @@ pub struct TxArgs {
     /// Path to a plan JSON file, or `-` for stdin.
     #[arg(long)]
     pub plan: String,
+    // ref:tx-mode:plan-yaml
+    /// Plan format when reading from stdin (json, yaml, toml). Auto-detected from file extension otherwise.
+    #[arg(long)]
+    pub plan_format: Option<String>,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -251,7 +255,16 @@ fn execute_operation(
             from,
             to,
             nth,
+            insert_before,
+            insert_after,
         } => {
+            let effective_to = if let Some(ref text) = insert_before {
+                format!("{text}{from}")
+            } else if let Some(ref text) = insert_after {
+                format!("{from}{text}")
+            } else {
+                to.clone().unwrap_or_default()
+            };
             let compiled_re = if mode.as_deref() == Some("regex") {
                 Some(Regex::new(from)?)
             } else {
@@ -261,7 +274,7 @@ fn execute_operation(
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let replaced = do_replace(content, from, to, compiled_re.as_ref(), *nth);
+                let replaced = do_replace(content, from, &effective_to, compiled_re.as_ref(), *nth);
                 update_file_content(pending, deletions, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
@@ -284,7 +297,8 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let replaced = do_replace(content, from, to, compiled_re.as_ref(), *nth);
+                    let replaced =
+                        do_replace(content, from, &effective_to, compiled_re.as_ref(), *nth);
                     update_file_content(pending, deletions, &file_path, replaced);
                 }
             } else {
@@ -832,8 +846,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .map_err(|e| anyhow::anyhow!("failed to read plan file '{}': {e}", args.plan))?
     };
 
-    // 2. Parse plan JSON.
-    let plan = match plan::parse_plan(&plan_text) {
+    // 2. Parse plan (JSON, YAML, or TOML).
+    let plan_path = if args.plan == "-" {
+        None
+    } else {
+        Some(args.plan.as_str())
+    };
+    let plan = match plan::parse_plan_auto(&plan_text, plan_path, args.plan_format.as_deref()) {
         Ok(p) => p,
         Err(e) => {
             if global.json {
@@ -1193,6 +1212,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1228,6 +1248,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1269,6 +1290,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1297,6 +1319,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1322,6 +1345,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1347,6 +1371,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1373,6 +1398,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let global = default_global();
@@ -1402,6 +1428,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -1437,6 +1464,7 @@ mod tests {
 
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
             write: Default::default(),
         };
         let mut global = default_global();
