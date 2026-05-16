@@ -25,6 +25,8 @@ publish-jobs = ["homebrew", "./publish-crates"]
 hosting = "github"
 # Which actions to run on pull requests
 pr-run-mode = "plan"
+# Allow customized CI without failing dist plan freshness checks
+allow-dirty = ["ci"]
 # Which phase dist should use to create the GitHub release
 github-release = "host"
 # Path that installers should place binaries in
