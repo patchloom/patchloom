@@ -360,7 +360,7 @@ patchloom --json tx --plan plan.json --apply
 
 Generate shell completions for your shell:
 
-```
+```bash
 # bash
 patchloom completions bash > /etc/bash_completion.d/patchloom
 
@@ -369,6 +369,9 @@ patchloom completions zsh > ~/.zfunc/_patchloom
 
 # fish
 patchloom completions fish > ~/.config/fish/completions/patchloom.fish
+
+# elvish
+patchloom completions elvish > ~/.config/elvish/rc.elv
 ```
 
 ## Transaction plan format
