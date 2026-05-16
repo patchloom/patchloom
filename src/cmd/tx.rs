@@ -298,14 +298,27 @@ fn execute_operation(
                     {
                         continue;
                     }
-                    let content = match read_file_content(pending, &file_path) {
-                        Ok(c) => c,
-                        Err(_) => continue,
+                    // If the file is already in pending (modified by an earlier
+                    // operation), use that content. Otherwise read from disk
+                    // without inserting into pending so non-matching files don't
+                    // get buffered.
+                    let content = if pending.contains_key(&file_path) {
+                        match read_file_content(pending, &file_path) {
+                            Ok(c) => c.to_owned(),
+                            Err(_) => continue,
+                        }
+                    } else {
+                        match std::fs::read_to_string(&file_path) {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        }
                     };
                     let (replaced, match_count) =
-                        replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
+                        replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth);
                     total_matches += match_count;
-                    update_file_content(pending, deletions, &file_path, replaced);
+                    if match_count > 0 {
+                        update_file_content(pending, deletions, &file_path, replaced);
+                    }
                 }
                 return Ok(total_matches);
             } else {
