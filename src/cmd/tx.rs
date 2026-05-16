@@ -1257,7 +1257,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_from_stdin() {
+    fn parse_plan_json_string() {
         let plan_json =
             r#"{"operations": [{"op": "replace", "path": "test.txt", "from": "a", "to": "b"}]}"#;
         let plan = plan::parse_plan(plan_json).unwrap();
