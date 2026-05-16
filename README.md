@@ -11,13 +11,12 @@ V2 with 10 commands and 332 passing tests.
 
 ## Install
 
-Not yet published to crates.io. Build from source:
+Not yet published to crates.io. Install from source:
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
-cargo build --release
-# Binary is at target/release/patchloom
+cargo install --path .
 ```
 
 Once published:
