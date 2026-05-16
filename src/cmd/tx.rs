@@ -252,6 +252,7 @@ fn execute_operation(
             insert_after,
             case_insensitive,
             multiline,
+            ..
         } => {
             let regex_mode = mode.as_deref() == Some("regex");
             let use_regex = regex_mode || *case_insensitive;
@@ -903,12 +904,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
-    let mut has_replace_operation = false;
+    let mut has_non_idempotent_replace = false;
     let mut total_replace_matches = 0usize;
 
     for (i, op) in plan.operations.iter().enumerate() {
-        if matches!(op, Operation::Replace { .. }) {
-            has_replace_operation = true;
+        if let Operation::Replace { if_exists, .. } = op {
+            if !if_exists {
+                has_non_idempotent_replace = true;
+            }
         }
         match execute_operation(op, &mut pending, &mut deletions) {
             Ok(match_count) => {
@@ -952,7 +955,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .count();
     let no_effective_changes = changes.is_empty() && pending_deletions == 0;
     let replace_no_matches =
-        has_replace_operation && total_replace_matches == 0 && no_effective_changes;
+        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
 
     if global.check {
         if no_effective_changes {
