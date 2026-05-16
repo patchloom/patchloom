@@ -7,7 +7,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 10 commands and 326 passing tests.
+V2 with 10 commands and 327 passing tests.
 
 ## Install
 
