@@ -25,7 +25,7 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 | Require review from code owners | no, not on day 1 |
 | Require conversation resolution before merge | yes |
 | Require status checks before merge | yes |
-| Required status checks | the DCO-2 check and the main CI check |
+| Required status checks | the DCO-2 check, the main CI check, and the Security workflow |
 | Require signed commits | no, not on day 1 |
 | Require linear history | yes, if squash merge is the default |
 | Allow force pushes | no |
@@ -54,7 +54,7 @@ Protect only `main`. Outside contributors should work from forks and open pull r
 | Small docs or typo PR | allow direct PR and review quickly |
 | Narrow bug fix PR | allow direct PR if the scope is clear |
 | Non-trivial feature PR | ask for an issue or discussion first |
-| Merge gate | require DCO, green CI, resolved conversations, and 1 approval |
+| Merge gate | require DCO, green CI and Security checks, resolved conversations, and 1 approval |
 | Merge method | use squash merge and auto-delete the merged branch |
 
 ## DCO-2 Setup Steps
@@ -64,7 +64,7 @@ Protect only `main`. Outside contributors should work from forks and open pull r
 3. Add DCO instructions to `CONTRIBUTING.md`.
 4. Open a small test PR with signed-off commits.
 5. Push the bootstrap branch and let the self-hosted `CI` workflow pass once.
-6. Once the repo is public, or on a paid plan that supports private branch protection, mark the DCO-2 check and CI as required on `main`.
+6. Once the repo is public, or on a paid plan that supports private branch protection, mark the DCO-2 check, CI, and Security workflows as required on `main`.
 
 ## Initial `.github/dco.yml`
 
