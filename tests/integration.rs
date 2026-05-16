@@ -4777,8 +4777,8 @@ fn test_smoke_shell_completion_docs_include_elvish() {
 }
 
 #[test]
-fn test_smoke_readme_source_install_flow() {
-    let source_install_flow = "git clone https://github.com/patchloom/patchloom.git\ncd patchloom\ncargo build --release\n# Binary is at target/release/patchloom";
+fn test_smoke_source_install_docs_use_cargo_install_path() {
+    let source_install_flow = "git clone https://github.com/patchloom/patchloom.git\ncd patchloom\ncargo install --path .";
 
     for (path, label) in [
         (installation_path(), "installation guide"),

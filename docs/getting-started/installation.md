@@ -2,18 +2,11 @@
 
 ## From source (current)
 
-Patchloom is not yet published to crates.io. Build from source:
+Patchloom is not yet published to crates.io. Install from source:
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
-cargo build --release
-# Binary is at target/release/patchloom
-```
-
-Optionally install it to your PATH:
-
-```bash
 cargo install --path .
 ```
 
