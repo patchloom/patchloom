@@ -664,19 +664,36 @@ fn execute_operation(
 // Write policy
 // ---------------------------------------------------------------------------
 
-fn build_write_policy(plan: &Plan) -> WritePolicy {
-    match &plan.write_policy {
-        Some(p) => WritePolicy {
-            ensure_final_newline: p.ensure_final_newline.unwrap_or(false),
-            normalize_eol: match p.normalize_eol.as_deref() {
-                Some("lf") => EolMode::Lf,
-                Some("crlf") => EolMode::Crlf,
-                _ => EolMode::Keep,
-            },
-            trim_trailing_whitespace: p.trim_trailing_whitespace.unwrap_or(false),
-        },
-        None => WritePolicy::default(),
+fn plan_normalize_eol(mode: &str) -> EolMode {
+    match mode {
+        "lf" => EolMode::Lf,
+        "crlf" => EolMode::Crlf,
+        _ => EolMode::Keep,
     }
+}
+
+/// Build the effective write policy for a pending file.
+///
+/// Start from the CLI-derived per-file defaults, including any EditorConfig
+/// values resolved by `policy_from_flags()`, then let plan-level `write_policy`
+/// entries override only the keys they set.
+fn build_write_policy(plan: &Plan, global: &GlobalFlags, path: &Path) -> WritePolicy {
+    let mut write_policy = crate::write::policy_from_flags(global, Some(path));
+    let Some(plan_write_policy) = &plan.write_policy else {
+        return write_policy;
+    };
+
+    if let Some(ensure_final_newline) = plan_write_policy.ensure_final_newline {
+        write_policy.ensure_final_newline = ensure_final_newline;
+    }
+    if let Some(normalize_eol) = plan_write_policy.normalize_eol.as_deref() {
+        write_policy.normalize_eol = plan_normalize_eol(normalize_eol);
+    }
+    if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
+        write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
+    }
+
+    write_policy
 }
 
 // ---------------------------------------------------------------------------
@@ -809,10 +826,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::env::set_current_dir(global.resolve_cwd()?)?;
     }
 
-    // 4. Build write policy from plan.
-    let write_policy = build_write_policy(&plan);
-
-    // 5. Execute all operations, collecting changes in memory (no writes).
+    // 4. Execute all operations, collecting changes in memory (no writes).
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
 
@@ -828,9 +842,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
-    // 6. Apply write policy and collect actual file changes.
+    // 5. Apply write policy and collect actual file changes.
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
     for (path, (original, current)) in &pending {
+        let write_policy = build_write_policy(&plan, global, path);
         let final_content = apply_policy(current, &write_policy);
         if *original != final_content {
             changes.push((path.clone(), original.clone(), final_content));
@@ -838,7 +853,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
     changes.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // 7. Output based on mode.
+    // 6. Output based on mode.
     // Deletions of empty files won't appear in `changes` (original == final == ""),
     // but they still count as changes for --check reporting.
     let pending_deletions = deletions
@@ -891,7 +906,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             print_diffs(&changes);
         }
 
-        // 8. Run format steps (between writes and validation).
+        // 7. Run format steps (between writes and validation).
         let mut lifecycle_failed = false;
         let mut lifecycle_error = None;
         if let Some(ref format_steps) = plan.format {
@@ -921,7 +936,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        // 9. Run validation steps.
+        // 8. Run validation steps.
         if !lifecycle_failed {
             if let Some(ref validate) = plan.validate {
                 for step in validate {

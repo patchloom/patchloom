@@ -34,6 +34,8 @@ A write policy controls transformations applied to all content before it reaches
 - `--trim-trailing-whitespace` -- remove trailing spaces on every line
 - `--respect-editorconfig` -- read policy from `.editorconfig` if present
 
+Standalone write commands use these flags directly. In `tx`, the same flags act as defaults for all writes, and plan-level `write_policy` entries override conflicting CLI flags for self-contained plans.
+
 In tx plans, set these at the plan level:
 
 ```json
