@@ -583,6 +583,56 @@ fn test_search_invert_match_multiline_rejected() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_replace_empty_from_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("")
+        .arg("--to")
+        .arg("X")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_tx_replace_empty_from_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "",
+            "to": "X"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
 fn test_replace_invalid_regex_fails() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -4774,10 +4824,10 @@ fn test_tx_strict_mode_restores_modified_empty_file_on_failure() {
     let plan = serde_json::json!({
         "strict": true,
         "operations": [{
-            "op": "replace",
+            "op": "file.create",
             "path": file.to_str().unwrap(),
-            "from": "",
-            "to": "changed"
+            "content": "changed",
+            "force": true
         }],
         "validate": [{
             "cmd": shell_exit_1(),
@@ -4876,10 +4926,10 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified() {
 
     let plan = serde_json::json!({
         "operations": [{
-            "op": "replace",
+            "op": "file.create",
             "path": file.to_str().unwrap(),
-            "from": "",
-            "to": "changed"
+            "content": "changed",
+            "force": true
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -4910,10 +4960,10 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified_in_check_mode() {
 
     let plan = serde_json::json!({
         "operations": [{
-            "op": "replace",
+            "op": "file.create",
             "path": file.to_str().unwrap(),
-            "from": "",
-            "to": "changed"
+            "content": "changed",
+            "force": true
         }]
     });
     let plan_file = dir.path().join("plan.json");
