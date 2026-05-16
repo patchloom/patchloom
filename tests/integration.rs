@@ -5496,3 +5496,206 @@ fn test_smoke_readme_command_examples() {
         .success();
     assert!(fs::read(&hygiene_target).unwrap().ends_with(b"\n"));
 }
+
+fn reference_path() -> PathBuf {
+    repo_root().join("docs").join("reference").join("README.md")
+}
+
+fn extract_braced_block(source: &str, anchor: &str) -> String {
+    let anchor_start = source
+        .find(anchor)
+        .unwrap_or_else(|| panic!("anchor `{anchor}` should exist"));
+    let body_start = source[anchor_start..]
+        .find('{')
+        .map(|offset| anchor_start + offset)
+        .expect("anchor should be followed by `{`");
+
+    let mut depth = 0usize;
+    for (offset, ch) in source[body_start..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return source[body_start + 1..body_start + offset].to_string();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    panic!("anchor `{anchor}` should have a matching closing brace");
+}
+
+fn read_anchored_block(path: &Path, anchor: &str) -> String {
+    let source = fs::read_to_string(path).unwrap();
+    extract_braced_block(&source, anchor)
+}
+
+fn camel_to_kebab(name: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() {
+            if idx > 0 {
+                out.push('-');
+            }
+            for lower in ch.to_lowercase() {
+                out.push(lower);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn snake_to_kebab(name: &str) -> String {
+    name.replace('_', "-")
+}
+
+fn collect_enum_variant_cli_names(path: &Path, anchor: &str) -> Vec<String> {
+    let block = read_anchored_block(path, anchor);
+    let re = regex::Regex::new(r"(?m)^\s*([A-Z][A-Za-z0-9]*)(?:\s*\(|\s*\{|,).*$").unwrap();
+    re.captures_iter(&block)
+        .map(|caps| camel_to_kebab(&caps[1]))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn collect_struct_field_names(path: &Path, anchor: &str) -> Vec<String> {
+    let block = read_anchored_block(path, anchor);
+    let re = regex::Regex::new(r"(?m)^\s*pub\s+([a-z_]+)\s*:").unwrap();
+    re.captures_iter(&block)
+        .map(|caps| caps[1].to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn collect_serde_rename_values(path: &Path, anchor: &str) -> Vec<String> {
+    let block = read_anchored_block(path, anchor);
+    let re = regex::Regex::new(r#"#\[serde\(rename = "([^"]+)"\)\]"#).unwrap();
+    re.captures_iter(&block)
+        .map(|caps| caps[1].to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn expected_reference_markers() -> Vec<String> {
+    let root = repo_root();
+    let cmd_dir = root.join("src").join("cmd");
+    let global_path = root.join("src").join("cli").join("global.rs");
+    let plan_path = root.join("src").join("plan.rs");
+
+    let mut markers = std::collections::BTreeSet::new();
+
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("mod.rs"), "pub enum Command") {
+        markers.insert(format!("command:{name}"));
+    }
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("doc.rs"), "pub enum DocAction") {
+        markers.insert(format!("doc-action:{name}"));
+    }
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("md.rs"), "pub enum MdAction") {
+        markers.insert(format!("md-action:{name}"));
+    }
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("patch.rs"), "pub enum PatchAction") {
+        markers.insert(format!("patch-action:{name}"));
+    }
+    for name in
+        collect_enum_variant_cli_names(&cmd_dir.join("hygiene.rs"), "pub enum HygieneAction")
+    {
+        markers.insert(format!("hygiene-action:{name}"));
+    }
+    for name in collect_struct_field_names(&plan_path, "pub struct Plan") {
+        markers.insert(format!("tx-field:{name}"));
+    }
+    for name in collect_serde_rename_values(&plan_path, "pub enum Operation") {
+        markers.insert(format!("tx-op:{name}"));
+    }
+
+    let write_flags: std::collections::BTreeSet<String> =
+        collect_struct_field_names(&global_path, "pub struct WriteFlags")
+            .into_iter()
+            .collect();
+    for name in &write_flags {
+        markers.insert(format!("write-flag:{}", snake_to_kebab(name)));
+    }
+    for name in collect_struct_field_names(&global_path, "pub struct GlobalFlags") {
+        if !write_flags.contains(&name) {
+            markers.insert(format!("global-flag:{}", snake_to_kebab(&name)));
+        }
+    }
+
+    for name in [
+        "files-with-matches",
+        "count",
+        "invert-match",
+        "multiline",
+        "case-insensitive",
+    ] {
+        markers.insert(format!("search-mode:{name}"));
+    }
+    for name in ["regex", "if-exists", "nth", "multiline", "case-insensitive"] {
+        markers.insert(format!("replace-mode:{name}"));
+    }
+    for name in ["stdin", "force"] {
+        markers.insert(format!("create-mode:{name}"));
+    }
+    markers.insert("patch-mode:stdin".to_string());
+    for name in ["predicate", "stdin"] {
+        markers.insert(format!("doc-mode:{name}"));
+    }
+    markers.insert("md-mode:stdin".to_string());
+    markers.insert("tx-mode:plan-stdin".to_string());
+
+    markers.into_iter().collect()
+}
+
+fn reference_markers(reference: &str) -> Vec<(String, usize)> {
+    let re = regex::Regex::new(r#"<!--\s*ref:([a-z0-9._:-]+)\s*-->"#).unwrap();
+    re.captures_iter(reference)
+        .map(|caps| (caps[1].to_string(), caps.get(0).unwrap().start()))
+        .collect()
+}
+
+fn reference_section<'a>(reference: &'a str, markers: &[(String, usize)], marker: &str) -> &'a str {
+    let idx = markers
+        .iter()
+        .position(|(name, _)| name == marker)
+        .unwrap_or_else(|| panic!("marker `{marker}` should exist"));
+    let start = markers[idx].1;
+    let end = markers
+        .get(idx + 1)
+        .map(|(_, pos)| *pos)
+        .unwrap_or(reference.len());
+    &reference[start..end]
+}
+
+#[test]
+fn test_reference_doc_covers_meaningful_feature_inventory() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let markers = reference_markers(&reference);
+    let actual_marker_names: Vec<String> = markers.iter().map(|(name, _)| name.clone()).collect();
+    let expected_markers = expected_reference_markers();
+
+    let missing_markers: Vec<String> = expected_markers
+        .iter()
+        .filter(|marker| !actual_marker_names.contains(*marker))
+        .cloned()
+        .collect();
+    assert!(
+        missing_markers.is_empty(),
+        "reference doc is missing markers for:\n{}",
+        missing_markers.join("\n")
+    );
+
+    for marker in expected_markers {
+        let section = reference_section(&reference, &markers, &marker);
+        assert!(
+            section.contains("**Use when:**"),
+            "reference section `{marker}` must include a `Use when` stanza"
+        );
+    }
+}

@@ -13,6 +13,8 @@ Patchloom has 10 commands, each targeting a different kind of repo operation:
 - **tx** -- atomic multi-operation transactions
 - **completions** -- shell completion generation
 
+For feature-by-feature `Use when` guidance on commands, operations, and notable modes, see the [reference guide](../reference/README.md).
+
 ## Write modes
 
 Every write command supports three modes:
