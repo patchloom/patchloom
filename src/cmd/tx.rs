@@ -69,7 +69,7 @@ fn host_shell_command(cmd: &str) -> std::process::Command {
     }
 }
 
-/// Run a shell command with a timeout. Returns the exit status on success,
+/// Run a shell command with a timeout. Returns the exit status,
 /// or an error if the command times out or fails to start.
 fn run_shell_with_timeout(
     cmd: &str,
@@ -77,7 +77,8 @@ fn run_shell_with_timeout(
 ) -> anyhow::Result<std::process::ExitStatus> {
     let mut child = host_shell_command(cmd)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        // Discard stderr so verbose lifecycle steps cannot block on a full pipe.
+        .stderr(std::process::Stdio::null())
         .spawn()?;
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
@@ -1015,6 +1016,17 @@ mod tests {
         }
     }
 
+    fn shell_stderr_spam() -> &'static str {
+        #[cfg(windows)]
+        {
+            "powershell -Command \"1..4000 | ForEach-Object { Write-Error ('x' * 200) }; exit 0\""
+        }
+        #[cfg(not(windows))]
+        {
+            "python3 -c \"import sys; sys.stderr.write('x' * (1024 * 1024)); sys.stderr.flush()\""
+        }
+    }
+
     fn default_global() -> GlobalFlags {
         GlobalFlags::default()
     }
@@ -1172,6 +1184,31 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::VALIDATION_FAILED);
+    }
+
+    #[test]
+    fn validation_pass_with_large_stderr_output() {
+        let dir = TempDir::new().unwrap();
+
+        let plan_json = serde_json::json!({
+            "operations": [],
+            "validate": [
+                {"cmd": shell_stderr_spam(), "required": true, "timeout": 2}
+            ]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
     }
 
     #[test]
