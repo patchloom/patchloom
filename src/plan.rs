@@ -46,11 +46,16 @@ pub enum Operation {
     #[serde(rename = "doc.set")]
     DocSet {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete")]
-    DocDelete { path: String, key: String },
+    DocDelete {
+        path: String,
+        #[serde(alias = "selector")]
+        key: String,
+    },
     #[serde(rename = "doc.merge")]
     DocMerge {
         path: String,
@@ -59,18 +64,21 @@ pub enum Operation {
     #[serde(rename = "doc.append")]
     DocAppend {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.prepend")]
     DocPrepend {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.update")]
     DocUpdate {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         value: serde_json::Value,
     },
@@ -83,12 +91,14 @@ pub enum Operation {
     #[serde(rename = "doc.ensure")]
     DocEnsure {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete_where")]
     DocDeleteWhere {
         path: String,
+        #[serde(alias = "selector")]
         key: String,
         predicate: String,
     },
@@ -187,6 +197,51 @@ mod tests {
         assert_eq!(wp.ensure_final_newline, Some(true));
         assert_eq!(wp.normalize_eol.as_deref(), Some("lf"));
         assert!(plan.validate.unwrap()[0].required.is_none());
+    }
+
+    #[test]
+    fn parse_doc_operation_selector_alias_maps_to_key_field() {
+        let json = r#"{
+            "operations": [
+                {"op": "doc.set", "path": "f.json", "selector": "nested.key", "value": 1},
+                {"op": "doc.delete", "path": "f.json", "selector": "nested.key"},
+                {"op": "doc.append", "path": "f.json", "selector": "items", "value": 1},
+                {"op": "doc.prepend", "path": "f.json", "selector": "items", "value": 0},
+                {"op": "doc.update", "path": "f.json", "selector": "items[*].status", "value": "done"},
+                {"op": "doc.ensure", "path": "f.json", "selector": "defaults.enabled", "value": true},
+                {"op": "doc.delete_where", "path": "f.json", "selector": "items", "predicate": "name=x"}
+            ]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+
+        assert!(matches!(
+            &plan.operations[0],
+            Operation::DocSet { key, .. } if key == "nested.key"
+        ));
+        assert!(matches!(
+            &plan.operations[1],
+            Operation::DocDelete { key, .. } if key == "nested.key"
+        ));
+        assert!(matches!(
+            &plan.operations[2],
+            Operation::DocAppend { key, .. } if key == "items"
+        ));
+        assert!(matches!(
+            &plan.operations[3],
+            Operation::DocPrepend { key, .. } if key == "items"
+        ));
+        assert!(matches!(
+            &plan.operations[4],
+            Operation::DocUpdate { key, .. } if key == "items[*].status"
+        ));
+        assert!(matches!(
+            &plan.operations[5],
+            Operation::DocEnsure { key, .. } if key == "defaults.enabled"
+        ));
+        assert!(matches!(
+            &plan.operations[6],
+            Operation::DocDeleteWhere { key, .. } if key == "items"
+        ));
     }
 
     #[test]

@@ -3169,6 +3169,65 @@ fn test_tx_doc_prepend_in_plan() {
 }
 
 #[test]
+fn test_tx_doc_set_selector_alias_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"nested": {"name": "old"}}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.set",
+            "path": file.to_str().unwrap(),
+            "selector": "nested.name",
+            "value": "new"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["nested"]["name"], "new");
+}
+
+#[test]
+fn test_tx_doc_ensure_selector_alias_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"name": "test"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["version"], "1.0");
+    assert_eq!(v["name"], "test");
+}
+
+#[test]
 fn test_tx_doc_ensure_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
