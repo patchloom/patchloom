@@ -4452,6 +4452,66 @@ fn test_tx_json_check_replace_no_match_exits_3_without_success_payload() {
 }
 
 #[test]
+fn test_tx_replace_if_exists_no_match_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo bar\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "zzz",
+            "to": "ZZZ",
+            "if_exists": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "foo bar\n");
+}
+
+#[test]
+fn test_tx_replace_if_exists_still_replaces_when_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo bar\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "foo",
+            "to": "baz",
+            "if_exists": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "baz bar\n");
+}
+
+#[test]
 fn test_tx_replace_no_match_does_not_hide_other_changes() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

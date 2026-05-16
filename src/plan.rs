@@ -48,6 +48,8 @@ pub enum Operation {
         case_insensitive: bool,
         #[serde(default)]
         multiline: bool,
+        #[serde(default)]
+        if_exists: bool,
     },
     #[serde(rename = "doc.set")]
     DocSet {
