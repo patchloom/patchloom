@@ -909,13 +909,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut lifecycle_failed = false;
         let mut lifecycle_error = None;
         if let Some(ref format_steps) = plan.format {
-            for step in format_steps {
+            for (index, step) in format_steps.iter().enumerate() {
                 let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                 match run_shell_with_timeout(&step.cmd, timeout_secs) {
                     Ok(status) if !status.success() => {
                         let msg = format!(
-                            "format step failed: {} ({})",
-                            step.cmd,
+                            "format step failed (step {}, {})",
+                            index + 1,
                             describe_exit_status(status)
                         );
                         eprintln!("tx: {msg}");
@@ -924,7 +924,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         break;
                     }
                     Err(e) => {
-                        let msg = format!("format step error: {} -- {e}", step.cmd);
+                        let msg = format!("format step error (step {}): {e}", index + 1);
                         eprintln!("tx: {msg}");
                         lifecycle_error = Some(msg);
                         lifecycle_failed = true;
@@ -938,14 +938,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 8. Run validation steps.
         if !lifecycle_failed {
             if let Some(ref validate) = plan.validate {
-                for step in validate {
+                for (index, step) in validate.iter().enumerate() {
                     let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                     let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
                         Ok(status) if status.success() => true,
                         Ok(status) => {
                             let msg = format!(
-                                "required validation failed: {} ({})",
-                                step.cmd,
+                                "required validation failed (step {}, {})",
+                                index + 1,
                                 describe_exit_status(status)
                             );
                             eprintln!("tx: {msg}");
@@ -953,7 +953,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             false
                         }
                         Err(e) => {
-                            let msg = format!("validation error: {} -- {e}", step.cmd);
+                            let msg = format!("validation error (step {}): {e}", index + 1);
                             eprintln!("tx: {msg}");
                             lifecycle_error = Some(msg);
                             false

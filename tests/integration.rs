@@ -49,6 +49,17 @@ fn shell_touch(path: &Path) -> String {
     }
 }
 
+fn shell_fail_with_secret(secret: &str) -> String {
+    #[cfg(windows)]
+    {
+        format!("cmd /C \"set PATCHLOOM_SECRET={secret}&& exit /b 1\"")
+    }
+    #[cfg(not(windows))]
+    {
+        format!("PATCHLOOM_SECRET='{secret}' false")
+    }
+}
+
 fn shell_test_exists(path: &Path) -> String {
     let path = path.display();
     #[cfg(windows)]
@@ -3994,6 +4005,86 @@ fn test_tx_json_output_on_parse_error() {
 }
 
 #[test]
+fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let secret = "TOKEN=super-secret-value";
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": shell_fail_with_secret(secret),
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("required validation failed (step 1, exit code 1)"));
+    assert!(!stderr.contains(secret));
+}
+
+#[test]
+fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let secret = "TOKEN=super-secret-value";
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": shell_fail_with_secret(secret),
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("validation_failed"));
+    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(!error.contains(secret));
+}
+
+#[test]
 fn test_tx_json_output_on_validation_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -4030,7 +4121,7 @@ fn test_tx_json_output_on_validation_failure() {
     assert_eq!(json["ok"], false);
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("required validation failed"));
+    assert!(error.contains("required validation failed (step 1, exit code 1)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -4073,7 +4164,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
-    assert!(error.contains("required validation failed"));
+    assert!(error.contains("required validation failed (step 1, exit code 1)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -4141,6 +4232,84 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
 
     // File should still be modified (non-strict doesn't revert).
     assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+#[test]
+fn test_tx_format_failure_redacts_shell_command_in_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let secret = "TOKEN=super-secret-value";
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": shell_fail_with_secret(secret),
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("format step failed (step 1, exit code 1)"));
+    assert!(!stderr.contains(secret));
+}
+
+#[test]
+fn test_tx_json_output_on_format_failure_redacts_shell_command() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let secret = "TOKEN=super-secret-value";
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": shell_fail_with_secret(secret),
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("validation_failed"));
+    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(!error.contains(secret));
 }
 
 #[test]
