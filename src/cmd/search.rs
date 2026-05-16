@@ -153,10 +153,8 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                 let start = i.saturating_sub(context);
                 let end = (i + 1 + context).min(lines.len());
                 let column = found.map_or(1, |m| m.start() + 1);
-                let context_before =
-                    Some(lines[start..i].iter().map(|s| s.to_string()).collect());
-                let context_after =
-                    Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect());
+                let context_before = Some(lines[start..i].iter().map(|s| s.to_string()).collect());
+                let context_after = Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect());
 
                 all_matches.push(SearchMatch {
                     path: get_path_str(),
