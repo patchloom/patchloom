@@ -3722,6 +3722,56 @@ fn test_delete_removes_file() {
 }
 
 #[test]
+fn test_delete_json_apply_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doomed.txt");
+    fs::write(&file, "bye\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!file.exists());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], true);
+    assert!(json["path"].as_str().unwrap().contains("doomed.txt"));
+}
+
+#[test]
+fn test_delete_json_check_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "keep\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(file.exists());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], false);
+    assert!(json["path"].as_str().unwrap().contains("safe.txt"));
+}
+
+#[test]
 fn test_delete_check_mode_does_not_remove() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("safe.txt");
