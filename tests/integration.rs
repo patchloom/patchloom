@@ -3510,6 +3510,70 @@ fn test_tx_replace_insert_before_in_plan() {
 }
 
 #[test]
+fn test_tx_replace_rejects_both_insert_before_and_after() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {
+                "op": "replace",
+                "path": file.to_str().unwrap(),
+                "from": "hello",
+                "insert_before": "X",
+                "insert_after": "Y"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_tx_replace_rejects_to_with_insert() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {
+                "op": "replace",
+                "path": file.to_str().unwrap(),
+                "from": "hello",
+                "to": "goodbye",
+                "insert_before": "X"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
 fn test_replace_case_insensitive() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -4650,8 +4714,48 @@ fn test_tx_json_output_on_parse_error() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["status"], "error");
+    assert_eq!(json["error_kind"], "parse_error");
     assert!(!json["error"].as_str().unwrap().is_empty());
     assert!(json["error"].as_str().unwrap().contains("parse_error"));
+}
+
+#[test]
+fn test_tx_json_output_on_replace_conflict_parse_error() {
+    let dir = TempDir::new().unwrap();
+    let plan_file = dir.path().join("bad.json");
+    fs::write(
+        &plan_file,
+        serde_json::to_string(&serde_json::json!({
+            "operations": [{
+                "op": "replace",
+                "path": "data.txt",
+                "from": "hello",
+                "insert_before": "X",
+                "insert_after": "Y"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["error_kind"], "parse_error");
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("parse_error"));
+    assert!(error.contains("insert_before and insert_after cannot both be set"));
 }
 
 #[test]
