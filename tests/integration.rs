@@ -3951,7 +3951,53 @@ fn test_tx_json_output_on_validation_failure() {
     assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert!(!json["error"].as_str().unwrap().is_empty());
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("validation_failed"));
+    assert!(error.contains("required validation failed"));
+    assert!(error.contains("exit code 1"));
+}
+
+#[test]
+fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "strict": true,
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": shell_false(),
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("rollback"));
+    assert!(error.contains("strict mode -- all changes reverted"));
+    assert!(error.contains("required validation failed"));
+    assert!(error.contains("exit code 1"));
 }
 
 #[test]
