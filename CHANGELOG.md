@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Thread-based timeout for format/validate steps (replaces polling loop)
 - JSON output mode for `tx` command via `--json` flag
 - JSON error output on all tx failure paths (parse, rollback, validation)
-- 314 tests (152 unit + 162 integration)
+- 337 tests (155 unit + 182 integration)
 
 ### Fixed
 
