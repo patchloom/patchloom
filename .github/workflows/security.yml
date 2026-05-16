@@ -49,9 +49,12 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
         run: |
-          VER=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | jq -r '.tag_name' | sed 's/^v//')
-          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" \
-            | tar xz -C /usr/local/bin gitleaks
+          archive="${RUNNER_TEMP}/gitleaks.tar.gz"
+          curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
+            -o "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf "$archive" -C /usr/local/bin gitleaks
       - run: gitleaks detect --source . --exit-code 1
