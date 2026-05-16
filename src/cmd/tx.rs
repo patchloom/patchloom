@@ -312,12 +312,18 @@ fn execute_operation(
                     let content = if pending.contains_key(&file_path) {
                         match read_file_content(pending, &file_path) {
                             Ok(c) => c.to_owned(),
-                            Err(_) => continue,
+                            Err(e) => {
+                                eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                                continue;
+                            }
                         }
                     } else {
                         match std::fs::read_to_string(&file_path) {
                             Ok(s) => s,
-                            Err(_) => continue,
+                            Err(e) => {
+                                eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                                continue;
+                            }
                         }
                     };
                     let (replaced, match_count) =

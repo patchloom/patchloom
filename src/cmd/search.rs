@@ -105,7 +105,12 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
 
         let content = match fs::read_to_string(path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(e) => {
+                if !global.quiet {
+                    eprintln!("search: skipping {}: {e}", path.display());
+                }
+                continue;
+            }
         };
 
         let mut count = 0usize;
