@@ -15,7 +15,15 @@ pub struct ReplaceArgs {
     pub from: String,
     /// Text to replace with.
     #[arg(long)]
-    pub to: String,
+    pub to: Option<String>,
+    // ref:replace-mode:insert-before
+    /// Insert text before each match instead of replacing.
+    #[arg(long, conflicts_with = "insert_after")]
+    pub insert_before: Option<String>,
+    // ref:replace-mode:insert-after
+    /// Insert text after each match instead of replacing.
+    #[arg(long, conflicts_with = "insert_before")]
+    pub insert_after: Option<String>,
     /// Paths to operate on.
     pub paths: Vec<String>,
     /// Treat --from as a literal string (default).
@@ -137,6 +145,29 @@ fn replace_content(
     }
 }
 
+/// Compute the effective replacement text from the args.
+/// When using regex mode with insert, `$0` refers to the full match so the
+/// matched text is preserved rather than the raw pattern string.
+fn effective_to(args: &ReplaceArgs) -> String {
+    if let Some(ref text) = args.insert_before {
+        let anchor = if args.regex || args.case_insensitive {
+            "$0".to_string()
+        } else {
+            args.from.clone()
+        };
+        format!("{text}{anchor}")
+    } else if let Some(ref text) = args.insert_after {
+        let anchor = if args.regex || args.case_insensitive {
+            "$0".to_string()
+        } else {
+            args.from.clone()
+        };
+        format!("{anchor}{text}")
+    } else {
+        args.to.clone().unwrap_or_default()
+    }
+}
+
 /// Walk files and collect all replacements.
 fn collect_replacements(
     args: &ReplaceArgs,
@@ -144,6 +175,7 @@ fn collect_replacements(
 ) -> anyhow::Result<Vec<FileReplacement>> {
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths(&args.paths, global)?;
+    let to = effective_to(args);
 
     let compiled_re = if args.regex {
         Some(
@@ -185,13 +217,8 @@ fn collect_replacements(
             Err(_) => continue,
         };
 
-        let (replaced, count) = replace_content(
-            &content,
-            &args.from,
-            &args.to,
-            compiled_re.as_ref(),
-            args.nth,
-        );
+        let (replaced, count) =
+            replace_content(&content, &args.from, &to, compiled_re.as_ref(), args.nth);
 
         if count > 0 {
             replacements.push(FileReplacement {
@@ -232,6 +259,14 @@ fn make_diff_output(replacements: &[FileReplacement]) -> String {
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     std::env::set_current_dir(global.resolve_cwd()?)?;
+
+    // Validate: exactly one of --to, --insert-before, or --insert-after.
+    if args.to.is_none() && args.insert_before.is_none() && args.insert_after.is_none() {
+        anyhow::bail!("one of --to, --insert-before, or --insert-after must be provided");
+    }
+    if args.to.is_some() && (args.insert_before.is_some() || args.insert_after.is_some()) {
+        anyhow::bail!("--to cannot be combined with --insert-before or --insert-after");
+    }
 
     let replacements = collect_replacements(&args, global)?;
 
@@ -340,7 +375,9 @@ mod tests {
     fn make_args(from: &str, to: &str, paths: Vec<String>) -> ReplaceArgs {
         ReplaceArgs {
             from: from.to_string(),
-            to: to.to_string(),
+            to: Some(to.to_string()),
+            insert_before: None,
+            insert_after: None,
             paths,
             literal: true,
             regex: false,
@@ -378,7 +415,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: r"foo\d+".to_string(),
-            to: "replaced".to_string(),
+            to: Some("replaced".to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: false,
             regex: true,
@@ -403,7 +442,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: r#"version = "(\d+)\.(\d+)\.(\d+)""#.to_string(),
-            to: r#"version = "$1.$2.99""#.to_string(),
+            to: Some(r#"version = "$1.$2.99""#.to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: false,
             regex: true,
@@ -503,7 +544,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: "zzz_no_match_zzz".to_string(),
-            to: "replacement".to_string(),
+            to: Some("replacement".to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: true,
             regex: false,
@@ -525,7 +568,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: "hello".to_string(),
-            to: "hi".to_string(),
+            to: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: true,
             regex: false,
@@ -595,7 +640,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: r"start.*end".to_string(),
-            to: "replaced".to_string(),
+            to: Some("replaced".to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: false,
             regex: true,
@@ -620,7 +667,9 @@ mod tests {
 
         let args = ReplaceArgs {
             from: r"start.*end".to_string(),
-            to: "replaced".to_string(),
+            to: Some("replaced".to_string()),
+            insert_before: None,
+            insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
             literal: false,
             regex: true,

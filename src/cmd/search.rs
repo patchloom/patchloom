@@ -42,6 +42,10 @@ pub struct SearchArgs {
     /// Case-insensitive matching.
     #[arg(long, short = 'i')]
     pub case_insensitive: bool,
+    // ref:search-mode:assert-count
+    /// Assert that the total match count equals N. Exits 0 if exact, 2 otherwise.
+    #[arg(long)]
+    pub assert_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -300,6 +304,21 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let results = collect_matches(&args, global)?;
 
+    // --assert-count mode: succeed only if total count equals N.
+    if let Some(expected) = args.assert_count {
+        let actual: usize = results.file_match_counts.values().sum();
+        if actual == expected {
+            if !global.quiet {
+                eprintln!("assert-count: {actual} matches (expected {expected})");
+            }
+            return Ok(exit::SUCCESS);
+        }
+        if !global.quiet {
+            eprintln!("assert-count: expected {expected} matches, found {actual}");
+        }
+        return Ok(exit::CHANGES_DETECTED);
+    }
+
     let has_matches = if args.count || args.files_with_matches {
         !results.file_match_counts.is_empty()
     } else {
@@ -353,6 +372,7 @@ mod tests {
             invert_match: false,
             multiline: false,
             case_insensitive: false,
+            assert_count: None,
         }
     }
 

@@ -188,6 +188,76 @@ fn test_cwd_nonexistent_directory_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_search_assert_count_exact_match() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "foo\n").unwrap();
+
+    // 3 matching lines total: 2 in a.txt + 1 in b.txt
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("3")
+        .arg("foo")
+        .arg(dir.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_search_assert_count_mismatch() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo bar\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("5")
+        .arg("foo")
+        .arg(dir.path())
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn test_search_assert_count_zero() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "no match here\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("0")
+        .arg("zzz")
+        .arg(dir.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_search_assert_count_zero_but_found() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("0")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .code(2);
+}
+
+#[test]
 fn test_search_multiline_spans_lines() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
@@ -886,6 +956,227 @@ fn test_hygiene_fix_apply() {
 // ---------------------------------------------------------------------------
 // create
 // ---------------------------------------------------------------------------
+
+// ── read command ────────────────────────────────────────────────────
+
+#[test]
+fn test_read_prints_file_contents() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout("line1\nline2\nline3\n");
+}
+
+#[test]
+fn test_read_lines_range() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("five.txt");
+    fs::write(&file, "a\nb\nc\nd\ne\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("2:4")
+        .assert()
+        .success()
+        .stdout("b\nc\nd");
+}
+
+#[test]
+fn test_read_nonexistent_file_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg("/tmp/patchloom-nonexistent-file-xyz")
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn test_read_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["total_lines"], 2);
+    assert_eq!(json["start_line"], 1);
+    assert_eq!(json["end_line"], 2);
+    assert!(json["content"].as_str().unwrap().contains("hello"));
+}
+
+#[test]
+fn test_read_respects_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inner.txt"), "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("read")
+        .arg("inner.txt")
+        .assert()
+        .success()
+        .stdout("content\n");
+}
+
+// ── status command ─────────────────────────────────────────────────
+
+#[test]
+fn test_status_clean_repo() {
+    let dir = TempDir::new().unwrap();
+    // Initialize a git repo with one committed file.
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .assert()
+        .success(); // exit 0 = no changes
+}
+
+#[test]
+fn test_status_modified_file() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Modify the committed file.
+    fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .assert()
+        .code(2); // exit 2 = changes detected
+}
+
+#[test]
+fn test_status_json_output() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Create untracked file.
+    fs::write(dir.path().join("new.txt"), "new\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["total_changes"], 1);
+    assert!(json["created"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v.as_str().unwrap() == "new.txt"));
+}
+
+// ── create command ─────────────────────────────────────────────────
 
 #[test]
 fn test_create_new_file() {
@@ -3070,6 +3361,155 @@ fn test_search_case_insensitive() {
 }
 
 #[test]
+fn test_replace_insert_before() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "    /// Doc comment.\n    pub field: bool,\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("    /// Doc comment.")
+        .arg("--insert-before")
+        .arg("    // marker\n")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "    // marker\n    /// Doc comment.\n    pub field: bool,\n"
+    );
+}
+
+#[test]
+fn test_replace_insert_after() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "line1\nanchor\nline3\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("anchor")
+        .arg("--insert-after")
+        .arg(" // tagged")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nanchor // tagged\nline3\n"
+    );
+}
+
+#[test]
+fn test_replace_insert_before_with_regex() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("b+")
+        .arg("--regex")
+        .arg("--insert-before")
+        .arg("X")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nXbbb\nccc\n");
+}
+
+#[test]
+fn test_replace_insert_before_nth() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "x a x a x\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("a")
+        .arg("--insert-before")
+        .arg("[")
+        .arg("--nth")
+        .arg("2")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "x a x [a x\n");
+}
+
+#[test]
+fn test_replace_insert_before_and_to_conflict() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("world")
+        .arg("--insert-before")
+        .arg("X")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_tx_replace_insert_before_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.txt");
+    fs::write(&file, "    /// Old doc.\n    pub val: i32,\n").unwrap();
+
+    let plan = serde_json::json!({
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [
+            {
+                "op": "replace",
+                "path": file.to_str().unwrap(),
+                "from": "    /// Old doc.",
+                "insert_before": "    // ref:marker\n"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "    // ref:marker\n    /// Old doc.\n    pub val: i32,\n"
+    );
+}
+
+#[test]
 fn test_replace_case_insensitive() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -4671,6 +5111,97 @@ fn test_tx_write_policy_ensure_final_newline_on_file_create() {
         .success();
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "no trailing newline\n");
+}
+
+#[test]
+fn test_tx_yaml_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("target.txt");
+    fs::write(&file, "old value\n").unwrap();
+
+    let yaml_plan = format!(
+        "operations:\n  - op: replace\n    path: \"{}\"\n    from: old\n    to: new\n",
+        file.to_str().unwrap()
+    );
+    let plan_file = dir.path().join("plan.yaml");
+    fs::write(&plan_file, &yaml_plan).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new value\n");
+}
+
+#[test]
+fn test_tx_toml_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("target.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let toml_plan = format!(
+        "[[operations]]\nop = \"replace\"\npath = \"{}\"\nfrom = \"hello\"\nto = \"goodbye\"\n",
+        file.to_str().unwrap()
+    );
+    let plan_file = dir.path().join("plan.toml");
+    fs::write(&plan_file, &toml_plan).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world\n");
+}
+
+#[test]
+fn test_tx_yaml_plan_from_stdin() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\n").unwrap();
+
+    let yaml_plan = format!(
+        "operations:\n  - op: replace\n    path: \"{}\"\n    from: aaa\n    to: bbb\n",
+        file.to_str().unwrap()
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg("-")
+        .arg("--plan-format")
+        .arg("yaml")
+        .arg("--apply")
+        .write_stdin(yaml_plan)
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+}
+
+#[test]
+fn test_tx_malformed_yaml_returns_parse_error() {
+    let dir = TempDir::new().unwrap();
+    let plan_file = dir.path().join("bad.yaml");
+    fs::write(&plan_file, "this: is: not: valid: yaml: [").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .assert()
+        .code(4);
 }
 
 #[test]

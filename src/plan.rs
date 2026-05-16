@@ -40,8 +40,10 @@ pub enum Operation {
         path: Option<String>,
         mode: Option<String>,
         from: String,
-        to: String,
+        to: Option<String>,
         nth: Option<usize>,
+        insert_before: Option<String>,
+        insert_after: Option<String>,
     },
     #[serde(rename = "doc.set")]
     DocSet {
@@ -167,6 +169,42 @@ pub struct ValidationStep {
 pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
     let plan: Plan = serde_json::from_str(input)?;
     Ok(plan)
+}
+
+/// Parse a plan from a YAML string.
+pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
+    let plan: Plan = serde_yaml_ng::from_str(input)?;
+    Ok(plan)
+}
+
+/// Parse a plan from a TOML string.
+pub fn parse_plan_toml(input: &str) -> anyhow::Result<Plan> {
+    let plan: Plan = toml_edit::de::from_str(input)?;
+    Ok(plan)
+}
+
+/// Detect plan format from a file path extension and parse accordingly.
+pub fn parse_plan_auto(
+    input: &str,
+    path: Option<&str>,
+    format_hint: Option<&str>,
+) -> anyhow::Result<Plan> {
+    let fmt = format_hint.or_else(|| {
+        path.and_then(|p| {
+            if p.ends_with(".yaml") || p.ends_with(".yml") {
+                Some("yaml")
+            } else if p.ends_with(".toml") {
+                Some("toml")
+            } else {
+                None
+            }
+        })
+    });
+    match fmt {
+        Some("yaml" | "yml") => parse_plan_yaml(input),
+        Some("toml") => parse_plan_toml(input),
+        _ => parse_plan(input),
+    }
 }
 
 #[cfg(test)]

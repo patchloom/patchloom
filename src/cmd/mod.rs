@@ -4,8 +4,10 @@ pub mod doc;
 pub mod hygiene;
 pub mod md;
 pub mod patch;
+pub mod read;
 pub mod replace;
 pub mod search;
+pub mod status;
 pub mod tx;
 
 use crate::cli::Cli;
@@ -21,8 +23,12 @@ pub enum Command {
     Search(search::SearchArgs),
     /// Mechanical string replacement with diff preview.
     Replace(replace::ReplaceArgs),
+    /// Show which files have uncommitted changes.
+    Status(status::StatusArgs),
     /// Preview or apply unified diffs safely.
     Patch(patch::PatchArgs),
+    /// Read file contents with optional line range.
+    Read(read::ReadArgs),
     /// Markdown section-aware operations.
     Md(md::MdArgs),
     /// Parser-backed JSON, YAML, and TOML operations.
@@ -47,7 +53,9 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
             Ok(crate::exit::SUCCESS)
         }
+        Command::Read(args) => read::run(args, &global),
         Command::Search(args) => search::run(args, &global),
+        Command::Status(args) => status::run(args, &global),
         Command::Create(args) => {
             global.merge_write(&args.write);
             create::run(args, &global)
