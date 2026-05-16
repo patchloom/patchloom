@@ -3431,6 +3431,28 @@ fn test_replace_insert_before_with_regex() {
 }
 
 #[test]
+fn test_replace_insert_after_with_regex() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("b+")
+        .arg("--regex")
+        .arg("--insert-after")
+        .arg("X")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nbbbX\nccc\n");
+}
+
+#[test]
 fn test_replace_insert_before_nth() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");
@@ -3507,6 +3529,66 @@ fn test_tx_replace_insert_before_in_plan() {
         fs::read_to_string(&file).unwrap(),
         "    // ref:marker\n    /// Old doc.\n    pub val: i32,\n"
     );
+}
+
+#[test]
+fn test_tx_replace_insert_before_with_regex_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "mode": "regex",
+            "from": "b+",
+            "insert_before": "X"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nXbbb\nccc\n");
+}
+
+#[test]
+fn test_tx_replace_insert_after_with_regex_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "mode": "regex",
+            "from": "b+",
+            "insert_after": "X"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nbbbX\nccc\n");
 }
 
 #[test]
@@ -5503,6 +5585,38 @@ fn test_replace_nth_regex_replaces_only_nth() {
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "v1.0 and vX.Y and v3.0\n");
+}
+
+#[test]
+fn test_tx_replace_nth_regex_with_capture_groups_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "version = \"1.2.3\"\nversion = \"4.5.6\"\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "mode": "regex",
+            "from": r#"version = "(\d+)\.(\d+)\.(\d+)""#,
+            "to": r#"version = "$1.$2.99""#,
+            "nth": 2
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "version = \"1.2.3\"\nversion = \"4.5.99\"\n");
 }
 
 #[test]

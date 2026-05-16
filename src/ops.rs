@@ -172,6 +172,123 @@ pub(crate) mod doc {
     }
 }
 
+pub(crate) mod replace {
+    use regex::Regex;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum ReplaceModeError {
+        MissingMode,
+        BothInsertModes,
+        ToWithInsert,
+    }
+
+    pub(crate) fn validate_replace_mode(
+        has_to: bool,
+        has_insert_before: bool,
+        has_insert_after: bool,
+    ) -> Result<(), ReplaceModeError> {
+        match (has_to, has_insert_before, has_insert_after) {
+            (false, false, false) => Err(ReplaceModeError::MissingMode),
+            (_, true, true) => Err(ReplaceModeError::BothInsertModes),
+            (true, true, false) | (true, false, true) => Err(ReplaceModeError::ToWithInsert),
+            _ => Ok(()),
+        }
+    }
+
+    pub(crate) fn replacement_text(
+        from: &str,
+        to: &Option<String>,
+        insert_before: &Option<String>,
+        insert_after: &Option<String>,
+        use_match_anchor: bool,
+    ) -> String {
+        let anchor = if use_match_anchor { "${0}" } else { from };
+
+        if let Some(text) = insert_before {
+            return format!("{text}{anchor}");
+        }
+
+        if let Some(text) = insert_after {
+            return format!("{anchor}{text}");
+        }
+
+        to.clone().unwrap_or_default()
+    }
+
+    fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> String {
+        let mut expanded = String::new();
+        caps.expand(replacement, &mut expanded);
+        expanded
+    }
+
+    pub(crate) fn replace_content(
+        content: &str,
+        from: &str,
+        to: &str,
+        compiled_re: Option<&Regex>,
+        nth: Option<usize>,
+    ) -> (String, usize) {
+        match (nth, compiled_re) {
+            (Some(n), Some(re)) => {
+                let mut count = 0usize;
+                let mut result = String::with_capacity(content.len());
+                for m in re.find_iter(content) {
+                    count += 1;
+                    if count != n {
+                        continue;
+                    }
+
+                    result.push_str(&content[..m.start()]);
+                    if let Some(caps) = re.captures(&content[m.start()..]) {
+                        let replacement = expand_regex_replacement(&caps, to);
+                        result.push_str(&replacement);
+                    }
+                    result.push_str(&content[m.end()..]);
+                    return (result, 1);
+                }
+                (content.to_owned(), 0)
+            }
+            (Some(n), None) => {
+                let mut count = 0usize;
+                let mut result = String::with_capacity(content.len());
+                for (start, _) in content.match_indices(from) {
+                    count += 1;
+                    if count != n {
+                        continue;
+                    }
+
+                    result.push_str(&content[..start]);
+                    result.push_str(to);
+                    result.push_str(&content[start + from.len()..]);
+                    return (result, 1);
+                }
+                (content.to_owned(), 0)
+            }
+            (None, Some(re)) => {
+                let mut count = 0usize;
+                let replaced = re
+                    .replace_all(content, |caps: &regex::Captures| {
+                        count += 1;
+                        expand_regex_replacement(caps, to)
+                    })
+                    .to_string();
+                if count == 0 {
+                    return (content.to_owned(), 0);
+                }
+                (replaced, count)
+            }
+            (None, None) => {
+                let count = content.matches(from).count();
+                if count == 0 {
+                    return (content.to_owned(), 0);
+                }
+                let replaced = content.replace(from, to);
+                (replaced, count)
+            }
+        }
+    }
+}
+
 pub(crate) mod md {
     use std::collections::HashSet;
 

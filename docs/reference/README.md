@@ -638,6 +638,7 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Runs text replacement inside a transaction.
 - **Use when:** A text rewrite needs to share atomic rollback, formatting, or validation with other operations.
 - **Requires:** Exactly one of `to`, `insert_before`, or `insert_after`, matching top level `replace`.
+- **Regex insert semantics:** In regex mode, `insert_before` and `insert_after` preserve the matched text, they do not insert the raw pattern string.
 - **Related:** top level `replace`
 
 <!-- ref:tx-op:doc.set -->

@@ -9,6 +9,9 @@ use crate::ops::md::{
     table_append_for_tx, upsert_bullet_in,
 };
 use crate::ops::patch::apply_patch_with_loader;
+use crate::ops::replace::{
+    replace_content, replacement_text, validate_replace_mode, ReplaceModeError,
+};
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::write::{apply_policy, atomic_write, WritePolicy};
@@ -129,29 +132,6 @@ fn op_label(op: &Operation) -> &'static str {
     }
 }
 
-fn validate_replace_fields(
-    to: &Option<String>,
-    insert_before: &Option<String>,
-    insert_after: &Option<String>,
-) -> anyhow::Result<()> {
-    let has_to = to.is_some();
-    let has_insert_before = insert_before.is_some();
-    let has_insert_after = insert_after.is_some();
-
-    match (has_to, has_insert_before, has_insert_after) {
-        (false, false, false) => {
-            anyhow::bail!("replace operation requires one of to, insert_before, or insert_after");
-        }
-        (_, true, true) => {
-            anyhow::bail!("insert_before and insert_after cannot both be set");
-        }
-        (true, true, false) | (true, false, true) => {
-            anyhow::bail!("to cannot be combined with insert_before or insert_after");
-        }
-        _ => Ok(()),
-    }
-}
-
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
@@ -159,7 +139,24 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             insert_before,
             insert_after,
             ..
-        } => validate_replace_fields(to, insert_before, insert_after),
+        } => match validate_replace_mode(
+            to.is_some(),
+            insert_before.is_some(),
+            insert_after.is_some(),
+        ) {
+            Ok(()) => Ok(()),
+            Err(ReplaceModeError::MissingMode) => {
+                anyhow::bail!(
+                    "replace operation requires one of to, insert_before, or insert_after"
+                )
+            }
+            Err(ReplaceModeError::BothInsertModes) => {
+                anyhow::bail!("insert_before and insert_after cannot both be set")
+            }
+            Err(ReplaceModeError::ToWithInsert) => {
+                anyhow::bail!("to cannot be combined with insert_before or insert_after")
+            }
+        },
         _ => Ok(()),
     }
 }
@@ -170,23 +167,6 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn replacement_text(
-    from: &str,
-    to: &Option<String>,
-    insert_before: &Option<String>,
-    insert_after: &Option<String>,
-) -> String {
-    if let Some(text) = insert_before {
-        return format!("{text}{from}");
-    }
-
-    if let Some(text) = insert_after {
-        return format!("{from}{text}");
-    }
-
-    to.clone().unwrap_or_default()
 }
 
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
@@ -226,53 +206,6 @@ fn update_file_content(
         *current = new_content;
     } else {
         pending.insert(path.to_path_buf(), (String::new(), new_content));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// String replacement helper
-// ---------------------------------------------------------------------------
-
-fn do_replace(
-    content: &str,
-    from: &str,
-    to: &str,
-    compiled_re: Option<&Regex>,
-    nth: Option<usize>,
-) -> String {
-    if let Some(n) = nth {
-        // Replace only the Nth occurrence (1-based).
-        let mut count = 0usize;
-        if let Some(re) = compiled_re {
-            let mut result = String::with_capacity(content.len());
-            for m in re.find_iter(content) {
-                count += 1;
-                if count == n {
-                    result.push_str(&content[..m.start()]);
-                    result.push_str(to);
-                    result.push_str(&content[m.end()..]);
-                    return result;
-                }
-            }
-            // Nth occurrence not found; return content unchanged.
-            content.to_string()
-        } else {
-            let mut result = String::with_capacity(content.len());
-            for (start, _) in content.match_indices(from) {
-                count += 1;
-                if count == n {
-                    result.push_str(&content[..start]);
-                    result.push_str(to);
-                    result.push_str(&content[start + from.len()..]);
-                    return result;
-                }
-            }
-            content.to_string()
-        }
-    } else if let Some(re) = compiled_re {
-        re.replace_all(content, to).to_string()
-    } else {
-        content.replace(from, to)
     }
 }
 
@@ -318,8 +251,10 @@ fn execute_operation(
             insert_before,
             insert_after,
         } => {
-            let effective_to = replacement_text(from, to, insert_before, insert_after);
-            let compiled_re = if mode.as_deref() == Some("regex") {
+            let use_match_anchor = mode.as_deref() == Some("regex");
+            let replacement =
+                replacement_text(from, to, insert_before, insert_after, use_match_anchor);
+            let compiled_re = if use_match_anchor {
                 Some(Regex::new(from)?)
             } else {
                 None
@@ -328,7 +263,8 @@ fn execute_operation(
             if let Some(p) = path {
                 let file_path = PathBuf::from(p);
                 let content = read_file_content(pending, &file_path)?;
-                let replaced = do_replace(content, from, &effective_to, compiled_re.as_ref(), *nth);
+                let (replaced, _) =
+                    replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
                 update_file_content(pending, deletions, &file_path, replaced);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
@@ -351,8 +287,8 @@ fn execute_operation(
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let replaced =
-                        do_replace(content, from, &effective_to, compiled_re.as_ref(), *nth);
+                    let (replaced, _) =
+                        replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
                     update_file_content(pending, deletions, &file_path, replaced);
                 }
             } else {
@@ -1508,6 +1444,20 @@ mod tests {
             err.to_string(),
             "insert_before and insert_after cannot both be set"
         );
+    }
+
+    #[test]
+    fn regex_insert_before_uses_match_anchor_in_replacement_text() {
+        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true);
+
+        assert_eq!(text, "X${0}");
+    }
+
+    #[test]
+    fn regex_insert_after_uses_match_anchor_in_replacement_text() {
+        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true);
+
+        assert_eq!(text, "${0}X");
     }
 
     #[test]
