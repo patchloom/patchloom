@@ -3704,6 +3704,50 @@ fn test_tx_patch_apply_in_plan() {
 }
 
 #[test]
+fn test_tx_patch_apply_uses_pending_file_state() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let diff = format!(
+        "--- a/{f}\n+++ b/{f}\n@@ -1,3 +1,3 @@\n line1\n-mid line\n+new line\n line3\n",
+        f = file.to_str().unwrap()
+    );
+
+    let plan = serde_json::json!({
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [
+            {
+                "op": "replace",
+                "path": file.to_str().unwrap(),
+                "from": "old line",
+                "to": "mid line"
+            },
+            {
+                "op": "patch.apply",
+                "diff": diff
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nnew line\nline3\n"
+    );
+}
+
+#[test]
 fn test_tx_validate_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
