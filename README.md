@@ -39,17 +39,19 @@ cargo install patchloom
 
 ## Commands
 
-| Command   | Description                                          |
-|-----------|------------------------------------------------------|
-| `search`  | Fast literal or regex search across a repo           |
-| `replace` | Mechanical string replacement with diff preview      |
-| `patch`   | Preview or apply unified diffs safely                |
-| `md`      | Markdown section-aware operations                    |
-| `doc`     | Parser-backed JSON, YAML, and TOML operations        |
+| Command | Description |
+|---|---|
+| `search` | Fast literal or regex search across a repo |
+| `replace` | Mechanical string replacement with diff preview |
+| `patch` | Preview or apply unified diffs safely |
+| `md` | Markdown section-aware operations |
+| `doc` | Parser-backed JSON, YAML, and TOML operations |
 | `hygiene` | Final newline, line ending, and whitespace normalization |
-| `create`  | Create a new file with content                       |
-| `delete`  | Delete a file                                        |
-| `tx`      | Execute a multi-operation plan atomically            |
+| `create` | Create a new file with content |
+| `delete` | Delete a file |
+| `read` | Read file contents with optional line range |
+| `status` | Show which files have uncommitted changes |
+| `tx` | Execute a multi-operation plan atomically |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 
 ## Usage
