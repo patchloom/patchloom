@@ -765,12 +765,11 @@ fn build_tx_output(
     }
 }
 
-fn emit_error_json(error_kind: &'static str, error: &str) {
-    let legacy_error_prefix = if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    };
+fn emit_error_json_with_prefix(
+    error_kind: &'static str,
+    legacy_error_prefix: &'static str,
+    error: &str,
+) {
     let output = TxOutput {
         ok: false,
         status: "error",
@@ -785,6 +784,15 @@ fn emit_error_json(error_kind: &'static str, error: &str) {
     if let Ok(json) = serde_json::to_string_pretty(&output) {
         println!("{json}");
     }
+}
+
+fn emit_error_json(error_kind: &'static str, error: &str) {
+    let legacy_error_prefix = if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    };
+    emit_error_json_with_prefix(error_kind, legacy_error_prefix, error);
 }
 
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
@@ -1026,7 +1034,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     None => "strict mode -- all changes reverted".to_string(),
                 };
                 if global.json {
-                    emit_error_json("rollback", &rollback_msg);
+                    emit_error_json_with_prefix(lifecycle_error_kind, "rollback", &rollback_msg);
                 } else {
                     eprintln!("tx: {rollback_msg}");
                 }
