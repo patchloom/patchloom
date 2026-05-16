@@ -2091,6 +2091,83 @@ fn test_tx_file_delete_existing() {
 }
 
 #[test]
+fn test_tx_cli_ensure_final_newline_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "no newline").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        content.ends_with(b"\n"),
+        "CLI write flag should add final newline"
+    );
+    assert!(
+        String::from_utf8_lossy(&content).contains("has newline"),
+        "replace should still work"
+    );
+}
+
+#[test]
+fn test_tx_plan_write_policy_overrides_cli_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "no newline").unwrap();
+
+    let plan = serde_json::json!({
+        "write_policy": {
+            "ensure_final_newline": false
+        },
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        !content.ends_with(b"\n"),
+        "plan write_policy should override conflicting CLI flag"
+    );
+    assert!(
+        String::from_utf8_lossy(&content).contains("has newline"),
+        "replace should still work"
+    );
+}
+
+#[test]
 fn test_tx_write_policy_ensure_final_newline() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -4064,6 +4141,48 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
 
     // File should still be modified (non-strict doesn't revert).
     assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+#[test]
+fn test_tx_respect_editorconfig_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ninsert_final_newline = true\n",
+    )
+    .unwrap();
+    fs::write(&file, "no newline").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        content.ends_with(b"\n"),
+        "EditorConfig-driven tx write should add final newline"
+    );
+    assert!(
+        String::from_utf8_lossy(&content).contains("has newline"),
+        "replace should still work"
+    );
 }
 
 #[test]
