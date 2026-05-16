@@ -738,7 +738,7 @@ fn build_tx_output(
     }
 }
 
-fn emit_error_json(status: &str, error: &str) {
+fn emit_error_json(error_kind: &str, error: &str) {
     let output = TxOutput {
         ok: false,
         status: "error",
@@ -746,11 +746,18 @@ fn emit_error_json(status: &str, error: &str) {
         files_created: 0,
         files_deleted: 0,
         changes: Vec::new(),
-        error: Some(format!("{status}: {error}")),
+        error: Some(format!("{error_kind}: {error}")),
     };
     // Best-effort: if serialization fails, we can't do much.
     if let Ok(json) = serde_json::to_string_pretty(&output) {
         println!("{json}");
+    }
+}
+
+fn describe_exit_status(status: std::process::ExitStatus) -> String {
+    match status.code() {
+        Some(code) => format!("exit code {code}"),
+        None => "terminated by signal".to_string(),
     }
 }
 
@@ -886,17 +893,26 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         // 8. Run format steps (between writes and validation).
         let mut lifecycle_failed = false;
+        let mut lifecycle_error = None;
         if let Some(ref format_steps) = plan.format {
             for step in format_steps {
                 let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                 match run_shell_with_timeout(&step.cmd, timeout_secs) {
                     Ok(status) if !status.success() => {
-                        eprintln!("tx: format step failed: {}", step.cmd);
+                        let msg = format!(
+                            "format step failed: {} ({})",
+                            step.cmd,
+                            describe_exit_status(status)
+                        );
+                        eprintln!("tx: {msg}");
+                        lifecycle_error = Some(msg);
                         lifecycle_failed = true;
                         break;
                     }
                     Err(e) => {
-                        eprintln!("tx: format step error: {} -- {e}", step.cmd);
+                        let msg = format!("format step error: {} -- {e}", step.cmd);
+                        eprintln!("tx: {msg}");
+                        lifecycle_error = Some(msg);
                         lifecycle_failed = true;
                         break;
                     }
@@ -911,15 +927,26 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 for step in validate {
                     let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
                     let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
-                        Ok(status) => status.success(),
+                        Ok(status) if status.success() => true,
+                        Ok(status) => {
+                            let msg = format!(
+                                "required validation failed: {} ({})",
+                                step.cmd,
+                                describe_exit_status(status)
+                            );
+                            eprintln!("tx: {msg}");
+                            lifecycle_error = Some(msg);
+                            false
+                        }
                         Err(e) => {
-                            eprintln!("tx: validation error: {} -- {e}", step.cmd);
+                            let msg = format!("validation error: {} -- {e}", step.cmd);
+                            eprintln!("tx: {msg}");
+                            lifecycle_error = Some(msg);
                             false
                         }
                     };
 
                     if !success && step.required.unwrap_or(false) {
-                        eprintln!("tx: required validation failed: {}", step.cmd);
                         lifecycle_failed = true;
                         break;
                     }
@@ -947,15 +974,24 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         }
                     }
                 }
+                let rollback_msg = match lifecycle_error.as_deref() {
+                    Some(reason) => format!("strict mode -- all changes reverted ({reason})"),
+                    None => "strict mode -- all changes reverted".to_string(),
+                };
                 if global.json {
-                    emit_error_json("rollback", "strict mode -- all changes reverted");
+                    emit_error_json("rollback", &rollback_msg);
                 } else {
-                    eprintln!("tx: strict mode -- all changes reverted");
+                    eprintln!("tx: {rollback_msg}");
                 }
                 return Ok(exit::ROLLBACK);
             }
             if global.json {
-                emit_error_json("validation_failed", "format or validation step failed");
+                emit_error_json(
+                    "validation_failed",
+                    lifecycle_error
+                        .as_deref()
+                        .unwrap_or("format or validation step failed"),
+                );
             }
             return Ok(exit::VALIDATION_FAILED);
         }
