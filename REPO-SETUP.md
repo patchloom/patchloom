@@ -66,6 +66,33 @@ Protect only `main`. Outside contributors should work from forks and open pull r
 5. Push the bootstrap branch and let the self-hosted `CI` workflow pass once.
 6. Once the repo is public, or on a paid plan that supports private branch protection, mark the DCO-2 check, CI, and Security workflows as required on `main`.
 
+## Self-Hosted Runner Recovery
+
+If `CI` or `Security` stays queued on maintainer PRs or pushes to `main`, check the Linux self-hosted runner before retrying workflows. Patchloom currently relies on one runner, `patchloom-1`, for trusted `CI` jobs.
+
+1. Check runner status in GitHub:
+   ```bash
+   gh api repos/patchloom/patchloom/actions/runners \
+     --jq '.runners[] | {name,status,busy,labels:[.labels[].name]}'
+   ```
+2. Inspect the queued run and its jobs:
+   ```bash
+   gh run list --repo patchloom/patchloom --limit 5 \
+     --json databaseId,workflowName,status,conclusion,displayTitle,headBranch,event
+   gh api repos/patchloom/patchloom/actions/runs/RUN_ID/jobs \
+     --jq '.jobs[] | {name,status,conclusion,runner_name,labels,started_at}'
+   ```
+3. If `patchloom-1` is offline, restart the service on the runner host:
+   ```bash
+   sudo systemctl start actions.runner.patchloom-patchloom.patchloom-1.service
+   systemctl is-active actions.runner.patchloom-patchloom.patchloom-1.service
+   systemctl status actions.runner.patchloom-patchloom.patchloom-1.service --no-pager --lines=20
+   ```
+4. Re-check the workflow. The queued jobs should move to `in_progress` once the runner is back online.
+5. Before pushing another commit, confirm the previously queued run finishes green.
+
+This recovery path is intentionally lightweight. It does not replace a second runner or a GitHub-hosted fallback, but it keeps maintainer workflows unblocked when the single runner goes offline.
+
 ## Initial `.github/dco.yml`
 
 ```yaml
