@@ -17,9 +17,11 @@ pub struct CreateArgs {
     /// Content to write (alternative to --stdin).
     #[arg(long)]
     pub content: Option<String>,
+    // ref:create-mode:stdin
     /// Read content from stdin.
     #[arg(long)]
     pub stdin: bool,
+    // ref:create-mode:force
     /// Overwrite if file already exists.
     #[arg(long)]
     pub force: bool,

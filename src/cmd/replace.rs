@@ -21,18 +21,23 @@ pub struct ReplaceArgs {
     /// Treat --from as a literal string (default).
     #[arg(long)]
     pub literal: bool,
+    // ref:replace-mode:regex
     /// Treat --from as a regex.
     #[arg(long)]
     pub regex: bool,
+    // ref:replace-mode:if-exists
     /// Return success even if no matches found (idempotent mode).
     #[arg(long)]
     pub if_exists: bool,
+    // ref:replace-mode:multiline
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[arg(long, short = 'U')]
     pub multiline: bool,
+    // ref:replace-mode:nth
     /// Replace only the Nth occurrence (1-based).
     #[arg(long)]
     pub nth: Option<usize>,
+    // ref:replace-mode:case-insensitive
     /// Case-insensitive matching.
     #[arg(long, short = 'i')]
     pub case_insensitive: bool,

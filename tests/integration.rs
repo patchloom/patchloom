@@ -5583,6 +5583,16 @@ fn collect_serde_rename_values(path: &Path, anchor: &str) -> Vec<String> {
         .collect()
 }
 
+fn collect_source_ref_markers(path: &Path) -> Vec<String> {
+    let source = fs::read_to_string(path).unwrap();
+    let re = regex::Regex::new(r"(?m)^\s*//\s*ref:([a-z0-9._:-]+)\s*$").unwrap();
+    re.captures_iter(&source)
+        .map(|caps| caps[1].to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn expected_reference_markers() -> Vec<String> {
     let root = repo_root();
     let cmd_dir = root.join("src").join("cmd");
@@ -5628,27 +5638,16 @@ fn expected_reference_markers() -> Vec<String> {
         }
     }
 
-    for name in [
-        "files-with-matches",
-        "count",
-        "invert-match",
-        "multiline",
-        "case-insensitive",
-    ] {
-        markers.insert(format!("search-mode:{name}"));
+    for entry in fs::read_dir(&cmd_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+
+        for marker in collect_source_ref_markers(&path) {
+            markers.insert(marker);
+        }
     }
-    for name in ["regex", "if-exists", "nth", "multiline", "case-insensitive"] {
-        markers.insert(format!("replace-mode:{name}"));
-    }
-    for name in ["stdin", "force"] {
-        markers.insert(format!("create-mode:{name}"));
-    }
-    markers.insert("patch-mode:stdin".to_string());
-    for name in ["predicate", "stdin"] {
-        markers.insert(format!("doc-mode:{name}"));
-    }
-    markers.insert("md-mode:stdin".to_string());
-    markers.insert("tx-mode:plan-stdin".to_string());
 
     markers.into_iter().collect()
 }
@@ -5673,29 +5672,74 @@ fn reference_section<'a>(reference: &'a str, markers: &[(String, usize)], marker
     &reference[start..end]
 }
 
-#[test]
-fn test_reference_doc_covers_meaningful_feature_inventory() {
-    let reference = fs::read_to_string(reference_path()).unwrap();
-    let markers = reference_markers(&reference);
-    let actual_marker_names: Vec<String> = markers.iter().map(|(name, _)| name.clone()).collect();
+fn reference_doc_validation_errors(reference: &str) -> Vec<String> {
+    let markers = reference_markers(reference);
+    let actual_marker_names: std::collections::BTreeSet<String> =
+        markers.iter().map(|(name, _)| name.clone()).collect();
     let expected_markers = expected_reference_markers();
-
     let missing_markers: Vec<String> = expected_markers
         .iter()
         .filter(|marker| !actual_marker_names.contains(*marker))
         .cloned()
         .collect();
-    assert!(
-        missing_markers.is_empty(),
-        "reference doc is missing markers for:\n{}",
-        missing_markers.join("\n")
-    );
+    let mut errors = Vec::new();
+
+    if !missing_markers.is_empty() {
+        errors.push(format!(
+            "reference doc is missing markers for:\n{}",
+            missing_markers.join("\n")
+        ));
+    }
 
     for marker in expected_markers {
-        let section = reference_section(&reference, &markers, &marker);
-        assert!(
-            section.contains("**Use when:**"),
-            "reference section `{marker}` must include a `Use when` stanza"
-        );
+        if !actual_marker_names.contains(&marker) {
+            continue;
+        }
+
+        let section = reference_section(reference, &markers, &marker);
+        if !section.contains("**Use when:**") {
+            errors.push(format!(
+                "reference section `{marker}` must include a `Use when` stanza"
+            ));
+        }
     }
+
+    errors
+}
+
+fn reference_without_use_when(reference: &str, marker: &str) -> String {
+    let markers = reference_markers(reference);
+    let section = reference_section(reference, &markers, marker);
+    let use_when_start = section
+        .find("- **Use when:**")
+        .unwrap_or_else(|| panic!("reference section `{marker}` should include `Use when`"));
+    let use_when_end = section[use_when_start..]
+        .find('\n')
+        .map(|offset| use_when_start + offset + 1)
+        .unwrap_or(section.len());
+    let broken_section = format!("{}{}", &section[..use_when_start], &section[use_when_end..]);
+
+    reference.replacen(section, &broken_section, 1)
+}
+
+#[test]
+fn test_reference_doc_covers_meaningful_feature_inventory() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let errors = reference_doc_validation_errors(&reference);
+
+    assert!(errors.is_empty(), "{}", errors.join("\n\n"));
+}
+
+#[test]
+fn test_reference_doc_requires_use_when_stanza() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let broken = reference_without_use_when(&reference, "patch-mode:file");
+    let errors = reference_doc_validation_errors(&broken);
+
+    assert!(
+        errors.iter().any(|error| error
+            .contains("reference section `patch-mode:file` must include a `Use when` stanza")),
+        "expected missing `Use when` error, got:\n{}",
+        errors.join("\n\n")
+    );
 }

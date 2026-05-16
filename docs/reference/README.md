@@ -289,6 +289,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** File recreation is intentional and should replace previous contents deterministically.
 - **Prefer instead:** Use default create behavior when accidental overwrite would be dangerous.
 
+<!-- ref:patch-mode:file -->
+### `patch --file`
+
+- **What it does:** Reads the unified diff from a file path.
+- **Use when:** The patch already exists as a saved artifact that should be reviewed, reused, or passed around directly.
+- **Prefer instead:** Use `patch --stdin` when another tool is piping the patch text dynamically.
+
 <!-- ref:patch-mode:stdin -->
 ### `patch --stdin`
 

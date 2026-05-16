@@ -25,6 +25,7 @@ pub enum MdAction {
         #[arg(long)]
         heading: String,
         /// Read replacement content from stdin.
+        // ref:md-mode:stdin
         #[arg(long)]
         stdin: bool,
         /// Replacement content as argument.
@@ -37,6 +38,7 @@ pub enum MdAction {
         file: String,
         #[arg(long)]
         heading: String,
+        // ref:md-mode:stdin
         #[arg(long)]
         stdin: bool,
         #[arg(long)]
@@ -48,6 +50,7 @@ pub enum MdAction {
         file: String,
         #[arg(long)]
         heading: String,
+        // ref:md-mode:stdin
         #[arg(long)]
         stdin: bool,
         #[arg(long)]

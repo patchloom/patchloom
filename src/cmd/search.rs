@@ -22,18 +22,23 @@ pub struct SearchArgs {
     /// Lines of context around matches.
     #[arg(long, short = 'C')]
     pub context: Option<usize>,
+    // ref:search-mode:files-with-matches
     /// Only print file paths with matches.
     #[arg(long)]
     pub files_with_matches: bool,
+    // ref:search-mode:count
     /// Only print match counts per file.
     #[arg(long)]
     pub count: bool,
+    // ref:search-mode:invert-match
     /// Show lines that do NOT match the pattern.
     #[arg(long, short = 'v')]
     pub invert_match: bool,
+    // ref:search-mode:multiline
     /// Enable multiline matching (dot matches newlines).
     #[arg(long, short = 'U')]
     pub multiline: bool,
+    // ref:search-mode:case-insensitive
     /// Case-insensitive matching.
     #[arg(long, short = 'i')]
     pub case_insensitive: bool,

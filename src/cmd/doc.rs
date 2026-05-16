@@ -38,6 +38,7 @@ pub enum DocAction {
     DeleteWhere {
         file: String,
         selector: String,
+        // ref:doc-mode:predicate
         /// Predicate in key=value format.
         #[arg(long)]
         predicate: String,
@@ -45,6 +46,7 @@ pub enum DocAction {
     /// Merge a partial object from stdin or argument.
     Merge {
         file: String,
+        // ref:doc-mode:stdin
         #[arg(long)]
         stdin: bool,
         #[arg(long)]
