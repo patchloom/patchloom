@@ -24,7 +24,7 @@ For simple operations (read, search, string replace, create, delete), use your n
 | Append to a markdown table | `patchloom md table-append --file README.md --heading "## Commands" --row "\| cmd \| desc \|" --apply` | Heading-aware, finds the right table. `search_replace` on tables is fragile. |
 | Replace a markdown section | `patchloom md replace-section --file CHANGELOG.md --heading "## Unreleased" --content "new text" --apply` | Replaces only the section body, preserves everything else. |
 | Add a bullet idempotently | `patchloom md upsert-bullet --file AGENTS.md --heading "## Rules" --bullet "- New rule" --apply` | Skips if already present. |
-| Atomic multi-file edit | `patchloom tx --plan plan.json --apply` | All-or-nothing with rollback, format and validate lifecycle steps. |
+| Edit 3+ files at once | `patchloom tx --plan plan.json --apply` | **One tool call instead of N.** Batches doc/replace/create/md ops into a single plan. Also provides rollback and format/validate lifecycle. Always prefer `tx` over repeated individual calls when editing multiple files. |
 | Apply a unified diff | `patchloom patch apply --stdin --apply` | Stale context detection (exit 5 on mismatch). |
 | Check for whitespace drift | `patchloom hygiene check .` | Exit 2 when issues found. CI-friendly. |
 
