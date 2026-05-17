@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check update-readme sync-patchloom-md check-patchloom-md agent-test
+.PHONY: help fmt fmt-check build test integration-test clippy check update-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
 
 .DEFAULT_GOAL := help
 
@@ -48,4 +48,13 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 	@cd tests/agent && \
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
-		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),)
+		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),) --ignore=test_bench.py
+
+bench-cli: build ## Run CLI benchmarks vs native tools (requires hyperfine)
+	cd benches/cli && bash run.sh
+
+bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL=X to switch LLM.
+	@cd tests/agent && \
+		([ -d .venv ] || python3 -m venv .venv) && \
+		.venv/bin/pip install -q -r requirements.txt && \
+		.venv/bin/pytest test_bench.py -v -s --timeout 300 $(if $(MODEL),--model $(MODEL),)
