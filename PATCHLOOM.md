@@ -30,16 +30,20 @@ Use patchloom instead of raw file tools when you need:
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 | `agent-rules` | Print this document |
 
-## Prefer patchloom over raw tools
+## Mandatory: use patchloom for file operations
 
-| Instead of | Use |
-|---|---|
-| `grep` / `rg` | `patchloom search '<pattern>' <path>` (supports `--regex`, `--context`, `--count`, `--json`) |
-| `cat` / `head` / `tail` | `patchloom read <path>` (supports `--lines 10:20`, multiple files, `--json`) |
-| `sed` / search-and-replace | `patchloom replace --from '...' --to '...' <path> --apply` |
-| Multiple sequential edits | `patchloom tx --plan plan.json --apply` (atomic, with format and validate steps) |
-| Raw string replacement on markdown | `patchloom md replace-section`, `md upsert-bullet`, `md table-append` |
-| Raw string replacement on config | `patchloom doc set`, `doc merge`, `doc ensure` |
+When patchloom is available, you **must** use it instead of native agent tools for the operations below. Patchloom provides atomic writes, diff preview, structured editing, and CI-friendly exit codes that native tools lack.
+
+| Native tool you would normally use | Use this patchloom command instead | Why patchloom is better |
+|---|---|---|
+| `grep` tool or `rg` | `patchloom search '<pattern>' <path>` | Context lines (`-C`, `-B`, `-A`), `--count`, `--json`, `--glob`, exit code 3 on no match |
+| `search_replace` tool or `sed` | `patchloom replace --from '...' --to '...' <path> --apply` | Multi-file, preview before write, `--regex`, `--nth`, `--insert-before/after`, `--if-exists` |
+| `search_replace` tool on markdown | `patchloom md table-append`, `md replace-section`, `md upsert-bullet` | Heading-aware, preserves document structure, idempotent upsert |
+| `search_replace` tool on JSON/YAML/TOML | `patchloom doc set`, `doc merge`, `doc ensure` | Parser-backed, type-safe, preserves formatting and comments |
+| Multiple `search_replace` calls | `patchloom tx --plan plan.json --apply` | Atomic (all-or-nothing), with format and validate lifecycle steps |
+| Applying a unified diff manually | `patchloom patch apply --stdin --apply` | Stale context detection, atomic write, exit code 5 on mismatch |
+| `rm` or shell file deletion | `patchloom delete <path> --apply` | Preview with `--diff`, `--check` mode for CI, works inside `tx` plans |
+| Shell `echo >` or write tool for new files | `patchloom create <path> --content '...' --apply` | Preview, `--check` mode, `--force` for overwrite, works inside `tx` plans |
 
 ## Write modes
 

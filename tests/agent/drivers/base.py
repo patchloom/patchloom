@@ -72,20 +72,40 @@ def create_driver(agent_name: str, model: str) -> AgentDriver:
 # ---------------------------------------------------------------------------
 
 
+_PATCHLOOM_SUBCOMMANDS = {
+    "search", "replace", "patch", "md", "doc", "hygiene",
+    "create", "delete", "read", "status", "tx", "completions", "agent-rules",
+}
+
+
+def _extract_subcommand(args: list[str]) -> str | None:
+    """Find the patchloom subcommand in an arg list.
+
+    Agents may place global flags (--cwd, --json) before the subcommand,
+    so we scan all args instead of just checking args[0].
+    """
+    for arg in args:
+        if arg in _PATCHLOOM_SUBCOMMANDS:
+            return arg
+    return None
+
+
 def assert_patchloom_used(result: AgentResult, expected_command: str) -> None:
     """Assert patchloom was invoked with the expected subcommand."""
     matching = [
         c
         for c in result.patchloom_calls
-        if c.get("args") and c["args"][0] == expected_command
+        if c.get("args") and _extract_subcommand(c["args"]) == expected_command
     ]
     all_commands = [
-        c["args"][0] for c in result.patchloom_calls if c.get("args")
+        _extract_subcommand(c["args"])
+        for c in result.patchloom_calls
+        if c.get("args")
     ]
     assert matching, (
         f"Expected patchloom {expected_command} to be invoked, but "
         f"patchloom was called {len(result.patchloom_calls)} time(s) "
-        f"with commands: {all_commands or 'none'}"
+        f"with subcommands: {[c for c in all_commands if c] or 'none'}"
     )
 
 
@@ -93,7 +113,12 @@ def assert_patchloom_used_any(
     result: AgentResult, commands: list[str]
 ) -> None:
     """Assert patchloom was invoked with any of the expected subcommands."""
-    used = {c["args"][0] for c in result.patchloom_calls if c.get("args")}
+    used = {
+        _extract_subcommand(c["args"])
+        for c in result.patchloom_calls
+        if c.get("args")
+    }
+    used.discard(None)
     overlap = used & set(commands)
     assert overlap, (
         f"Expected patchloom to use one of {commands}, "
