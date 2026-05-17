@@ -145,3 +145,45 @@ def test_tx_read_then_edit(agent, workspace, patchloom_shim):
     readme = (workspace / "README.md").read_text()
     assert "2.0.0" in readme, "README.md should contain 2.0.0"
     assert "1.0.0" not in readme, "README.md should not contain old version"
+
+
+@pytest.mark.timeout(240)
+def test_tx_format_validate(agent, workspace, patchloom_shim):
+    """Agent should use patchloom tx with format and validate lifecycle steps."""
+    (workspace / "src").mkdir()
+    (workspace / "src" / "config.json").write_text(
+        json.dumps({"version": "1.0.0", "env": "dev"}, indent=2) + "\n"
+    )
+    (workspace / "src" / "settings.json").write_text(
+        json.dumps({"version": "1.0.0", "debug": True}, indent=2) + "\n"
+    )
+    # Create a simple validation script
+    (workspace / "check.sh").write_text(
+        '#!/bin/bash\n'
+        'grep -q "2.0.0" src/config.json && grep -q "2.0.0" src/settings.json\n'
+    )
+    import stat
+    (workspace / "check.sh").chmod(
+        (workspace / "check.sh").stat().st_mode | stat.S_IEXEC
+    )
+
+    result = run_scenario(
+        agent,
+        workspace,
+        patchloom_shim,
+        "Update the version from '1.0.0' to '2.0.0' in both "
+        "src/config.json and src/settings.json using a patchloom "
+        "transaction plan. Include a validate step that runs "
+        "'./check.sh' to verify both files were updated correctly.",
+        max_turns=20,
+    )
+
+    # Primary: patchloom tx was used
+    assert_patchloom_used(result, "tx")
+
+    # Secondary: both files updated
+    config = json.loads((workspace / "src" / "config.json").read_text())
+    assert config["version"] == "2.0.0", "config.json version should be 2.0.0"
+
+    settings = json.loads((workspace / "src" / "settings.json").read_text())
+    assert settings["version"] == "2.0.0", "settings.json version should be 2.0.0"

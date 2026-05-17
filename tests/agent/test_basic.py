@@ -101,3 +101,72 @@ def test_read(agent, workspace, patchloom_shim):
     # Assert: agent saw the file content
     response_text = (result.output_json or {}).get("text", result.stdout)
     assert "MyApp" in response_text, "Agent should report the app_name value"
+
+
+@pytest.mark.timeout(180)
+def test_replace_regex(agent, workspace, patchloom_shim):
+    """Agent should use patchloom replace --regex for pattern-based renames."""
+    (workspace / "src").mkdir()
+    (workspace / "src" / "utils.py").write_text(
+        "def get_user_name():\n"
+        "    pass\n"
+        "\n"
+        "def get_user_email():\n"
+        "    pass\n"
+        "\n"
+        "def set_user_role():\n"
+        "    pass\n"
+    )
+
+    result = run_scenario(
+        agent,
+        workspace,
+        patchloom_shim,
+        "In src/utils.py, rename all functions that start with 'get_user_' "
+        "to start with 'fetch_user_' instead. Use a regex replacement so you "
+        "don't have to replace each one individually.",
+    )
+
+    # Primary: patchloom replace was used
+    assert_patchloom_used(result, "replace")
+
+    # Secondary: functions renamed
+    content = (workspace / "src" / "utils.py").read_text()
+    assert "fetch_user_name" in content, "get_user_name should become fetch_user_name"
+    assert "fetch_user_email" in content, "get_user_email should become fetch_user_email"
+    assert "set_user_role" in content, "set_user_role should NOT be renamed"
+    assert "get_user_" not in content, "No get_user_ prefixes should remain"
+
+
+@pytest.mark.timeout(180)
+def test_replace_insert(agent, workspace, patchloom_shim):
+    """Agent should use patchloom replace --insert-before to add a header."""
+    (workspace / "src").mkdir()
+    (workspace / "src" / "main.py").write_text(
+        "import sys\n\ndef main():\n    print('Hello')\n"
+    )
+    (workspace / "src" / "utils.py").write_text(
+        "import os\n\ndef helper():\n    return 42\n"
+    )
+
+    result = run_scenario(
+        agent,
+        workspace,
+        patchloom_shim,
+        "Add this copyright header as the very first line of every .py "
+        "file under src/:\n"
+        "# Copyright 2025 Example Corp. All rights reserved.\n"
+        "Insert it before the existing first line, don't replace anything.",
+    )
+
+    # Primary: patchloom replace was used
+    assert_patchloom_used(result, "replace")
+
+    # Secondary: header added as first line
+    for fname in ["main.py", "utils.py"]:
+        content = (workspace / "src" / fname).read_text()
+        assert content.startswith("# Copyright 2025 Example Corp"), (
+            f"{fname} should start with copyright header"
+        )
+        # Original content preserved
+        assert "import" in content, f"{fname} should still have imports"
