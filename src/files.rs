@@ -1,7 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
-use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
@@ -87,14 +86,13 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     }
 }
 
-/// Minimum file count before parallelism kicks in. Below this threshold,
-/// sequential processing is faster because rayon thread pool startup and
-/// synchronization overhead exceeds the benefit.
-const PAR_THRESHOLD: usize = 64;
-
-/// Process file paths, using rayon parallelism for large sets and sequential
-/// processing for small ones. Each file is passed to `f` which returns an
-/// `Option<T>` (None to skip).
+/// Process file paths using adaptive parallelism via `std::thread::scope`.
+///
+/// Files are split into chunks (one per available core). The calling thread
+/// processes the first chunk immediately while spawned threads handle the
+/// rest. Thread creation cost is ~0.05ms per thread (vs ~2ms for rayon's
+/// global thread pool init), so overhead is near-zero even for small
+/// workloads. For large workloads, all cores run concurrently.
 pub(crate) fn par_process_files<T, F>(
     paths: &[PathBuf],
     glob_matcher: Option<&GlobSet>,
@@ -104,17 +102,45 @@ where
     T: Send,
     F: Fn(&Path) -> Option<T> + Sync,
 {
-    if paths.len() >= PAR_THRESHOLD {
-        paths
-            .par_iter()
-            .filter(|p| matches_glob(p, glob_matcher))
-            .filter_map(|p| f(p.as_path()))
-            .collect()
-    } else {
+    fn process_slice<T, F>(paths: &[PathBuf], glob_matcher: Option<&GlobSet>, f: &F) -> Vec<T>
+    where
+        T: Send,
+        F: Fn(&Path) -> Option<T> + Sync,
+    {
         paths
             .iter()
             .filter(|p| matches_glob(p, glob_matcher))
             .filter_map(|p| f(p.as_path()))
             .collect()
     }
+
+    let num_splits = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(paths.len());
+
+    if num_splits <= 1 {
+        return process_slice(paths, glob_matcher, &f);
+    }
+
+    let chunk_size = (paths.len() + num_splits - 1) / num_splits;
+    let chunks: Vec<&[PathBuf]> = paths.chunks(chunk_size).collect();
+
+    std::thread::scope(|s| {
+        // Spawn threads for all chunks except the first.
+        let handles: Vec<_> = chunks[1..]
+            .iter()
+            .map(|chunk| s.spawn(|| process_slice(chunk, glob_matcher, &f)))
+            .collect();
+
+        // Process the first chunk on the calling thread immediately.
+        let mut results = process_slice(chunks[0], glob_matcher, &f);
+
+        // Collect results from spawned threads.
+        for handle in handles {
+            results.extend(handle.join().unwrap());
+        }
+
+        results
+    })
 }
