@@ -104,7 +104,7 @@ The `tx` command runs multiple operations atomically. If any operation fails, al
 
 **Lifecycle:** operations run in order, then format steps (code formatters), then validate steps (build/test). With `"strict": true`, a format or validation failure reverts all file writes (exit 7).
 
-**23 operation types:** `read`, `replace`, `doc.set`, `doc.delete`, `doc.merge`, `doc.append`, `doc.prepend`, `doc.update`, `doc.move`, `doc.ensure`, `doc.delete_where`, `md.replace_section`, `md.insert_after_heading`, `md.insert_before_heading`, `md.upsert_bullet`, `md.table_append`, `md.dedupe_headings`, `hygiene.fix`, `file.create`, `file.delete`, `patch.apply`.
+**24 operation types:** `read`, `search`, `replace`, `doc.set`, `doc.delete`, `doc.merge`, `doc.append`, `doc.prepend`, `doc.update`, `doc.move`, `doc.ensure`, `doc.delete_where`, `md.replace_section`, `md.insert_after_heading`, `md.insert_before_heading`, `md.upsert_bullet`, `md.table_append`, `md.dedupe_headings`, `hygiene.fix`, `file.create`, `file.delete`, `patch.apply`.
 
 Plans also accept YAML and TOML formats (auto-detected from file extension, or `--plan-format yaml`).
 

@@ -37,6 +37,8 @@ struct TxOutput {
     changes: Vec<TxChange>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reads: Vec<TxReadResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    searches: Vec<TxSearchResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -48,6 +50,27 @@ struct TxOutput {
 struct TxChange {
     path: String,
     action: &'static str,
+}
+
+/// A search match in the tx output.
+#[derive(Serialize)]
+struct TxSearchMatch {
+    line: usize,
+    column: usize,
+    text: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    context_before: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    context_after: Vec<String>,
+}
+
+/// A search result in the tx output.
+#[derive(Serialize)]
+struct TxSearchResult {
+    path: String,
+    pattern: String,
+    match_count: usize,
+    matches: Vec<TxSearchMatch>,
 }
 
 /// A file read result in the tx output.
@@ -142,6 +165,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::FileDelete { .. } => "file.delete",
         Operation::PatchApply { .. } => "patch.apply",
         Operation::Read { .. } => "read",
+        Operation::Search { .. } => "search",
     }
 }
 
@@ -259,6 +283,7 @@ fn execute_operation(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     tx_reads: &mut Vec<TxReadResult>,
+    tx_searches: &mut Vec<TxSearchResult>,
 ) -> anyhow::Result<usize> {
     match op {
         Operation::Replace {
@@ -743,6 +768,61 @@ fn execute_operation(
             // Read operations don't modify pending state
         }
 
+        Operation::Search {
+            path,
+            pattern,
+            regex,
+            case_insensitive,
+            context,
+            before_context,
+            after_context,
+        } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?.to_string();
+
+            let re = if *regex {
+                let mut builder = regex::RegexBuilder::new(pattern);
+                if *case_insensitive {
+                    builder.case_insensitive(true);
+                }
+                builder.build()?
+            } else {
+                let escaped = regex::escape(pattern);
+                let mut builder = regex::RegexBuilder::new(&escaped);
+                if *case_insensitive {
+                    builder.case_insensitive(true);
+                }
+                builder.build()?
+            };
+
+            let ctx_before = before_context.or(*context).unwrap_or(0);
+            let ctx_after = after_context.or(*context).unwrap_or(0);
+            let lines: Vec<&str> = content.lines().collect();
+            let mut matches = Vec::new();
+
+            for (i, line) in lines.iter().enumerate() {
+                if let Some(m) = re.find(line) {
+                    let start = i.saturating_sub(ctx_before);
+                    let end = (i + 1 + ctx_after).min(lines.len());
+                    matches.push(TxSearchMatch {
+                        line: i + 1,
+                        column: m.start() + 1,
+                        text: line.to_string(),
+                        context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
+                        context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+                    });
+                }
+            }
+
+            tx_searches.push(TxSearchResult {
+                path: path.clone(),
+                pattern: pattern.clone(),
+                match_count: matches.len(),
+                matches,
+            });
+            // Search operations don't modify pending state
+        }
+
         Operation::FileDelete { path } => {
             let file_path = PathBuf::from(path);
             let created_in_tx = match pending.get(&file_path) {
@@ -861,6 +941,7 @@ fn build_tx_output(
         files_deleted: deleted_count,
         changes: tx_changes,
         reads,
+        searches: Vec::new(),
         error_kind: None,
         error: None,
     }
@@ -879,6 +960,7 @@ fn emit_error_json_with_prefix(
         files_deleted: 0,
         changes: Vec::new(),
         reads: Vec::new(),
+        searches: Vec::new(),
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
     };
@@ -972,6 +1054,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut has_non_idempotent_replace = false;
     let mut total_replace_matches = 0usize;
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
+    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
 
     for (i, op) in plan.operations.iter().enumerate() {
         if let Operation::Replace { if_exists, .. } = op {
@@ -979,7 +1062,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 has_non_idempotent_replace = true;
             }
         }
-        match execute_operation(op, &mut pending, &mut deletions, &mut tx_reads) {
+        match execute_operation(
+            op,
+            &mut pending,
+            &mut deletions,
+            &mut tx_reads,
+            &mut tx_searches,
+        ) {
             Ok(match_count) => {
                 total_replace_matches += match_count;
             }
@@ -1038,6 +1127,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Vec::new(),
                 );
                 output.reads = std::mem::take(&mut tx_reads);
+                output.searches = std::mem::take(&mut tx_searches);
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
             return Ok(exit::SUCCESS);
@@ -1052,6 +1142,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Vec::new(),
             );
             output.reads = std::mem::take(&mut tx_reads);
+            output.searches = std::mem::take(&mut tx_searches);
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if !global.quiet {
             println!("{} file(s) would change", changes.len() + pending_deletions);
@@ -1209,6 +1300,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Vec::new(),
             );
             output.reads = std::mem::take(&mut tx_reads);
+            output.searches = std::mem::take(&mut tx_searches);
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         return Ok(exit::SUCCESS);
@@ -1229,6 +1321,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             Vec::new(),
         );
         output.reads = std::mem::take(&mut tx_reads);
+        output.searches = std::mem::take(&mut tx_searches);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if !changes.is_empty() {
         print_diffs(&changes);

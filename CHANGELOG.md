@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - 12 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`
-- 23 transaction plan operation types for atomic multi-file changes
+- 24 transaction plan operation types for atomic multi-file changes
 - `format` and `validate` lifecycle arrays in tx plans with configurable timeout
 - `--nth N` flag for replace (standalone and tx) to target a specific occurrence
 - `--case-insensitive` / `-i` for search and replace
@@ -38,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `agent-rules` command that prints an end-user AGENTS.md teaching AI agents how to use patchloom
 - `search --before-context` (`-B`) and `--after-context` (`-A`) for asymmetric context around matches
 - `read` operation in `tx` plans for inspect-then-edit workflows in a single call
+- `search` operation in `tx` plans for locate-then-edit workflows in a single call
 - Stderr diagnostics for silently skipped files in search, replace, and tx glob replace
 - Documentation for tx operation ordering semantics
 - Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
@@ -45,7 +46,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Thread-based timeout for format/validate steps (replaces polling loop)
 - JSON output mode for `tx` command via `--json` flag
 - JSON error output on all tx failure paths, with explicit `error_kind` values for parse_error, rollback, validation_failed, and format_failed while preserving backward-compatible legacy `error` prefixes
-- 416 tests (166 unit + 250 integration)
+- 421 tests (166 unit + 255 integration)
 
 ### Fixed
 
