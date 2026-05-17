@@ -10,7 +10,7 @@ Patchloom has 12 commands, each targeting a different kind of repo operation:
 - **doc** -- parser-backed JSON, YAML, and TOML mutations
 - **hygiene** -- whitespace and line-ending normalization
 - **create** / **delete** -- file lifecycle
-- **read** -- file content inspection with optional line range
+- **read** -- file content inspection with optional line range (supports multiple files)
 - **status** -- uncommitted change summary from git
 - **tx** -- atomic multi-operation transactions
 - **completions** -- shell completion generation
