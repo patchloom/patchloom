@@ -570,6 +570,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 All commits must be signed off with `git commit -s`.
 
+### Agent integration tests
+
+`make agent-test` runs pytest-based scenarios that verify AI agents use patchloom (not raw tools) when given PATCHLOOM.md instructions. Requires an LLM API key (`GROK_CODE_XAI_API_KEY`). Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+
 ## Security
 
 For current security reporting guidance, see [SECURITY.md](./SECURITY.md).
