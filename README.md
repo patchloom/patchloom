@@ -392,6 +392,8 @@ The `tx` command accepts a JSON plan with an array of operations:
     { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new" },
     { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new", "nth": 2 },
     { "op": "replace", "glob": "*.rs", "mode": "regex", "from": "v\\d+", "to": "v2" },
+    { "op": "replace", "path": "src/lib.rs", "from": "old_api", "to": "new_api", "case_insensitive": true },
+    { "op": "replace", "path": "src/lib.rs", "from": "legacy_call", "to": "modern_call", "if_exists": true },
     { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
     { "op": "doc.delete", "path": "config.json", "key": "deprecated" },
     { "op": "doc.merge", "path": "config.json", "value": {"new_key": true} },
