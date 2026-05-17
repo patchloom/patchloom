@@ -125,7 +125,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `search`
 
 - **What it does:** Searches files with literal or regex matching, optional context, counts, and file only results.
-- **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files.
+- **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files. For AI agents, native search/grep tools are typically faster for simple pattern matching.
 - **Prefer instead:** Use `replace` for actual text mutation, or `doc`, `md`, or `patch` when you already know the structured change you want.
 - **Related:** `--glob`, `--files-from`, `replace`
 
@@ -133,7 +133,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `replace`
 
 - **What it does:** Performs mechanical string replacement across one or many files, with literal or regex matching.
-- **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough.
+- **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
 - **Related:** `search`, `tx`
 
@@ -173,7 +173,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `create`
 
 - **What it does:** Creates a new file from literal content or stdin.
-- **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction.
+- **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction. For AI agents creating a single file, native file creation tools are typically faster; use `file.create` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `doc`, `md`, or `replace` when the file already exists and only needs edits.
 - **Related:** `delete`, `tx file.create`
 
@@ -181,7 +181,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `delete`
 
 - **What it does:** Removes a file.
-- **Use when:** A file should disappear outright and no other atomic edits are needed.
+- **Use when:** A file should disappear outright and no other atomic edits are needed. For AI agents deleting a single file, native delete tools are typically faster; use `file.delete` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
 - **Related:** `create`, `tx file.delete`
 
@@ -189,7 +189,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `tx`
 
 - **What it does:** Runs multiple operations atomically, then optional format and validate steps.
-- **Use when:** One logical change spans multiple files or mutation types and partial writes are unacceptable.
+- **Use when:** Editing 3 or more files in one task. Batches N operations into 1 tool call, eliminating agent round-trips. Also provides atomicity, rollback, and format/validate lifecycle. For AI agents, this is the primary speed advantage: one call instead of N.
 - **Prefer instead:** Use standalone commands when one direct operation is enough.
 - **Related:** [examples/README.md](../../examples/README.md), `tx` fields, `tx` operations
 
@@ -197,7 +197,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `read`
 
 - **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode.
-- **Use when:** An agent needs to inspect one or several files before deciding on an edit.
+- **Use when:** An agent needs to inspect one or several files before deciding on an edit. For AI agents, native read_file tools are typically faster for single-file reads.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
 - **Related:** `search`, `doc get`
 
@@ -205,7 +205,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `status`
 
 - **What it does:** Shows which files have uncommitted changes compared to git HEAD.
-- **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process.
+- **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process. For AI agents, native git status or terminal commands are typically equivalent.
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
 

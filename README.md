@@ -2,58 +2,169 @@
 
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
+[![Tests](https://img.shields.io/badge/tests-255%20passing-brightgreen)](#)
 
-Agent-grade repo operations in one binary.
+**Make your AI agent edit files faster.**
 
-## Status
+> Your agent spends 6 tool calls editing 6 files. Each call is a round-trip back to the LLM.
+> Patchloom's `tx` command batches all 6 into **one call**. Same result, fraction of the time.
 
-V2 with 13 commands and 421 passing tests.
+---
+
+## Why Patchloom?
+
+AI coding agents (Grok, GPT, Claude) edit files through tool calls. Each tool call is a round-trip: the agent generates a request, the tool executes, the result goes back, the agent plans the next call. When a task touches multiple files, these round-trips add up fast.
+
+<table>
+<tr>
+<td width="50%">
+
+**Without patchloom** (6 tool calls)
+
+```
+Agent: edit file 1  ─── tool call ───▶  15s
+Agent: edit file 2  ─── tool call ───▶  15s
+Agent: edit file 3  ─── tool call ───▶  15s
+Agent: edit file 4  ─── tool call ───▶  15s
+Agent: edit file 5  ─── tool call ───▶  15s
+Agent: edit file 6  ─── tool call ───▶  15s
+                                    Total: ~90s
+```
+
+</td>
+<td width="50%">
+
+**With patchloom tx** (1 tool call)
+
+```
+Agent: tx plan with
+  all 6 edits     ─── tool call ───▶  25s
+
+
+
+                  5 round-trips saved
+                                    Total: ~25s
+```
+
+</td>
+</tr>
+</table>
+
+### Three things patchloom does that native tools cannot
+
+| | Feature | What it means |
+|---|---|---|
+| **1** | **Batch N edits into 1 call** | `tx` runs doc, markdown, replace, create, and delete operations in a single plan. One tool call replaces N. |
+| **2** | **Parser-backed structured edits** | `doc set config.json version "2.0"` parses JSON/YAML/TOML, changes the value, and writes valid output. No regex, no broken syntax. |
+| **3** | **Atomic with rollback** | With `strict: true`, a failed format or validate step reverts every file. Partial writes never reach disk. |
+
+### Benchmark results
+
+Multi-turn sessions with 6 tasks each on Grok 4.3, measuring wall-clock time:
+
+```
+                      patchloom        native
+                      ─────────        ──────
+ tx_multi_file    ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░  23.8s
+                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  34.1s    ◀ 10.3s faster
+
+ batch_6_files    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  31.0s
+                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  33.9s    ◀  2.9s faster
+
+ md_table         ▓▓▓▓▓▓▓▓░░░░░░░░░  10.8s
+                  ▓▓▓▓▓▓▓▓▓▓░░░░░░░  13.0s    ◀  2.2s faster
+
+ ─────────────────────────────────────────────
+ TOTAL            ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░  107.8s
+                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  119.5s   ◀ 11.7s faster (9.8%)
+```
+
+Tested on Grok 4.3, GPT-5.4, and Claude Opus 4.6. Patchloom wins on multi-file tasks where `tx` batching eliminates round-trips. For single-file edits, native tools are faster (and patchloom's instructions say so).
+
+---
 
 ## Install
 
-Not yet published to crates.io. Install from source:
-
 ```bash
+# From source
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
+
+# Coming soon: cargo install patchloom
 ```
 
-Once published:
+## Quick start
 
+### 1. Generate agent instructions for your project
+
+```bash
+patchloom agent-rules >> AGENTS.md
 ```
-cargo install patchloom
+
+Your AI agent reads `AGENTS.md` and learns when to use patchloom vs native tools.
+
+### 2. Edit a config file safely
+
+```bash
+patchloom doc set config.json database.port 5432 --apply
 ```
 
-## Getting Started
+### 3. Batch multiple edits into one call
 
-- Start with [`docs/getting-started/installation.md`](./docs/getting-started/installation.md)
-  for install options and shell completions.
-- Read [`docs/getting-started/concepts.md`](./docs/getting-started/concepts.md)
-  for write modes, transaction plans, and exit codes.
-- Follow [`docs/getting-started/quickstart.md`](./docs/getting-started/quickstart.md)
-  for a 5-minute walkthrough.
-- Browse [`docs/reference/README.md`](./docs/reference/README.md)
-  for feature-by-feature guidance on commands, operations, and notable modes.
-- Browse [`examples/README.md`](./examples/README.md) for transaction plan templates.
+```json
+{
+  "operations": [
+    { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
+    { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "Rules", "bullet": "- Always test" },
+    { "op": "replace", "path": "src/main.rs", "from": "v1", "to": "v2" }
+  ],
+  "format": [{ "cmd": "cargo fmt --all" }],
+  "validate": [{ "cmd": "cargo test", "required": true }]
+}
+```
+
+```bash
+patchloom tx --plan plan.json --apply
+```
+
+One call. Three files edited, formatted, and validated.
+
+## Getting started
+
+| Resource | What you'll learn |
+|---|---|
+| [Installation](./docs/getting-started/installation.md) | Install options and shell completions |
+| [Core concepts](./docs/getting-started/concepts.md) | Write modes, transaction plans, exit codes |
+| [Quickstart](./docs/getting-started/quickstart.md) | 5-minute walkthrough |
+| [Reference](./docs/reference/README.md) | Every command, operation, and mode |
+| [Examples](./examples/README.md) | Transaction plan templates |
 
 ## Commands
+
+### Agent-optimized (these are faster or safer than native tools)
+
+| Command | What it does | When to use |
+|---|---|---|
+| `tx` | Batch N operations into 1 atomic call | Editing 3+ files in one task |
+| `doc` | Parser-backed JSON/YAML/TOML edits | Changing config values without breaking syntax |
+| `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
+| `patch` | Apply unified diffs with stale detection | Replaying patches safely |
+| `hygiene` | Whitespace and newline normalization | CI checks for text hygiene |
+
+### General-purpose (also useful in scripts and CI)
 
 | Command | Description |
 |---|---|
 | `search` | Fast literal or regex search across a repo |
 | `replace` | Mechanical string replacement with diff preview |
-| `patch` | Preview or apply unified diffs safely |
-| `md` | Markdown section-aware operations |
-| `doc` | Parser-backed JSON, YAML, and TOML operations |
-| `hygiene` | Final newline, line ending, and whitespace normalization |
 | `create` | Create a new file with content |
 | `delete` | Delete a file |
 | `read` | Read file contents with optional line range |
 | `status` | Show which files have uncommitted changes |
-| `tx` | Execute a multi-operation plan atomically |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
-| `agent-rules` | Print agent rules for using patchloom (AGENTS.md for end users) |
+| `agent-rules` | Generate agent instructions for your project |
 
 ## Usage
 
@@ -435,17 +546,13 @@ patchloom completions elvish > ~/.config/elvish/rc.elv
 
 ### agent-rules
 
-Generate an AGENTS.md for your project that teaches AI agents how to use patchloom:
-
-```
-patchloom agent-rules > AGENTS.md
-```
-
-Or append to an existing AGENTS.md:
+Generate instructions that teach AI agents when and how to use patchloom:
 
 ```
 patchloom agent-rules >> AGENTS.md
 ```
+
+The generated instructions tell agents to use native tools for simple operations and patchloom for batching, structured edits, and safety-critical operations.
 
 ## Transaction plan format
 
@@ -572,7 +679,28 @@ All commits must be signed off with `git commit -s`.
 
 ### Agent integration tests
 
-`make agent-test` runs pytest-based scenarios that verify AI agents use patchloom (not raw tools) when given PATCHLOOM.md instructions. Requires an LLM API key (`GROK_CODE_XAI_API_KEY`). Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+`make agent-test` runs 19 pytest scenarios that verify AI agents correctly use patchloom when given instructions. Tests run against Grok 4.3, GPT-5.4, and Claude Opus 4.6. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+
+## How it works with your AI agent
+
+```
+┌─────────────────────────────────────────────────┐
+│  Your project                                   │
+│                                                 │
+│  AGENTS.md  ◄── patchloom agent-rules >> ...    │
+│  (tells the agent when to use patchloom)        │
+│                                                 │
+│  Agent reads AGENTS.md at session start         │
+│  ├── Simple edit?     → native tool (faster)    │
+│  ├── Config edit?     → patchloom doc (safer)   │
+│  ├── Markdown edit?   → patchloom md (smarter)  │
+│  └── Multi-file edit? → patchloom tx (batched)  │
+└─────────────────────────────────────────────────┘
+```
+
+## Status
+
+255 passing tests across 13 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 

@@ -136,7 +136,7 @@ fn test_agent_rules_outputs_markdown() {
         .stdout(predicates::str::contains("# Patchloom"))
         .stdout(predicates::str::contains("## Commands"))
         .stdout(predicates::str::contains("## Exit codes"))
-        .stdout(predicates::str::contains("## Transaction plans"));
+        .stdout(predicates::str::contains("## Transaction operation types"));
 }
 
 #[test]
