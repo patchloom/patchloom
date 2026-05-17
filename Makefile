@@ -31,10 +31,10 @@ update-readme: ## Update README.md and CHANGELOG.md test counts
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	total=$$((unit + integ)); \
 	cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
-	ver=$$(grep '^V[0-9]' README.md | head -1 | sed 's/^\(V[0-9]*\).*/\1/'); \
-	sed -i "s/V[0-9]* with [0-9]* commands and [0-9]* passing tests\./$$ver with $$cmds commands and $$total passing tests./" README.md; \
+	sed -i "s/tests-[0-9]*%20passing/tests-$$total%20passing/" README.md; \
+	sed -i "s/[0-9]* passing tests across [0-9]* commands/$$total passing tests across $$cmds commands/" README.md; \
 	sed -i "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
-	echo "README.md and CHANGELOG.md updated: $$ver, $$cmds commands, $$total tests ($$unit unit + $$integ integration)"
+	echo "README.md and CHANGELOG.md updated: $$cmds commands, $$total tests ($$unit unit + $$integ integration)"
 
 sync-patchloom-md: ## Regenerate PATCHLOOM.md from patchloom agent-rules
 	cargo run --quiet -- agent-rules > PATCHLOOM.md
