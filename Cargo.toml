@@ -19,7 +19,6 @@ toml_edit = { version = "0.25", features = ["serde"] }
 ignore = "0.4"
 globset = "0.4"
 memchr = "2"
-rayon = "1"
 regex = "1"
 similar = { version = "3", features = ["text"] }
 tempfile = "3"
