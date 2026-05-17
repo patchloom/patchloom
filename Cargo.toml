@@ -18,6 +18,8 @@ serde_yaml_ng = "0.10"
 toml_edit = { version = "0.25", features = ["serde"] }
 ignore = "0.4"
 globset = "0.4"
+memchr = "2"
+rayon = "1"
 regex = "1"
 similar = { version = "3", features = ["text"] }
 tempfile = "3"
@@ -30,6 +32,9 @@ assert_cmd = "2"
 predicates = "3"
 
 # The profile that 'dist' will build with
+[profile.release]
+strip = true
+lto = "thin"
+
 [profile.dist]
 inherits = "release"
-lto = "thin"

@@ -53,6 +53,19 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usiz
 fn read_one_file(path: &str, lines_spec: &Option<String>) -> Result<ReadOutput, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
 
+    // Fast path: no line range requested, skip split/join (#169).
+    if lines_spec.is_none() {
+        let total_lines = content.lines().count();
+        return Ok(ReadOutput {
+            ok: true,
+            path: path.to_string(),
+            start_line: 1,
+            end_line: total_lines,
+            total_lines,
+            content,
+        });
+    }
+
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
 

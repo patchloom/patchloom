@@ -1,6 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
@@ -83,5 +84,37 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     match matcher {
         None => true,
         Some(m) => m.is_match(path) || path.file_name().is_some_and(|n| m.is_match(n)),
+    }
+}
+
+/// Minimum file count before parallelism kicks in. Below this threshold,
+/// sequential processing is faster because rayon thread pool startup and
+/// synchronization overhead exceeds the benefit.
+const PAR_THRESHOLD: usize = 64;
+
+/// Process file paths, using rayon parallelism for large sets and sequential
+/// processing for small ones. Each file is passed to `f` which returns an
+/// `Option<T>` (None to skip).
+pub(crate) fn par_process_files<T, F>(
+    paths: &[PathBuf],
+    glob_matcher: Option<&GlobSet>,
+    f: F,
+) -> Vec<T>
+where
+    T: Send,
+    F: Fn(&Path) -> Option<T> + Sync,
+{
+    if paths.len() >= PAR_THRESHOLD {
+        paths
+            .par_iter()
+            .filter(|p| matches_glob(p, glob_matcher))
+            .filter_map(|p| f(p.as_path()))
+            .collect()
+    } else {
+        paths
+            .iter()
+            .filter(|p| matches_glob(p, glob_matcher))
+            .filter_map(|p| f(p.as_path()))
+            .collect()
     }
 }
