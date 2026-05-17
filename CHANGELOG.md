@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - tx replace `case_insensitive` and `multiline` fields for parity with standalone replace
 - tx replace `if_exists` field for idempotent replacements inside transactions
 - `delete --json` structured output for consistency with other write commands
+- `agent-rules` command that prints an end-user AGENTS.md teaching AI agents how to use patchloom
 - Stderr diagnostics for silently skipped files in search, replace, and tx glob replace
 - Documentation for tx operation ordering semantics
 - Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
@@ -42,7 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Thread-based timeout for format/validate steps (replaces polling loop)
 - JSON output mode for `tx` command via `--json` flag
 - JSON error output on all tx failure paths, with explicit `error_kind` values for parse_error, rollback, validation_failed, and format_failed while preserving backward-compatible legacy `error` prefixes
-- 411 tests (166 unit + 245 integration)
+- 413 tests (166 unit + 247 integration)
 
 ### Fixed
 

@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 12 commands, each targeting a different kind of repo operation:
+Patchloom has 13 commands, each targeting a different kind of repo operation:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
@@ -14,6 +14,7 @@ Patchloom has 12 commands, each targeting a different kind of repo operation:
 - **status** -- uncommitted change summary from git
 - **tx** -- atomic multi-operation transactions
 - **completions** -- shell completion generation
+- **agent-rules** -- print end-user agent documentation for patchloom
 
 For feature-by-feature `Use when` guidance on commands, operations, and notable modes, see the [reference guide](../reference/README.md).
 

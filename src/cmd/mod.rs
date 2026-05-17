@@ -37,6 +37,8 @@ pub enum Command {
     Hygiene(hygiene::HygieneArgs),
     /// Execute a multi-operation plan atomically.
     Tx(tx::TxArgs),
+    /// Print agent rules for using patchloom (AGENTS.md content for end users).
+    AgentRules,
     /// Generate shell completions for bash, zsh, fish, or elvish.
     Completions {
         /// Shell to generate completions for.
@@ -48,6 +50,13 @@ pub enum Command {
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     let mut global = cli.global;
     match cli.command {
+        Command::AgentRules => {
+            let version = env!("CARGO_PKG_VERSION");
+            let template = include_str!("../agent_rules.md");
+            let output = template.replace("{{VERSION}}", version);
+            print!("{output}");
+            Ok(crate::exit::SUCCESS)
+        }
         Command::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
