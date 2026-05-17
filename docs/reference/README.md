@@ -196,8 +196,8 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:read -->
 ## `read`
 
-- **What it does:** Prints the contents of a file, optionally restricted to a line range.
-- **Use when:** An agent needs to inspect a file or file section before deciding on an edit.
+- **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode.
+- **Use when:** An agent needs to inspect one or several files before deciding on an edit.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
 - **Related:** `search`, `doc get`
 
