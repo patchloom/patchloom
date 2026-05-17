@@ -8,3 +8,8 @@
 # Logs and OS files
 *.log
 .DS_Store
+
+# Python virtual environments
+tests/agent/.venv/
+tests/agent/.pytest_cache/
+__pycache__/
