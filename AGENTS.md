@@ -64,6 +64,16 @@ src/
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
                        22 operation types including all doc/md/replace/hygiene/file/patch ops
+tests/
+  integration.rs       Rust integration tests (cargo test --test integration)
+  agent/               Python (pytest) agent integration tests verifying AI agents use patchloom
+    conftest.py        Fixtures: workspace with AGENTS.md, patchloom shim for invocation capture
+    drivers/           Pluggable agent drivers (GrokDriver first, extensible)
+    test_basic.py      Search, replace, read scenarios
+    test_batch.py      Batch replace, tx multi-file, hygiene scenarios
+    test_structured.py Doc set, md table-append scenarios
+    shim.sh            Patchloom invocation-capture shim template
+PATCHLOOM.md           Generated CLI usage guide for AI agents (from patchloom agent-rules)
 ```
 
 ## Architecture conventions
