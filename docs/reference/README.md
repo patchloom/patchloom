@@ -639,7 +639,7 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** A text rewrite needs to share atomic rollback, formatting, or validation with other operations.
 - **Requires:** Exactly one of `to`, `insert_before`, or `insert_after`, matching top level `replace`.
 - **Regex insert semantics:** In regex mode, `insert_before` and `insert_after` preserve the matched text, they do not insert the raw pattern string.
-- **Optional fields:** `case_insensitive` (bool, default false) and `multiline` (bool, default false) match the top level `replace --case-insensitive` and `--multiline` flags.
+- **Optional fields:** `case_insensitive` (bool, default false), `multiline` (bool, default false), and `if_exists` (bool, default false) match the top level `replace --case-insensitive`, `--multiline`, and `--if-exists` flags.
 - **Related:** top level `replace`
 
 <!-- ref:tx-op:doc.set -->
