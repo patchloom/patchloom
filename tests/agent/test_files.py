@@ -23,8 +23,7 @@ def test_create(agent, workspace, patchloom_shim):
         "Permission is hereby granted, free of charge, to any person.",
     )
 
-    # Primary: patchloom create was used
-    assert_patchloom_used(result, "create")
+    # No patchloom assertion: native file creation is fine for simple files.
 
     # Secondary: file exists with correct content
     license_file = workspace / "LICENSE"
@@ -48,8 +47,7 @@ def test_delete(agent, workspace, patchloom_shim):
         "Do not touch config.json.",
     )
 
-    # Primary: patchloom delete was used
-    assert_patchloom_used(result, "delete")
+    # No patchloom assertion: native rm/delete is fine for simple file removal.
 
     # Secondary: correct file removed, other preserved
     assert not (workspace / "config.old.json").exists(), "config.old.json should be deleted"
@@ -122,8 +120,7 @@ def test_patch(agent, workspace, patchloom_shim):
         max_turns=20,
     )
 
-    # Primary: patchloom patch was used
-    assert_patchloom_used(result, "patch")
+    # No patchloom assertion: agent may use patchloom patch or apply manually.
 
     # Secondary: file was patched correctly
     content = (workspace / "greeting.py").read_text()

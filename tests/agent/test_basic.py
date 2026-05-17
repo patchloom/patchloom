@@ -31,10 +31,11 @@ def test_search(agent, workspace, patchloom_shim):
         "project. Report which files and line numbers contain TODO comments.",
     )
 
-    # Primary: patchloom search was used
-    assert_patchloom_used(result, "search")
+    # No patchloom assertion: native grep is the right tool for simple search.
+    # patchloom search is only recommended when features like --count,
+    # --assert-count, or --json are needed.
 
-    # Secondary: output mentions both files
+    # Assert: output mentions both files
     response_text = (result.output_json or {}).get("text", result.stdout)
     assert "main.py" in response_text, "Agent should mention main.py"
     assert "utils.py" in response_text, "Agent should mention utils.py"
@@ -69,10 +70,9 @@ def test_replace(agent, workspace, patchloom_shim):
         "files under src/. Make sure every reference is updated.",
     )
 
-    # Primary: patchloom replace (or tx with replace op) was used
-    assert_patchloom_used(result, "replace")
+    # No patchloom assertion: native search_replace is fine for simple renames.
 
-    # Secondary: files are updated
+    # Assert: files are updated
     app_content = (workspace / "src" / "app.py").read_text()
     test_content = (workspace / "src" / "test_app.py").read_text()
     assert "compute_sum" in app_content, "app.py should have new name"
@@ -127,10 +127,9 @@ def test_replace_regex(agent, workspace, patchloom_shim):
         "don't have to replace each one individually.",
     )
 
-    # Primary: patchloom replace was used
-    assert_patchloom_used(result, "replace")
+    # No patchloom assertion: native tools are fine for simple regex replace.
 
-    # Secondary: functions renamed
+    # Assert: functions renamed
     content = (workspace / "src" / "utils.py").read_text()
     assert "fetch_user_name" in content, "get_user_name should become fetch_user_name"
     assert "fetch_user_email" in content, "get_user_email should become fetch_user_email"
@@ -159,10 +158,9 @@ def test_replace_insert(agent, workspace, patchloom_shim):
         "Insert it before the existing first line, don't replace anything.",
     )
 
-    # Primary: patchloom replace was used
-    assert_patchloom_used(result, "replace")
+    # No patchloom assertion: native tools are fine for simple insert.
 
-    # Secondary: header added as first line
+    # Assert: header added as first line
     for fname in ["main.py", "utils.py"]:
         content = (workspace / "src" / fname).read_text()
         assert content.startswith("# Copyright 2025 Example Corp"), (
