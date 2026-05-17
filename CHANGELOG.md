@@ -47,7 +47,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - JSON output mode for `tx` command via `--json` flag
 - JSON error output on all tx failure paths, with explicit `error_kind` values for parse_error, rollback, validation_failed, and format_failed while preserving backward-compatible legacy `error` prefixes
 - `PATCHLOOM.md` generated file containing CLI usage instructions for AI agents, kept in sync via `make sync-patchloom-md` and verified by `make check-patchloom-md`
-- Agent integration tests (`make agent-test`): 8 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
+- Agent integration tests (`make agent-test`): 19 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
+- CLI benchmarks (`make bench-cli`): patchloom vs native tools (grep, sed, cat, jq) using hyperfine across small/medium/large synthetic corpora
+- Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
 - 421 tests (166 unit + 255 integration)
 
 ### Fixed
