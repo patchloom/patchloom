@@ -790,6 +790,13 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** File removal should roll back if later format or validation steps fail.
 - **Related:** top level `delete`
 
+<!-- ref:tx-op:read -->
+### `read`
+
+- **What it does:** Reads a file inside a transaction and includes its content in the JSON output without writing anything.
+- **Use when:** An agent needs to inspect file content before or after other operations in the same plan, enabling "understand then edit" in a single call.
+- **Related:** top level `read`
+
 <!-- ref:tx-op:patch.apply -->
 ### `patch.apply`
 

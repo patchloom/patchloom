@@ -35,6 +35,8 @@ struct TxOutput {
     files_created: usize,
     files_deleted: usize,
     changes: Vec<TxChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    reads: Vec<TxReadResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -46,6 +48,16 @@ struct TxOutput {
 struct TxChange {
     path: String,
     action: &'static str,
+}
+
+/// A file read result in the tx output.
+#[derive(Serialize)]
+struct TxReadResult {
+    path: String,
+    content: String,
+    start_line: usize,
+    end_line: usize,
+    total_lines: usize,
 }
 
 #[derive(Debug, Args)]
@@ -129,6 +141,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
         Operation::PatchApply { .. } => "patch.apply",
+        Operation::Read { .. } => "read",
     }
 }
 
@@ -245,6 +258,7 @@ fn execute_operation(
     op: &Operation,
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
+    tx_reads: &mut Vec<TxReadResult>,
 ) -> anyhow::Result<usize> {
     match op {
         Operation::Replace {
@@ -693,6 +707,42 @@ fn execute_operation(
             }
         }
 
+        Operation::Read { path, lines } => {
+            let file_path = PathBuf::from(path);
+            let content = read_file_content(pending, &file_path)?.to_string();
+            let all_lines: Vec<&str> = content.lines().collect();
+            let total_lines = all_lines.len();
+
+            let (start, end) = if let Some(spec) = lines {
+                let (s, e) = crate::cmd::read::parse_line_range(spec)?;
+                let end = e.unwrap_or(total_lines).min(total_lines);
+                (s, end)
+            } else {
+                (1, total_lines)
+            };
+
+            let selected = if total_lines == 0 {
+                String::new()
+            } else {
+                let start_idx = (start - 1).min(total_lines);
+                let end_idx = end.min(total_lines);
+                let mut s = all_lines[start_idx..end_idx].join("\n");
+                if content.ends_with('\n') && end >= total_lines {
+                    s.push('\n');
+                }
+                s
+            };
+
+            tx_reads.push(TxReadResult {
+                path: path.clone(),
+                content: selected,
+                start_line: start,
+                end_line: end,
+                total_lines,
+            });
+            // Read operations don't modify pending state
+        }
+
         Operation::FileDelete { path } => {
             let file_path = PathBuf::from(path);
             let created_in_tx = match pending.get(&file_path) {
@@ -763,6 +813,7 @@ fn build_tx_output(
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
+    reads: Vec<TxReadResult>,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
@@ -809,6 +860,7 @@ fn build_tx_output(
         files_created: created,
         files_deleted: deleted_count,
         changes: tx_changes,
+        reads,
         error_kind: None,
         error: None,
     }
@@ -826,6 +878,7 @@ fn emit_error_json_with_prefix(
         files_created: 0,
         files_deleted: 0,
         changes: Vec::new(),
+        reads: Vec::new(),
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
     };
@@ -918,6 +971,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut deletions: HashSet<PathBuf> = HashSet::new();
     let mut has_non_idempotent_replace = false;
     let mut total_replace_matches = 0usize;
+    let mut tx_reads: Vec<TxReadResult> = Vec::new();
 
     for (i, op) in plan.operations.iter().enumerate() {
         if let Operation::Replace { if_exists, .. } = op {
@@ -925,7 +979,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 has_non_idempotent_replace = true;
             }
         }
-        match execute_operation(op, &mut pending, &mut deletions) {
+        match execute_operation(op, &mut pending, &mut deletions, &mut tx_reads) {
             Ok(match_count) => {
                 total_replace_matches += match_count;
             }
@@ -975,20 +1029,29 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::NO_MATCHES);
             }
             if global.json {
-                let output =
-                    build_tx_output("success", true, &changes, &deletions, &existed_before);
+                let mut output = build_tx_output(
+                    "success",
+                    true,
+                    &changes,
+                    &deletions,
+                    &existed_before,
+                    Vec::new(),
+                );
+                output.reads = std::mem::take(&mut tx_reads);
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
             return Ok(exit::SUCCESS);
         }
         if global.json {
-            let output = build_tx_output(
+            let mut output = build_tx_output(
                 "changes_detected",
                 true,
                 &changes,
                 &deletions,
                 &existed_before,
+                Vec::new(),
             );
+            output.reads = std::mem::take(&mut tx_reads);
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if !global.quiet {
             println!("{} file(s) would change", changes.len() + pending_deletions);
@@ -1137,7 +1200,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::NO_MATCHES);
         }
         if global.json {
-            let output = build_tx_output("success", true, &changes, &deletions, &existed_before);
+            let mut output = build_tx_output(
+                "success",
+                true,
+                &changes,
+                &deletions,
+                &existed_before,
+                Vec::new(),
+            );
+            output.reads = std::mem::take(&mut tx_reads);
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         return Ok(exit::SUCCESS);
@@ -1149,7 +1220,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show unified diffs.
     if global.json {
-        let output = build_tx_output("success", true, &changes, &deletions, &existed_before);
+        let mut output = build_tx_output(
+            "success",
+            true,
+            &changes,
+            &deletions,
+            &existed_before,
+            Vec::new(),
+        );
+        output.reads = std::mem::take(&mut tx_reads);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if !changes.is_empty() {
         print_diffs(&changes);

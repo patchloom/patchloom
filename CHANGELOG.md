@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - 12 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`
-- 22 transaction plan operation types for atomic multi-file changes
+- 23 transaction plan operation types for atomic multi-file changes
 - `format` and `validate` lifecycle arrays in tx plans with configurable timeout
 - `--nth N` flag for replace (standalone and tx) to target a specific occurrence
 - `--case-insensitive` / `-i` for search and replace
@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `delete --json` structured output for consistency with other write commands
 - `agent-rules` command that prints an end-user AGENTS.md teaching AI agents how to use patchloom
 - `search --before-context` (`-B`) and `--after-context` (`-A`) for asymmetric context around matches
+- `read` operation in `tx` plans for inspect-then-edit workflows in a single call
 - Stderr diagnostics for silently skipped files in search, replace, and tx glob replace
 - Documentation for tx operation ordering semantics
 - Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
