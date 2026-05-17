@@ -2,6 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use anyhow::bail;
 use clap::Args;
+use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -79,8 +80,53 @@ struct SearchResults {
     file_match_counts: BTreeMap<String, usize>,
 }
 
-fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<SearchResults> {
-    let glob_matcher = crate::build_glob_matcher(global)?;
+/// Matcher abstraction: either a compiled regex or a memchr literal finder.
+enum Matcher {
+    Regex(Regex),
+    Literal(Box<memmem::Finder<'static>>),
+}
+
+impl Matcher {
+    /// Find the first match in `text`, returning (start, end) byte offsets.
+    fn find(&self, text: &str) -> Option<(usize, usize)> {
+        match self {
+            Matcher::Regex(re) => re.find(text).map(|m| (m.start(), m.end())),
+            Matcher::Literal(finder) => {
+                let start = finder.find(text.as_bytes())?;
+                Some((start, start + finder.needle().len()))
+            }
+        }
+    }
+
+    /// Iterate all matches in `text` (for multiline mode).
+    fn find_iter_positions(&self, text: &str) -> Vec<(usize, usize)> {
+        match self {
+            Matcher::Regex(re) => re.find_iter(text).map(|m| (m.start(), m.end())).collect(),
+            Matcher::Literal(finder) => {
+                let bytes = text.as_bytes();
+                let mut positions = Vec::new();
+                let needle_len = finder.needle().len();
+                let mut start = 0;
+                while let Some(pos) = finder.find(&bytes[start..]) {
+                    positions.push((start + pos, start + pos + needle_len));
+                    start += pos + needle_len;
+                }
+                positions
+            }
+        }
+    }
+}
+
+/// Build the right matcher for the search arguments.
+fn build_matcher(args: &SearchArgs) -> anyhow::Result<Matcher> {
+    // Use memchr for literal, case-sensitive, non-multiline searches.
+    if args.literal && !args.case_insensitive && !args.multiline {
+        let owned = args.pattern.clone().into_bytes();
+        // SAFETY: we keep the owned bytes alive by leaking into a 'static ref.
+        // This is fine for a CLI tool; the process exits soon after.
+        let leaked: &'static [u8] = Box::leak(owned.into_boxed_slice());
+        return Ok(Matcher::Literal(Box::new(memmem::Finder::new(leaked))));
+    }
 
     let pattern = if args.literal {
         regex::escape(&args.pattern)
@@ -95,138 +141,166 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     } else {
         Regex::new(&pattern)?
     };
+    Ok(Matcher::Regex(re))
+}
 
-    let mut all_matches: Vec<SearchMatch> = Vec::new();
-    let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
-    let count_only = args.count || args.files_with_matches;
+/// Per-file search result collected from parallel threads.
+struct FileResult {
+    path_str: String,
+    matches: Vec<SearchMatch>,
+    count: usize,
+}
 
-    let file_paths = crate::collect_file_paths(&args.paths, global)?;
-
-    for path in &file_paths {
-        let path = path.as_path();
-
-        if !crate::matches_glob(path, glob_matcher.as_ref()) {
-            continue;
+/// Search a single file and return matches/counts.
+fn search_one_file(
+    path: &std::path::Path,
+    matcher: &Matcher,
+    args: &SearchArgs,
+    quiet: bool,
+) -> Option<FileResult> {
+    // Read as bytes first, skip binary files (#170).
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            if !quiet {
+                eprintln!("search: skipping {}: {e}", path.display());
+            }
+            return None;
         }
+    };
+    if crate::is_binary(&data) {
+        return None;
+    }
+    let content = match String::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => {
+            if !quiet {
+                eprintln!("search: skipping {} (invalid UTF-8)", path.display());
+            }
+            return None;
+        }
+    };
 
-        let content = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                if !global.quiet {
-                    eprintln!("search: skipping {}: {e}", path.display());
+    let count_only = args.count || args.files_with_matches;
+    let path_str = path.to_string_lossy().to_string();
+    let mut file_matches: Vec<SearchMatch> = Vec::new();
+    let mut count = 0usize;
+
+    if args.multiline {
+        for (start, end) in matcher.find_iter_positions(&content) {
+            count += 1;
+            if count_only {
+                if args.files_with_matches {
+                    break;
                 }
                 continue;
             }
-        };
-
-        let mut count = 0usize;
-        // Defer the allocation until we know the file has matches.
-        let mut path_str: Option<String> = None;
-        let mut get_path_str = || -> String {
-            path_str
-                .get_or_insert_with(|| path.to_string_lossy().to_string())
-                .clone()
-        };
-
-        if args.multiline {
-            for m in re.find_iter(&content) {
-                count += 1;
-                if count_only {
-                    if args.files_with_matches {
-                        break;
-                    }
-                    continue;
-                }
-                let line_num = content[..m.start()].matches('\n').count() + 1;
-                let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |pos| pos + 1) + 1;
-                all_matches.push(SearchMatch {
-                    path: get_path_str(),
-                    line: line_num,
-                    column: col,
-                    text: m.as_str().to_string(),
-                    context_before: None,
-                    context_after: None,
-                });
-            }
-        } else if args.context.is_some()
-            || args.before_context.is_some()
-            || args.after_context.is_some()
-        {
-            let ctx_before = args.before_context.or(args.context).unwrap_or(0);
-            let ctx_after = args.after_context.or(args.context).unwrap_or(0);
-            let lines: Vec<&str> = content.lines().collect();
-            for (i, line) in lines.iter().copied().enumerate() {
-                let found = re.find(line);
-                let is_match = if args.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-
-                if !is_match {
-                    continue;
-                }
-
-                count += 1;
-                if count_only {
-                    if args.files_with_matches {
-                        break;
-                    }
-                    continue;
-                }
-
-                let start = i.saturating_sub(ctx_before);
-                let end = (i + 1 + ctx_after).min(lines.len());
-                let column = found.map_or(1, |m| m.start() + 1);
-                let context_before = Some(lines[start..i].iter().map(|s| s.to_string()).collect());
-                let context_after = Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect());
-
-                all_matches.push(SearchMatch {
-                    path: get_path_str(),
-                    line: i + 1,
-                    column,
-                    text: line.to_string(),
-                    context_before,
-                    context_after,
-                });
-            }
-        } else {
-            for (i, line) in content.lines().enumerate() {
-                let found = re.find(line);
-                let is_match = if args.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-
-                if !is_match {
-                    continue;
-                }
-
-                count += 1;
-                if count_only {
-                    if args.files_with_matches {
-                        break;
-                    }
-                    continue;
-                }
-
-                let column = found.map_or(1, |m| m.start() + 1);
-                all_matches.push(SearchMatch {
-                    path: get_path_str(),
-                    line: i + 1,
-                    column,
-                    text: line.to_string(),
-                    context_before: None,
-                    context_after: None,
-                });
-            }
+            let line_num = content[..start].matches('\n').count() + 1;
+            let col = start - content[..start].rfind('\n').map_or(0, |pos| pos + 1) + 1;
+            file_matches.push(SearchMatch {
+                path: path_str.clone(),
+                line: line_num,
+                column: col,
+                text: content[start..end].to_string(),
+                context_before: None,
+                context_after: None,
+            });
         }
-
-        if count > 0 {
-            let key = path_str.unwrap_or_else(|| path.to_string_lossy().to_string());
-            file_match_counts.insert(key, count);
+    } else if args.context.is_some()
+        || args.before_context.is_some()
+        || args.after_context.is_some()
+    {
+        let ctx_before = args.before_context.or(args.context).unwrap_or(0);
+        let ctx_after = args.after_context.or(args.context).unwrap_or(0);
+        let lines: Vec<&str> = content.lines().collect();
+        for (i, line) in lines.iter().copied().enumerate() {
+            let found = matcher.find(line);
+            let is_match = if args.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+            if !is_match {
+                continue;
+            }
+            count += 1;
+            if count_only {
+                if args.files_with_matches {
+                    break;
+                }
+                continue;
+            }
+            let start = i.saturating_sub(ctx_before);
+            let end = (i + 1 + ctx_after).min(lines.len());
+            let column = found.map_or(1, |(s, _)| s + 1);
+            file_matches.push(SearchMatch {
+                path: path_str.clone(),
+                line: i + 1,
+                column,
+                text: line.to_string(),
+                context_before: Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
+                context_after: Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
+            });
         }
+    } else {
+        for (i, line) in content.lines().enumerate() {
+            let found = matcher.find(line);
+            let is_match = if args.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+            if !is_match {
+                continue;
+            }
+            count += 1;
+            if count_only {
+                if args.files_with_matches {
+                    break;
+                }
+                continue;
+            }
+            let column = found.map_or(1, |(s, _)| s + 1);
+            file_matches.push(SearchMatch {
+                path: path_str.clone(),
+                line: i + 1,
+                column,
+                text: line.to_string(),
+                context_before: None,
+                context_after: None,
+            });
+        }
+    }
+
+    if count > 0 {
+        Some(FileResult {
+            path_str,
+            matches: file_matches,
+            count,
+        })
+    } else {
+        None
+    }
+}
+
+fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<SearchResults> {
+    let glob_matcher = crate::build_glob_matcher(global)?;
+    let matcher = build_matcher(args)?;
+    let file_paths = crate::collect_file_paths(&args.paths, global)?;
+    let count_only = args.count || args.files_with_matches;
+
+    // Process files in parallel (#167).
+    let file_results: Vec<FileResult> =
+        crate::par_process_files(&file_paths, glob_matcher.as_ref(), |path| {
+            search_one_file(path, &matcher, args, global.quiet)
+        });
+
+    // Merge parallel results.
+    let mut all_matches: Vec<SearchMatch> = Vec::new();
+    let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for fr in file_results {
+        file_match_counts.insert(fr.path_str, fr.count);
+        all_matches.extend(fr.matches);
     }
 
     if !count_only {
