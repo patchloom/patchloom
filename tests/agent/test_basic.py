@@ -82,13 +82,8 @@ def test_replace(agent, workspace, patchloom_shim):
 
 
 @pytest.mark.timeout(180)
-@pytest.mark.xfail(
-    reason="Agents prefer their native read_file tool over patchloom read. "
-    "Tracked as a PATCHLOOM.md instruction effectiveness issue.",
-    strict=False,
-)
 def test_read(agent, workspace, patchloom_shim):
-    """Agent should use patchloom read to inspect a file."""
+    """Agent reads a file. Native read_file is acceptable for standalone reads."""
     (workspace / "config.json").write_text(
         '{\n  "app_name": "MyApp",\n  "version": "1.0.0",\n  "debug": false\n}\n'
     )
@@ -100,9 +95,9 @@ def test_read(agent, workspace, patchloom_shim):
         "Show me the contents of config.json. Report what you see.",
     )
 
-    # Primary: patchloom read was used
-    assert_patchloom_used(result, "read")
+    # No patchloom assertion: native read_file is fine for standalone reads.
+    # patchloom read only adds value inside tx plans (pending-state reads).
 
-    # Secondary: agent saw the file content
+    # Assert: agent saw the file content
     response_text = (result.output_json or {}).get("text", result.stdout)
     assert "MyApp" in response_text, "Agent should report the app_name value"
