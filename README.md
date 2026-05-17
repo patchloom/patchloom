@@ -314,6 +314,46 @@ Delete a file:
 patchloom delete --file obsolete.txt --apply
 ```
 
+### read
+
+Read a file:
+
+```
+patchloom read src/main.rs
+```
+
+Read a specific line range:
+
+```
+patchloom read src/main.rs --lines 10:25
+```
+
+Read multiple files at once:
+
+```
+patchloom read src/main.rs src/lib.rs Cargo.toml
+```
+
+Get structured JSON output for multiple files:
+
+```
+patchloom --json read src/main.rs src/lib.rs
+```
+
+### status
+
+Show which files have uncommitted changes:
+
+```
+patchloom status
+```
+
+Get structured JSON output:
+
+```
+patchloom --json status
+```
+
 ### patch
 
 Apply a unified diff:
