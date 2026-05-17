@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .base import AgentDriver, AgentResult, parse_shim_log
+from .base import AgentDriver, AgentMetadata, AgentResult, parse_shim_log
 
 
 class GrokDriver(AgentDriver):
@@ -76,6 +76,41 @@ class GrokDriver(AgentDriver):
 
     def is_available(self) -> bool:
         return shutil.which("grok") is not None
+
+    def get_metadata(self) -> AgentMetadata:
+        # CLI version
+        cli_version = "unknown"
+        try:
+            proc = subprocess.run(
+                ["grok", "--version"],
+                capture_output=True, text=True, timeout=5,
+            )
+            cli_version = proc.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+        # Model name (ask the model to self-identify)
+        model_name = "unknown"
+        try:
+            proc = subprocess.run(
+                ["grok", "-p",
+                 "Reply with ONLY your model name and version, nothing else.",
+                 "--output-format", "json", "-m", self.model,
+                 "--max-turns", "1"],
+                capture_output=True, text=True, timeout=30,
+            )
+            data = json.loads(proc.stdout)
+            model_name = data.get("text", "unknown").strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError,
+                json.JSONDecodeError, KeyError):
+            pass
+
+        return AgentMetadata(
+            agent_name=self.name,
+            model_alias=self.model,
+            model_name=model_name,
+            cli_version=cli_version,
+        )
 
 
 def _try_parse_json(text: str) -> dict | None:

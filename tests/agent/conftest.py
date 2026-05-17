@@ -120,6 +120,23 @@ def workspace(tmp_path, patchloom_bin):
     return tmp_path
 
 
+def pytest_report_header(config):
+    """Print agent and model metadata at the top of every test run."""
+    agent_name = config.getoption("--agent")
+    model = config.getoption("--model")
+    driver = create_driver(agent_name, model)
+    if not driver.is_available():
+        return [f"agent: {agent_name} (NOT AVAILABLE)"]
+    meta = driver.get_metadata()
+    # Stash for later use by fixtures
+    config._agent_metadata = meta
+    return [
+        f"agent: {meta.agent_name}  "
+        f"model: {meta.model_name} ({meta.model_alias})  "
+        f"cli: {meta.cli_version}",
+    ]
+
+
 @pytest.fixture
 def agent(request):
     """Create the agent driver from CLI flags."""

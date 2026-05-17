@@ -20,6 +20,16 @@ class AgentResult:
     patchloom_calls: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class AgentMetadata:
+    """Metadata about the agent and model used for a test run."""
+
+    agent_name: str       # e.g. "grok"
+    model_alias: str      # e.g. "grok-build"
+    model_name: str       # e.g. "Grok 4.3"
+    cli_version: str      # e.g. "grok 0.1.211 (2f2cd6d5c)"
+
+
 class AgentDriver(ABC):
     """Abstract interface for invoking an AI agent in headless mode."""
 
@@ -42,6 +52,10 @@ class AgentDriver(ABC):
     @abstractmethod
     def is_available(self) -> bool:
         """Check if this agent and model are configured and reachable."""
+
+    @abstractmethod
+    def get_metadata(self) -> AgentMetadata:
+        """Return metadata about the agent, model, and CLI version."""
 
 
 def create_driver(agent_name: str, model: str) -> AgentDriver:
