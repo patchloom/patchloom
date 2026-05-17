@@ -44,8 +44,8 @@ check-patchloom-md: ## Verify PATCHLOOM.md matches patchloom agent-rules output
 	@cargo run --quiet -- agent-rules | diff -q - PATCHLOOM.md >/dev/null 2>&1 \
 		|| (echo "ERROR: PATCHLOOM.md is stale. Run 'make sync-patchloom-md' to update." && exit 1)
 
-agent-test: build ## Run agent integration tests (requires LLM API key)
+agent-test: build ## Run agent integration tests (requires LLM API key). Use MODEL=X to switch LLM.
 	@cd tests/agent && \
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
-		.venv/bin/pytest -v --timeout 240
+		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),)
