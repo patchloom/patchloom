@@ -16,7 +16,7 @@ Use patchloom instead of raw file tools when you need:
 
 | Command | What it does |
 |---|---|
-| `search` | Literal or regex search with context, counts, file-list, and multiline modes |
+| `search` | Literal or regex search with context (`-C`, `-B`, `-A`), counts, file-list, and multiline modes |
 | `replace` | Mechanical string replacement with diff preview, `--nth`, `--insert-before/after`, `--if-exists` |
 | `patch` | Preview or apply unified diffs with stale-context detection |
 | `md` | Markdown section-aware edits: replace-section, insert, upsert-bullet, table-append, dedupe, lint |

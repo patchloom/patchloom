@@ -257,6 +257,20 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** The pattern you care about is inherently block-shaped, such as a function body or multi-line stanza.
 - **Prefer instead:** Use plain `search` for line-oriented patterns because it is simpler and easier to reason about.
 
+<!-- ref:search-mode:before-context -->
+### `search --before-context`
+
+- **What it does:** Shows N lines before each match but none after (unless combined with `-A`).
+- **Use when:** You need to see what precedes a match (function signature before a body, imports before usage) without cluttering output with lines after.
+- **Prefer instead:** Use `--context` (`-C`) when symmetric context is fine, or combine `-B` and `-A` for independent before/after counts.
+
+<!-- ref:search-mode:after-context -->
+### `search --after-context`
+
+- **What it does:** Shows N lines after each match but none before (unless combined with `-B`).
+- **Use when:** You need to see what follows a match (function body after signature, error handling after a call) without lines before.
+- **Prefer instead:** Use `--context` (`-C`) when symmetric context is fine, or combine `-B` and `-A` for independent before/after counts.
+
 <!-- ref:search-mode:case-insensitive -->
 ### `search --case-insensitive`
 
