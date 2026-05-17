@@ -160,6 +160,12 @@ pub enum Operation {
         /// Inline diff text to apply.
         diff: String,
     },
+    #[serde(rename = "read")]
+    Read {
+        path: String,
+        /// Optional line range (e.g., "10:25").
+        lines: Option<String>,
+    },
 }
 
 /// A validation step to run after applying operations.
@@ -324,10 +330,12 @@ mod tests {
             {"op": "file.create", "path": "f.txt", "content": "c"},
             {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
             {"op": "file.delete", "path": "f.txt"},
-            {"op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b"}
+            {"op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b"},
+            {"op": "read", "path": "f.txt"},
+            {"op": "read", "path": "f.txt", "lines": "1:10"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 22);
+        assert_eq!(plan.operations.len(), 24);
     }
 
     #[test]

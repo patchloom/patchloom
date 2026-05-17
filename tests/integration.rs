@@ -1244,9 +1244,9 @@ fn test_read_multiple_files_with_lines() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("b\nc\nd"));
     assert!(stdout.contains("y"));
-    // d should appear from the first file, y from the second
-    assert!(!stdout.contains("a"));
-    assert!(!stdout.contains("e"));
+    // "aaa" and "eee" should not appear (outside the range for the first file)
+    assert!(!stdout.contains("aaa"));
+    assert!(!stdout.contains("eee"));
 }
 
 // ── status command ─────────────────────────────────────────────────
@@ -4974,6 +4974,106 @@ fn test_tx_format_timeout_kills_hanging_command() {
         .timeout(std::time::Duration::from_secs(10))
         .assert()
         .code(6); // VALIDATION_FAILED
+}
+
+#[test]
+fn test_tx_read_operation_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{"op": "read", "path": file.to_str().unwrap()}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["reads"].as_array().unwrap().len(), 1);
+    assert!(json["reads"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("line1"));
+    assert_eq!(json["reads"][0]["total_lines"], 3);
+}
+
+#[test]
+fn test_tx_read_with_lines_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{"op": "read", "path": file.to_str().unwrap(), "lines": "2:4"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let content = json["reads"][0]["content"].as_str().unwrap();
+    assert!(content.contains("bbb"));
+    assert!(content.contains("ccc"));
+    assert!(content.contains("ddd"));
+    assert!(!content.contains("aaa"));
+    assert!(!content.contains("eee"));
+    assert_eq!(json["reads"][0]["start_line"], 2);
+    assert_eq!(json["reads"][0]["end_line"], 4);
+}
+
+#[test]
+fn test_tx_read_sees_in_plan_state() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "read", "path": file.to_str().unwrap()},
+            {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "goodbye"},
+            {"op": "read", "path": file.to_str().unwrap()}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let reads = json["reads"].as_array().unwrap();
+    assert_eq!(reads.len(), 2);
+    // First read sees original content
+    assert!(reads[0]["content"].as_str().unwrap().contains("hello"));
+    // Second read sees post-replace content
+    assert!(reads[1]["content"].as_str().unwrap().contains("goodbye"));
 }
 
 #[test]

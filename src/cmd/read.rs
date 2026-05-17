@@ -24,7 +24,7 @@ struct ReadOutput {
     content: String,
 }
 
-fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
+pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
     if let Some((start_str, end_str)) = spec.split_once(':') {
         let start: usize = start_str
             .parse()
