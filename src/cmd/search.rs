@@ -19,9 +19,15 @@ pub struct SearchArgs {
     /// Treat pattern as a regex (default).
     #[arg(long)]
     pub regex: bool,
-    /// Lines of context around matches.
+    /// Lines of context around matches (shorthand for -B N -A N).
     #[arg(long, short = 'C')]
     pub context: Option<usize>,
+    /// Lines of context before each match.
+    #[arg(long, short = 'B')]
+    pub before_context: Option<usize>,
+    /// Lines of context after each match.
+    #[arg(long, short = 'A')]
+    pub after_context: Option<usize>,
     // ref:search-mode:files-with-matches
     /// Only print file paths with matches.
     #[arg(long)]
@@ -142,7 +148,12 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                     context_after: None,
                 });
             }
-        } else if let Some(context) = args.context {
+        } else if args.context.is_some()
+            || args.before_context.is_some()
+            || args.after_context.is_some()
+        {
+            let ctx_before = args.before_context.or(args.context).unwrap_or(0);
+            let ctx_after = args.after_context.or(args.context).unwrap_or(0);
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().copied().enumerate() {
                 let found = re.find(line);
@@ -164,8 +175,8 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
                     continue;
                 }
 
-                let start = i.saturating_sub(context);
-                let end = (i + 1 + context).min(lines.len());
+                let start = i.saturating_sub(ctx_before);
+                let end = (i + 1 + ctx_after).min(lines.len());
                 let column = found.map_or(1, |m| m.start() + 1);
                 let context_before = Some(lines[start..i].iter().map(|s| s.to_string()).collect());
                 let context_after = Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect());
@@ -372,6 +383,8 @@ mod tests {
             literal: false,
             regex: false,
             context: None,
+            before_context: None,
+            after_context: None,
             files_with_matches: false,
             count: false,
             invert_match: false,

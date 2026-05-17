@@ -2454,6 +2454,76 @@ fn test_search_context_flag() {
 }
 
 #[test]
+fn test_search_before_context() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\ntarget\nddd\neee\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-B")
+        .arg("2")
+        .arg("target")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bbb"))
+        .stdout(predicate::str::contains("ccc"))
+        .stdout(predicate::str::contains("target"))
+        // no after-context lines
+        .stdout(predicate::str::contains("ddd").not());
+}
+
+#[test]
+fn test_search_after_context() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\ntarget\nccc\nddd\neee\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-A")
+        .arg("2")
+        .arg("target")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("target"))
+        .stdout(predicate::str::contains("ccc"))
+        .stdout(predicate::str::contains("ddd"))
+        // no before-context lines
+        .stdout(predicate::str::contains("bbb").not());
+}
+
+#[test]
+fn test_search_asymmetric_context() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\ntarget\nddd\neee\nfff\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-B")
+        .arg("1")
+        .arg("-A")
+        .arg("3")
+        .arg("target")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ccc"))
+        .stdout(predicate::str::contains("target"))
+        .stdout(predicate::str::contains("ddd"))
+        .stdout(predicate::str::contains("eee"))
+        .stdout(predicate::str::contains("fff"))
+        // bbb is 2 lines before, should not appear with -B 1
+        .stdout(predicate::str::contains("bbb").not());
+}
+
+#[test]
 fn test_search_literal_flag() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
