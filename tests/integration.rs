@@ -1090,6 +1090,108 @@ fn test_read_respects_cwd() {
         .stdout("content\n");
 }
 
+#[test]
+fn test_read_multiple_files() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("a.txt");
+    let f2 = dir.path().join("b.txt");
+    fs::write(&f1, "alpha\n").unwrap();
+    fs::write(&f2, "beta\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(f1.to_str().unwrap())
+        .arg(f2.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("==> "))
+        .stdout(predicates::str::contains("alpha"))
+        .stdout(predicates::str::contains("beta"));
+}
+
+#[test]
+fn test_read_multiple_files_json() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("x.txt");
+    let f2 = dir.path().join("y.txt");
+    fs::write(&f1, "one\n").unwrap();
+    fs::write(&f2, "two\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(f1.to_str().unwrap())
+        .arg(f2.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json.is_array());
+    assert_eq!(json.as_array().unwrap().len(), 2);
+    assert!(json[0]["content"].as_str().unwrap().contains("one"));
+    assert!(json[1]["content"].as_str().unwrap().contains("two"));
+}
+
+#[test]
+fn test_read_multiple_files_jsonl() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("p.txt");
+    let f2 = dir.path().join("q.txt");
+    fs::write(&f1, "first\n").unwrap();
+    fs::write(&f2, "second\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("read")
+        .arg(f1.to_str().unwrap())
+        .arg(f2.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let lines: Vec<&str> = std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .trim()
+        .lines()
+        .collect();
+    assert_eq!(lines.len(), 2);
+    let j1: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    let j2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert!(j1["content"].as_str().unwrap().contains("first"));
+    assert!(j2["content"].as_str().unwrap().contains("second"));
+}
+
+#[test]
+fn test_read_partial_failure_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("exists.txt");
+    fs::write(&f1, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(f1.to_str().unwrap())
+        .arg("/tmp/patchloom-no-such-file-xyz")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("hello"));
+}
+
+#[test]
+fn test_read_all_fail_returns_failure() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg("/tmp/patchloom-no-1-xyz")
+        .arg("/tmp/patchloom-no-2-xyz")
+        .assert()
+        .code(1);
+}
+
 // ── status command ─────────────────────────────────────────────────
 
 #[test]
