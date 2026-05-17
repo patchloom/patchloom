@@ -1192,6 +1192,34 @@ fn test_read_all_fail_returns_failure() {
         .code(1);
 }
 
+#[test]
+fn test_read_multiple_files_with_lines() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("long.txt");
+    let f2 = dir.path().join("short.txt");
+    fs::write(&f1, "a\nb\nc\nd\ne\n").unwrap();
+    fs::write(&f2, "x\ny\n").unwrap();
+
+    // --lines 2:4 on a 5-line file gives lines 2-4; on a 2-line file gives line 2 only
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(f1.to_str().unwrap())
+        .arg(f2.to_str().unwrap())
+        .arg("--lines")
+        .arg("2:4")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("b\nc\nd"));
+    assert!(stdout.contains("y"));
+    // d should appear from the first file, y from the second
+    assert!(!stdout.contains("a"));
+    assert!(!stdout.contains("e"));
+}
+
 // ── status command ─────────────────────────────────────────────────
 
 #[test]
