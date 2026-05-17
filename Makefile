@@ -26,8 +26,9 @@ clippy: ## Run clippy linter
 check: fmt-check build test integration-test clippy ## Run all checks (full CI gate)
 
 update-readme: ## Update README.md and CHANGELOG.md test counts
-	@unit=$$(cargo test --lib 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
-	integ=$$(cargo test --test integration 2>&1 | grep '^test result' | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
+	@unit=$$(cargo test --lib 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
+	integ=$$(cargo test --test integration 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
+	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	total=$$((unit + integ)); \
 	cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	ver=$$(grep '^V[0-9]' README.md | head -1 | sed 's/^\(V[0-9]*\).*/\1/'); \

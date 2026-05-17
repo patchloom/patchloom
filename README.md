@@ -107,6 +107,18 @@ Case-insensitive search:
 patchloom search -i 'todo' src/
 ```
 
+Show 3 lines after each match (like grep -A):
+
+```
+patchloom search -A 3 'fn main' src/
+```
+
+Show 1 line before and 5 after:
+
+```
+patchloom search -B 1 -A 5 'TODO' src/
+```
+
 ### replace
 
 Replace text across files (preview diff by default, write with `--apply`):
@@ -468,7 +480,9 @@ The `tx` command accepts a JSON plan with an array of operations:
     { "op": "file.create", "path": "new.txt", "content": "hello" },
     { "op": "file.create", "path": "existing.txt", "content": "overwrite", "force": true },
     { "op": "file.delete", "path": "obsolete.txt" },
-    { "op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new" }
+    { "op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new" },
+    { "op": "read", "path": "src/main.rs", "lines": "1:10" },
+    { "op": "search", "path": "src/main.rs", "pattern": "TODO", "context": 2 }
   ],
   "format": [
     { "cmd": "cargo fmt --all", "timeout": 30 }
