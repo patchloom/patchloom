@@ -57,4 +57,4 @@ bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL
 	@cd tests/agent && \
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
-		.venv/bin/pytest test_bench.py -v -s --timeout 300 $(if $(MODEL),--model $(MODEL),)
+		.venv/bin/pytest test_bench.py -v -s --timeout 1200 $(if $(MODEL),--model $(MODEL),)

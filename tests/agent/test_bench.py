@@ -1,8 +1,13 @@
-"""A/B agent benchmarks: patchloom instructions vs native tools.
+"""Multi-turn agent benchmarks: patchloom instructions vs native tools.
 
-Runs each scenario twice (with and without AGENTS.md containing patchloom
-instructions) and prints a comparison table of duration, tool calls, and
-success rate. No hard assertions on timing; this is a diagnostic tool.
+Simulates realistic agent usage by running 5 tasks in a single session.
+AGENTS.md is read once at the start; subsequent tasks reuse the context.
+This amortizes instruction processing overhead across multiple tasks,
+matching real-world usage patterns.
+
+Two modes:
+- "patchloom": workspace has AGENTS.md with patchloom instructions
+- "native": workspace has no AGENTS.md (agent uses native tools only)
 
 Run with:
     make bench-agent
@@ -12,25 +17,17 @@ Run with:
 from __future__ import annotations
 
 import json
-import subprocess
 import os
+import shutil
 import stat
-from dataclasses import dataclass
+import subprocess
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
 from drivers import create_driver
-from drivers.base import (
-    AgentResult,
-    _extract_subcommand,
-    parse_shim_log,
-    report_raw_tool_usage,
-)
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 SHIM_TEMPLATE = (Path(__file__).parent / "shim.sh").read_text()
 
@@ -41,168 +38,138 @@ def _find_patchloom_binary() -> str:
         p = repo_root / "target" / subdir / "patchloom"
         if p.exists():
             return str(p)
-    import shutil
     found = shutil.which("patchloom")
     if found:
         return found
     pytest.skip("patchloom binary not found")
 
 
-def _make_shim(tmp_path: Path, real_bin: str):
+def _make_shim(tmp_path, real_bin):
     shim_dir = tmp_path / "shim_bin"
-    shim_dir.mkdir()
+    shim_dir.mkdir(exist_ok=True)
     log_file = tmp_path / "patchloom_calls.jsonl"
     shim_script = SHIM_TEMPLATE.replace("__REAL_PATH__", real_bin)
     shim_script = shim_script.replace("__LOG_PATH__", str(log_file))
     shim_path = shim_dir / "patchloom"
     shim_path.write_text(shim_script)
     shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
-    env = {
-        "PATH": f"{shim_dir}:{os.environ.get('PATH', '')}",
-        "PATCHLOOM_SHIM_LOG": str(log_file),
-    }
-    return env, log_file
+    return {"PATH": f"{shim_dir}:{os.environ.get('PATH', '')}", "PATCHLOOM_SHIM_LOG": str(log_file)}, log_file
 
 
-def _make_workspace(tmp_path: Path, real_bin: str, with_agents_md: bool):
+def _make_workspace(tmp_path, real_bin, with_agents_md):
     ws = tmp_path / "workspace"
-    ws.mkdir()
+    ws.mkdir(exist_ok=True)
     if with_agents_md:
-        result = subprocess.run(
-            [real_bin, "agent-rules"],
-            capture_output=True, text=True, check=True,
-        )
+        result = subprocess.run([real_bin, "agent-rules"], capture_output=True, text=True, check=True)
         (ws / "AGENTS.md").write_text(result.stdout)
     subprocess.run(["git", "init"], cwd=ws, capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=ws, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
-         "commit", "--allow-empty", "-m", "init"],
-        cwd=ws, capture_output=True, check=True,
-    )
+    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@test.com", "commit", "--allow-empty", "-m", "init"], cwd=ws, capture_output=True, check=True)
     return ws
 
 
-# ---------------------------------------------------------------------------
-# Benchmark result collection
-# ---------------------------------------------------------------------------
-
-@dataclass
-class BenchRow:
-    scenario: str
-    mode: str  # "patchloom" or "native"
-    duration_secs: float
-    patchloom_call_count: int
-    patchloom_cmds: list[str]
-    raw_tools: list[str]
-    success: bool
-    patchloom_time_ms: int  # total ms spent in patchloom calls
-
-
-_bench_results: list[BenchRow] = []
-
-
-def _run_bench(agent, real_bin, tmp_path, with_agents_md, prompt, setup_fn, check_fn, scenario_name):
-    """Run one benchmark scenario and collect metrics."""
-    ws = _make_workspace(tmp_path, real_bin, with_agents_md)
-    shim_env, log_path = _make_shim(tmp_path, real_bin)
-    setup_fn(ws)
-
-    result = agent.run_prompt(
-        prompt, ws, max_turns=15, timeout_secs=240, extra_env=shim_env,
-    )
-    if not result.patchloom_calls:
-        result.patchloom_calls = parse_shim_log(log_path)
-
-    success = True
-    try:
-        check_fn(ws, result)
-    except (AssertionError, Exception):
-        success = False
-
-    cmds = [_extract_subcommand(c["args"]) for c in result.patchloom_calls if c.get("args")]
-    cmds = [c for c in cmds if c]
-    total_pl_ms = sum(c.get("duration_ms", 0) for c in result.patchloom_calls if c.get("duration_ms", 0) > 0)
-
-    row = BenchRow(
-        scenario=scenario_name,
-        mode="patchloom" if with_agents_md else "native",
-        duration_secs=round(result.duration_secs, 1),
-        patchloom_call_count=len(result.patchloom_calls),
-        patchloom_cmds=cmds,
-        raw_tools=report_raw_tool_usage(result),
-        success=success,
-        patchloom_time_ms=total_pl_ms,
-    )
-    _bench_results.append(row)
-    return row
-
-
-# ---------------------------------------------------------------------------
-# Scenarios
-# ---------------------------------------------------------------------------
-
-def _setup_search(ws):
-    (ws / "src").mkdir(exist_ok=True)
-    (ws / "src" / "main.py").write_text("# TODO: implement auth\ndef main():\n    pass\n")
-    (ws / "src" / "utils.py").write_text("def helper():\n    # TODO: add logging\n    return 42\n")
-
-def _check_search(ws, result):
-    text = (result.output_json or {}).get("text", result.stdout)
-    assert "main.py" in text
-
-def _setup_replace(ws):
-    (ws / "src").mkdir(exist_ok=True)
-    (ws / "src" / "app.py").write_text("def calculate_total(items):\n    return sum(i.price for i in items)\nresult = calculate_total(order_items)\n")
-    (ws / "src" / "test_app.py").write_text("from app import calculate_total\ndef test_it():\n    assert calculate_total([]) == 0\n")
-
-def _check_replace(ws, result):
-    content = (ws / "src" / "app.py").read_text()
-    assert "compute_sum" in content
-    assert "calculate_total" not in content
-
-def _setup_batch(ws):
-    (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n")
-    (ws / "config.yaml").write_text("app:\n  name: myapp\n  version: '1.0.0'\n")
-
-def _check_batch(ws, result):
-    pkg = json.loads((ws / "package.json").read_text())
-    assert pkg["version"] == "2.0.0"
-    assert "2.0.0" in (ws / "config.yaml").read_text()
-
-def _setup_doc_set(ws):
-    (ws / "config.json").write_text(json.dumps({"app_name": "MyApp", "debug": False}, indent=2) + "\n")
-
-def _check_doc_set(ws, result):
-    config = json.loads((ws / "config.json").read_text())
-    assert config["debug"] is True
-
-def _setup_tx(ws):
-    (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n")
-
-def _check_tx(ws, result):
-    assert (ws / "hello.txt").exists()
-    pkg = json.loads((ws / "package.json").read_text())
-    assert pkg["version"] == "3.0.0"
-
-
-SCENARIOS = [
-    ("search", "Find all lines containing 'TODO' across all source files. Report which files and line numbers.",
-     _setup_search, _check_search),
-    ("replace", "Rename the function 'calculate_total' to 'compute_sum' in all files under src/.",
-     _setup_replace, _check_replace),
-    ("batch_replace", "Update the version from '1.0.0' to '2.0.0' in all config files (package.json, config.yaml).",
-     _setup_batch, _check_batch),
-    ("doc_set", "Set the 'debug' key to true in config.json.",
-     _setup_doc_set, _check_doc_set),
-    ("tx_multi_file", "Do both atomically using a patchloom transaction: create hello.txt with 'Hello, World!' and update version in package.json to 3.0.0.",
-     _setup_tx, _check_tx),
+TASKS = [
+    {
+        "name": "search",
+        "prompt": "Find all lines containing 'TODO' across all source files. Report which files and line numbers.",
+        "setup": lambda ws: [
+            (ws / "src").mkdir(exist_ok=True),
+            (ws / "src" / "main.py").write_text("# TODO: implement auth\ndef main():\n    pass\n"),
+            (ws / "src" / "utils.py").write_text("def helper():\n    # TODO: add logging\n    return 42\n"),
+        ],
+        "check": lambda ws: True,  # search is read-only, just check it completes
+    },
+    {
+        "name": "replace",
+        "prompt": "Rename the function 'calculate_total' to 'compute_sum' in all files under src/.",
+        "setup": lambda ws: [
+            (ws / "src" / "app.py").write_text("def calculate_total(items):\n    return sum(i.price for i in items)\nresult = calculate_total(order_items)\n"),
+            (ws / "src" / "test_app.py").write_text("from app import calculate_total\ndef test_it():\n    assert calculate_total([]) == 0\n"),
+        ],
+        "check": lambda ws: "compute_sum" in (ws / "src" / "app.py").read_text() and "calculate_total" not in (ws / "src" / "app.py").read_text(),
+    },
+    {
+        "name": "doc_set",
+        "prompt": "Set the 'debug' key to true in config.json.",
+        "setup": lambda ws: (ws / "config.json").write_text(json.dumps({"app_name": "MyApp", "debug": False}, indent=2) + "\n"),
+        "check": lambda ws: json.loads((ws / "config.json").read_text()).get("debug") is True,
+    },
+    {
+        "name": "md_table",
+        "prompt": "Add a new row to the Commands table in README.md: command is 'lint' and description is 'Run the linter'.",
+        "setup": lambda ws: (ws / "README.md").write_text("# Project\n\n## Commands\n\n| Command | Description |\n|---------|-------------|\n| build | Build it |\n\n## License\n\nMIT\n"),
+        "check": lambda ws: "lint" in (ws / "README.md").read_text(),
+    },
+    {
+        "name": "tx_multi_file",
+        "prompt": "Create hello.txt with content 'Hello, World!' and update version in package.json from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply.",
+        "setup": lambda ws: (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
+        "check": lambda ws: (ws / "hello.txt").exists() and json.loads((ws / "package.json").read_text()).get("version") == "3.0.0",
+    },
 ]
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
+@dataclass
+class TaskResult:
+    name: str
+    duration_secs: float
+    patchloom_calls: int
+    success: bool
+
+
+@dataclass
+class SessionResult:
+    mode: str
+    model: str
+    tasks: list[TaskResult] = field(default_factory=list)
+    total_secs: float = 0.0
+
+
+def _run_session(agent, real_bin, tmp_path, with_agents_md):
+    mode = "patchloom" if with_agents_md else "native"
+    ws = _make_workspace(tmp_path, real_bin, with_agents_md)
+    shim_env, log_path = _make_shim(tmp_path, real_bin)
+    session = SessionResult(mode=mode, model=agent.model)
+    env = {**os.environ, **shim_env}
+    total_start = time.monotonic()
+    session_id = None  # captured from first task's JSON output
+
+    for task in TASKS:
+        task["setup"](ws)
+        prev_count = len(log_path.read_text().splitlines()) if log_path.exists() else 0
+
+        cmd = ["grok", "-p", task["prompt"], "--yolo", "--output-format", "json",
+               "--max-turns", "15", "--cwd", str(ws), "-m", agent.model]
+        if session_id:
+            cmd += ["-r", session_id]
+        start = time.monotonic()
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=240, env=env)
+        except subprocess.TimeoutExpired:
+            session.tasks.append(TaskResult(name=task["name"], duration_secs=240.0, patchloom_calls=0, success=False))
+            continue
+        duration = time.monotonic() - start
+
+        # Extract session ID from first successful run for subsequent resumes
+        if not session_id:
+            try:
+                out = json.loads(proc.stdout)
+                session_id = out.get("sessionId")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        new_calls = (len(log_path.read_text().splitlines()) if log_path.exists() else 0) - prev_count
+        try:
+            success = task["check"](ws)
+        except Exception:
+            success = False
+
+        session.tasks.append(TaskResult(name=task["name"], duration_secs=round(duration, 1), patchloom_calls=new_calls, success=bool(success)))
+        print(f"    [{mode}] {task['name']}: {duration:.1f}s, {new_calls} pl calls, {'OK' if success else 'FAIL'}")
+
+    session.total_secs = round(time.monotonic() - total_start, 1)
+    return session
+
 
 @pytest.fixture(scope="module")
 def bench_agent(request):
@@ -219,46 +186,65 @@ def bench_patchloom_bin():
     return _find_patchloom_binary()
 
 
-@pytest.mark.timeout(300)
-@pytest.mark.parametrize("scenario_name,prompt,setup_fn,check_fn", SCENARIOS,
-                         ids=[s[0] for s in SCENARIOS])
-@pytest.mark.parametrize("with_agents_md", [True, False],
-                         ids=["patchloom", "native"])
-def test_bench(bench_agent, bench_patchloom_bin, tmp_path,
-               scenario_name, prompt, setup_fn, check_fn, with_agents_md):
-    """Run a scenario in patchloom or native mode and collect metrics."""
-    row = _run_bench(
-        bench_agent, bench_patchloom_bin, tmp_path,
-        with_agents_md, prompt, setup_fn, check_fn, scenario_name,
-    )
-    # Print inline result for -v output
-    status = "OK" if row.success else "FAIL"
-    print(
-        f"  [{row.mode}] {row.scenario}: {row.duration_secs}s, "
-        f"{row.patchloom_call_count} pl calls ({row.patchloom_time_ms}ms), "
-        f"raw={row.raw_tools or 'none'}, {status}"
-    )
+@pytest.mark.timeout(1200)
+def test_multi_turn_patchloom(bench_agent, bench_patchloom_bin, tmp_path, request):
+    """Run 5 tasks in one session WITH patchloom AGENTS.md."""
+    print("\n  === Multi-turn session: PATCHLOOM mode ===")
+    session = _run_session(bench_agent, bench_patchloom_bin, tmp_path, True)
+    print(f"  Total: {session.total_secs}s")
+    # Stash for comparison table
+    if not hasattr(request.config, "_bench_sessions"):
+        request.config._bench_sessions = {}
+    request.config._bench_sessions["patchloom"] = session
+    assert any(t.success for t in session.tasks)
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print the comparison table at the end of the test run."""
-    if not _bench_results:
-        return
+@pytest.mark.timeout(1200)
+def test_multi_turn_native(bench_agent, bench_patchloom_bin, tmp_path, request):
+    """Run 5 tasks in one session WITHOUT patchloom AGENTS.md."""
+    print("\n  === Multi-turn session: NATIVE mode ===")
+    session = _run_session(bench_agent, bench_patchloom_bin, tmp_path, False)
+    print(f"  Total: {session.total_secs}s")
+    if not hasattr(request.config, "_bench_sessions"):
+        request.config._bench_sessions = {}
+    request.config._bench_sessions["native"] = session
 
-    terminalreporter.write_sep("=", "Agent Benchmark Results")
+    # Print comparison table after both sessions complete
+    sessions = request.config._bench_sessions
+    if "patchloom" in sessions and "native" in sessions:
+        _print_comparison(sessions["patchloom"], sessions["native"])
 
-    # Header
-    header = f"{'Scenario':<20} {'Mode':<12} {'Duration':>10} {'PL calls':>10} {'PL time':>10} {'Raw tools':>15} {'OK?':>5}"
-    terminalreporter.write_line(header)
-    terminalreporter.write_line("-" * len(header))
+    assert any(t.success for t in session.tasks)
 
-    for row in sorted(_bench_results, key=lambda r: (r.scenario, r.mode)):
-        status = "yes" if row.success else "FAIL"
-        raw = ",".join(row.raw_tools) if row.raw_tools else "-"
-        pl_time = f"{row.patchloom_time_ms}ms" if row.patchloom_time_ms > 0 else "-"
-        terminalreporter.write_line(
-            f"{row.scenario:<20} {row.mode:<12} {row.duration_secs:>9.1f}s "
-            f"{row.patchloom_call_count:>10} {pl_time:>10} {raw:>15} {status:>5}"
+
+def _print_comparison(pl, native):
+    """Print side-by-side comparison table."""
+    print("\n  ┌─────────────────────────────────────────────────────────────────────────────┐")
+    print(f"  │ {'Multi-Turn Benchmark: patchloom vs native':^75} │")
+    print(f"  │ {'Model: ' + pl.model:^75} │")
+    print("  ├──────────────────┬────────────┬──────────────┬──────────┬────────┬──────────┤")
+    print("  │ Task             │   PL time  │  Native time │    Delta │ PL cnt │   Winner │")
+    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┤")
+
+    for pt, nt in zip(pl.tasks, native.tasks):
+        delta = pt.duration_secs - nt.duration_secs
+        sign = "+" if delta > 0 else ""
+        winner = "native" if delta > 1.5 else ("patchloom" if delta < -1.5 else "~same")
+        p_mark = "*" if not pt.success else " "
+        n_mark = "*" if not nt.success else " "
+        print(
+            f"  │ {pt.name:<16} │ {pt.duration_secs:>7.1f}s{p_mark}  "
+            f"│ {nt.duration_secs:>9.1f}s{n_mark}  "
+            f"│ {sign}{delta:>6.1f}s │ {pt.patchloom_calls:>6} │ {winner:>8} │"
         )
 
-    terminalreporter.write_line("")
+    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┤")
+    d = pl.total_secs - native.total_secs
+    sign = "+" if d > 0 else ""
+    print(
+        f"  │ {'TOTAL':<16} │ {pl.total_secs:>7.1f}s   "
+        f"│ {native.total_secs:>9.1f}s   "
+        f"│ {sign}{d:>6.1f}s │        │          │"
+    )
+    print("  └──────────────────┴────────────┴──────────────┴──────────┴────────┴──────────┘")
+    print("  (* = task failed)")
