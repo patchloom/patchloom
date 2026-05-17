@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Dual license: MIT OR Apache-2.0
 - CONTRIBUTING.md, SECURITY.md, AGENTS.md
 - CI with fmt, clippy, tests, MSRV check, and dependency audit
-- `read` command for file content inspection with optional line range
+- `read` command for file content inspection with optional line range and multi-file batch support
 - `status` command showing uncommitted changes vs git HEAD
 - `replace --insert-before` and `--insert-after` modes for inserting text around matches
 - `replace --if-exists` flag for idempotent replacements that succeed on no match
