@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check update-readme
+.PHONY: help fmt fmt-check build test integration-test clippy check update-readme sync-patchloom-md check-patchloom-md
 
 .DEFAULT_GOAL := help
 
@@ -23,7 +23,7 @@ integration-test: ## Run integration tests
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check build test integration-test clippy ## Run all checks (full CI gate)
+check: fmt-check build test integration-test clippy check-patchloom-md ## Run all checks (full CI gate)
 
 update-readme: ## Update README.md and CHANGELOG.md test counts
 	@unit=$$(cargo test --lib 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
@@ -35,3 +35,11 @@ update-readme: ## Update README.md and CHANGELOG.md test counts
 	sed -i "s/V[0-9]* with [0-9]* commands and [0-9]* passing tests\./$$ver with $$cmds commands and $$total passing tests./" README.md; \
 	sed -i "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
 	echo "README.md and CHANGELOG.md updated: $$ver, $$cmds commands, $$total tests ($$unit unit + $$integ integration)"
+
+sync-patchloom-md: ## Regenerate PATCHLOOM.md from patchloom agent-rules
+	cargo run --quiet -- agent-rules > PATCHLOOM.md
+	@echo "PATCHLOOM.md updated"
+
+check-patchloom-md: ## Verify PATCHLOOM.md matches patchloom agent-rules output
+	@cargo run --quiet -- agent-rules | diff -q - PATCHLOOM.md >/dev/null 2>&1 \
+		|| (echo "ERROR: PATCHLOOM.md is stale. Run 'make sync-patchloom-md' to update." && exit 1)
