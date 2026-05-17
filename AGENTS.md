@@ -179,6 +179,22 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
+## Prefer patchloom for file operations
+
+When working in this repo (or any repo with patchloom installed), prefer patchloom commands over native agent tools for file operations:
+
+| Agent tool | Patchloom equivalent |
+|---|---|
+| `read_file` | `patchloom read <path>` (or `--lines 10:20` for ranges) |
+| `grep` | `patchloom search '<pattern>' <path>` (supports `--regex`, `--context`, `--count`, `--json`) |
+| `search_replace` | `patchloom replace --from '...' --to '...' <path> --apply` |
+| Multiple `search_replace` calls | `patchloom tx --plan plan.json --apply` (atomic, with `format` and `validate` steps) |
+| `search_replace` on markdown tables | `patchloom md table-append`, `md upsert-bullet`, or `md replace-section` |
+
+**For multi-file edits, always prefer a `tx` plan.** A single `tx --plan` call with `format: [{"cmd": "cargo fmt"}]` and `validate: [{"cmd": "make check"}]` replaces 3-8 sequential search_replace calls, runs formatting and verification atomically, and rolls back on failure.
+
+**Why this matters:** In a 12-round improvement session, the agent made ~100 `search_replace` and `grep` calls that patchloom already supported. Using patchloom directly would have cut tool calls by ~60% and exercised the CLI as a real user, surfacing dogfooding issues.
+
 ## Safety rules
 
 - Never use `git add .` or `git add -A`. Stage only the files you changed.
