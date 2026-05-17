@@ -106,6 +106,26 @@ TASKS = [
         "setup": lambda ws: (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
         "check": lambda ws: (ws / "hello.txt").exists() and json.loads((ws / "package.json").read_text()).get("version") == "3.0.0",
     },
+    {
+        "name": "batch_6_files",
+        "prompt": "Update the version from '1.0.0' to '2.0.0' in ALL of these files: package.json, pyproject.toml, config.yaml, config.json, version.txt, and the badge in README.md. Make sure every single file is updated.",
+        "setup": lambda ws: [
+            (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
+            (ws / "pyproject.toml").write_text('[project]\nname = "myapp"\nversion = "1.0.0"\n'),
+            (ws / "config.yaml").write_text("app:\n  name: myapp\n  version: '1.0.0'\n"),
+            (ws / "config.json").write_text(json.dumps({"app_name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
+            (ws / "version.txt").write_text("1.0.0\n"),
+            (ws / "README.md").write_text("# MyApp\n\n![version](https://img.shields.io/badge/version-1.0.0-blue)\n\nA sample app.\n"),
+        ],
+        "check": lambda ws: all([
+            json.loads((ws / "package.json").read_text()).get("version") == "2.0.0",
+            "2.0.0" in (ws / "pyproject.toml").read_text(),
+            "2.0.0" in (ws / "config.yaml").read_text(),
+            json.loads((ws / "config.json").read_text()).get("version") == "2.0.0",
+            (ws / "version.txt").read_text().strip() == "2.0.0",
+            "2.0.0" in (ws / "README.md").read_text(),
+        ]),
+    },
 ]
 
 
