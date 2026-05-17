@@ -50,7 +50,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent integration tests (`make agent-test`): 19 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
 - CLI benchmarks (`make bench-cli`): patchloom vs native tools (grep, sed, cat, jq) using hyperfine across small/medium/large synthetic corpora
 - Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
-- 421 tests (166 unit + 255 integration)
+- 255 integration tests and agent tests verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+
+### Changed
+
+- Agent instructions (`agent-rules` output) rewritten to lead with `tx` batching as the primary speed advantage
+- Agent instructions now explicitly direct agents to use native tools for read/search/create/delete and patchloom for doc/md/tx/hygiene/patch
+- Single unified instruction set works across all three tested LLM models (no per-model variants needed)
+- README.md redesigned with sales pitch showing benchmark results and visual comparison
+- AGENTS.md cleaned up: removed "Using the patchloom CLI" section (AGENTS.md now focuses purely on repo development conventions)
+- Reference documentation (`docs/reference/README.md`) updated with agent-specific guidance for each command
 
 ### Fixed
 
