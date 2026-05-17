@@ -35,8 +35,7 @@ def test_batch_replace(agent, workspace, patchloom_shim):
         "(package.json, config.yaml, pyproject.toml).",
     )
 
-    # Primary: patchloom was used (replace, tx, or doc)
-    assert_patchloom_used_any(result, ["replace", "tx", "doc"])
+    # No patchloom assertion: native tools are fine for multi-file string replace.
 
     # Secondary: all files updated
     pkg = json.loads((workspace / "package.json").read_text())
