@@ -7,7 +7,7 @@ Agent-grade repo operations in one binary.
 
 ## Status
 
-V2 with 12 commands and 411 passing tests.
+V2 with 13 commands and 413 passing tests.
 
 ## Install
 
@@ -53,6 +53,7 @@ cargo install patchloom
 | `status` | Show which files have uncommitted changes |
 | `tx` | Execute a multi-operation plan atomically |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
+| `agent-rules` | Print agent rules for using patchloom (AGENTS.md for end users) |
 
 ## Usage
 
@@ -418,6 +419,20 @@ patchloom completions fish > ~/.config/fish/completions/patchloom.fish
 
 # elvish
 patchloom completions elvish > ~/.config/elvish/rc.elv
+```
+
+### agent-rules
+
+Generate an AGENTS.md for your project that teaches AI agents how to use patchloom:
+
+```
+patchloom agent-rules > AGENTS.md
+```
+
+Or append to an existing AGENTS.md:
+
+```
+patchloom agent-rules >> AGENTS.md
 ```
 
 ## Transaction plan format

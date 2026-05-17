@@ -209,6 +209,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
 
+<!-- ref:command:agent-rules -->
+## `agent-rules`
+
+- **What it does:** Prints an end-user AGENTS.md that teaches AI agents how to use patchloom. Includes command reference, exit codes, write modes, transaction plan format, and usage examples.
+- **Use when:** You are setting up a project where agents should use patchloom for file operations and need an AGENTS.md or SKILL.md that describes patchloom's interface.
+- **Prefer instead:** Nothing; this is the only way to generate the end-user agent documentation.
+- **Related:** `completions`
+
 <!-- ref:command:completions -->
 ## `completions`
 
