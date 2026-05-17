@@ -18,6 +18,7 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides thirteen co
 | `make update-readme` | Update README.md and CHANGELOG.md test counts from actual `cargo test` output |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
+| `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`) |
 
 Always run `make check` before committing. It is the full CI gate.
 

@@ -1,0 +1,94 @@
+"""Grok Build CLI agent driver."""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
+
+from .base import AgentDriver, AgentResult, parse_shim_log
+
+
+class GrokDriver(AgentDriver):
+    """Invokes Grok Build CLI in headless mode."""
+
+    def __init__(self, model: str = "grok-build"):
+        super().__init__(name="grok", model=model)
+
+    def run_prompt(
+        self,
+        prompt: str,
+        cwd: Path,
+        *,
+        max_turns: int = 10,
+        timeout_secs: int = 120,
+        extra_env: dict | None = None,
+    ) -> AgentResult:
+        env = {**os.environ, **(extra_env or {})}
+        cmd = [
+            "grok",
+            "-p",
+            prompt,
+            "--yolo",
+            "--output-format",
+            "json",
+            "--max-turns",
+            str(max_turns),
+            "--cwd",
+            str(cwd),
+            "-m",
+            self.model,
+        ]
+
+        start = time.monotonic()
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout_secs,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return AgentResult(
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "",
+                exit_code=-1,
+                output_json=None,
+                duration_secs=time.monotonic() - start,
+                patchloom_calls=_load_calls(extra_env),
+            )
+        duration = time.monotonic() - start
+
+        output_json = _try_parse_json(proc.stdout)
+
+        return AgentResult(
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            exit_code=proc.returncode,
+            output_json=output_json,
+            duration_secs=duration,
+            patchloom_calls=_load_calls(extra_env),
+        )
+
+    def is_available(self) -> bool:
+        return shutil.which("grok") is not None
+
+
+def _try_parse_json(text: str) -> dict | None:
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _load_calls(extra_env: dict | None) -> list[dict]:
+    if not extra_env:
+        return []
+    log_path = extra_env.get("PATCHLOOM_SHIM_LOG", "")
+    if not log_path:
+        return []
+    return parse_shim_log(Path(log_path))
