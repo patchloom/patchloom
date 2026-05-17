@@ -160,6 +160,18 @@ pub enum Operation {
         /// Inline diff text to apply.
         diff: String,
     },
+    #[serde(rename = "search")]
+    Search {
+        path: String,
+        pattern: String,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        case_insensitive: bool,
+        context: Option<usize>,
+        before_context: Option<usize>,
+        after_context: Option<usize>,
+    },
     #[serde(rename = "read")]
     Read {
         path: String,
@@ -332,10 +344,12 @@ mod tests {
             {"op": "file.delete", "path": "f.txt"},
             {"op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b"},
             {"op": "read", "path": "f.txt"},
-            {"op": "read", "path": "f.txt", "lines": "1:10"}
+            {"op": "read", "path": "f.txt", "lines": "1:10"},
+            {"op": "search", "path": "f.txt", "pattern": "hello"},
+            {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 24);
+        assert_eq!(plan.operations.len(), 26);
     }
 
     #[test]

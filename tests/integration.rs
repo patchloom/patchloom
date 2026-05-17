@@ -5077,6 +5077,73 @@ fn test_tx_read_sees_in_plan_state() {
 }
 
 #[test]
+fn test_tx_search_operation_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "alpha\nbeta\ngamma\nalpha two\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{"op": "search", "path": file.to_str().unwrap(), "pattern": "alpha"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["searches"].as_array().unwrap().len(), 1);
+    assert_eq!(json["searches"][0]["match_count"], 2);
+    assert_eq!(json["searches"][0]["matches"][0]["line"], 1);
+    assert_eq!(json["searches"][0]["matches"][1]["line"], 4);
+}
+
+#[test]
+fn test_tx_search_then_replace_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello world\nfoo bar\nhello again\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "search", "path": file.to_str().unwrap(), "pattern": "hello"},
+            {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "goodbye"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    // Search found 2 matches before replace
+    assert_eq!(json["searches"][0]["match_count"], 2);
+    // Replace changed the file
+    assert_eq!(json["files_changed"], 1);
+    // File on disk is replaced
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "goodbye world\nfoo bar\ngoodbye again\n"
+    );
+}
+
+#[test]
 fn test_tx_strict_mode_reverts_on_format_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

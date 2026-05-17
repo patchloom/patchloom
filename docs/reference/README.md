@@ -790,6 +790,13 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** File removal should roll back if later format or validation steps fail.
 - **Related:** top level `delete`
 
+<!-- ref:tx-op:search -->
+### `search`
+
+- **What it does:** Searches a file for a pattern inside a transaction and includes match results in the JSON output without writing anything.
+- **Use when:** An agent needs to locate patterns before replacing them in the same plan, enabling locate-then-edit in a single call.
+- **Related:** top level `search`
+
 <!-- ref:tx-op:read -->
 ### `read`
 
