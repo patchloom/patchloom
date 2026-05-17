@@ -100,3 +100,48 @@ def test_hygiene(agent, workspace, patchloom_shim):
     content = (workspace / "dirty.txt").read_text()
     for line in content.splitlines():
         assert line == line.rstrip(), f"Line still has trailing whitespace: {line!r}"
+
+
+@pytest.mark.timeout(240)
+def test_tx_read_then_edit(agent, workspace, patchloom_shim):
+    """Agent should use a patchloom tx plan with a read op to inspect then edit.
+
+    This tests the unique value of patchloom read inside a transaction:
+    the read operation sees pending in-plan state, enabling
+    inspect-then-edit workflows in a single atomic call.
+    """
+    (workspace / "package.json").write_text(
+        json.dumps(
+            {"name": "myapp", "version": "1.0.0", "description": "A sample app"},
+            indent=2,
+        )
+        + "\n"
+    )
+    (workspace / "README.md").write_text(
+        "# myapp\n\nVersion: 1.0.0\n\nA sample app.\n"
+    )
+
+    result = run_scenario(
+        agent,
+        workspace,
+        patchloom_shim,
+        "I need you to do the following atomically using a single patchloom "
+        "transaction plan:\n"
+        "1. Read package.json to discover the current version\n"
+        "2. Update the version in package.json from whatever it is to '2.0.0'\n"
+        "3. Update the version reference in README.md to match '2.0.0'\n"
+        "Use patchloom tx with a read operation followed by replace operations "
+        "so everything happens in one atomic plan.",
+        max_turns=20,
+    )
+
+    # Primary: patchloom tx was used (the tx plan should include a read op)
+    assert_patchloom_used(result, "tx")
+
+    # Secondary: both files updated
+    pkg = json.loads((workspace / "package.json").read_text())
+    assert pkg["version"] == "2.0.0", "package.json version should be 2.0.0"
+
+    readme = (workspace / "README.md").read_text()
+    assert "2.0.0" in readme, "README.md should contain 2.0.0"
+    assert "1.0.0" not in readme, "README.md should not contain old version"
