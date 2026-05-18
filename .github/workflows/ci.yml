@@ -39,6 +39,34 @@ jobs:
       - name: Run checks
         run: make check
 
+  ci-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Build
+        run: cargo build
+
+      - name: Unit tests
+        run: cargo test --lib
+
+      - name: Integration tests
+        run: cargo test --test integration
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
   msrv:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 10

@@ -4,6 +4,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+fn nonexistent_path(name: &str) -> String {
+    #[cfg(windows)]
+    {
+        format!("C:\\patchloom-nonexistent-{name}")
+    }
+    #[cfg(not(windows))]
+    {
+        format!("/tmp/patchloom-nonexistent-{name}")
+    }
+}
+
 fn shell_false() -> &'static str {
     #[cfg(windows)]
     {
@@ -1808,7 +1819,7 @@ fn test_read_nonexistent_file_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("read")
-        .arg("/tmp/patchloom-nonexistent-file-xyz")
+        .arg(nonexistent_path("file-xyz"))
         .assert()
         .code(1);
 }
@@ -1937,7 +1948,7 @@ fn test_read_partial_failure_succeeds() {
         .unwrap()
         .arg("read")
         .arg(f1.to_str().unwrap())
-        .arg("/tmp/patchloom-no-such-file-xyz")
+        .arg(nonexistent_path("no-such-file-xyz"))
         .assert()
         .success()
         .stdout(predicates::str::contains("hello"));
@@ -1948,8 +1959,8 @@ fn test_read_all_fail_returns_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("read")
-        .arg("/tmp/patchloom-no-1-xyz")
-        .arg("/tmp/patchloom-no-2-xyz")
+        .arg(nonexistent_path("no-1-xyz"))
+        .arg(nonexistent_path("no-2-xyz"))
         .assert()
         .code(1);
 }
