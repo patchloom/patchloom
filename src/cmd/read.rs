@@ -56,10 +56,11 @@ fn read_one_file(path: &str, lines_spec: &Option<String>) -> Result<ReadOutput, 
     // Fast path: no line range requested, skip split/join (#169).
     if lines_spec.is_none() {
         let total_lines = content.lines().count();
+        let start_line = if total_lines == 0 { 0 } else { 1 };
         return Ok(ReadOutput {
             ok: true,
             path: path.to_string(),
-            start_line: 1,
+            start_line,
             end_line: total_lines,
             total_lines,
             content,
@@ -187,7 +188,7 @@ mod tests {
         let result = read_one_file(file.to_str().unwrap(), &None).unwrap();
         assert_eq!(result.content, "");
         assert_eq!(result.total_lines, 0);
-        assert_eq!(result.start_line, 1);
+        assert_eq!(result.start_line, 0);
         assert_eq!(result.end_line, 0);
     }
 

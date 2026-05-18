@@ -19,6 +19,28 @@ struct StatusOutput {
     total_changes: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileCategory {
+    Created,
+    Deleted,
+    Modified,
+}
+
+/// Parse one line of `git status --porcelain=v1` into a category and file path.
+fn parse_porcelain_line(line: &str) -> Option<(FileCategory, String)> {
+    if line.len() < 4 {
+        return None;
+    }
+    let xy = &line[..2];
+    let file = line[3..].to_string();
+    let category = match xy.trim() {
+        "??" | "A" | "AM" => FileCategory::Created,
+        "D" => FileCategory::Deleted,
+        _ => FileCategory::Modified,
+    };
+    Some((category, file))
+}
+
 pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
@@ -44,11 +66,10 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut deleted = Vec::new();
 
     for line in stdout.lines() {
-        if line.len() < 4 {
-            continue;
-        }
-        let xy = &line[..2];
-        let file = line[3..].to_string();
+        let (category, file) = match parse_porcelain_line(line) {
+            Some(v) => v,
+            None => continue,
+        };
 
         if let Some(ref matcher) = glob_matcher {
             if !crate::matches_glob(std::path::Path::new(&file), Some(matcher)) {
@@ -56,10 +77,10 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        match xy.trim() {
-            "??" | "A" | "AM" => created.push(file),
-            "D" => deleted.push(file),
-            _ => modified.push(file),
+        match category {
+            FileCategory::Created => created.push(file),
+            FileCategory::Deleted => deleted.push(file),
+            FileCategory::Modified => modified.push(file),
         }
     }
 
@@ -93,5 +114,52 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Ok(exit::CHANGES_DETECTED)
     } else {
         Ok(exit::SUCCESS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_untracked_file() {
+        let (cat, file) = parse_porcelain_line("?? new.txt").unwrap();
+        assert_eq!(cat, FileCategory::Created);
+        assert_eq!(file, "new.txt");
+    }
+
+    #[test]
+    fn parse_staged_new_file() {
+        let (cat, file) = parse_porcelain_line("A  staged.txt").unwrap();
+        assert_eq!(cat, FileCategory::Created);
+        assert_eq!(file, "staged.txt");
+    }
+
+    #[test]
+    fn parse_staged_and_modified() {
+        let (cat, file) = parse_porcelain_line("AM both.txt").unwrap();
+        assert_eq!(cat, FileCategory::Created);
+        assert_eq!(file, "both.txt");
+    }
+
+    #[test]
+    fn parse_deleted_file() {
+        let (cat, file) = parse_porcelain_line("D  gone.txt").unwrap();
+        assert_eq!(cat, FileCategory::Deleted);
+        assert_eq!(file, "gone.txt");
+    }
+
+    #[test]
+    fn parse_modified_file() {
+        let (cat, file) = parse_porcelain_line(" M changed.txt").unwrap();
+        assert_eq!(cat, FileCategory::Modified);
+        assert_eq!(file, "changed.txt");
+    }
+
+    #[test]
+    fn parse_short_line_returns_none() {
+        assert!(parse_porcelain_line("??").is_none());
+        assert!(parse_porcelain_line("A").is_none());
+        assert!(parse_porcelain_line("").is_none());
     }
 }

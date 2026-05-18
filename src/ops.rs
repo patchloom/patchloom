@@ -1026,6 +1026,44 @@ mod tests {
         }
 
         #[test]
+        fn set_at_path_simple_key() {
+            let mut root = json!({"a": 1});
+            let sel = crate::selector::parse("b").unwrap();
+            set_at_path(&mut root, &sel, json!(2)).unwrap();
+            assert_eq!(root, json!({"a": 1, "b": 2}));
+        }
+
+        #[test]
+        fn set_at_path_nested_creates_intermediates() {
+            let mut root = json!({});
+            let sel = crate::selector::parse("a.b.c").unwrap();
+            set_at_path(&mut root, &sel, json!("deep")).unwrap();
+            assert_eq!(root, json!({"a": {"b": {"c": "deep"}}}));
+        }
+
+        #[test]
+        fn set_at_path_array_index() {
+            let mut root = json!({"items": [10, 20, 30]});
+            let sel = crate::selector::parse("items[1]").unwrap();
+            set_at_path(&mut root, &sel, json!(99)).unwrap();
+            assert_eq!(root, json!({"items": [10, 99, 30]}));
+        }
+
+        #[test]
+        fn set_at_path_out_of_bounds_index_fails() {
+            let mut root = json!({"items": [1]});
+            let sel = crate::selector::parse("items[5]").unwrap();
+            assert!(set_at_path(&mut root, &sel, json!(99)).is_err());
+        }
+
+        #[test]
+        fn set_at_path_empty_selector_fails() {
+            let mut root = json!({});
+            let sel: Vec<crate::selector::Segment> = vec![];
+            assert!(set_at_path(&mut root, &sel, json!(1)).is_err());
+        }
+
+        #[test]
         fn update_matching_by_key() {
             let mut val = json!({"a": {"b": "old"}});
             let seg = crate::selector::parse("a.b").unwrap();
