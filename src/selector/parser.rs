@@ -159,4 +159,52 @@ mod tests {
             "expected 'invalid bracket content', got: {err}"
         );
     }
+
+    // ── edge cases ─────────────────────────────────────────────────
+
+    #[test]
+    fn parse_empty_string_returns_empty_selector() {
+        let sel = parse("").unwrap();
+        assert!(sel.is_empty());
+    }
+
+    #[test]
+    fn parse_leading_dot_is_ignored() {
+        assert_eq!(parse(".name").unwrap(), vec![Segment::Key("name".into())]);
+    }
+
+    #[test]
+    fn parse_consecutive_dots_are_ignored() {
+        assert_eq!(
+            parse("a..b").unwrap(),
+            vec![Segment::Key("a".into()), Segment::Key("b".into())]
+        );
+    }
+
+    #[test]
+    fn parse_index_at_start() {
+        let sel = parse("[0].name").unwrap();
+        assert_eq!(sel, vec![Segment::Index(0), Segment::Key("name".into())]);
+    }
+
+    #[test]
+    fn parse_adjacent_brackets() {
+        let sel = parse("[0][1]").unwrap();
+        assert_eq!(sel, vec![Segment::Index(0), Segment::Index(1)]);
+    }
+
+    #[test]
+    fn parse_predicate_value_with_equals() {
+        let sel = parse("items[url=a=b]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                Segment::Predicate {
+                    key: "url".into(),
+                    value: "a=b".into(),
+                },
+            ]
+        );
+    }
 }

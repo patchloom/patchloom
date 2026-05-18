@@ -1334,6 +1334,63 @@ mod tests {
         assert_eq!(output, "identical\n");
     }
 
+    // -- error path tests ---------------------------------------------------
+
+    #[test]
+    fn keys_on_scalar_returns_failure() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Keys {
+            file: path,
+            selector: "name".into(),
+        };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn len_on_scalar_returns_failure() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Len {
+            file: path,
+            selector: "name".into(),
+        };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn len_counts_object_keys() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a": 1, "b": 2, "c": 3}"#);
+        let action = DocAction::Len {
+            file: path,
+            selector: String::new(),
+        };
+        let (output, code) = execute(&action, false).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(output, "3");
+    }
+
+    #[test]
+    fn append_to_non_array_returns_failure() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Append {
+            file: path,
+            selector: "name".into(),
+            value: "42".into(),
+        };
+        let ctx = WriteContext::default();
+        let (_, code) = execute_write(&action, &ctx).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    // -- flatten ------------------------------------------------------------
+
     #[test]
     fn flatten_enumerates_leaf_paths() {
         let dir = TempDir::new().unwrap();
