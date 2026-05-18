@@ -145,6 +145,27 @@ fn apply_mutation(
 // Lint
 // ---------------------------------------------------------------------------
 
+/// Remove backtick-delimited inline code spans from a line, returning
+/// the remaining prose.  This lets lint checks ignore content inside
+/// backticks (e.g. ``Never use `git add .` ``).
+fn strip_inline_code(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('`') {
+        result.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        if let Some(close) = after_open.find('`') {
+            rest = &after_open[close + 1..];
+        } else {
+            // Unmatched backtick — keep the rest as-is.
+            rest = after_open;
+            break;
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
 #[derive(Debug, Serialize)]
 struct LintIssue {
     issue: String,
@@ -173,9 +194,19 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
         }
     }
 
-    // 2. Dangerous git add commands.
+    // 2. Dangerous git add commands (skip fenced code blocks and inline code).
+    let mut in_fence = false;
     for (idx, line) in content.lines().enumerate() {
-        if line.contains("git add .") || line.contains("git add -A") {
+        if line.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        // Skip lines where the command only appears inside backtick spans.
+        let stripped = strip_inline_code(line);
+        if stripped.contains("git add .") || stripped.contains("git add -A") {
             issues.push(LintIssue {
                 issue: "dangerous command".to_string(),
                 line: Some(idx + 1),
@@ -584,6 +615,53 @@ mod tests {
         };
         let code = run(args, &default_global()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
+    fn lint_agents_skips_dangerous_cmd_in_code_fence() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(
+            &file,
+            "# Rules\n\n```bash\n# BAD example\ngit add .\n```\n\nStage explicitly.\n",
+        )
+        .unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn lint_agents_skips_dangerous_cmd_in_inline_code() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(&file, "# Rules\nNever use `git add .` or `git add -A`.\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn strip_inline_code_removes_backtick_spans() {
+        assert_eq!(
+            strip_inline_code("use `git add .` carefully"),
+            "use  carefully"
+        );
+        assert_eq!(strip_inline_code("no backticks here"), "no backticks here");
+        assert_eq!(strip_inline_code("`all code`"), "");
+        assert_eq!(strip_inline_code("a `b` c `d` e"), "a  c  e");
     }
 
     // -- final newline ------------------------------------------------------
