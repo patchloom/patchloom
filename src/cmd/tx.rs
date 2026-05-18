@@ -2,8 +2,8 @@ use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_where, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
-    update_matching,
+    deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
+    serialize_value, set_at_path, update_matching,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
@@ -476,58 +476,7 @@ fn execute_operation(
             with_doc(pending, deletions, path, cwd, |root| {
                 let from_sel = parse_selector(&from)?;
                 let to_sel = parse_selector(&to)?;
-
-                // Remove value at source path.
-                let removed = {
-                    let last = from_sel
-                        .last()
-                        .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
-                    let parent_path = &from_sel[..from_sel.len() - 1];
-                    let parent = navigate_mut(root, parent_path, false)?;
-                    match last {
-                        selector::Segment::Key(k) => parent
-                            .as_object_mut()
-                            .and_then(|obj| obj.remove(k.as_str()))
-                            .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
-                        selector::Segment::Index(i) => {
-                            let arr = parent
-                                .as_array_mut()
-                                .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
-                            if *i < arr.len() {
-                                arr.remove(*i)
-                            } else {
-                                anyhow::bail!("source index {i} out of bounds");
-                            }
-                        }
-                        _ => anyhow::bail!("cannot move from wildcard/predicate"),
-                    }
-                };
-
-                // Insert at destination path.
-                let last = to_sel
-                    .last()
-                    .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
-                let parent_path = &to_sel[..to_sel.len() - 1];
-                let parent = navigate_mut(root, parent_path, true)?;
-                match last {
-                    selector::Segment::Key(k) => {
-                        parent
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
-                            .insert(k.clone(), removed);
-                    }
-                    selector::Segment::Index(i) => {
-                        let arr = parent
-                            .as_array_mut()
-                            .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
-                        if *i <= arr.len() {
-                            arr.insert(*i, removed);
-                        } else {
-                            anyhow::bail!("target index {i} out of bounds");
-                        }
-                    }
-                    _ => anyhow::bail!("cannot move to wildcard/predicate"),
-                }
+                move_at_path(root, &from_sel, &to_sel)?;
                 Ok(())
             })?;
         }

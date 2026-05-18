@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_where, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
-    update_matching, FileFormat,
+    deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
+    serialize_value, set_at_path, update_matching, FileFormat,
 };
 use crate::selector;
 use crate::write;
@@ -535,59 +535,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
-            // Remove value at source path.
-            let removed = {
-                let last = from_sel
-                    .last()
-                    .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
-                let parent_path = &from_sel[..from_sel.len() - 1];
-                let parent = navigate_mut(&mut root, parent_path, false)?;
-                match last {
-                    selector::Segment::Key(k) => parent
-                        .as_object_mut()
-                        .and_then(|obj| obj.remove(k.as_str()))
-                        .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
-                    selector::Segment::Index(i) => {
-                        let arr = parent
-                            .as_array_mut()
-                            .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
-                        if *i < arr.len() {
-                            arr.remove(*i)
-                        } else {
-                            anyhow::bail!("source index {i} out of bounds");
-                        }
-                    }
-                    _ => anyhow::bail!("cannot move from wildcard/predicate"),
-                }
-            };
-
-            // Insert at destination path.
-            {
-                let last = to_sel
-                    .last()
-                    .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
-                let parent_path = &to_sel[..to_sel.len() - 1];
-                let parent = navigate_mut(&mut root, parent_path, true)?;
-                match last {
-                    selector::Segment::Key(k) => {
-                        parent
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
-                            .insert(k.clone(), removed);
-                    }
-                    selector::Segment::Index(i) => {
-                        let arr = parent
-                            .as_array_mut()
-                            .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
-                        if *i <= arr.len() {
-                            arr.insert(*i, removed);
-                        } else {
-                            anyhow::bail!("target index {i} out of bounds");
-                        }
-                    }
-                    _ => anyhow::bail!("cannot move to wildcard/predicate"),
-                }
-            }
+            move_at_path(&mut root, &from_sel, &to_sel)?;
 
             let new_content = serialize_value(&root, &format)?;
             write_result(file, &original, &new_content, ctx)

@@ -148,6 +148,67 @@ pub(crate) mod doc {
         Ok(before_len - arr.len())
     }
 
+    /// Move a value from one path to another within the same document.
+    /// Removes the value at `from_segments` and inserts it at `to_segments`.
+    pub(crate) fn move_at_path(
+        root: &mut serde_json::Value,
+        from_segments: &[selector::Segment],
+        to_segments: &[selector::Segment],
+    ) -> anyhow::Result<()> {
+        // Remove value at source path.
+        let removed = {
+            let last = from_segments
+                .last()
+                .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
+            let parent_path = &from_segments[..from_segments.len() - 1];
+            let parent = navigate_mut(root, parent_path, false)?;
+            match last {
+                selector::Segment::Key(k) => parent
+                    .as_object_mut()
+                    .and_then(|obj| obj.remove(k.as_str()))
+                    .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
+                selector::Segment::Index(i) => {
+                    let arr = parent
+                        .as_array_mut()
+                        .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                    if *i < arr.len() {
+                        arr.remove(*i)
+                    } else {
+                        anyhow::bail!("source index {i} out of bounds");
+                    }
+                }
+                _ => anyhow::bail!("cannot move from wildcard/predicate"),
+            }
+        };
+
+        // Insert at destination path.
+        let last = to_segments
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
+        let parent_path = &to_segments[..to_segments.len() - 1];
+        let parent = navigate_mut(root, parent_path, true)?;
+        match last {
+            selector::Segment::Key(k) => {
+                parent
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
+                    .insert(k.clone(), removed);
+            }
+            selector::Segment::Index(i) => {
+                let arr = parent
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                if *i <= arr.len() {
+                    arr.insert(*i, removed);
+                } else {
+                    anyhow::bail!("target index {i} out of bounds");
+                }
+            }
+            _ => anyhow::bail!("cannot move to wildcard/predicate"),
+        }
+        Ok(())
+    }
+
     const MAX_MERGE_DEPTH: usize = 128;
 
     pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
