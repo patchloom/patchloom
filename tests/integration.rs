@@ -1937,6 +1937,43 @@ fn test_hygiene_check_json_output() {
 }
 
 #[test]
+fn test_hygiene_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "trailing   \n").unwrap();
+    fs::write(&b, "no final newline").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("hygiene")
+        .arg("check")
+        .arg(&a)
+        .arg(&b)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+
+    assert!(
+        lines.len() >= 2,
+        "should have at least one JSONL line per issue"
+    );
+    for line in &lines {
+        assert!(line["path"].is_string());
+        assert!(line["issue"].is_string());
+    }
+}
+
+#[test]
 fn test_hygiene_check_exits_0_when_clean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -2007,6 +2044,45 @@ fn test_patch_check_json_output_clean() {
     assert_eq!(json["ok"], true);
     assert!(json["files"].is_array());
     assert_eq!(json["files"][0]["status"], "clean");
+}
+
+#[test]
+fn test_patch_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+
+    assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
+    assert_eq!(lines[0]["path"], "test.txt");
+    assert_eq!(lines[0]["status"], "clean");
 }
 
 #[test]
