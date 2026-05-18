@@ -99,7 +99,7 @@ pub(crate) mod doc {
                                 apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
                                 true
                             } else if new_arr.len() < old_arr.len() {
-                                apply_yaml_root_sequence_delete(&seq, old_arr, new_arr)
+                                try_remove_subsequence(&seq, old_arr, new_arr)
                             } else {
                                 false
                             };
@@ -409,28 +409,8 @@ pub(crate) mod doc {
         key: &str,
         new_val: &serde_json::Value,
     ) -> anyhow::Result<()> {
-        let old_len = old_arr.len();
-        let new_len = new_arr.len();
-
-        if new_len < old_len {
-            // Deletion: find which old indices are absent in new_arr.
-            let mut remove_indices = Vec::new();
-            let mut ni = 0;
-            for (oi, old_item) in old_arr.iter().enumerate() {
-                if ni < new_len && *old_item == new_arr[ni] {
-                    ni += 1;
-                } else {
-                    remove_indices.push(oi);
-                }
-            }
-            if ni == new_len {
-                // All new elements found in order; remove the extras
-                // (iterate in reverse to keep indices stable).
-                for &idx in remove_indices.iter().rev() {
-                    seq.remove(idx);
-                }
-                return Ok(());
-            }
+        if new_arr.len() < old_arr.len() && try_remove_subsequence(seq, old_arr, new_arr) {
+            return Ok(());
         }
         // Growth or complex restructuring: fall back to mapping.set().
         // The validation guard in serialize_value_preserving will catch
@@ -439,18 +419,17 @@ pub(crate) mod doc {
         Ok(())
     }
 
-    /// Handle deletion from a sequence-rooted YAML document.
+    /// Try to remove elements from `seq` so that it matches `new_arr`,
+    /// treating `new_arr` as an ordered subsequence of `old_arr`.
     ///
-    /// Returns `true` if the CST was successfully modified, `false` if the
-    /// change pattern is too complex (caller falls back to plain serialization).
-    fn apply_yaml_root_sequence_delete(
+    /// Returns `true` if the removal succeeded, `false` if `new_arr` is
+    /// not a subsequence of `old_arr` (caller should fall back).
+    fn try_remove_subsequence(
         seq: &yaml_edit::Sequence,
         old_arr: &[serde_json::Value],
         new_arr: &[serde_json::Value],
     ) -> bool {
-        let old_len = old_arr.len();
         let new_len = new_arr.len();
-        debug_assert!(new_len < old_len);
         let mut remove_indices = Vec::new();
         let mut ni = 0;
         for (oi, old_item) in old_arr.iter().enumerate() {
@@ -463,6 +442,7 @@ pub(crate) mod doc {
         if ni != new_len {
             return false;
         }
+        // Iterate in reverse to keep indices stable during removal.
         for &idx in remove_indices.iter().rev() {
             seq.remove(idx);
         }
