@@ -138,7 +138,7 @@ where
 
         // Collect results from spawned threads.
         for handle in handles {
-            results.extend(handle.join().unwrap());
+            results.extend(handle.join().expect("worker thread panicked"));
         }
 
         results

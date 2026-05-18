@@ -261,10 +261,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let (new, removed) = dedupe_headings_in(&original);
             if !removed.is_empty() {
                 if global.json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&removed).expect("serialize removed")
-                    );
+                    println!("{}", serde_json::to_string_pretty(&removed)?);
                 } else if !global.quiet {
                     for h in &removed {
                         eprintln!("removed duplicate: {h}");
@@ -279,16 +276,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let issues = lint_agents_content(&content);
 
             if global.json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&issues).expect("serialize lint issues")
-                );
+                println!("{}", serde_json::to_string_pretty(&issues)?);
             } else if global.jsonl {
                 for issue in &issues {
-                    println!(
-                        "{}",
-                        serde_json::to_string(issue).expect("serialize lint issue")
-                    );
+                    println!("{}", serde_json::to_string(issue)?);
                 }
             } else {
                 for issue in &issues {

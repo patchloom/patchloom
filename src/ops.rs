@@ -846,3 +846,669 @@ pub(crate) mod patch {
         Ok(results)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // ── doc module tests ──────────────────────────────────────────────
+    mod doc_tests {
+        use crate::ops::doc::*;
+        use serde_json::json;
+
+        #[test]
+        fn detect_format_json() {
+            assert!(matches!(
+                detect_format("config.json").unwrap(),
+                FileFormat::Json
+            ));
+        }
+
+        #[test]
+        fn detect_format_yaml() {
+            assert!(matches!(
+                detect_format("config.yaml").unwrap(),
+                FileFormat::Yaml
+            ));
+            assert!(matches!(
+                detect_format("config.yml").unwrap(),
+                FileFormat::Yaml
+            ));
+        }
+
+        #[test]
+        fn detect_format_toml() {
+            assert!(matches!(
+                detect_format("Cargo.toml").unwrap(),
+                FileFormat::Toml
+            ));
+        }
+
+        #[test]
+        fn detect_format_unsupported() {
+            assert!(detect_format("readme.txt").is_err());
+        }
+
+        #[test]
+        fn detect_format_no_extension() {
+            assert!(detect_format("Makefile").is_err());
+        }
+
+        #[test]
+        fn parse_and_serialize_json_roundtrip() {
+            let input = "{\n  \"a\": 1\n}\n";
+            let val = parse_doc(input, &FileFormat::Json).unwrap();
+            assert_eq!(val, json!({"a": 1}));
+            let out = serialize_value(&val, &FileFormat::Json).unwrap();
+            assert_eq!(out, input);
+        }
+
+        #[test]
+        fn parse_and_serialize_yaml_roundtrip() {
+            let input = "a: 1\n";
+            let val = parse_doc(input, &FileFormat::Yaml).unwrap();
+            assert_eq!(val, json!({"a": 1}));
+            let out = serialize_value(&val, &FileFormat::Yaml).unwrap();
+            assert_eq!(out, input);
+        }
+
+        #[test]
+        fn parse_and_serialize_toml_roundtrip() {
+            let input = "a = 1\n";
+            let val = parse_doc(input, &FileFormat::Toml).unwrap();
+            assert_eq!(val, json!({"a": 1}));
+            // TOML pretty serialization may differ slightly; just ensure it parses back
+            let out = serialize_value(&val, &FileFormat::Toml).unwrap();
+            let reparsed = parse_doc(&out, &FileFormat::Toml).unwrap();
+            assert_eq!(reparsed, json!({"a": 1}));
+        }
+
+        #[test]
+        fn navigate_mut_existing_key() {
+            let mut val = json!({"a": {"b": 42}});
+            let seg = crate::selector::parse("a.b").unwrap();
+            let found = navigate_mut(&mut val, &seg, false).unwrap();
+            assert_eq!(*found, json!(42));
+        }
+
+        #[test]
+        fn navigate_mut_missing_key_no_create() {
+            let mut val = json!({"a": 1});
+            let seg = crate::selector::parse("b").unwrap();
+            assert!(navigate_mut(&mut val, &seg, false).is_err());
+        }
+
+        #[test]
+        fn navigate_mut_create_missing_key() {
+            let mut val = json!({"a": 1});
+            let seg = crate::selector::parse("b.c").unwrap();
+            let found = navigate_mut(&mut val, &seg, true).unwrap();
+            // created as empty object, then descended into "c" which was also created
+            assert!(found.is_object());
+        }
+
+        #[test]
+        fn navigate_mut_array_index() {
+            let mut val = json!({"items": [10, 20, 30]});
+            let seg = crate::selector::parse("items[1]").unwrap();
+            let found = navigate_mut(&mut val, &seg, false).unwrap();
+            assert_eq!(*found, json!(20));
+        }
+
+        #[test]
+        fn navigate_mut_index_out_of_bounds() {
+            let mut val = json!({"items": [10]});
+            let seg = crate::selector::parse("items[5]").unwrap();
+            assert!(navigate_mut(&mut val, &seg, false).is_err());
+        }
+
+        #[test]
+        fn deep_merge_objects() {
+            let mut base = json!({"a": 1, "b": {"c": 2}});
+            let other = json!({"b": {"d": 3}, "e": 4});
+            deep_merge(&mut base, &other);
+            assert_eq!(base, json!({"a": 1, "b": {"c": 2, "d": 3}, "e": 4}));
+        }
+
+        #[test]
+        fn deep_merge_overwrites_non_object() {
+            let mut base = json!({"a": "string"});
+            let other = json!({"a": {"nested": true}});
+            deep_merge(&mut base, &other);
+            assert_eq!(base, json!({"a": {"nested": true}}));
+        }
+
+        #[test]
+        fn deep_merge_depth_limit() {
+            // Build a deeply nested structure beyond MAX_MERGE_DEPTH (128)
+            let mut deep_val = json!("leaf");
+            for _ in 0..130 {
+                deep_val = json!({"n": deep_val});
+            }
+            let mut base = json!({});
+            deep_merge(&mut base, &deep_val);
+            // Should not panic; at depth 128 it clones instead of recursing
+            assert!(base.is_object());
+        }
+
+        #[test]
+        fn update_matching_by_key() {
+            let mut val = json!({"a": {"b": "old"}});
+            let seg = crate::selector::parse("a.b").unwrap();
+            let count = update_matching(&mut val, &seg, &json!("new"));
+            assert_eq!(count, 1);
+            assert_eq!(val, json!({"a": {"b": "new"}}));
+        }
+
+        #[test]
+        fn update_matching_wildcard() {
+            let mut val = json!({"items": [{"v": 1}, {"v": 2}]});
+            let seg = crate::selector::parse("items[*].v").unwrap();
+            let count = update_matching(&mut val, &seg, &json!(99));
+            assert_eq!(count, 2);
+            assert_eq!(val, json!({"items": [{"v": 99}, {"v": 99}]}));
+        }
+
+        #[test]
+        fn update_matching_predicate() {
+            let mut val = json!({"items": [
+                {"name": "a", "v": 1},
+                {"name": "b", "v": 2}
+            ]});
+            let seg = crate::selector::parse("items[name=b].v").unwrap();
+            let count = update_matching(&mut val, &seg, &json!(42));
+            assert_eq!(count, 1);
+            assert_eq!(val["items"][1]["v"], json!(42));
+            // First item unchanged
+            assert_eq!(val["items"][0]["v"], json!(1));
+        }
+
+        #[test]
+        fn update_matching_missing_key_returns_zero() {
+            let mut val = json!({"a": 1});
+            let seg = crate::selector::parse("b.c").unwrap();
+            let count = update_matching(&mut val, &seg, &json!("x"));
+            assert_eq!(count, 0);
+        }
+    }
+
+    // ── replace module tests ──────────────────────────────────────────
+    mod replace_tests {
+        use crate::ops::replace::*;
+
+        #[test]
+        fn validate_mode_missing() {
+            assert_eq!(
+                validate_replace_mode(false, false, false),
+                Err(ReplaceModeError::MissingMode)
+            );
+        }
+
+        #[test]
+        fn validate_mode_both_inserts() {
+            assert_eq!(
+                validate_replace_mode(false, true, true),
+                Err(ReplaceModeError::BothInsertModes)
+            );
+        }
+
+        #[test]
+        fn validate_mode_to_with_insert() {
+            assert_eq!(
+                validate_replace_mode(true, true, false),
+                Err(ReplaceModeError::ToWithInsert)
+            );
+            assert_eq!(
+                validate_replace_mode(true, false, true),
+                Err(ReplaceModeError::ToWithInsert)
+            );
+        }
+
+        #[test]
+        fn validate_mode_valid_to_only() {
+            assert!(validate_replace_mode(true, false, false).is_ok());
+        }
+
+        #[test]
+        fn validate_mode_valid_insert_before_only() {
+            assert!(validate_replace_mode(false, true, false).is_ok());
+        }
+
+        #[test]
+        fn validate_mode_valid_insert_after_only() {
+            assert!(validate_replace_mode(false, false, true).is_ok());
+        }
+
+        #[test]
+        fn replacement_text_with_to() {
+            let result = replacement_text("from", &Some("to".into()), &None, &None, false);
+            assert_eq!(result, "to");
+        }
+
+        #[test]
+        fn replacement_text_insert_before_literal() {
+            let result =
+                replacement_text("original", &None, &Some("PREFIX\n".into()), &None, false);
+            assert_eq!(result, "PREFIX\noriginal");
+        }
+
+        #[test]
+        fn replacement_text_insert_after_literal() {
+            let result =
+                replacement_text("original", &None, &None, &Some("\nSUFFIX".into()), false);
+            assert_eq!(result, "original\nSUFFIX");
+        }
+
+        #[test]
+        fn replacement_text_insert_before_regex_anchor() {
+            let result = replacement_text("ignored", &None, &Some("PREFIX\n".into()), &None, true);
+            assert_eq!(result, "PREFIX\n${0}");
+        }
+
+        #[test]
+        fn replacement_text_insert_after_regex_anchor() {
+            let result = replacement_text("ignored", &None, &None, &Some("\nSUFFIX".into()), true);
+            assert_eq!(result, "${0}\nSUFFIX");
+        }
+
+        #[test]
+        fn replace_content_literal_all() {
+            let (out, count) = replace_content("aXbXc", "X", "Y", None, None);
+            assert_eq!(out, "aYbYc");
+            assert_eq!(count, 2);
+        }
+
+        #[test]
+        fn replace_content_literal_no_match() {
+            let (out, count) = replace_content("hello", "zzz", "y", None, None);
+            assert_eq!(out, "hello");
+            assert_eq!(count, 0);
+        }
+
+        #[test]
+        fn replace_content_literal_nth() {
+            let (out, count) = replace_content("aXbXcX", "X", "Y", None, Some(2));
+            assert_eq!(out, "aXbYcX");
+            assert_eq!(count, 1);
+        }
+
+        #[test]
+        fn replace_content_literal_nth_out_of_range() {
+            let (out, count) = replace_content("aXb", "X", "Y", None, Some(5));
+            assert_eq!(out, "aXb");
+            assert_eq!(count, 0);
+        }
+
+        #[test]
+        fn replace_content_regex_all() {
+            let re = regex::Regex::new(r"\d+").unwrap();
+            let (out, count) = replace_content("a1b22c333", "unused", "N", Some(&re), None);
+            assert_eq!(out, "aNbNcN");
+            assert_eq!(count, 3);
+        }
+
+        #[test]
+        fn replace_content_regex_nth() {
+            let re = regex::Regex::new(r"\d+").unwrap();
+            let (out, count) = replace_content("a1b22c333", "unused", "N", Some(&re), Some(2));
+            assert_eq!(out, "a1bNc333");
+            assert_eq!(count, 1);
+        }
+
+        #[test]
+        fn replace_content_regex_capture_group() {
+            let re = regex::Regex::new(r"(\w+)@(\w+)").unwrap();
+            let (out, count) = replace_content("user@host", "unused", "$2=$1", Some(&re), None);
+            assert_eq!(out, "host=user");
+            assert_eq!(count, 1);
+        }
+    }
+
+    // ── md module tests ───────────────────────────────────────────────
+    mod md_tests {
+        use crate::ops::md::*;
+
+        #[test]
+        fn parse_headings_basic() {
+            let content = "# H1\ntext\n## H2\nmore\n# H1b\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 3);
+            assert_eq!(headings[0].level, 1);
+            assert_eq!(headings[0].text, "H1");
+            assert_eq!(headings[1].level, 2);
+            assert_eq!(headings[1].text, "H2");
+            assert_eq!(headings[2].level, 1);
+            assert_eq!(headings[2].text, "H1b");
+        }
+
+        #[test]
+        fn parse_headings_section_boundaries() {
+            // ## B (level 2) does NOT end # A (level 1); only same-or-higher level ends it
+            let content = "# A\nline1\nline2\n## B\nline3\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings[0].line_start, 0);
+            assert_eq!(headings[0].line_end, 5); // # A owns everything (no same-level heading)
+            assert_eq!(headings[1].line_start, 3);
+            assert_eq!(headings[1].line_end, 5); // ## B to end of content
+
+            // Two same-level headings: second ends first
+            let content2 = "# A\nbody\n# B\nmore\n";
+            let h2 = parse_headings(content2);
+            assert_eq!(h2[0].line_end, 2); // # A ends at # B
+            assert_eq!(h2[1].line_end, 4); // # B to end
+        }
+
+        #[test]
+        fn parse_headings_ignores_invalid() {
+            let content = "#nospace\n##also\n# Valid\n###### Six\n####### Seven\n";
+            let headings = parse_headings(content);
+            // Only "# Valid" and "###### Six" are valid (Seven > 6 levels)
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Valid");
+            assert_eq!(headings[1].text, "Six");
+        }
+
+        #[test]
+        fn find_section_returns_body_bytes() {
+            // ## Next is deeper than # Title, so it's part of the section body
+            let content = "# Title\nBody line 1\nBody line 2\n## Next\n";
+            let (start, end) = find_section(content, "Title").unwrap();
+            let body = &content[start..end];
+            assert_eq!(body, "Body line 1\nBody line 2\n## Next\n");
+
+            // Same-level heading ends the section
+            let content2 = "# Title\nBody\n# Other\nKeep\n";
+            let (s2, e2) = find_section(content2, "Title").unwrap();
+            assert_eq!(&content2[s2..e2], "Body\n");
+        }
+
+        #[test]
+        fn find_section_with_hashes_in_query() {
+            let content = "## API\nsome text\n";
+            let result = find_section(content, "## API");
+            assert!(result.is_some());
+        }
+
+        #[test]
+        fn find_section_missing() {
+            let content = "# Title\nBody\n";
+            assert!(find_section(content, "Nonexistent").is_none());
+        }
+
+        #[test]
+        fn replace_section_basic() {
+            // Use same-level heading so section boundary is clear
+            let content = "# Title\nOld body\n# Next\nKeep\n";
+            let result = replace_section_in(content, "Title", "New body").unwrap();
+            assert_eq!(result, "# Title\nNew body\n# Next\nKeep\n");
+        }
+
+        #[test]
+        fn replace_section_empty_replacement() {
+            let content = "# Title\nOld body\n# Next\nKeep\n";
+            let result = replace_section_in(content, "Title", "").unwrap();
+            assert_eq!(result, "# Title\n# Next\nKeep\n");
+        }
+
+        #[test]
+        fn replace_section_missing_heading() {
+            let content = "# Title\nBody\n";
+            assert!(replace_section_in(content, "Missing", "x").is_none());
+        }
+
+        #[test]
+        fn insert_after_heading() {
+            let content = "# Title\nExisting\n";
+            let result = insert_after_heading_in(content, "Title", "Inserted\n").unwrap();
+            assert_eq!(result, "# Title\nInserted\nExisting\n");
+        }
+
+        #[test]
+        fn insert_before_heading() {
+            let content = "# First\nBody\n## Second\nMore\n";
+            let result = insert_before_heading_in(content, "Second", "Inserted").unwrap();
+            assert!(result.contains("Inserted\n\n## Second"));
+        }
+
+        #[test]
+        fn upsert_bullet_adds_new() {
+            let content = "# List\n- item1\n";
+            let result = upsert_bullet_in(content, "List", "- item2").unwrap();
+            assert!(result.contains("- item1\n- item2\n"));
+        }
+
+        #[test]
+        fn upsert_bullet_dedup_existing() {
+            let content = "# List\n- item1\n";
+            let result = upsert_bullet_in(content, "List", "- item1").unwrap();
+            // Should return content unchanged (no duplicate)
+            assert_eq!(result, content);
+        }
+
+        #[test]
+        fn upsert_bullet_auto_prefix() {
+            let content = "# List\n- a\n";
+            let result = upsert_bullet_in(content, "List", "new item").unwrap();
+            assert!(result.contains("- new item\n"));
+        }
+
+        #[test]
+        fn dedupe_headings_removes_duplicate() {
+            let content = "# Title\nFirst\n# Title\nSecond\n";
+            let (result, removed) = dedupe_headings_in(content);
+            assert_eq!(removed, vec!["# Title"]);
+            // First occurrence kept, second removed
+            assert!(result.contains("First"));
+            assert!(!result.contains("Second"));
+        }
+
+        #[test]
+        fn dedupe_headings_no_duplicates() {
+            let content = "# A\n## B\n# C\n";
+            let (result, removed) = dedupe_headings_in(content);
+            assert!(removed.is_empty());
+            assert_eq!(result, content);
+        }
+
+        #[test]
+        fn table_append_basic() {
+            let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n## Next\n";
+            let (start, end) = find_section(content, "API").unwrap();
+            let result = table_append_in(content, start, end, "| b | 2 |").unwrap();
+            assert!(result.contains("| a | 1 |\n| b | 2 |\n## Next"));
+        }
+
+        #[test]
+        fn table_append_no_table() {
+            let content = "# API\nJust text\n";
+            let (start, end) = find_section(content, "API").unwrap();
+            assert!(table_append_in(content, start, end, "| b | 2 |").is_none());
+        }
+
+        #[test]
+        fn table_append_for_tx_basic() {
+            let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
+            let result = table_append_for_tx(content, "API", "| b | 2 |").unwrap();
+            assert!(result.contains("| a | 1 |\n| b | 2 |\n"));
+        }
+    }
+
+    // ── patch module tests ────────────────────────────────────────────
+    mod patch_tests {
+        use crate::ops::patch::*;
+
+        #[test]
+        fn parse_patch_single_file() {
+            let diff = "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,3 +1,3 @@
+ line1
+-line2
++LINE2
+ line3
+";
+            let files = parse_patch(diff).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].path, "hello.txt");
+            assert_eq!(files[0].hunks.len(), 1);
+            assert_eq!(files[0].hunks[0].old_start, 1);
+            assert_eq!(files[0].hunks[0].old_count, 3);
+        }
+
+        #[test]
+        fn parse_patch_multiple_files() {
+            let diff = "\
+--- a/a.txt
++++ b/a.txt
+@@ -1,1 +1,1 @@
+-old
++new
+--- a/b.txt
++++ b/b.txt
+@@ -1,1 +1,1 @@
+-foo
++bar
+";
+            let files = parse_patch(diff).unwrap();
+            assert_eq!(files.len(), 2);
+            assert_eq!(files[0].path, "a.txt");
+            assert_eq!(files[1].path, "b.txt");
+        }
+
+        #[test]
+        fn parse_patch_no_files() {
+            let diff = "just some text\n";
+            assert!(parse_patch(diff).is_err());
+        }
+
+        #[test]
+        fn parse_patch_no_hunks() {
+            let diff = "--- a/f.txt\n+++ b/f.txt\n";
+            assert!(parse_patch(diff).is_err());
+        }
+
+        #[test]
+        fn apply_hunks_simple_replacement() {
+            let original = "line1\nline2\nline3\n";
+            let hunks = vec![Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Context("line1".into()),
+                    PatchLine::Remove("line2".into()),
+                    PatchLine::Add("LINE2".into()),
+                    PatchLine::Context("line3".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "line1\nLINE2\nline3\n");
+        }
+
+        #[test]
+        fn apply_hunks_addition() {
+            let original = "a\nb\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 2,
+                new_start: 1,
+                new_count: 3,
+                lines: vec![
+                    PatchLine::Context("a".into()),
+                    PatchLine::Add("inserted".into()),
+                    PatchLine::Context("b".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\ninserted\nb\n");
+        }
+
+        #[test]
+        fn apply_hunks_deletion() {
+            let original = "a\nremove_me\nb\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 2,
+                lines: vec![
+                    PatchLine::Context("a".into()),
+                    PatchLine::Remove("remove_me".into()),
+                    PatchLine::Context("b".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\nb\n");
+        }
+
+        #[test]
+        fn apply_hunks_stale_context_fails() {
+            let original = "a\nb\nc\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Remove("wrong_context".into()),
+                    PatchLine::Add("x".into()),
+                ],
+            }];
+            assert!(apply_hunks(original, &hunks).is_err());
+        }
+
+        #[test]
+        fn apply_hunks_fuzz_match() {
+            // The hunk header says line 2, but the actual match is at line 3
+            // (1 line off). Should still apply within FUZZ_RANGE=3.
+            let original = "a\nb\nc\nd\n";
+            let hunks = vec![Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+                lines: vec![PatchLine::Remove("c".into()), PatchLine::Add("C".into())],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\nb\nC\nd\n");
+        }
+
+        #[test]
+        fn apply_patch_with_loader_basic() {
+            let diff = "\
+--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,3 @@
+ hello
+-world
++WORLD
+ end
+";
+            let results = apply_patch_with_loader(diff, |path| {
+                assert_eq!(path, "test.txt");
+                Ok("hello\nworld\nend\n".to_string())
+            })
+            .unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].0, "test.txt");
+            assert_eq!(results[0].1, "hello\nWORLD\nend\n");
+        }
+
+        #[test]
+        fn apply_hunks_preserves_no_final_newline() {
+            let original = "line1\nline2";
+            let hunks = vec![Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Remove("line2".into()),
+                    PatchLine::Add("LINE2".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "line1\nLINE2");
+        }
+    }
+}
