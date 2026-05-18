@@ -637,4 +637,28 @@ mod tests {
             assert!(text.contains("Hello"), "match text missing 'Hello': {text}");
         }
     }
+
+    #[test]
+    fn case_insensitive_finds_all_cases() {
+        let dir = make_test_dir();
+        // hello.txt has "Hello" (uppercase H); code.rs has "hello" (lowercase).
+        let mut args = make_args("hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.case_insensitive = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        // hello.txt: 2 lines with "Hello", code.rs: 1 line with "hello" => 3
+        assert_eq!(results.matches.len(), 3);
+    }
+
+    #[test]
+    fn case_insensitive_literal_escapes_regex_chars() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("special.txt"), "foo(BAR)\nbaz\n").unwrap();
+
+        let mut args = make_args("foo(bar)", vec![dir.path().to_string_lossy().into_owned()]);
+        args.literal = true;
+        args.case_insensitive = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert_eq!(results.matches.len(), 1);
+        assert!(results.matches[0].text.contains("foo(BAR)"));
+    }
 }

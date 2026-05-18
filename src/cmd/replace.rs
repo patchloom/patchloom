@@ -604,4 +604,26 @@ mod tests {
             "without multiline, dot should not match newlines"
         );
     }
+
+    #[test]
+    fn check_mode_returns_changes_detected() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = make_args(
+            "hello",
+            "hi",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        let mut global = default_global();
+        global.check = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        // File must not be modified in check mode.
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello world\n");
+    }
 }
