@@ -137,9 +137,10 @@ pub struct <Name>Args {
 }
 
 pub fn run(args: <Name>Args, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
+    let cwd = global.resolve_cwd()?;
 
-    // implementation
+    // Use cwd.join(path) for file resolution instead of set_current_dir
+    // (set_current_dir is process-global and not thread-safe for parallel tests)
 
     Ok(exit::SUCCESS)
 }
