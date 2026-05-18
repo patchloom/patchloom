@@ -364,4 +364,76 @@ mod tests {
         assert_eq!(fmt.len(), 1);
         assert_eq!(fmt[0].cmd, "cargo fmt");
     }
+
+    // ── YAML / TOML / auto-detect ─────────────────────────────────
+
+    #[test]
+    fn parse_plan_yaml_basic() {
+        let yaml = "operations:\n  - op: replace\n    from: old\n    to: new\n";
+        let plan = parse_plan_yaml(yaml).unwrap();
+        assert_eq!(plan.operations.len(), 1);
+        assert!(matches!(
+            &plan.operations[0],
+            Operation::Replace { from, to, .. } if from == "old" && to.as_deref() == Some("new")
+        ));
+    }
+
+    #[test]
+    fn parse_plan_toml_basic() {
+        let toml = "[[operations]]\nop = \"replace\"\nfrom = \"old\"\nto = \"new\"\n";
+        let plan = parse_plan_toml(toml).unwrap();
+        assert_eq!(plan.operations.len(), 1);
+        assert!(matches!(
+            &plan.operations[0],
+            Operation::Replace { from, to, .. } if from == "old" && to.as_deref() == Some("new")
+        ));
+    }
+
+    #[test]
+    fn parse_plan_auto_detects_yaml() {
+        let yaml = "operations:\n  - op: replace\n    from: a\n    to: b\n";
+        let plan = parse_plan_auto(yaml, Some("plan.yaml"), None).unwrap();
+        assert_eq!(plan.operations.len(), 1);
+    }
+
+    #[test]
+    fn parse_plan_auto_format_hint_overrides_extension() {
+        let yaml = "operations:\n  - op: replace\n    from: a\n    to: b\n";
+        // Extension says .json but hint says yaml.
+        let plan = parse_plan_auto(yaml, Some("plan.json"), Some("yaml")).unwrap();
+        assert_eq!(plan.operations.len(), 1);
+    }
+
+    #[test]
+    fn parse_plan_auto_defaults_to_json() {
+        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan_auto(json, Some("plan.txt"), None).unwrap();
+        assert_eq!(plan.operations.len(), 1);
+    }
+
+    #[test]
+    fn parse_plan_strict_and_all_policy_fields() {
+        let json = r#"{
+            "strict": true,
+            "write_policy": {
+                "ensure_final_newline": true,
+                "normalize_eol": "crlf",
+                "trim_trailing_whitespace": true
+            },
+            "operations": [],
+            "format": [{"cmd": "fmt", "timeout": 30}],
+            "validate": [{"cmd": "check", "required": true, "timeout": 120}]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(plan.strict);
+        let wp = plan.write_policy.unwrap();
+        assert_eq!(wp.ensure_final_newline, Some(true));
+        assert_eq!(wp.normalize_eol.as_deref(), Some("crlf"));
+        assert_eq!(wp.trim_trailing_whitespace, Some(true));
+        let fmt = &plan.format.unwrap()[0];
+        assert_eq!(fmt.timeout, Some(30));
+        let val = &plan.validate.unwrap()[0];
+        assert_eq!(val.required, Some(true));
+        assert_eq!(val.timeout, Some(120));
+    }
 }
