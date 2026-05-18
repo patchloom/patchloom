@@ -134,9 +134,8 @@ fn test_agent_rules_outputs_markdown() {
         .assert()
         .success()
         .stdout(predicates::str::contains("# Patchloom"))
-        .stdout(predicates::str::contains("## Commands"))
-        .stdout(predicates::str::contains("## Exit codes"))
-        .stdout(predicates::str::contains("## Transaction operation types"));
+        .stdout(predicates::str::contains("## Quick reference"))
+        .stdout(predicates::str::contains("## Batching with `tx`"));
 }
 
 #[test]
