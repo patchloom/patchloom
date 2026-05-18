@@ -53,7 +53,6 @@ src/
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
   agent_rules.md       End-user AGENTS.md template, embedded at compile time by agent-rules command
-  error.rs             Reserved for future structured error types (currently a placeholder)
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
