@@ -882,6 +882,22 @@ mod tests {
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
+    #[test]
+    fn lint_agents_finds_missing_final_newline() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(&file, "# Rules\nNo trailing newline").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
     // -- final newline ------------------------------------------------------
 
     #[test]
