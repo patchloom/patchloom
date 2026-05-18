@@ -197,7 +197,7 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     // 2. Dangerous git add commands (skip fenced code blocks and inline code).
     let mut in_fence = false;
     for (idx, line) in content.lines().enumerate() {
-        if line.starts_with("```") {
+        if line.starts_with("```") || line.starts_with("~~~") {
             in_fence = !in_fence;
             continue;
         }
@@ -624,6 +624,26 @@ mod tests {
         fs::write(
             &file,
             "# Rules\n\n```bash\n# BAD example\ngit add .\n```\n\nStage explicitly.\n",
+        )
+        .unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn lint_agents_skips_dangerous_cmd_in_tilde_fence() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(
+            &file,
+            "# Rules\n\n~~~bash\n# BAD example\ngit add .\n~~~\n\nStage explicitly.\n",
         )
         .unwrap();
 
