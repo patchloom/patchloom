@@ -91,6 +91,27 @@ pub(crate) mod doc {
                                 return Ok(result);
                             }
                         }
+                    } else if let Some(seq) = doc.as_sequence() {
+                        if let (Some(old_arr), Some(new_arr)) =
+                            (old_value.as_array(), new_value.as_array())
+                        {
+                            let applied = if old_arr.len() == new_arr.len() {
+                                apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+                                true
+                            } else if new_arr.len() < old_arr.len() {
+                                apply_yaml_root_sequence_delete(&seq, old_arr, new_arr)
+                            } else {
+                                false
+                            };
+                            if applied {
+                                let result = file.to_string();
+                                if serde_yaml_ng::from_str::<serde_json::Value>(&result)
+                                    .is_ok_and(|v| v.is_array())
+                                {
+                                    return Ok(result);
+                                }
+                            }
+                        }
                     }
                 }
                 // Root is not a mapping (e.g. sequence-rooted YAML); fall back
@@ -416,6 +437,36 @@ pub(crate) mod doc {
         // any CST corruption and fall through to plain serialization.
         mapping.set(key, json_to_yaml_node(new_val)?);
         Ok(())
+    }
+
+    /// Handle deletion from a sequence-rooted YAML document.
+    ///
+    /// Returns `true` if the CST was successfully modified, `false` if the
+    /// change pattern is too complex (caller falls back to plain serialization).
+    fn apply_yaml_root_sequence_delete(
+        seq: &yaml_edit::Sequence,
+        old_arr: &[serde_json::Value],
+        new_arr: &[serde_json::Value],
+    ) -> bool {
+        let old_len = old_arr.len();
+        let new_len = new_arr.len();
+        debug_assert!(new_len < old_len);
+        let mut remove_indices = Vec::new();
+        let mut ni = 0;
+        for (oi, old_item) in old_arr.iter().enumerate() {
+            if ni < new_len && *old_item == new_arr[ni] {
+                ni += 1;
+            } else {
+                remove_indices.push(oi);
+            }
+        }
+        if ni != new_len {
+            return false;
+        }
+        for &idx in remove_indices.iter().rev() {
+            seq.remove(idx);
+        }
+        true
     }
 
     /// Convert a `serde_json::Value` to a `yaml_edit::YamlNode` by
