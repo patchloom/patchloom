@@ -70,7 +70,7 @@ fn read_one_file(path: &str, lines_spec: &Option<String>) -> Result<ReadOutput, 
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
 
-    let (start, end) = if let Some(ref spec) = lines_spec {
+    let (start, end) = if let Some(spec) = &lines_spec {
         let (s, e) = parse_line_range(spec).map_err(|e| e.to_string())?;
         let end = e.unwrap_or(total_lines).min(total_lines);
         (s, end)

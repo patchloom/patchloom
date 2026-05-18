@@ -249,7 +249,7 @@ fn update_file_content(
     new_content: String,
 ) {
     deletions.remove(path);
-    if let Some((_, ref mut current)) = pending.get_mut(path) {
+    if let Some((_, current)) = pending.get_mut(path) {
         *current = new_content;
     } else {
         pending.insert(path.to_path_buf(), (String::new(), new_content));
@@ -356,7 +356,8 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                 continue;
             }
             let content = if tx.pending.contains_key(&file_path) {
-                match read_file_content(tx.pending, &file_path, tx.cwd) {
+                let result = read_file_content(tx.pending, &file_path, tx.cwd);
+                match result {
                     Ok(c) => c.to_owned(),
                     Err(e) => {
                         eprintln!("tx: replace: skipping {}: {e}", file_path.display());
@@ -954,7 +955,8 @@ struct LifecycleError {
 fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), LifecycleError> {
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        match run_shell_with_timeout(&step.cmd, timeout_secs, cwd) {
+        let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
+        match result {
             Ok(status) if !status.success() => {
                 let msg = format!(
                     "format step failed (step {}, {})",
@@ -984,7 +986,8 @@ fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), Lifecy
 fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), LifecycleError> {
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        match run_shell_with_timeout(&step.cmd, timeout_secs, cwd) {
+        let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
+        match result {
             Ok(status) if status.success() => {}
             Ok(status) => {
                 let msg = format!(
@@ -1101,14 +1104,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 has_non_idempotent_replace = true;
             }
         }
-        match execute_operation(
+        let result = execute_operation(
             op,
             &mut pending,
             &mut deletions,
             &mut tx_reads,
             &mut tx_searches,
             &cwd,
-        ) {
+        );
+        match result {
             Ok(match_count) => {
                 total_replace_matches += match_count;
             }

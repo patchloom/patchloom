@@ -100,27 +100,24 @@ impl DocAction {
     /// on the process-global current directory.
     fn resolve_files(&mut self, cwd: &std::path::Path) {
         match self {
-            DocAction::Get { ref mut file, .. }
-            | DocAction::Has { ref mut file, .. }
-            | DocAction::Keys { ref mut file, .. }
-            | DocAction::Len { ref mut file, .. }
-            | DocAction::Set { ref mut file, .. }
-            | DocAction::Delete { ref mut file, .. }
-            | DocAction::DeleteWhere { ref mut file, .. }
-            | DocAction::Merge { ref mut file, .. }
-            | DocAction::Append { ref mut file, .. }
-            | DocAction::Prepend { ref mut file, .. }
-            | DocAction::Select { ref mut file, .. }
-            | DocAction::Update { ref mut file, .. }
-            | DocAction::Move { ref mut file, .. }
-            | DocAction::Ensure { ref mut file, .. }
-            | DocAction::Flatten { ref mut file } => {
+            DocAction::Get { file, .. }
+            | DocAction::Has { file, .. }
+            | DocAction::Keys { file, .. }
+            | DocAction::Len { file, .. }
+            | DocAction::Set { file, .. }
+            | DocAction::Delete { file, .. }
+            | DocAction::DeleteWhere { file, .. }
+            | DocAction::Merge { file, .. }
+            | DocAction::Append { file, .. }
+            | DocAction::Prepend { file, .. }
+            | DocAction::Select { file, .. }
+            | DocAction::Update { file, .. }
+            | DocAction::Move { file, .. }
+            | DocAction::Ensure { file, .. }
+            | DocAction::Flatten { file } => {
                 *file = cwd.join(&*file).to_string_lossy().to_string();
             }
-            DocAction::Diff {
-                ref mut file_a,
-                ref mut file_b,
-            } => {
+            DocAction::Diff { file_a, file_b } => {
                 *file_a = cwd.join(&*file_a).to_string_lossy().to_string();
                 *file_b = cwd.join(&*file_b).to_string_lossy().to_string();
             }
