@@ -77,18 +77,29 @@ pub(crate) mod doc {
                         // objects; a root type change (e.g. mapping -> scalar)
                         // cannot be applied via the mapping diff.
                         if old_value.is_object() && new_value.is_object() {
+                            // Check if there are any array-growth diffs that
+                            // the CST path will leave unhandled (it only does
+                            // same-length updates and deletion).
+                            let has_array_growth = has_array_growth_diffs(old_value, new_value);
                             apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
                             let result = file.to_string();
-                            // Safety net: verify the CST output is still valid
-                            // YAML that parses to a mapping.  Catches both
-                            // invalid syntax (parse failure) and structural
-                            // corruption where a broken `mapping.set` causes
-                            // the root to degenerate from a mapping to a
-                            // sequence or scalar.
+                            // Validate the CST output is still valid YAML
+                            // that parses to a mapping.
                             if serde_yaml_ng::from_str::<serde_json::Value>(&result)
                                 .is_ok_and(|v| v.is_object())
                             {
-                                return Ok(result);
+                                if !has_array_growth {
+                                    return Ok(result);
+                                }
+                                // There were array-growth diffs left
+                                // unhandled by the CST.  Splice them
+                                // into the text to preserve comments.
+                                let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
+                                if let Some(spliced) =
+                                    splice_yaml_array_diffs(&result, &reparsed, new_value)?
+                                {
+                                    return Ok(spliced);
+                                }
                             }
                         }
                     } else if let Some(seq) = doc.as_sequence() {
@@ -101,7 +112,7 @@ pub(crate) mod doc {
                             } else if new_arr.len() < old_arr.len() {
                                 try_remove_subsequence(&seq, old_arr, new_arr)
                             } else {
-                                false
+                                false // Growth: handled by text-level splice below.
                             };
                             if applied {
                                 let result = file.to_string();
@@ -111,11 +122,20 @@ pub(crate) mod doc {
                                     return Ok(result);
                                 }
                             }
+                            // Growth or CST validation failure: splice into
+                            // the original text to preserve comments.
+                            if new_arr.len() > old_arr.len() {
+                                if let Some(spliced) =
+                                    splice_yaml_root_sequence(original_content, old_arr, new_arr)?
+                                {
+                                    return Ok(spliced);
+                                }
+                            }
                         }
                     }
                 }
-                // Root is not a mapping (e.g. sequence-rooted YAML); fall back
-                // to non-preserving serialization so mutations are not lost.
+                // Fall back to non-preserving serialization so mutations
+                // are not lost.
                 if old_value == new_value {
                     Ok(original_content.to_string())
                 } else {
@@ -393,29 +413,26 @@ pub(crate) mod doc {
         Ok(())
     }
 
-    /// Handle different-length array diffs.
+    /// Handle different-length array diffs while preserving comments.
     ///
-    /// Deletion is handled via targeted `Sequence::remove()` calls, which
-    /// preserves comments and formatting on surrounding entries.
-    ///
-    /// Growth (prepend, append) falls back to `mapping.set()`.  The caller's
-    /// validation safety-net in `serialize_value_preserving` will detect any
-    /// invalid CST output and fall back to plain serialization.
+    /// Deletion is handled via targeted `Sequence::remove()` calls.
+    /// Growth (prepend, append, general restructuring) leaves the CST
+    /// unchanged; the caller in `serialize_value_preserving` handles it
+    /// via text-level splicing so comments are always preserved.
     fn apply_yaml_sequence_resize(
         seq: &yaml_edit::Sequence,
         old_arr: &[serde_json::Value],
         new_arr: &[serde_json::Value],
-        mapping: &yaml_edit::Mapping,
-        key: &str,
-        new_val: &serde_json::Value,
+        _mapping: &yaml_edit::Mapping,
+        _key: &str,
+        _new_val: &serde_json::Value,
     ) -> anyhow::Result<()> {
         if new_arr.len() < old_arr.len() && try_remove_subsequence(seq, old_arr, new_arr) {
             return Ok(());
         }
-        // Growth or complex restructuring: fall back to mapping.set().
-        // The validation guard in serialize_value_preserving will catch
-        // any CST corruption and fall through to plain serialization.
-        mapping.set(key, json_to_yaml_node(new_val)?);
+        // Growth or complex deletion: leave the CST unchanged.
+        // Text-level splicing in serialize_value_preserving will handle
+        // it, preserving all surrounding comments.
         Ok(())
     }
 
@@ -447,6 +464,398 @@ pub(crate) mod doc {
             seq.remove(idx);
         }
         true
+    }
+
+    /// Check if there are any arrays that grew between `old` and `new`.
+    fn has_array_growth_diffs(old: &serde_json::Value, new: &serde_json::Value) -> bool {
+        if old == new {
+            return false;
+        }
+        match (old, new) {
+            (serde_json::Value::Object(old_map), serde_json::Value::Object(new_map)) => {
+                for (key, new_val) in new_map {
+                    if let Some(old_val) = old_map.get(key) {
+                        if has_array_growth_diffs(old_val, new_val) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) => {
+                new_arr.len() > old_arr.len()
+            }
+            _ => false,
+        }
+    }
+
+    /// Text-level fallback for array diffs that the CST path could not
+    /// handle (general restructuring where the array is neither a pure
+    /// prepend nor a pure append of the original).
+    ///
+    /// `text` is the CST-serialized document (with non-array diffs already
+    /// applied).  `current` is the parsed value of `text`.  `target` is the
+    /// desired final value.  The function finds arrays that differ between
+    /// `current` and `target` and replaces them in the text, preserving
+    /// all surrounding comments.
+    fn splice_yaml_array_diffs(
+        text: &str,
+        current: &serde_json::Value,
+        target: &serde_json::Value,
+    ) -> anyhow::Result<Option<String>> {
+        let mut diffs: Vec<(Vec<String>, Vec<serde_json::Value>, Vec<serde_json::Value>)> =
+            Vec::new();
+        find_array_diffs(current, target, &mut Vec::new(), &mut diffs);
+        if diffs.is_empty() {
+            return Ok(None);
+        }
+        let mut result = text.to_string();
+        for (key_path, cur_arr, tgt_arr) in &diffs {
+            if let Some(spliced) = splice_yaml_array_at_path(&result, key_path, cur_arr, tgt_arr)? {
+                result = spliced;
+            } else {
+                // Could not splice this array; give up.
+                return Ok(None);
+            }
+        }
+        // Validate the spliced result.
+        if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *target) {
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Recursively find arrays that differ between `current` and `target`.
+    /// Each result entry includes the key path, the current array, and the
+    /// target array (needed to detect prepend vs append vs general).
+    fn find_array_diffs(
+        current: &serde_json::Value,
+        target: &serde_json::Value,
+        path: &mut Vec<String>,
+        result: &mut Vec<(Vec<String>, Vec<serde_json::Value>, Vec<serde_json::Value>)>,
+    ) {
+        if current == target {
+            return;
+        }
+        match (current, target) {
+            (serde_json::Value::Object(cur_map), serde_json::Value::Object(tgt_map)) => {
+                for (key, tgt_val) in tgt_map {
+                    if let Some(cur_val) = cur_map.get(key) {
+                        path.push(key.clone());
+                        find_array_diffs(cur_val, tgt_val, path, result);
+                        path.pop();
+                    }
+                }
+            }
+            (serde_json::Value::Array(cur_arr), serde_json::Value::Array(tgt_arr)) => {
+                result.push((path.clone(), cur_arr.clone(), tgt_arr.clone()));
+            }
+            _ => {}
+        }
+    }
+
+    /// Splice an array at `key_path` in the YAML `text`, handling
+    /// prepend, append, and general replacement while preserving
+    /// surrounding comments and formatting.
+    fn splice_yaml_array_at_path(
+        text: &str,
+        key_path: &[String],
+        cur_arr: &[serde_json::Value],
+        tgt_arr: &[serde_json::Value],
+    ) -> anyhow::Result<Option<String>> {
+        let lines: Vec<&str> = text.lines().collect();
+        // Find the key line that owns the array.
+        let key_line_idx = match find_yaml_key_line(&lines, key_path) {
+            Some(idx) => idx,
+            None => return Ok(None),
+        };
+        // Find entry boundaries.
+        let (first_entry, entry_indent) = match find_first_block_entry(&lines, key_line_idx + 1) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        let last_entry_end = find_block_entries_end(&lines, first_entry, &entry_indent);
+        splice_array_lines(
+            text,
+            &lines,
+            first_entry,
+            last_entry_end,
+            &entry_indent,
+            cur_arr,
+            tgt_arr,
+        )
+    }
+
+    /// Splice a root-level sequence in YAML text (sequence-rooted docs).
+    fn splice_yaml_root_sequence(
+        text: &str,
+        cur_arr: &[serde_json::Value],
+        tgt_arr: &[serde_json::Value],
+    ) -> anyhow::Result<Option<String>> {
+        let lines: Vec<&str> = text.lines().collect();
+        let (first_entry, entry_indent) = match find_first_block_entry(&lines, 0) {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+        let last_entry_end = find_block_entries_end(&lines, first_entry, &entry_indent);
+        splice_array_lines(
+            text,
+            &lines,
+            first_entry,
+            last_entry_end,
+            &entry_indent,
+            cur_arr,
+            tgt_arr,
+        )
+    }
+
+    /// Core splice logic shared by mapping-rooted and sequence-rooted paths.
+    /// Detects prepend/append/general and splices accordingly.
+    fn splice_array_lines(
+        text: &str,
+        lines: &[&str],
+        first_entry: usize,
+        last_entry_end: usize,
+        entry_indent: &str,
+        cur_arr: &[serde_json::Value],
+        tgt_arr: &[serde_json::Value],
+    ) -> anyhow::Result<Option<String>> {
+        let cur_len = cur_arr.len();
+        let tgt_len = tgt_arr.len();
+
+        // Pure prepend: old array appears at the end of target.
+        if tgt_len > cur_len && tgt_arr[tgt_len - cur_len..] == *cur_arr {
+            let new_entries = &tgt_arr[..tgt_len - cur_len];
+            let new_text = serialize_block_entries(new_entries, entry_indent)?;
+            return Ok(Some(insert_text_at_line(
+                text,
+                lines,
+                first_entry,
+                &new_text,
+            )));
+        }
+
+        // Pure append: old array appears at the start of target.
+        if tgt_len > cur_len && tgt_arr[..cur_len] == *cur_arr {
+            let new_entries = &tgt_arr[cur_len..];
+            let new_text = serialize_block_entries(new_entries, entry_indent)?;
+            return Ok(Some(insert_text_at_line(
+                text,
+                lines,
+                last_entry_end,
+                &new_text,
+            )));
+        }
+
+        // General restructuring: replace all entry lines.
+        let new_text = serialize_block_entries(tgt_arr, entry_indent)?;
+        let mut out = String::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i < first_entry || i >= last_entry_end {
+                out.push_str(line);
+                out.push('\n');
+            } else if i == first_entry {
+                out.push_str(&new_text);
+            }
+        }
+        if !text.ends_with('\n') && out.ends_with('\n') {
+            out.pop();
+        }
+        Ok(Some(out))
+    }
+
+    /// Insert `new_text` before line `line_idx`, preserving all existing lines.
+    fn insert_text_at_line(text: &str, lines: &[&str], line_idx: usize, new_text: &str) -> String {
+        let mut out = String::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i == line_idx {
+                out.push_str(new_text);
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        // Handle insertion after the last line (for append).
+        if line_idx >= lines.len() {
+            out.push_str(new_text);
+        }
+        if !text.ends_with('\n') && out.ends_with('\n') {
+            out.pop();
+        }
+        out
+    }
+
+    /// Find the line index of the YAML key at the given path.
+    /// For path `["server", "tags"]`, finds `server:` first, then `tags:`
+    /// at deeper indentation inside it.
+    fn find_yaml_key_line(lines: &[&str], key_path: &[String]) -> Option<usize> {
+        let mut search_start = 0;
+        let mut min_indent = 0;
+        for (depth, key) in key_path.iter().enumerate() {
+            let key_colon = format!("{}:", key);
+            let key_colon_sp = format!("{}: ", key);
+            let mut found = false;
+            for (i, line) in lines.iter().enumerate().skip(search_start) {
+                let trimmed = line.trim_start();
+                let indent = line.len() - trimmed.len();
+                if indent < min_indent {
+                    continue;
+                }
+                if trimmed.starts_with(&key_colon) || trimmed.starts_with(&key_colon_sp) {
+                    search_start = i + 1;
+                    min_indent = indent + 1;
+                    if depth == key_path.len() - 1 {
+                        return Some(i);
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return None;
+            }
+        }
+        None
+    }
+
+    /// Find the first block-style entry (`- ...`) after `start_line`.
+    /// Returns `(line_index, indent_string)`.
+    fn find_first_block_entry(lines: &[&str], start_line: usize) -> Option<(usize, String)> {
+        for i in start_line..lines.len() {
+            let trimmed = lines[i].trim_start();
+            if trimmed.starts_with("- ") || trimmed == "-" {
+                let indent = &lines[i][..lines[i].len() - trimmed.len()];
+                return Some((i, indent.to_string()));
+            }
+            // Stop at blank lines or lines with less indentation (end of value).
+            if trimmed.is_empty() {
+                continue;
+            }
+            // A non-entry line at the same or lesser indent means the key
+            // has no block entries (might be flow-style or empty).
+            if !trimmed.starts_with('#') {
+                break;
+            }
+        }
+        None
+    }
+
+    /// Find the line index AFTER the last block-style entry.
+    /// An entry can span multiple lines (for compound values like mappings).
+    fn find_block_entries_end(lines: &[&str], first_entry: usize, entry_indent: &str) -> usize {
+        let indent_len = entry_indent.len();
+        let mut end = first_entry;
+        for (i, line) in lines.iter().enumerate().skip(first_entry) {
+            let trimmed = line.trim_start();
+            let cur_indent = line.len() - trimmed.len();
+            if trimmed.is_empty() {
+                // Blank line: could be inside or after the array.
+                // Include it tentatively; the next non-blank line decides.
+                end = i + 1;
+                continue;
+            }
+            if trimmed.starts_with('#') && cur_indent >= indent_len {
+                // Comment at or deeper than entry indent: part of the array.
+                end = i + 1;
+                continue;
+            }
+            if cur_indent > indent_len {
+                // Continuation of a multi-line entry.
+                end = i + 1;
+                continue;
+            }
+            if cur_indent == indent_len && (trimmed.starts_with("- ") || trimmed == "-") {
+                // Another entry at the same indent.
+                end = i + 1;
+                continue;
+            }
+            // Line at same or lesser indent that is not an entry: end of array.
+            break;
+        }
+        // Trim trailing blank lines from the range so we don't eat
+        // blank lines that separate the array from the next key.
+        while end > first_entry && lines.get(end - 1).is_some_and(|l| l.trim().is_empty()) {
+            end -= 1;
+        }
+        end
+    }
+
+    /// Serialize `entries` as block-style YAML array entries at `indent`.
+    fn serialize_block_entries(
+        entries: &[serde_json::Value],
+        indent: &str,
+    ) -> anyhow::Result<String> {
+        let mut out = String::new();
+        for entry in entries {
+            match entry {
+                serde_json::Value::Null => {
+                    out.push_str(indent);
+                    out.push_str("- null\n");
+                }
+                serde_json::Value::Bool(b) => {
+                    out.push_str(indent);
+                    out.push_str("- ");
+                    out.push_str(if *b { "true" } else { "false" });
+                    out.push('\n');
+                }
+                serde_json::Value::Number(n) => {
+                    out.push_str(indent);
+                    out.push_str("- ");
+                    out.push_str(&n.to_string());
+                    out.push('\n');
+                }
+                serde_json::Value::String(s) => {
+                    out.push_str(indent);
+                    out.push_str("- ");
+                    // Quote strings that need it.
+                    if needs_yaml_quoting(s) {
+                        out.push_str(&format!("'{}'", s.replace('\'', "''")));
+                    } else {
+                        out.push_str(s);
+                    }
+                    out.push('\n');
+                }
+                serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                    // Serialize compound value, then re-indent.
+                    let yaml = serde_yaml_ng::to_string(entry)?;
+                    let yaml_lines: Vec<&str> = yaml.trim_end().lines().collect();
+                    for (j, line) in yaml_lines.iter().enumerate() {
+                        out.push_str(indent);
+                        if j == 0 {
+                            out.push_str("- ");
+                        } else {
+                            out.push_str("  ");
+                        }
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Check if a string needs YAML quoting.
+    fn needs_yaml_quoting(s: &str) -> bool {
+        if s.is_empty() {
+            return true;
+        }
+        // Values that look like booleans, null, or numbers.
+        let lower = s.to_lowercase();
+        if matches!(
+            lower.as_str(),
+            "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~"
+        ) {
+            return true;
+        }
+        if s.parse::<f64>().is_ok() {
+            return true;
+        }
+        // Strings with special YAML characters.
+        s.starts_with(|c: char| "#&*?|>{[%@`\"'".contains(c))
+            || s.contains(": ")
+            || s.contains(" #")
+            || s.contains('\n')
     }
 
     /// Convert a `serde_json::Value` to a `yaml_edit::YamlNode` by

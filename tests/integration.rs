@@ -1141,7 +1141,7 @@ fn test_tx_yaml_doc_set_preserves_comments() {
 fn test_doc_append_yaml_sequence_root() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("items.yaml");
-    fs::write(&file, "- item1\n- item2\n").unwrap();
+    fs::write(&file, "# Items\n- item1\n- item2\n").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -1155,6 +1155,9 @@ fn test_doc_append_yaml_sequence_root() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(content.contains("# Items"), "comment stripped: {content}");
     assert!(content.contains("item1"), "item1 missing: {content}");
     assert!(content.contains("item2"), "item2 missing: {content}");
     assert!(
@@ -1235,8 +1238,7 @@ fn test_doc_delete_where_yaml_sequence_root_preserves_comments() {
 
 #[test]
 fn test_doc_prepend_yaml_produces_valid_output() {
-    // Verifies the safety net: prepend changes array length, CST path
-    // may produce invalid YAML, but the output must still be valid.
+    // Verifies that prepend produces valid YAML with comments preserved.
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");
     fs::write(&file, "# Config\nname: app\nitems:\n  - existing\n").unwrap();
@@ -1402,8 +1404,16 @@ fn test_doc_prepend_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
-    // Array growth (prepend) falls back to plain serialization; comments
-    // are not preserved but the output must be valid YAML with correct values.
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
     assert!(
         content.contains("first"),
         "prepended item missing: {content}"
@@ -1412,7 +1422,6 @@ fn test_doc_prepend_yaml_preserves_comments() {
         content.contains("existing"),
         "original item missing: {content}"
     );
-    // Verify the output is syntactically valid YAML that parses correctly.
     let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
     let items = parsed.get("items").expect("items key missing");
     assert_eq!(items[0], "first", "prepended item not at position 0");
@@ -1460,6 +1469,75 @@ fn test_doc_delete_where_yaml_preserves_comments() {
         !content.contains("remove"),
         "deleted item still present: {content}"
     );
+}
+
+#[test]
+fn test_doc_append_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("items")
+        .arg("last")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "existing", "original item not at position 0");
+    assert_eq!(items[1], "last", "appended item not at position 1");
+}
+
+#[test]
+fn test_doc_prepend_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "# Items list\n- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("")
+        .arg("item0")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Items list"),
+        "comment stripped: {content}"
+    );
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let arr = parsed.as_array().expect("root should be array");
+    assert_eq!(arr[0], "item0", "prepended item not at position 0");
+    assert_eq!(arr[1], "item1", "original item1 not at position 1");
+    assert_eq!(arr[2], "item2", "original item2 not at position 2");
 }
 
 #[test]
