@@ -1,6 +1,10 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
+use crate::ops::doc::{
+    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, update_matching,
+    FileFormat,
+};
 use crate::selector;
 use crate::write;
 use crate::write::policy_from_flags;
@@ -91,46 +95,10 @@ pub enum DocAction {
     Diff { file_a: String, file_b: String },
 }
 
-// ---------------------------------------------------------------------------
-// File format detection & loading
-// ---------------------------------------------------------------------------
-
-pub(crate) enum FileFormat {
-    Json,
-    Yaml,
-    Toml,
-}
-
-pub(crate) fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
-    match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some("json") => Ok(FileFormat::Json),
-        Some("yaml" | "yml") => Ok(FileFormat::Yaml),
-        Some("toml") => Ok(FileFormat::Toml),
-        Some(ext) => anyhow::bail!("unsupported file extension: .{ext}"),
-        None => anyhow::bail!("file has no extension"),
-    }
-}
-
 fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
     let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     let format = detect_format(path)?;
-    match format {
-        FileFormat::Json => {
-            Ok(serde_json::from_str(&content).with_context(|| format!("parsing {path}"))?)
-        }
-        FileFormat::Yaml => {
-            Ok(serde_yaml_ng::from_str(&content).with_context(|| format!("parsing {path}"))?)
-        }
-        FileFormat::Toml => {
-            // Parse with DocumentMut, then deserialize to serde_json::Value.
-            let _doc: toml_edit::DocumentMut = content
-                .parse()
-                .map_err(|e: toml_edit::TomlError| anyhow::anyhow!("parsing {path}: {e}"))?;
-            let value: serde_json::Value =
-                toml_edit::de::from_str(&content).with_context(|| format!("parsing {path}"))?;
-            Ok(value)
-        }
-    }
+    parse_doc(&content, &format).with_context(|| format!("parsing {path}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -316,173 +284,12 @@ pub(crate) fn parse_value(s: &str) -> serde_json::Value {
 }
 
 /// Serialize a [`serde_json::Value`] back to the original file format.
-pub(crate) fn serialize_value(
-    value: &serde_json::Value,
-    format: &FileFormat,
-) -> anyhow::Result<String> {
-    match format {
-        FileFormat::Json => {
-            let mut s = serde_json::to_string_pretty(value)?;
-            s.push('\n');
-            Ok(s)
-        }
-        FileFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
-        FileFormat::Toml => {
-            let s = toml_edit::ser::to_string_pretty(value)
-                .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
-            Ok(s)
-        }
-    }
-}
-
 /// Load a file, returning original content, parsed value, and detected format.
 fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Value, FileFormat)> {
     let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     let format = detect_format(path)?;
-    let value = match &format {
-        FileFormat::Json => {
-            serde_json::from_str(&content).with_context(|| format!("parsing {path}"))?
-        }
-        FileFormat::Yaml => {
-            serde_yaml_ng::from_str(&content).with_context(|| format!("parsing {path}"))?
-        }
-        FileFormat::Toml => {
-            toml_edit::de::from_str(&content).with_context(|| format!("parsing {path}"))?
-        }
-    };
+    let value = parse_doc(&content, &format).with_context(|| format!("parsing {path}"))?;
     Ok((content, value, format))
-}
-
-// ---------------------------------------------------------------------------
-// Mutable tree navigation
-// ---------------------------------------------------------------------------
-
-/// Navigate through a mutable JSON value tree following `segments`.
-///
-/// When `create` is true, missing intermediate object keys are created as
-/// empty objects.  Returns an error if navigation is impossible (e.g.
-/// traversing through a scalar or an out-of-bounds index).
-pub(crate) fn navigate_mut<'a>(
-    root: &'a mut serde_json::Value,
-    segments: &[selector::Segment],
-    create: bool,
-) -> anyhow::Result<&'a mut serde_json::Value> {
-    let mut current = root;
-    for seg in segments {
-        current = match seg {
-            selector::Segment::Key(k) => {
-                if create {
-                    let needs_create = match current.as_object() {
-                        Some(obj) => !obj.contains_key(k.as_str()),
-                        None => false,
-                    };
-                    if needs_create {
-                        current
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("not an object at key '{k}'"))?
-                            .insert(k.clone(), serde_json::Value::Object(serde_json::Map::new()));
-                    }
-                }
-                current
-                    .get_mut(k.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("key not found: {k}"))?
-            }
-            selector::Segment::Index(i) => current
-                .get_mut(*i)
-                .ok_or_else(|| anyhow::anyhow!("index out of bounds: {i}"))?,
-            _ => anyhow::bail!("wildcard/predicate not supported in write navigation"),
-        };
-    }
-    Ok(current)
-}
-
-/// Deep-merge `other` into `base`.  Object keys are merged recursively;
-/// all other types are overwritten.
-/// Maximum nesting depth for recursive operations.
-const MAX_MERGE_DEPTH: usize = 128;
-
-pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
-    deep_merge_inner(base, other, 0);
-}
-
-fn deep_merge_inner(base: &mut serde_json::Value, other: &serde_json::Value, depth: usize) {
-    if depth >= MAX_MERGE_DEPTH {
-        // At the depth limit, overwrite instead of recursing.
-        *base = other.clone();
-        return;
-    }
-    if let (Some(base_map), Some(other_map)) = (base.as_object_mut(), other.as_object()) {
-        for (key, value) in other_map {
-            let entry = base_map
-                .entry(key.clone())
-                .or_insert(serde_json::Value::Null);
-            deep_merge_inner(entry, value, depth + 1);
-        }
-    } else {
-        *base = other.clone();
-    }
-}
-
-/// Recursively update all values matched by `segments`, replacing each with
-/// `new_val`.  Returns the number of values updated.
-pub(crate) fn update_matching(
-    value: &mut serde_json::Value,
-    segments: &[selector::Segment],
-    new_val: &serde_json::Value,
-) -> usize {
-    if segments.is_empty() {
-        *value = new_val.clone();
-        return 1;
-    }
-    let first = &segments[0];
-    let rest = &segments[1..];
-    match first {
-        selector::Segment::Key(k) => {
-            if let Some(child) = value.get_mut(k.as_str()) {
-                update_matching(child, rest, new_val)
-            } else {
-                0
-            }
-        }
-        selector::Segment::Index(i) => {
-            if let Some(child) = value.get_mut(*i) {
-                update_matching(child, rest, new_val)
-            } else {
-                0
-            }
-        }
-        selector::Segment::Wildcard => {
-            let mut count = 0;
-            if let Some(arr) = value.as_array_mut() {
-                for item in arr.iter_mut() {
-                    count += update_matching(item, rest, new_val);
-                }
-            }
-            count
-        }
-        selector::Segment::Predicate {
-            key,
-            value: pred_val,
-        } => {
-            let mut count = 0;
-            if let Some(arr) = value.as_array_mut() {
-                for item in arr.iter_mut() {
-                    let matches = {
-                        item.get(key.as_str()).is_some_and(|field| match field {
-                            serde_json::Value::String(s) => s == pred_val,
-                            serde_json::Value::Number(n) => n.to_string() == *pred_val,
-                            serde_json::Value::Bool(b) => b.to_string() == *pred_val,
-                            _ => false,
-                        })
-                    };
-                    if matches {
-                        count += update_matching(item, rest, new_val);
-                    }
-                }
-            }
-            count
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
