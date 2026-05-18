@@ -807,6 +807,37 @@ fn test_doc_set_apply() {
 }
 
 #[test]
+fn test_doc_set_preserves_key_order() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    // Keys are intentionally NOT in alphabetical order.
+    fs::write(&file, r#"{"z_last":1,"a_first":2,"m_middle":3}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("a_first")
+        .arg("99")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    // The written file must keep keys in the original insertion order,
+    // not sorted alphabetically. If serde_json's preserve_order feature
+    // is missing, keys would appear as a_first, m_middle, z_last.
+    let content = fs::read_to_string(&file).unwrap();
+    let z_pos = content.find("z_last").expect("z_last missing");
+    let a_pos = content.find("a_first").expect("a_first missing");
+    let m_pos = content.find("m_middle").expect("m_middle missing");
+    assert!(
+        z_pos < a_pos && a_pos < m_pos,
+        "key order not preserved: z_last@{z_pos}, a_first@{a_pos}, m_middle@{m_pos}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
