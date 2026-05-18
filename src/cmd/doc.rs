@@ -4,6 +4,7 @@ use crate::exit;
 use crate::selector;
 use crate::write;
 use crate::write::policy_from_flags;
+use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::path::Path;
@@ -111,17 +112,22 @@ pub(crate) fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
 }
 
 fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     let format = detect_format(path)?;
     match format {
-        FileFormat::Json => Ok(serde_json::from_str(&content)?),
-        FileFormat::Yaml => Ok(serde_yaml_ng::from_str(&content)?),
+        FileFormat::Json => {
+            Ok(serde_json::from_str(&content).with_context(|| format!("parsing {path}"))?)
+        }
+        FileFormat::Yaml => {
+            Ok(serde_yaml_ng::from_str(&content).with_context(|| format!("parsing {path}"))?)
+        }
         FileFormat::Toml => {
             // Parse with DocumentMut, then deserialize to serde_json::Value.
             let _doc: toml_edit::DocumentMut = content
                 .parse()
-                .map_err(|e: toml_edit::TomlError| anyhow::anyhow!("{e}"))?;
-            let value: serde_json::Value = toml_edit::de::from_str(&content)?;
+                .map_err(|e: toml_edit::TomlError| anyhow::anyhow!("parsing {path}: {e}"))?;
+            let value: serde_json::Value =
+                toml_edit::de::from_str(&content).with_context(|| format!("parsing {path}"))?;
             Ok(value)
         }
     }
@@ -331,12 +337,18 @@ pub(crate) fn serialize_value(
 
 /// Load a file, returning original content, parsed value, and detected format.
 fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Value, FileFormat)> {
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     let format = detect_format(path)?;
     let value = match &format {
-        FileFormat::Json => serde_json::from_str(&content)?,
-        FileFormat::Yaml => serde_yaml_ng::from_str(&content)?,
-        FileFormat::Toml => toml_edit::de::from_str(&content)?,
+        FileFormat::Json => {
+            serde_json::from_str(&content).with_context(|| format!("parsing {path}"))?
+        }
+        FileFormat::Yaml => {
+            serde_yaml_ng::from_str(&content).with_context(|| format!("parsing {path}"))?
+        }
+        FileFormat::Toml => {
+            toml_edit::de::from_str(&content).with_context(|| format!("parsing {path}"))?
+        }
     };
     Ok((content, value, format))
 }
