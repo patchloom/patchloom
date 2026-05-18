@@ -1041,8 +1041,8 @@ fn run_format_steps(steps: &[plan::FormatStep]) -> Result<(), LifecycleError> {
 fn run_validate_steps(steps: &[plan::ValidationStep]) -> Result<(), LifecycleError> {
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
-            Ok(status) if status.success() => true,
+        match run_shell_with_timeout(&step.cmd, timeout_secs) {
+            Ok(status) if status.success() => {}
             Ok(status) => {
                 let msg = format!(
                     "required validation failed (step {}, {})",
@@ -1056,7 +1056,6 @@ fn run_validate_steps(steps: &[plan::ValidationStep]) -> Result<(), LifecycleErr
                         kind: "validation_failed",
                     });
                 }
-                false
             }
             Err(e) => {
                 let msg = format!("validation error (step {}): {e}", index + 1);
@@ -1067,10 +1066,8 @@ fn run_validate_steps(steps: &[plan::ValidationStep]) -> Result<(), LifecycleErr
                         kind: "validation_failed",
                     });
                 }
-                false
             }
-        };
-        let _ = success;
+        }
     }
     Ok(())
 }
