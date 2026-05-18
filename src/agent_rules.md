@@ -66,6 +66,7 @@ All write commands preview by default. Add `--apply` to write.
 | 1 | General error |
 | 2 | Changes detected (`--check` mode) |
 | 3 | No matches found |
+| 4 | Input could not be parsed |
 | 5 | Stale patch context |
 | 6 | Validation failed |
 | 7 | Rollback (strict mode) |
