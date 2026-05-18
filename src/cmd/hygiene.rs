@@ -96,20 +96,22 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
 
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
-/// so dotfiles are also checked.
+/// so dotfiles are also checked.  File scanning is parallelized.
 fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<HygieneIssue>> {
     let root = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
-    let mut issues = Vec::new();
-    for path_buf in &file_paths {
-        if !crate::matches_glob(path_buf, glob_matcher.as_ref()) {
-            continue;
-        }
-        let file_issues = check_file(path_buf.as_path())?;
-        issues.extend(file_issues);
-    }
-    Ok(issues)
+
+    let file_issues: Vec<Vec<HygieneIssue>> = crate::par_process_files(
+        &file_paths,
+        glob_matcher.as_ref(),
+        |path| match check_file(path) {
+            Ok(issues) if !issues.is_empty() => Some(issues),
+            _ => None,
+        },
+    );
+
+    Ok(file_issues.into_iter().flatten().collect())
 }
 
 /// JSON wrapper for hygiene check output.

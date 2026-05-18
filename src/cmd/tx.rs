@@ -283,6 +283,205 @@ where
     Ok(())
 }
 
+/// Mutable transaction state passed through operation execution.
+struct TxState<'a> {
+    pending: &'a mut HashMap<PathBuf, (String, String)>,
+    deletions: &'a mut HashSet<PathBuf>,
+    tx_reads: &'a mut Vec<TxReadResult>,
+    tx_searches: &'a mut Vec<TxSearchResult>,
+    cwd: &'a Path,
+}
+
+/// Execute a replace operation within a transaction.
+fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    let Operation::Replace {
+        glob,
+        path,
+        mode,
+        from,
+        to,
+        nth,
+        insert_before,
+        insert_after,
+        case_insensitive,
+        multiline,
+        ..
+    } = op
+    else {
+        unreachable!()
+    };
+    let regex_mode = mode.as_deref() == Some("regex");
+    let use_regex = regex_mode || *case_insensitive;
+    let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
+    let compiled_re = if regex_mode {
+        Some(
+            RegexBuilder::new(from)
+                .case_insensitive(*case_insensitive)
+                .dot_matches_new_line(*multiline)
+                .build()?,
+        )
+    } else if *case_insensitive {
+        Some(
+            RegexBuilder::new(&regex::escape(from))
+                .case_insensitive(true)
+                .build()?,
+        )
+    } else {
+        None
+    };
+
+    if let Some(p) = path {
+        let file_path = tx.cwd.join(p);
+        let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+        let (replaced, match_count) =
+            replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
+        update_file_content(tx.pending, tx.deletions, &file_path, replaced);
+        Ok(match_count)
+    } else if let Some(pattern) = glob {
+        let matcher = Glob::new(pattern)?.compile_matcher();
+        let walker = WalkBuilder::new(tx.cwd).build();
+        let mut total_matches = 0usize;
+        for entry in walker {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+                continue;
+            }
+            let file_path = entry.path().to_path_buf();
+            if !matcher.is_match(&file_path)
+                && !file_path.file_name().is_some_and(|n| matcher.is_match(n))
+            {
+                continue;
+            }
+            let content = if tx.pending.contains_key(&file_path) {
+                match read_file_content(tx.pending, &file_path, tx.cwd) {
+                    Ok(c) => c.to_owned(),
+                    Err(e) => {
+                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        continue;
+                    }
+                }
+            } else {
+                match std::fs::read_to_string(&file_path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        continue;
+                    }
+                }
+            };
+            let (replaced, match_count) =
+                replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth);
+            total_matches += match_count;
+            if match_count > 0 {
+                update_file_content(tx.pending, tx.deletions, &file_path, replaced);
+            }
+        }
+        Ok(total_matches)
+    } else {
+        anyhow::bail!("replace operation requires either 'path' or 'glob'");
+    }
+}
+
+/// Execute a read operation within a transaction.
+fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+    let file_path = tx.cwd.join(path);
+    let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_string();
+    let all_lines: Vec<&str> = content.lines().collect();
+    let total_lines = all_lines.len();
+
+    let (start, end) = if let Some(spec) = lines {
+        let (s, e) = crate::cmd::read::parse_line_range(spec)?;
+        let end = e.unwrap_or(total_lines).min(total_lines);
+        (s, end)
+    } else {
+        (1, total_lines)
+    };
+
+    let selected = if total_lines == 0 {
+        String::new()
+    } else {
+        let start_idx = (start - 1).min(total_lines);
+        let end_idx = end.min(total_lines);
+        let mut s = all_lines[start_idx..end_idx].join("\n");
+        if content.ends_with('\n') && end >= total_lines {
+            s.push('\n');
+        }
+        s
+    };
+
+    tx.tx_reads.push(TxReadResult {
+        path: path.to_string(),
+        content: selected,
+        start_line: start,
+        end_line: end,
+        total_lines,
+    });
+    Ok(())
+}
+
+/// Execute a search operation within a transaction.
+fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+    let Operation::Search {
+        path,
+        pattern,
+        regex,
+        case_insensitive,
+        context,
+        before_context,
+        after_context,
+    } = op
+    else {
+        unreachable!()
+    };
+    let file_path = tx.cwd.join(path);
+    let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_string();
+
+    let re = if *regex {
+        let mut builder = RegexBuilder::new(pattern);
+        if *case_insensitive {
+            builder.case_insensitive(true);
+        }
+        builder.build()?
+    } else {
+        let escaped = regex::escape(pattern);
+        let mut builder = RegexBuilder::new(&escaped);
+        if *case_insensitive {
+            builder.case_insensitive(true);
+        }
+        builder.build()?
+    };
+
+    let ctx_before = before_context.or(*context).unwrap_or(0);
+    let ctx_after = after_context.or(*context).unwrap_or(0);
+    let lines: Vec<&str> = content.lines().collect();
+    let mut matches = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(m) = re.find(line) {
+            let start = i.saturating_sub(ctx_before);
+            let end = (i + 1 + ctx_after).min(lines.len());
+            matches.push(TxSearchMatch {
+                line: i + 1,
+                column: m.start() + 1,
+                text: line.to_string(),
+                context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
+                context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+            });
+        }
+    }
+
+    tx.tx_searches.push(TxSearchResult {
+        path: path.to_string(),
+        pattern: pattern.to_string(),
+        match_count: matches.len(),
+        matches,
+    });
+    Ok(())
+}
+
 fn execute_operation(
     op: &Operation,
     pending: &mut HashMap<PathBuf, (String, String)>,
@@ -291,103 +490,22 @@ fn execute_operation(
     tx_searches: &mut Vec<TxSearchResult>,
     cwd: &Path,
 ) -> anyhow::Result<usize> {
+    let tx = &mut TxState {
+        pending,
+        deletions,
+        tx_reads,
+        tx_searches,
+        cwd,
+    };
     match op {
-        Operation::Replace {
-            glob,
-            path,
-            mode,
-            from,
-            to,
-            nth,
-            insert_before,
-            insert_after,
-            case_insensitive,
-            multiline,
-            ..
-        } => {
-            let regex_mode = mode.as_deref() == Some("regex");
-            let use_regex = regex_mode || *case_insensitive;
-            let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
-            let compiled_re = if regex_mode {
-                Some(
-                    RegexBuilder::new(from)
-                        .case_insensitive(*case_insensitive)
-                        .dot_matches_new_line(*multiline)
-                        .build()?,
-                )
-            } else if *case_insensitive {
-                Some(
-                    RegexBuilder::new(&regex::escape(from))
-                        .case_insensitive(true)
-                        .build()?,
-                )
-            } else {
-                None
-            };
-
-            if let Some(p) = path {
-                let file_path = cwd.join(p);
-                let content = read_file_content(pending, &file_path, cwd)?;
-                let (replaced, match_count) =
-                    replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
-                update_file_content(pending, deletions, &file_path, replaced);
-                return Ok(match_count);
-            } else if let Some(pattern) = glob {
-                let matcher = Glob::new(pattern)?.compile_matcher();
-                let walker = WalkBuilder::new(cwd).build();
-                let mut total_matches = 0usize;
-                for entry in walker {
-                    let entry = match entry {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-                    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-                        continue;
-                    }
-                    let file_path = entry.path().to_path_buf();
-                    if !matcher.is_match(&file_path)
-                        && !file_path.file_name().is_some_and(|n| matcher.is_match(n))
-                    {
-                        continue;
-                    }
-                    // If the file is already in pending (modified by an earlier
-                    // operation), use that content. Otherwise read from disk
-                    // without inserting into pending so non-matching files don't
-                    // get buffered.
-                    let content = if pending.contains_key(&file_path) {
-                        match read_file_content(pending, &file_path, cwd) {
-                            Ok(c) => c.to_owned(),
-                            Err(e) => {
-                                eprintln!("tx: replace: skipping {}: {e}", file_path.display());
-                                continue;
-                            }
-                        }
-                    } else {
-                        match std::fs::read_to_string(&file_path) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                eprintln!("tx: replace: skipping {}: {e}", file_path.display());
-                                continue;
-                            }
-                        }
-                    };
-                    let (replaced, match_count) =
-                        replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth);
-                    total_matches += match_count;
-                    if match_count > 0 {
-                        update_file_content(pending, deletions, &file_path, replaced);
-                    }
-                }
-                return Ok(total_matches);
-            } else {
-                anyhow::bail!("replace operation requires either 'path' or 'glob'");
-            }
+        Operation::Replace { .. } => {
+            return execute_replace_op(op, tx);
         }
 
         Operation::DocSet { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 set_at_path(root, &sel, value)?;
                 Ok(())
@@ -396,7 +514,7 @@ fn execute_operation(
 
         Operation::DocDelete { path, key } => {
             let key = key.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let Some(last) = sel.last() else {
                     return Ok(());
@@ -424,7 +542,7 @@ fn execute_operation(
 
         Operation::DocMerge { path, value } => {
             let value = value.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 deep_merge(root, &value);
                 Ok(())
             })?;
@@ -433,7 +551,7 @@ fn execute_operation(
         Operation::DocAppend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -447,7 +565,7 @@ fn execute_operation(
         Operation::DocPrepend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -460,7 +578,7 @@ fn execute_operation(
 
         Operation::DocUpdate { path, key, value } => {
             let key = key.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let count = update_matching(root, &sel, value);
                 if count == 0 {
@@ -473,7 +591,7 @@ fn execute_operation(
         Operation::DocMove { path, from, to } => {
             let from = from.clone();
             let to = to.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let from_sel = parse_selector(&from)?;
                 let to_sel = parse_selector(&to)?;
                 move_at_path(root, &from_sel, &to_sel)?;
@@ -484,7 +602,7 @@ fn execute_operation(
         Operation::DocEnsure { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
 
                 // If the path already exists, no-op.
@@ -504,7 +622,7 @@ fn execute_operation(
         } => {
             let key = key.clone();
             let predicate = predicate.clone();
-            with_doc(pending, deletions, path, cwd, |root| {
+            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 delete_where(root, &sel, &predicate)?;
                 Ok(())
@@ -516,11 +634,11 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let new_content = replace_section_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::MdInsertAfterHeading {
@@ -528,11 +646,11 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let new_content = insert_after_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::MdInsertBeforeHeading {
@@ -540,11 +658,11 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let new_content = insert_before_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::MdUpsertBullet {
@@ -552,39 +670,39 @@ fn execute_operation(
             heading,
             bullet,
         } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let new_content = upsert_bullet_in(file_content, heading, bullet)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::MdTableAppend { path, heading, row } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let new_content = table_append_for_tx(file_content, heading, row)
                 .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::MdDedupeHeadings { path } => {
-            let file_path = cwd.join(path);
-            let file_content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
-            update_file_content(pending, deletions, &file_path, new_content);
+            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
         Operation::HygieneFix {
             path,
             ensure_final_newline,
         } => {
-            let file_path = cwd.join(path);
-            let content = read_file_content(pending, &file_path, cwd)?;
+            let file_path = tx.cwd.join(path);
+            let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let mut new = content.to_string();
             if ensure_final_newline.unwrap_or(true) {
                 new = crate::write::ensure_final_newline(&new);
             }
-            update_file_content(pending, deletions, &file_path, new);
+            update_file_content(tx.pending, tx.deletions, &file_path, new);
         }
 
         Operation::FileCreate {
@@ -592,140 +710,55 @@ fn execute_operation(
             content,
             force,
         } => {
-            let file_path = cwd.join(path);
+            let file_path = tx.cwd.join(path);
             if force.unwrap_or(false) {
-                // Force mode: overwrite existing content.
-                if pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(pending, &file_path, cwd)?;
+                if tx.pending.contains_key(&file_path) || file_path.exists() {
+                    let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
                 }
-                update_file_content(pending, deletions, &file_path, content.clone());
+                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
             } else {
-                if pending.contains_key(&file_path) || file_path.exists() {
+                if tx.pending.contains_key(&file_path) || file_path.exists() {
                     anyhow::bail!("file already exists: {path}");
                 }
-                update_file_content(pending, deletions, &file_path, content.clone());
+                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
             }
         }
 
         Operation::PatchApply { diff } => {
             let patched_files = apply_patch_with_loader(diff, |path| {
-                let file_path = cwd.join(path);
-                Ok(read_file_content(pending, &file_path, cwd)?.to_string())
+                let file_path = tx.cwd.join(path);
+                Ok(read_file_content(tx.pending, &file_path, tx.cwd)?.to_string())
             })?;
             for (rel_path, patched_content) in patched_files {
-                let file_path = cwd.join(&rel_path);
-                update_file_content(pending, deletions, &file_path, patched_content);
+                let file_path = tx.cwd.join(&rel_path);
+                update_file_content(tx.pending, tx.deletions, &file_path, patched_content);
             }
         }
 
         Operation::Read { path, lines } => {
-            let file_path = cwd.join(path);
-            let content = read_file_content(pending, &file_path, cwd)?.to_string();
-            let all_lines: Vec<&str> = content.lines().collect();
-            let total_lines = all_lines.len();
-
-            let (start, end) = if let Some(spec) = lines {
-                let (s, e) = crate::cmd::read::parse_line_range(spec)?;
-                let end = e.unwrap_or(total_lines).min(total_lines);
-                (s, end)
-            } else {
-                (1, total_lines)
-            };
-
-            let selected = if total_lines == 0 {
-                String::new()
-            } else {
-                let start_idx = (start - 1).min(total_lines);
-                let end_idx = end.min(total_lines);
-                let mut s = all_lines[start_idx..end_idx].join("\n");
-                if content.ends_with('\n') && end >= total_lines {
-                    s.push('\n');
-                }
-                s
-            };
-
-            tx_reads.push(TxReadResult {
-                path: path.clone(),
-                content: selected,
-                start_line: start,
-                end_line: end,
-                total_lines,
-            });
-            // Read operations don't modify pending state
+            execute_read_op(path, lines, tx)?;
         }
 
-        Operation::Search {
-            path,
-            pattern,
-            regex,
-            case_insensitive,
-            context,
-            before_context,
-            after_context,
-        } => {
-            let file_path = cwd.join(path);
-            let content = read_file_content(pending, &file_path, cwd)?.to_string();
-
-            let re = if *regex {
-                let mut builder = regex::RegexBuilder::new(pattern);
-                if *case_insensitive {
-                    builder.case_insensitive(true);
-                }
-                builder.build()?
-            } else {
-                let escaped = regex::escape(pattern);
-                let mut builder = regex::RegexBuilder::new(&escaped);
-                if *case_insensitive {
-                    builder.case_insensitive(true);
-                }
-                builder.build()?
-            };
-
-            let ctx_before = before_context.or(*context).unwrap_or(0);
-            let ctx_after = after_context.or(*context).unwrap_or(0);
-            let lines: Vec<&str> = content.lines().collect();
-            let mut matches = Vec::new();
-
-            for (i, line) in lines.iter().enumerate() {
-                if let Some(m) = re.find(line) {
-                    let start = i.saturating_sub(ctx_before);
-                    let end = (i + 1 + ctx_after).min(lines.len());
-                    matches.push(TxSearchMatch {
-                        line: i + 1,
-                        column: m.start() + 1,
-                        text: line.to_string(),
-                        context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
-                        context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
-                    });
-                }
-            }
-
-            tx_searches.push(TxSearchResult {
-                path: path.clone(),
-                pattern: pattern.clone(),
-                match_count: matches.len(),
-                matches,
-            });
-            // Search operations don't modify pending state
+        Operation::Search { .. } => {
+            execute_search_op(op, tx)?;
         }
 
         Operation::FileDelete { path } => {
-            let file_path = cwd.join(path);
-            let created_in_tx = match pending.get(&file_path) {
+            let file_path = tx.cwd.join(path);
+            let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
-                    let _ = read_file_content(pending, &file_path, cwd)?;
+                    let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
                     false
                 }
             };
 
             if created_in_tx {
-                pending.remove(&file_path);
-                deletions.remove(&file_path);
+                tx.pending.remove(&file_path);
+                tx.deletions.remove(&file_path);
             } else {
-                // Mark current content as empty so the diff shows full deletion.
-                update_file_content(pending, deletions, &file_path, String::new());
-                deletions.insert(file_path);
+                update_file_content(tx.pending, tx.deletions, &file_path, String::new());
+                tx.deletions.insert(file_path);
             }
         }
     }

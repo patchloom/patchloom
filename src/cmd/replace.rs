@@ -89,7 +89,7 @@ fn build_replacement(args: &ReplaceArgs) -> String {
     )
 }
 
-/// Walk files and collect all replacements.
+/// Walk files and collect all replacements using parallel file processing.
 fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
@@ -98,6 +98,7 @@ fn collect_replacements(
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
     let replacement = build_replacement(args);
+    let quiet = global.quiet;
 
     let compiled_re = if args.regex {
         Some(
@@ -107,7 +108,6 @@ fn collect_replacements(
                 .build()?,
         )
     } else if args.case_insensitive {
-        // For literal mode with case-insensitive, use regex with escaped pattern.
         Some(
             RegexBuilder::new(&regex::escape(&args.from))
                 .case_insensitive(true)
@@ -116,37 +116,26 @@ fn collect_replacements(
     } else {
         None
     };
-    let mut replacements = Vec::new();
 
-    for path_buf in &file_paths {
-        let path = path_buf.as_path();
+    let from = &args.from;
+    let nth = args.nth;
 
-        if !crate::matches_glob(path, glob_matcher.as_ref()) {
-            continue;
-        }
-
-        let content = match crate::read_text_file(path, "replace", global.quiet) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let (replaced, count) = replace_content(
-            &content,
-            &args.from,
-            &replacement,
-            compiled_re.as_ref(),
-            args.nth,
-        );
-
-        if count > 0 {
-            replacements.push(FileReplacement {
-                path: path.to_string_lossy().to_string(),
-                original: content,
-                replaced,
-                match_count: count,
-            });
-        }
-    }
+    let mut replacements: Vec<FileReplacement> =
+        crate::par_process_files(&file_paths, glob_matcher.as_ref(), |path| {
+            let content = crate::read_text_file(path, "replace", quiet)?;
+            let (replaced, count) =
+                replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
+            if count > 0 {
+                Some(FileReplacement {
+                    path: path.to_string_lossy().to_string(),
+                    original: content,
+                    replaced,
+                    match_count: count,
+                })
+            } else {
+                None
+            }
+        });
 
     replacements.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(replacements)
