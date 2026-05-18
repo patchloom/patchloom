@@ -526,7 +526,7 @@ pub(crate) mod md {
             .all(|c| matches!(c, '-' | ':' | '|' | ' '))
     }
 
-    fn table_append_in(
+    pub(crate) fn table_append_in(
         content: &str,
         body_start: usize,
         body_end: usize,
