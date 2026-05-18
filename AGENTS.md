@@ -56,8 +56,9 @@ src/
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
-  ops.rs               Shared operation helpers used by tx.rs: replace (validation, replacement
-                       text, content replacement), doc (format detection, navigation, merge),
+  ops.rs               Shared operation helpers used by cmd/tx.rs, cmd/doc.rs, cmd/md.rs:
+                       replace (validation, replacement text, content replacement),
+                       doc (format detection, parsing, navigation, merge, update),
                        md (heading parse, section replace, bullet upsert, table append),
                        patch (apply with loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
