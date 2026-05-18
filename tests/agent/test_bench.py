@@ -134,6 +134,7 @@ class TaskResult:
     name: str
     duration_secs: float
     patchloom_calls: int
+    patchloom_duration_ms: int
     success: bool
 
 
@@ -143,6 +144,8 @@ class SessionResult:
     model: str
     tasks: list[TaskResult] = field(default_factory=list)
     total_secs: float = 0.0
+    first_task_secs: float = 0.0
+    subsequent_avg_secs: float = 0.0
 
 
 def _run_session(agent, real_bin, tmp_path, with_agents_md):
@@ -156,7 +159,8 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
 
     for task in TASKS:
         task["setup"](ws)
-        prev_count = len(log_path.read_text().splitlines()) if log_path.exists() else 0
+        prev_lines = log_path.read_text().splitlines() if log_path.exists() else []
+        prev_count = len(prev_lines)
 
         cmd = ["grok", "-p", task["prompt"], "--yolo", "--output-format", "json",
                "--max-turns", "15", "--cwd", str(ws), "-m", agent.model]
@@ -166,7 +170,7 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=240, env=env)
         except subprocess.TimeoutExpired:
-            session.tasks.append(TaskResult(name=task["name"], duration_secs=240.0, patchloom_calls=0, success=False))
+            session.tasks.append(TaskResult(name=task["name"], duration_secs=240.0, patchloom_calls=0, patchloom_duration_ms=0, success=False))
             continue
         duration = time.monotonic() - start
 
@@ -178,16 +182,47 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        new_calls = (len(log_path.read_text().splitlines()) if log_path.exists() else 0) - prev_count
+        # Parse shim log for call count AND per-call durations
+        new_calls = 0
+        pl_duration_ms = 0
+        if log_path.exists():
+            all_lines = log_path.read_text().splitlines()
+            for line in all_lines[prev_count:]:
+                line = line.strip()
+                if not line:
+                    continue
+                new_calls += 1
+                try:
+                    entry = json.loads(line)
+                    d = entry.get("duration_ms", 0)
+                    if isinstance(d, (int, float)) and d > 0:
+                        pl_duration_ms += int(d)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         try:
             success = task["check"](ws)
         except Exception:
             success = False
 
-        session.tasks.append(TaskResult(name=task["name"], duration_secs=round(duration, 1), patchloom_calls=new_calls, success=bool(success)))
-        print(f"    [{mode}] {task['name']}: {duration:.1f}s, {new_calls} pl calls, {'OK' if success else 'FAIL'}")
+        session.tasks.append(TaskResult(
+            name=task["name"],
+            duration_secs=round(duration, 1),
+            patchloom_calls=new_calls,
+            patchloom_duration_ms=pl_duration_ms,
+            success=bool(success),
+        ))
+        pl_info = f", {new_calls} pl calls ({pl_duration_ms}ms)" if new_calls else ""
+        print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}, {'OK' if success else 'FAIL'}")
 
     session.total_secs = round(time.monotonic() - total_start, 1)
+    # Compute first-task vs subsequent-task metrics
+    if session.tasks:
+        session.first_task_secs = session.tasks[0].duration_secs
+        if len(session.tasks) > 1:
+            session.subsequent_avg_secs = round(
+                sum(t.duration_secs for t in session.tasks[1:]) / (len(session.tasks) - 1), 1
+            )
     return session
 
 
@@ -233,18 +268,20 @@ def test_multi_turn_native(bench_agent, bench_patchloom_bin, tmp_path, request):
     sessions = request.config._bench_sessions
     if "patchloom" in sessions and "native" in sessions:
         _print_comparison(sessions["patchloom"], sessions["native"])
+        results_dir = Path(__file__).resolve().parent.parent.parent / "benches" / "agent" / "results"
+        _save_results(sessions["patchloom"], sessions["native"], results_dir)
 
     assert any(t.success for t in session.tasks)
 
 
 def _print_comparison(pl, native):
     """Print side-by-side comparison table."""
-    print("\n  ┌─────────────────────────────────────────────────────────────────────────────┐")
-    print(f"  │ {'Multi-Turn Benchmark: patchloom vs native':^75} │")
-    print(f"  │ {'Model: ' + pl.model:^75} │")
-    print("  ├──────────────────┬────────────┬──────────────┬──────────┬────────┬──────────┤")
-    print("  │ Task             │   PL time  │  Native time │    Delta │ PL cnt │   Winner │")
-    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┤")
+    print("\n  ┌────────────────────────────────────────────────────────────────────────────────────────────┐")
+    print(f"  │ {'Multi-Turn Benchmark: patchloom vs native':^90} │")
+    print(f"  │ {'Model: ' + pl.model:^90} │")
+    print("  ├──────────────────┬────────────┬──────────────┬──────────┬────────┬──────────┬────────────┤")
+    print("  │ Task             │   PL time  │  Native time │    Delta │ PL cnt │   Winner │  PL exec   │")
+    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┼────────────┤")
 
     for pt, nt in zip(pl.tasks, native.tasks):
         delta = pt.duration_secs - nt.duration_secs
@@ -252,19 +289,67 @@ def _print_comparison(pl, native):
         winner = "native" if delta > 1.5 else ("patchloom" if delta < -1.5 else "~same")
         p_mark = "*" if not pt.success else " "
         n_mark = "*" if not nt.success else " "
+        pl_exec = f"{pt.patchloom_duration_ms}ms" if pt.patchloom_duration_ms > 0 else ""
         print(
             f"  │ {pt.name:<16} │ {pt.duration_secs:>7.1f}s{p_mark}  "
             f"│ {nt.duration_secs:>9.1f}s{n_mark}  "
-            f"│ {sign}{delta:>6.1f}s │ {pt.patchloom_calls:>6} │ {winner:>8} │"
+            f"│ {sign}{delta:>6.1f}s │ {pt.patchloom_calls:>6} │ {winner:>8} │ {pl_exec:>10} │"
         )
 
-    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┤")
+    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┼────────────┤")
     d = pl.total_secs - native.total_secs
     sign = "+" if d > 0 else ""
+    total_pl_ms = sum(t.patchloom_duration_ms for t in pl.tasks)
+    total_pl_exec = f"{total_pl_ms}ms" if total_pl_ms > 0 else ""
     print(
         f"  │ {'TOTAL':<16} │ {pl.total_secs:>7.1f}s   "
         f"│ {native.total_secs:>9.1f}s   "
-        f"│ {sign}{d:>6.1f}s │        │          │"
+        f"│ {sign}{d:>6.1f}s │        │          │ {total_pl_exec:>10} │"
     )
-    print("  └──────────────────┴────────────┴──────────────┴──────────┴────────┴──────────┘")
+    print("  └──────────────────┴────────────┴──────────────┴──────────┴────────┴──────────┴────────────┘")
     print("  (* = task failed)")
+
+    # First-task overhead analysis
+    ft_delta = pl.first_task_secs - native.first_task_secs
+    sa_delta = pl.subsequent_avg_secs - native.subsequent_avg_secs
+    print(f"\n  First-task latency:   PL {pl.first_task_secs:.1f}s  vs  Native {native.first_task_secs:.1f}s  (delta: {ft_delta:+.1f}s)")
+    print(f"  Subsequent avg:       PL {pl.subsequent_avg_secs:.1f}s  vs  Native {native.subsequent_avg_secs:.1f}s  (delta: {sa_delta:+.1f}s)")
+    if ft_delta > sa_delta + 1.0:
+        overhead = ft_delta - sa_delta
+        print(f"  Estimated AGENTS.md ingestion overhead: ~{overhead:.1f}s")
+
+
+def _save_results(pl, native, output_dir):
+    """Save benchmark results to a JSON file for historical comparison."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{pl.model}_{timestamp}.json"
+
+    def _session_dict(s):
+        return {
+            "mode": s.mode,
+            "model": s.model,
+            "total_secs": s.total_secs,
+            "first_task_secs": s.first_task_secs,
+            "subsequent_avg_secs": s.subsequent_avg_secs,
+            "tasks": [
+                {
+                    "name": t.name,
+                    "duration_secs": t.duration_secs,
+                    "patchloom_calls": t.patchloom_calls,
+                    "patchloom_duration_ms": t.patchloom_duration_ms,
+                    "success": t.success,
+                }
+                for t in s.tasks
+            ],
+        }
+
+    data = {
+        "timestamp": timestamp,
+        "model": pl.model,
+        "patchloom": _session_dict(pl),
+        "native": _session_dict(native),
+    }
+    filepath = output_dir / filename
+    filepath.write_text(json.dumps(data, indent=2) + "\n")
+    print(f"\n  Results saved to {filepath}")
