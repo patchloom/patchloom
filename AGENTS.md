@@ -60,7 +60,7 @@ src/
                        replace (validation, replacement text, content replacement),
                        doc (format detection, parsing, navigation, merge, update),
                        md (heading parse, section replace, bullet upsert, table append),
-                       patch (apply with loader). Each is a pub(crate) submodule.
+                       patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
                        22 operation types including all doc/md/replace/hygiene/file/patch ops
