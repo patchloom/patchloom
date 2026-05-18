@@ -227,6 +227,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Nothing; this is the only way to generate the end-user agent documentation.
 - **Related:** `completions`
 
+<!-- ref:command:mcp-server -->
+## `mcp-server`
+
+- **What it does:** Starts an MCP (Model Context Protocol) server on stdio, exposing patchloom operations as structured tool calls. Requires the `mcp` feature flag (`cargo build --features mcp`).
+- **Use when:** An MCP-capable AI agent can call patchloom tools directly via structured tool calls instead of constructing shell commands. This eliminates the shell-syntax construction tax and reduces agent errors.
+- **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
+- **Related:** `batch`, `tx`
+
 <!-- ref:command:completions -->
 ## `completions`
 

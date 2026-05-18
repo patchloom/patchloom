@@ -10,6 +10,10 @@ homepage = "https://github.com/patchloom/patchloom"
 readme = "README.md"
 keywords = ["cli", "agents", "patch", "markdown", "config"]
 
+[features]
+default = []
+mcp = ["rmcp", "tokio", "schemars"]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -26,6 +30,9 @@ tempfile = "3"
 anyhow = "1"
 ec4rs = "1"
 clap_complete = "4.4.10"
+rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+schemars = { version = "1", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

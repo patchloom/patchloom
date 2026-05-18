@@ -3,6 +3,8 @@ pub mod create;
 pub mod delete;
 pub mod doc;
 pub mod hygiene;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod md;
 pub mod patch;
 pub mod read;
@@ -42,6 +44,9 @@ pub enum Command {
     Batch(batch::BatchArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
     AgentRules,
+    /// Start an MCP (Model Context Protocol) server on stdio.
+    #[cfg(feature = "mcp")]
+    McpServer,
     /// Generate shell completions for bash, zsh, fish, or elvish.
     Completions {
         /// Shell to generate completions for.
@@ -53,6 +58,8 @@ pub enum Command {
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     let mut global = cli.global;
     match cli.command {
+        #[cfg(feature = "mcp")]
+        Command::McpServer => mcp::run_mcp_server(),
         Command::AgentRules => {
             let version = env!("CARGO_PKG_VERSION");
             let template = include_str!("../agent_rules.md");
