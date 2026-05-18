@@ -2690,6 +2690,28 @@ fn test_md_lint_agents_bad_file_exits_2() {
 }
 
 #[test]
+fn test_md_lint_agents_skips_fenced_code_blocks() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    // The dangerous command appears inside both backtick and tilde fences —
+    // lint-agents must not flag it.
+    fs::write(
+        &file,
+        "# Rules\n\n```bash\ngit add .\n```\n\n~~~bash\ngit add -A\n~~~\n\nStage explicitly.\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_md_lint_agents_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("AGENTS.md");
