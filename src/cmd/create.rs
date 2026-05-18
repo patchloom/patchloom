@@ -7,7 +7,6 @@ use clap::Args;
 use serde::Serialize;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
 
 #[derive(Debug, Args)]
 pub struct CreateArgs {
@@ -48,7 +47,7 @@ fn make_diff_output(path: &str, content: &str) -> String {
 }
 
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
+    let cwd = global.resolve_cwd()?;
 
     // Resolve content from --content or --stdin.
     let content = if let Some(ref c) = args.content {
@@ -61,7 +60,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("either --content or --stdin must be provided");
     };
 
-    let path = Path::new(&args.file);
+    let path = cwd.join(&args.file);
 
     // Check if file already exists.
     if path.exists() && !args.force {
@@ -85,7 +84,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write file using atomic_write.
     if global.apply {
-        let policy = policy_from_flags(global, Some(path));
+        let policy = policy_from_flags(global, Some(&path));
 
         // Ensure parent directories exist.
         if let Some(parent) = path.parent() {
@@ -94,7 +93,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        atomic_write(path, &content, &policy)?;
+        atomic_write(&path, &content, &policy)?;
 
         if global.json {
             let diff_text = if global.diff {

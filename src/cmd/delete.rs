@@ -20,9 +20,8 @@ struct DeleteOutput {
 }
 
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
-
-    let path = std::path::Path::new(&args.file);
+    let cwd = global.resolve_cwd()?;
+    let path = cwd.join(&args.file);
 
     if !path.exists() {
         anyhow::bail!("file not found: {}", args.file);

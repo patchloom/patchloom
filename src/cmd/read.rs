@@ -106,14 +106,16 @@ fn read_one_file(path: &str, lines_spec: &Option<String>) -> Result<ReadOutput, 
 }
 
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
+    let cwd = global.resolve_cwd()?;
 
     let multi = args.files.len() > 1;
     let mut outputs: Vec<ReadOutput> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
     for (i, path) in args.files.iter().enumerate() {
-        match read_one_file(path, &args.lines) {
+        let resolved = cwd.join(path);
+        let resolved_str = resolved.to_string_lossy();
+        match read_one_file(&resolved_str, &args.lines) {
             Ok(output) => {
                 if global.jsonl {
                     println!("{}", serde_json::to_string(&output)?);

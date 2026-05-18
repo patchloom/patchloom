@@ -95,6 +95,39 @@ pub enum DocAction {
     Diff { file_a: String, file_b: String },
 }
 
+impl DocAction {
+    /// Resolve all file paths against `cwd` so the command does not depend
+    /// on the process-global current directory.
+    fn resolve_files(&mut self, cwd: &std::path::Path) {
+        match self {
+            DocAction::Get { ref mut file, .. }
+            | DocAction::Has { ref mut file, .. }
+            | DocAction::Keys { ref mut file, .. }
+            | DocAction::Len { ref mut file, .. }
+            | DocAction::Set { ref mut file, .. }
+            | DocAction::Delete { ref mut file, .. }
+            | DocAction::DeleteWhere { ref mut file, .. }
+            | DocAction::Merge { ref mut file, .. }
+            | DocAction::Append { ref mut file, .. }
+            | DocAction::Prepend { ref mut file, .. }
+            | DocAction::Select { ref mut file, .. }
+            | DocAction::Update { ref mut file, .. }
+            | DocAction::Move { ref mut file, .. }
+            | DocAction::Ensure { ref mut file, .. }
+            | DocAction::Flatten { ref mut file } => {
+                *file = cwd.join(&*file).to_string_lossy().to_string();
+            }
+            DocAction::Diff {
+                ref mut file_a,
+                ref mut file_b,
+            } => {
+                *file_a = cwd.join(&*file_a).to_string_lossy().to_string();
+                *file_b = cwd.join(&*file_b).to_string_lossy().to_string();
+            }
+        }
+    }
+}
+
 fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
     let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
     let format = detect_format(path)?;
@@ -830,8 +863,9 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
 // Public entry point
 // ---------------------------------------------------------------------------
 
-pub fn run(args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
+pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    args.action.resolve_files(&cwd);
 
     let is_write = matches!(
         &args.action,

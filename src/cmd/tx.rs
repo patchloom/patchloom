@@ -100,17 +100,17 @@ pub struct TxArgs {
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-fn host_shell_command(cmd: &str) -> std::process::Command {
+fn host_shell_command(cmd: &str, cwd: &Path) -> std::process::Command {
     #[cfg(windows)]
     {
         let mut command = std::process::Command::new("cmd");
-        command.arg("/C").arg(cmd);
+        command.arg("/C").arg(cmd).current_dir(cwd);
         command
     }
     #[cfg(not(windows))]
     {
         let mut command = std::process::Command::new("sh");
-        command.arg("-c").arg(cmd);
+        command.arg("-c").arg(cmd).current_dir(cwd);
         command
     }
 }
@@ -120,8 +120,9 @@ fn host_shell_command(cmd: &str) -> std::process::Command {
 fn run_shell_with_timeout(
     cmd: &str,
     timeout_secs: u64,
+    cwd: &Path,
 ) -> anyhow::Result<std::process::ExitStatus> {
-    let mut child = host_shell_command(cmd)
+    let mut child = host_shell_command(cmd, cwd)
         .stdout(std::process::Stdio::null())
         // Discard stderr so verbose lifecycle steps cannot block on a full pipe.
         .stderr(std::process::Stdio::null())
@@ -224,11 +225,13 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     path: &Path,
+    cwd: &Path,
 ) -> anyhow::Result<&'a str> {
     match pending.entry(path.to_path_buf()) {
         Entry::Occupied(entry) => Ok(&entry.into_mut().1),
         Entry::Vacant(entry) => {
-            let content = std::fs::read_to_string(path)
+            let abs = cwd.join(path);
+            let content = std::fs::read_to_string(&abs)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
             Ok(&entry.insert((content.clone(), content)).1)
         }
@@ -262,13 +265,14 @@ fn with_doc<F>(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     path: &str,
+    cwd: &Path,
     mutate: F,
 ) -> anyhow::Result<()>
 where
     F: FnOnce(&mut serde_json::Value) -> anyhow::Result<()>,
 {
-    let file_path = PathBuf::from(path);
-    let content = read_file_content(pending, &file_path)?;
+    let file_path = cwd.join(path);
+    let content = read_file_content(pending, &file_path, cwd)?;
     let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
@@ -284,6 +288,7 @@ fn execute_operation(
     deletions: &mut HashSet<PathBuf>,
     tx_reads: &mut Vec<TxReadResult>,
     tx_searches: &mut Vec<TxSearchResult>,
+    cwd: &Path,
 ) -> anyhow::Result<usize> {
     match op {
         Operation::Replace {
@@ -320,15 +325,15 @@ fn execute_operation(
             };
 
             if let Some(p) = path {
-                let file_path = PathBuf::from(p);
-                let content = read_file_content(pending, &file_path)?;
+                let file_path = cwd.join(p);
+                let content = read_file_content(pending, &file_path, cwd)?;
                 let (replaced, match_count) =
                     replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
                 update_file_content(pending, deletions, &file_path, replaced);
                 return Ok(match_count);
             } else if let Some(pattern) = glob {
                 let matcher = Glob::new(pattern)?.compile_matcher();
-                let walker = WalkBuilder::new(".").build();
+                let walker = WalkBuilder::new(cwd).build();
                 let mut total_matches = 0usize;
                 for entry in walker {
                     let entry = match entry {
@@ -349,7 +354,7 @@ fn execute_operation(
                     // without inserting into pending so non-matching files don't
                     // get buffered.
                     let content = if pending.contains_key(&file_path) {
-                        match read_file_content(pending, &file_path) {
+                        match read_file_content(pending, &file_path, cwd) {
                             Ok(c) => c.to_owned(),
                             Err(e) => {
                                 eprintln!("tx: replace: skipping {}: {e}", file_path.display());
@@ -381,7 +386,7 @@ fn execute_operation(
         Operation::DocSet { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let last = sel
                     .last()
@@ -413,7 +418,7 @@ fn execute_operation(
 
         Operation::DocDelete { path, key } => {
             let key = key.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let Some(last) = sel.last() else {
                     return Ok(());
@@ -441,7 +446,7 @@ fn execute_operation(
 
         Operation::DocMerge { path, value } => {
             let value = value.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 deep_merge(root, &value);
                 Ok(())
             })?;
@@ -450,7 +455,7 @@ fn execute_operation(
         Operation::DocAppend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -464,7 +469,7 @@ fn execute_operation(
         Operation::DocPrepend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -477,7 +482,7 @@ fn execute_operation(
 
         Operation::DocUpdate { path, key, value } => {
             let key = key.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let count = update_matching(root, &sel, value);
                 if count == 0 {
@@ -490,7 +495,7 @@ fn execute_operation(
         Operation::DocMove { path, from, to } => {
             let from = from.clone();
             let to = to.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let from_sel = parse_selector(&from)?;
                 let to_sel = parse_selector(&to)?;
 
@@ -552,7 +557,7 @@ fn execute_operation(
         Operation::DocEnsure { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
 
                 // If the path already exists, no-op.
@@ -595,7 +600,7 @@ fn execute_operation(
         } => {
             let key = key.clone();
             let predicate = predicate.clone();
-            with_doc(pending, deletions, path, |root| {
+            with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let eq_pos = predicate
                     .find('=')
@@ -630,8 +635,8 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let new_content = replace_section_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
@@ -642,8 +647,8 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let new_content = insert_after_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
@@ -654,8 +659,8 @@ fn execute_operation(
             heading,
             content,
         } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let new_content = insert_before_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
@@ -666,24 +671,24 @@ fn execute_operation(
             heading,
             bullet,
         } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let new_content = upsert_bullet_in(file_content, heading, bullet)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdTableAppend { path, heading, row } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let new_content = table_append_for_tx(file_content, heading, row)
                 .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
             update_file_content(pending, deletions, &file_path, new_content);
         }
 
         Operation::MdDedupeHeadings { path } => {
-            let file_path = PathBuf::from(path);
-            let file_content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let file_content = read_file_content(pending, &file_path, cwd)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
             update_file_content(pending, deletions, &file_path, new_content);
         }
@@ -692,8 +697,8 @@ fn execute_operation(
             path,
             ensure_final_newline,
         } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?;
+            let file_path = cwd.join(path);
+            let content = read_file_content(pending, &file_path, cwd)?;
             let mut new = content.to_string();
             if ensure_final_newline.unwrap_or(true) {
                 new = crate::write::ensure_final_newline(&new);
@@ -706,11 +711,11 @@ fn execute_operation(
             content,
             force,
         } => {
-            let file_path = PathBuf::from(path);
+            let file_path = cwd.join(path);
             if force.unwrap_or(false) {
                 // Force mode: overwrite existing content.
                 if pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(pending, &file_path)?;
+                    let _ = read_file_content(pending, &file_path, cwd)?;
                 }
                 update_file_content(pending, deletions, &file_path, content.clone());
             } else {
@@ -723,18 +728,18 @@ fn execute_operation(
 
         Operation::PatchApply { diff } => {
             let patched_files = apply_patch_with_loader(diff, |path| {
-                let file_path = PathBuf::from(path);
-                Ok(read_file_content(pending, &file_path)?.to_string())
+                let file_path = cwd.join(path);
+                Ok(read_file_content(pending, &file_path, cwd)?.to_string())
             })?;
             for (rel_path, patched_content) in patched_files {
-                let file_path = PathBuf::from(&rel_path);
+                let file_path = cwd.join(&rel_path);
                 update_file_content(pending, deletions, &file_path, patched_content);
             }
         }
 
         Operation::Read { path, lines } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?.to_string();
+            let file_path = cwd.join(path);
+            let content = read_file_content(pending, &file_path, cwd)?.to_string();
             let all_lines: Vec<&str> = content.lines().collect();
             let total_lines = all_lines.len();
 
@@ -777,8 +782,8 @@ fn execute_operation(
             before_context,
             after_context,
         } => {
-            let file_path = PathBuf::from(path);
-            let content = read_file_content(pending, &file_path)?.to_string();
+            let file_path = cwd.join(path);
+            let content = read_file_content(pending, &file_path, cwd)?.to_string();
 
             let re = if *regex {
                 let mut builder = regex::RegexBuilder::new(pattern);
@@ -824,11 +829,11 @@ fn execute_operation(
         }
 
         Operation::FileDelete { path } => {
-            let file_path = PathBuf::from(path);
+            let file_path = cwd.join(path);
             let created_in_tx = match pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
-                    let _ = read_file_content(pending, &file_path)?;
+                    let _ = read_file_content(pending, &file_path, cwd)?;
                     false
                 }
             };
@@ -894,14 +899,22 @@ fn build_tx_output(
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     reads: Vec<TxReadResult>,
+    cwd: &Path,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
     let mut deleted_count = 0usize;
     let mut modified = 0usize;
 
+    let display_path = |p: &Path| -> String {
+        p.strip_prefix(cwd)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .to_string()
+    };
+
     for (path, _original, _) in changes {
-        let path_str = path.to_string_lossy().to_string();
+        let path_str = display_path(path);
         if deletions.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
@@ -926,7 +939,7 @@ fn build_tx_output(
     for path in deletions {
         if !changes.iter().any(|(c, _, _)| c == path) {
             tx_changes.push(TxChange {
-                path: path.to_string_lossy().to_string(),
+                path: display_path(path),
                 action: "deleted",
             });
             deleted_count += 1;
@@ -986,10 +999,13 @@ fn describe_exit_status(status: std::process::ExitStatus) -> String {
     }
 }
 
-fn print_diffs(changes: &[(PathBuf, String, String)]) {
+fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path) {
     let diffs: Vec<_> = changes
         .iter()
-        .map(|(p, old, new)| unified_diff(&p.to_string_lossy(), old, new))
+        .map(|(p, old, new)| {
+            let display = p.strip_prefix(cwd).unwrap_or(p);
+            unified_diff(&display.to_string_lossy(), old, new)
+        })
         .collect();
     let total = diffs.iter().filter(|d| d.has_changes).count();
     let result = DiffResult {
@@ -1008,10 +1024,10 @@ struct LifecycleError {
     kind: &'static str,
 }
 
-fn run_format_steps(steps: &[plan::FormatStep]) -> Result<(), LifecycleError> {
+fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), LifecycleError> {
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        match run_shell_with_timeout(&step.cmd, timeout_secs) {
+        match run_shell_with_timeout(&step.cmd, timeout_secs, cwd) {
             Ok(status) if !status.success() => {
                 let msg = format!(
                     "format step failed (step {}, {})",
@@ -1038,10 +1054,10 @@ fn run_format_steps(steps: &[plan::FormatStep]) -> Result<(), LifecycleError> {
     Ok(())
 }
 
-fn run_validate_steps(steps: &[plan::ValidationStep]) -> Result<(), LifecycleError> {
+fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), LifecycleError> {
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        match run_shell_with_timeout(&step.cmd, timeout_secs) {
+        match run_shell_with_timeout(&step.cmd, timeout_secs, cwd) {
             Ok(status) if status.success() => {}
             Ok(status) => {
                 let msg = format!(
@@ -1137,12 +1153,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::PARSE_ERROR);
     }
 
-    // 3. Set working directory (plan.cwd overrides global --cwd).
-    if let Some(ref cwd) = plan.cwd {
-        std::env::set_current_dir(cwd)?;
+    // 3. Resolve working directory (plan.cwd overrides global --cwd).
+    let cwd: PathBuf = if let Some(ref c) = plan.cwd {
+        PathBuf::from(c)
     } else {
-        std::env::set_current_dir(global.resolve_cwd()?)?;
-    }
+        global.resolve_cwd()?
+    };
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
@@ -1164,6 +1180,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             &mut deletions,
             &mut tx_reads,
             &mut tx_searches,
+            &cwd,
         ) {
             Ok(match_count) => {
                 total_replace_matches += match_count;
@@ -1221,6 +1238,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     &deletions,
                     &existed_before,
                     Vec::new(),
+                    &cwd,
                 );
                 output.reads = std::mem::take(&mut tx_reads);
                 output.searches = std::mem::take(&mut tx_searches);
@@ -1236,6 +1254,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 &deletions,
                 &existed_before,
                 Vec::new(),
+                &cwd,
             );
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
@@ -1272,20 +1291,20 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         // Show diffs if --diff flag is set.
         if global.diff && !changes.is_empty() {
-            print_diffs(&changes);
+            print_diffs(&changes, &cwd);
         }
 
         // 7. Run format steps, then validation steps.
         let lifecycle_err = plan
             .format
             .as_deref()
-            .map(run_format_steps)
+            .map(|steps| run_format_steps(steps, &cwd))
             .unwrap_or(Ok(()))
             .err()
             .or_else(|| {
                 plan.validate
                     .as_deref()
-                    .and_then(|steps| run_validate_steps(steps).err())
+                    .and_then(|steps| run_validate_steps(steps, &cwd).err())
             });
 
         if let Some(err) = lifecycle_err {
@@ -1316,6 +1335,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 &deletions,
                 &existed_before,
                 Vec::new(),
+                &cwd,
             );
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
@@ -1337,12 +1357,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             &deletions,
             &existed_before,
             Vec::new(),
+            &cwd,
         );
         output.reads = std::mem::take(&mut tx_reads);
         output.searches = std::mem::take(&mut tx_searches);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if !changes.is_empty() {
-        print_diffs(&changes);
+        print_diffs(&changes, &cwd);
     }
 
     Ok(exit::SUCCESS)
@@ -1402,7 +1423,7 @@ mod tests {
         fs::write(&path, "hello from disk\n").unwrap();
         let mut pending = HashMap::new();
 
-        let content = read_file_content(&mut pending, &path).unwrap();
+        let content = read_file_content(&mut pending, &path, dir.path()).unwrap();
 
         assert_eq!(content, "hello from disk\n");
         assert_eq!(

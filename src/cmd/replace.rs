@@ -97,8 +97,9 @@ fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<FileReplacement>> {
+    let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
-    let file_paths = crate::collect_file_paths(&args.paths, global)?;
+    let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
     let replacement = build_replacement(args);
 
     let compiled_re = if args.regex {
@@ -197,8 +198,6 @@ fn make_diff_output(replacements: &[FileReplacement]) -> String {
 }
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
-
     if args.from.is_empty() {
         anyhow::bail!("--from must not be empty");
     }

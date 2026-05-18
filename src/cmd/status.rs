@@ -20,10 +20,13 @@ struct StatusOutput {
 }
 
 pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    std::env::set_current_dir(global.resolve_cwd()?)?;
+    let cwd = global.resolve_cwd()?;
 
     let mut cmd = process::Command::new("git");
-    cmd.arg("status").arg("--porcelain=v1").arg("--no-renames");
+    cmd.current_dir(&cwd)
+        .arg("status")
+        .arg("--porcelain=v1")
+        .arg("--no-renames");
     for path in &args.paths {
         cmd.arg("--").arg(path);
     }
