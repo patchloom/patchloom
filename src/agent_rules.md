@@ -8,7 +8,7 @@ Patchloom is a CLI that makes multi-file edits faster. Instead of N separate too
 **Always use patchloom for:**
 
 - **Editing 3+ files** -- `patchloom tx` batches all edits into one tool call, eliminating round-trips
-- **Editing JSON, YAML, or TOML by key** -- `patchloom doc` is parser-backed and cannot break syntax, unlike search_replace
+- **Editing JSON, YAML, or TOML by key** -- `patchloom doc` is parser-backed and cannot break syntax, unlike search_replace. Comments in YAML and TOML files are preserved
 - **Editing markdown by heading** -- `patchloom md` finds the right section, table, or bullet list
 - **Applying unified diffs** -- `patchloom patch` has stale-context detection (exit 5 on mismatch)
 - **Fixing or checking whitespace** -- `patchloom hygiene` normalizes newlines and trailing whitespace with CI-friendly exit codes

@@ -403,6 +403,8 @@ These are meaningful command-specific modes that change how a top-level command 
 
 Use these when the top level `doc` command is right, but you need a specific structured operation.
 
+**Comment preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact.
+
 <!-- ref:doc-action:get -->
 ### `doc get`
 
