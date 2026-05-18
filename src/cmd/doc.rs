@@ -411,9 +411,7 @@ fn deep_merge_inner(base: &mut serde_json::Value, other: &serde_json::Value, dep
         *base = other.clone();
         return;
     }
-    if base.is_object() && other.is_object() {
-        let other_map = other.as_object().unwrap();
-        let base_map = base.as_object_mut().unwrap();
+    if let (Some(base_map), Some(other_map)) = (base.as_object_mut(), other.as_object()) {
         for (key, value) in other_map {
             let entry = base_map
                 .entry(key.clone())
@@ -581,11 +579,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
-            if sel.is_empty() {
+            let Some(last) = sel.last() else {
                 return Ok((String::new(), exit::NO_MATCHES));
-            }
-
-            let last = sel.last().unwrap();
+            };
             let parent_path = &sel[..sel.len() - 1];
 
             let parent = match navigate_mut(&mut root, parent_path, false) {
@@ -971,22 +967,36 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
                 let mut out = String::new();
                 for e in &entries {
                     match e.kind.as_str() {
-                        "added" => out.push_str(&format!(
-                            "+ {} = {}\n",
-                            e.path,
-                            format_value(e.new_value.as_ref().unwrap(), false)
-                        )),
-                        "removed" => out.push_str(&format!(
-                            "- {} = {}\n",
-                            e.path,
-                            format_value(e.old_value.as_ref().unwrap(), false)
-                        )),
-                        "changed" => out.push_str(&format!(
-                            "~ {} = {} -> {}\n",
-                            e.path,
-                            format_value(e.old_value.as_ref().unwrap(), false),
-                            format_value(e.new_value.as_ref().unwrap(), false)
-                        )),
+                        "added" => {
+                            if let Some(v) = e.new_value.as_ref() {
+                                out.push_str(&format!(
+                                    "+ {} = {}\n",
+                                    e.path,
+                                    format_value(v, false)
+                                ));
+                            }
+                        }
+                        "removed" => {
+                            if let Some(v) = e.old_value.as_ref() {
+                                out.push_str(&format!(
+                                    "- {} = {}\n",
+                                    e.path,
+                                    format_value(v, false)
+                                ));
+                            }
+                        }
+                        "changed" => {
+                            if let (Some(old), Some(new)) =
+                                (e.old_value.as_ref(), e.new_value.as_ref())
+                            {
+                                out.push_str(&format!(
+                                    "~ {} = {} -> {}\n",
+                                    e.path,
+                                    format_value(old, false),
+                                    format_value(new, false)
+                                ));
+                            }
+                        }
                         _ => {}
                     }
                 }

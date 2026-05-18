@@ -97,9 +97,7 @@ pub(crate) mod doc {
             *base = other.clone();
             return;
         }
-        if base.is_object() && other.is_object() {
-            let other_map = other.as_object().unwrap();
-            let base_map = base.as_object_mut().unwrap();
+        if let (Some(base_map), Some(other_map)) = (base.as_object_mut(), other.as_object()) {
             for (key, value) in other_map {
                 let entry = base_map
                     .entry(key.clone())
