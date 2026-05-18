@@ -6405,6 +6405,48 @@ fn test_md_insert_before_heading_not_found() {
 }
 
 #[test]
+fn test_md_insert_after_heading_not_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\n\nContent.\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("insert-after-heading")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("Nonexistent")
+        .arg("--content")
+        .arg("text")
+        .arg("--apply")
+        .assert()
+        .code(3); // NO_MATCHES
+}
+
+#[test]
+fn test_md_upsert_bullet_heading_not_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\n\nContent.\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("upsert-bullet")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("Nonexistent")
+        .arg("--bullet")
+        .arg("new item")
+        .arg("--apply")
+        .assert()
+        .code(3); // NO_MATCHES
+}
+
+#[test]
 fn test_tx_doc_prepend_on_non_array_rolls_back() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");

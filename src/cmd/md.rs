@@ -727,6 +727,25 @@ mod tests {
         assert!(result.contains("existing"), "existing content lost");
     }
 
+    #[test]
+    fn insert_after_heading_missing_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\ncontent\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::InsertAfterHeading {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                stdin: false,
+                content: Some("inserted".into()),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
     // -- upsert-bullet ------------------------------------------------------
 
     #[test]
@@ -774,6 +793,24 @@ mod tests {
             1,
             "bullet duplicated: {result}"
         );
+    }
+
+    #[test]
+    fn upsert_bullet_missing_heading_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\ncontent\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::UpsertBullet {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                bullet: "new item".into(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 
     // -- dedupe-headings ----------------------------------------------------
