@@ -29,6 +29,12 @@ def pytest_addoption(parser):
         default=os.environ.get("AGENT_TEST_MODEL", "grok-build"),
         help="Model to use (default: grok-build)",
     )
+    parser.addoption(
+        "--runs",
+        type=int,
+        default=int(os.environ.get("BENCH_RUNS", "1")),
+        help="Number of benchmark runs per mode for variance reduction (default: 1)",
+    )
 
 
 # ---------------------------------------------------------------------------

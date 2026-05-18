@@ -1,17 +1,23 @@
-"""Multi-turn agent benchmarks: patchloom instructions vs native tools.
+"""Multi-turn agent benchmarks: patchloom CLI vs MCP vs native tools.
 
-Simulates realistic agent usage by running 5 tasks in a single session.
+Simulates realistic agent usage by running tasks in a single session.
 AGENTS.md is read once at the start; subsequent tasks reuse the context.
 This amortizes instruction processing overhead across multiple tasks,
 matching real-world usage patterns.
 
-Two modes:
-- "patchloom": workspace has AGENTS.md with patchloom instructions
+Three modes:
+- "patchloom": workspace has AGENTS.md with patchloom CLI instructions
+- "mcp": workspace has MCP tools configured (patchloom mcp-server)
 - "native": workspace has no AGENTS.md (agent uses native tools only)
+
+Variance reduction:
+- Use --runs N (default 1) to run each mode N times and take the median.
+- With N>=3, the comparison table shows median and min-max range.
 
 Run with:
     make bench-agent
     make bench-agent MODEL=sxs-gpt-5-4
+    make bench-agent MODEL=sxs-gpt-5-4 RUNS=3
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ import json
 import os
 import shutil
 import stat
+import statistics
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -30,6 +37,10 @@ import pytest
 from drivers import create_driver
 
 SHIM_TEMPLATE = (Path(__file__).parent / "shim.sh").read_text()
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _find_patchloom_binary() -> str:
@@ -44,6 +55,18 @@ def _find_patchloom_binary() -> str:
     pytest.skip("patchloom binary not found")
 
 
+def _has_mcp_support(binary: str) -> bool:
+    """Check if the patchloom binary was built with --features mcp."""
+    try:
+        proc = subprocess.run(
+            [binary, "mcp-server", "--help"],
+            capture_output=True, timeout=5,
+        )
+        return proc.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
 def _make_shim(tmp_path, real_bin):
     shim_dir = tmp_path / "shim_bin"
     shim_dir.mkdir(exist_ok=True)
@@ -56,17 +79,51 @@ def _make_shim(tmp_path, real_bin):
     return {"PATH": f"{shim_dir}:{os.environ.get('PATH', '')}", "PATCHLOOM_SHIM_LOG": str(log_file)}, log_file
 
 
-def _make_workspace(tmp_path, real_bin, with_agents_md):
+def _make_workspace(tmp_path, real_bin, mode):
+    """Create an isolated workspace.
+
+    mode="patchloom": AGENTS.md with CLI instructions
+    mode="mcp":       .grok/config.toml with MCP server + minimal AGENTS.md
+    mode="native":    no AGENTS.md
+    """
     ws = tmp_path / "workspace"
     ws.mkdir(exist_ok=True)
-    if with_agents_md:
+
+    if mode == "patchloom":
         result = subprocess.run([real_bin, "agent-rules"], capture_output=True, text=True, check=True)
         (ws / "AGENTS.md").write_text(result.stdout)
+    elif mode == "mcp":
+        # Configure grok to discover patchloom as an MCP server
+        grok_dir = ws / ".grok"
+        grok_dir.mkdir(exist_ok=True)
+        (grok_dir / "config.toml").write_text(
+            f'[mcp_servers.patchloom]\n'
+            f'command = "{real_bin}"\n'
+            f'args = ["mcp-server"]\n'
+            f'startup_timeout_sec = 10\n'
+            f'tool_timeout_sec = 30\n'
+        )
+        # Minimal AGENTS.md telling the model to prefer MCP tools
+        (ws / "AGENTS.md").write_text(
+            "# Patchloom\n\n"
+            "Patchloom MCP tools are available in this session. "
+            "Use them for structured file edits (JSON, YAML, TOML, markdown) "
+            "and multi-file batch operations instead of shell commands.\n"
+        )
+
     subprocess.run(["git", "init"], cwd=ws, capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=ws, capture_output=True, check=True)
-    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@test.com", "commit", "--allow-empty", "-m", "init"], cwd=ws, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
+         "commit", "--allow-empty", "-m", "init"],
+        cwd=ws, capture_output=True, check=True,
+    )
     return ws
 
+
+# ---------------------------------------------------------------------------
+# Task definitions
+# ---------------------------------------------------------------------------
 
 TASKS = [
     {
@@ -108,7 +165,18 @@ TASKS = [
     },
     {
         "name": "batch_6_files",
-        "prompt": "Update the version from '1.0.0' to '2.0.0' in ALL of these files: package.json, pyproject.toml, config.yaml, config.json, version.txt, and the badge in README.md. Make sure every single file is updated.",
+        "prompt": (
+            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
+            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
+            "and the badge in README.md. Make sure every single file is updated."
+        ),
+        # In patchloom/mcp mode, hint that batch is the right tool
+        "prompt_patchloom": (
+            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
+            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
+            "and the badge in README.md. Use patchloom batch to do all 6 in a "
+            "single command. Make sure every single file is updated."
+        ),
         "setup": lambda ws: [
             (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
             (ws / "pyproject.toml").write_text('[project]\nname = "myapp"\nversion = "1.0.0"\n'),
@@ -126,7 +194,32 @@ TASKS = [
             "2.0.0" in (ws / "README.md").read_text(),
         ]),
     },
+    {
+        "name": "batch_mixed_ops",
+        "prompt": (
+            "Make these changes atomically:\n"
+            "1. Set the 'version' key to '4.0.0' in config.json\n"
+            "2. Replace 'v3' with 'v4' in README.md\n"
+            "3. Add bullet '- v4.0.0 released' under the '## Changelog' heading in CHANGELOG.md\n"
+            "All three must succeed together."
+        ),
+        "setup": lambda ws: [
+            (ws / "config.json").write_text(json.dumps({"name": "myapp", "version": "3.0.0"}, indent=2) + "\n"),
+            (ws / "README.md").write_text("# MyApp v3\n\nA sample app running v3.\n"),
+            (ws / "CHANGELOG.md").write_text("# Changelog\n\n## Changelog\n\n- v3.0.0 initial release\n"),
+        ],
+        "check": lambda ws: all([
+            json.loads((ws / "config.json").read_text()).get("version") == "4.0.0",
+            "v4" in (ws / "README.md").read_text(),
+            "v4.0.0 released" in (ws / "CHANGELOG.md").read_text(),
+        ]),
+    },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -148,21 +241,33 @@ class SessionResult:
     subsequent_avg_secs: float = 0.0
 
 
-def _run_session(agent, real_bin, tmp_path, with_agents_md):
-    mode = "patchloom" if with_agents_md else "native"
-    ws = _make_workspace(tmp_path, real_bin, with_agents_md)
+# ---------------------------------------------------------------------------
+# Session runner
+# ---------------------------------------------------------------------------
+
+
+def _get_prompt(task: dict, mode: str) -> str:
+    """Return mode-specific prompt if available, else the default."""
+    key = f"prompt_{mode}"
+    return task.get(key, task["prompt"])
+
+
+def _run_session(agent, real_bin, tmp_path, mode):
+    """Run one full benchmark session. mode is 'patchloom', 'mcp', or 'native'."""
+    ws = _make_workspace(tmp_path, real_bin, mode)
     shim_env, log_path = _make_shim(tmp_path, real_bin)
     session = SessionResult(mode=mode, model=agent.model)
     env = {**os.environ, **shim_env}
     total_start = time.monotonic()
-    session_id = None  # captured from first task's JSON output
+    session_id = None
 
     for task in TASKS:
         task["setup"](ws)
         prev_lines = log_path.read_text().splitlines() if log_path.exists() else []
         prev_count = len(prev_lines)
 
-        cmd = ["grok", "-p", task["prompt"], "--yolo", "--output-format", "json",
+        prompt = _get_prompt(task, mode)
+        cmd = ["grok", "-p", prompt, "--yolo", "--output-format", "json",
                "--max-turns", "15", "--cwd", str(ws), "-m", agent.model]
         if session_id:
             cmd += ["-r", session_id]
@@ -174,7 +279,6 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
             continue
         duration = time.monotonic() - start
 
-        # Extract session ID from first successful run for subsequent resumes
         if not session_id:
             try:
                 out = json.loads(proc.stdout)
@@ -182,7 +286,7 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Parse shim log for call count AND per-call durations
+        # Parse shim log for call count and per-call durations
         new_calls = 0
         pl_duration_ms = 0
         if log_path.exists():
@@ -216,7 +320,6 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
         print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}, {'OK' if success else 'FAIL'}")
 
     session.total_secs = round(time.monotonic() - total_start, 1)
-    # Compute first-task vs subsequent-task metrics
     if session.tasks:
         session.first_task_secs = session.tasks[0].duration_secs
         if len(session.tasks) > 1:
@@ -224,6 +327,66 @@ def _run_session(agent, real_bin, tmp_path, with_agents_md):
                 sum(t.duration_secs for t in session.tasks[1:]) / (len(session.tasks) - 1), 1
             )
     return session
+
+
+def _run_n_sessions(agent, real_bin, tmp_path, mode, n_runs):
+    """Run a mode N times and return all SessionResults."""
+    results = []
+    for i in range(n_runs):
+        run_dir = tmp_path / f"run_{i}"
+        run_dir.mkdir(exist_ok=True)
+        if n_runs > 1:
+            print(f"\n  --- {mode.upper()} run {i + 1}/{n_runs} ---")
+        session = _run_session(agent, real_bin, run_dir, mode)
+        print(f"  Total: {session.total_secs}s")
+        results.append(session)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Statistics helpers
+# ---------------------------------------------------------------------------
+
+
+def _median(values: list[float]) -> float:
+    return round(statistics.median(values), 1) if values else 0.0
+
+
+def _aggregate_runs(runs: list[SessionResult]) -> dict:
+    """Compute per-task and total statistics across N runs.
+
+    Returns a dict with:
+      median_total, min_total, max_total,
+      tasks: {name: {median, min, max, pl_calls_median, pl_exec_median}}
+    """
+    totals = [r.total_secs for r in runs]
+    task_names = [t.name for t in runs[0].tasks] if runs else []
+    task_stats = {}
+    for i, name in enumerate(task_names):
+        durations = [r.tasks[i].duration_secs for r in runs if i < len(r.tasks)]
+        pl_calls = [r.tasks[i].patchloom_calls for r in runs if i < len(r.tasks)]
+        pl_execs = [r.tasks[i].patchloom_duration_ms for r in runs if i < len(r.tasks)]
+        successes = [r.tasks[i].success for r in runs if i < len(r.tasks)]
+        task_stats[name] = {
+            "median": _median(durations),
+            "min": round(min(durations), 1) if durations else 0.0,
+            "max": round(max(durations), 1) if durations else 0.0,
+            "pl_calls_median": round(statistics.median(pl_calls)) if pl_calls else 0,
+            "pl_exec_median": round(statistics.median(pl_execs)) if pl_execs else 0,
+            "success_rate": sum(successes) / len(successes) if successes else 0.0,
+        }
+    return {
+        "n_runs": len(runs),
+        "median_total": _median(totals),
+        "min_total": round(min(totals), 1) if totals else 0.0,
+        "max_total": round(max(totals), 1) if totals else 0.0,
+        "tasks": task_stats,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -241,89 +404,178 @@ def bench_patchloom_bin():
     return _find_patchloom_binary()
 
 
-@pytest.mark.timeout(1200)
-def test_multi_turn_patchloom(bench_agent, bench_patchloom_bin, tmp_path, request):
-    """Run 5 tasks in one session WITH patchloom AGENTS.md."""
-    print("\n  === Multi-turn session: PATCHLOOM mode ===")
-    session = _run_session(bench_agent, bench_patchloom_bin, tmp_path, True)
-    print(f"  Total: {session.total_secs}s")
-    # Stash for comparison table
-    if not hasattr(request.config, "_bench_sessions"):
-        request.config._bench_sessions = {}
-    request.config._bench_sessions["patchloom"] = session
-    assert any(t.success for t in session.tasks)
+@pytest.fixture(scope="module")
+def n_runs(request):
+    return request.config.getoption("--runs")
+
+
+# ---------------------------------------------------------------------------
+# Test functions
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.timeout(1200)
-def test_multi_turn_native(bench_agent, bench_patchloom_bin, tmp_path, request):
-    """Run 5 tasks in one session WITHOUT patchloom AGENTS.md."""
-    print("\n  === Multi-turn session: NATIVE mode ===")
-    session = _run_session(bench_agent, bench_patchloom_bin, tmp_path, False)
-    print(f"  Total: {session.total_secs}s")
-    if not hasattr(request.config, "_bench_sessions"):
-        request.config._bench_sessions = {}
-    request.config._bench_sessions["native"] = session
+def test_multi_turn_patchloom(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
+    """Run tasks in one session WITH patchloom CLI AGENTS.md."""
+    print(f"\n  === Multi-turn session: PATCHLOOM mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
+    runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "patchloom", n_runs)
+    if not hasattr(request.config, "_bench_runs"):
+        request.config._bench_runs = {}
+    request.config._bench_runs["patchloom"] = runs
+    assert any(t.success for r in runs for t in r.tasks)
 
-    # Print comparison table after both sessions complete
-    sessions = request.config._bench_sessions
-    if "patchloom" in sessions and "native" in sessions:
-        _print_comparison(sessions["patchloom"], sessions["native"])
+
+@pytest.mark.timeout(1200)
+def test_multi_turn_mcp(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
+    """Run tasks in one session WITH patchloom MCP tools."""
+    if not _has_mcp_support(bench_patchloom_bin):
+        pytest.skip("patchloom binary lacks MCP support (build with --features mcp)")
+    print(f"\n  === Multi-turn session: MCP mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
+    runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "mcp", n_runs)
+    if not hasattr(request.config, "_bench_runs"):
+        request.config._bench_runs = {}
+    request.config._bench_runs["mcp"] = runs
+    assert any(t.success for r in runs for t in r.tasks)
+
+
+@pytest.mark.timeout(1200)
+def test_multi_turn_native(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
+    """Run tasks in one session WITHOUT patchloom (native tools only)."""
+    print(f"\n  === Multi-turn session: NATIVE mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
+    runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "native", n_runs)
+    if not hasattr(request.config, "_bench_runs"):
+        request.config._bench_runs = {}
+    request.config._bench_runs["native"] = runs
+
+    # Print comparison table after all modes complete
+    all_runs = request.config._bench_runs
+    modes = [m for m in ["patchloom", "mcp", "native"] if m in all_runs]
+    if len(modes) >= 2:
+        _print_comparison(all_runs, modes, n_runs)
         results_dir = Path(__file__).resolve().parent.parent.parent / "benches" / "agent" / "results"
-        _save_results(sessions["patchloom"], sessions["native"], results_dir)
+        _save_results(all_runs, modes, results_dir, n_runs)
 
-    assert any(t.success for t in session.tasks)
+    assert any(t.success for r in runs for t in r.tasks)
 
 
-def _print_comparison(pl, native):
-    """Print side-by-side comparison table."""
-    print("\n  ┌────────────────────────────────────────────────────────────────────────────────────────────┐")
-    print(f"  │ {'Multi-Turn Benchmark: patchloom vs native':^90} │")
-    print(f"  │ {'Model: ' + pl.model:^90} │")
-    print("  ├──────────────────┬────────────┬──────────────┬──────────┬────────┬──────────┬────────────┤")
-    print("  │ Task             │   PL time  │  Native time │    Delta │ PL cnt │   Winner │  PL exec   │")
-    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┼────────────┤")
+# ---------------------------------------------------------------------------
+# Comparison table
+# ---------------------------------------------------------------------------
 
-    for pt, nt in zip(pl.tasks, native.tasks):
-        delta = pt.duration_secs - nt.duration_secs
-        sign = "+" if delta > 0 else ""
-        winner = "native" if delta > 1.5 else ("patchloom" if delta < -1.5 else "~same")
-        p_mark = "*" if not pt.success else " "
-        n_mark = "*" if not nt.success else " "
-        pl_exec = f"{pt.patchloom_duration_ms}ms" if pt.patchloom_duration_ms > 0 else ""
-        print(
-            f"  │ {pt.name:<16} │ {pt.duration_secs:>7.1f}s{p_mark}  "
-            f"│ {nt.duration_secs:>9.1f}s{n_mark}  "
-            f"│ {sign}{delta:>6.1f}s │ {pt.patchloom_calls:>6} │ {winner:>8} │ {pl_exec:>10} │"
-        )
+# Column labels for each mode (short names for table headers)
+_MODE_LABELS = {"patchloom": "PL-CLI", "mcp": "MCP", "native": "Native"}
 
-    print("  ├──────────────────┼────────────┼──────────────┼──────────┼────────┼──────────┼────────────┤")
-    d = pl.total_secs - native.total_secs
-    sign = "+" if d > 0 else ""
-    total_pl_ms = sum(t.patchloom_duration_ms for t in pl.tasks)
-    total_pl_exec = f"{total_pl_ms}ms" if total_pl_ms > 0 else ""
-    print(
-        f"  │ {'TOTAL':<16} │ {pl.total_secs:>7.1f}s   "
-        f"│ {native.total_secs:>9.1f}s   "
-        f"│ {sign}{d:>6.1f}s │        │          │ {total_pl_exec:>10} │"
+
+def _print_comparison(all_runs, modes, n_runs):
+    """Print side-by-side comparison table for 2 or 3 modes."""
+    aggs = {m: _aggregate_runs(all_runs[m]) for m in modes}
+    model = all_runs[modes[0]][0].model
+    stat_label = "median" if n_runs > 1 else "time"
+
+    # Build header
+    n_modes = len(modes)
+    col_w = 11  # width per mode column
+    mode_headers = "".join(f"│ {_MODE_LABELS[m]:^{col_w}} " for m in modes)
+    mode_dashes = "".join(f"┼{'─' * (col_w + 1)}" for _ in modes)
+    mode_bottom = "".join(f"┴{'─' * (col_w + 1)}" for _ in modes)
+    mode_top = "".join(f"┬{'─' * (col_w + 1)}" for _ in modes)
+
+    total_w = 18 + (col_w + 2) * n_modes + 10 + 10 + 2  # approx
+    title = f"Multi-Turn Benchmark: {' vs '.join(_MODE_LABELS[m] for m in modes)}"
+    subtitle = f"Model: {model}" + (f"  (median of {n_runs} runs)" if n_runs > 1 else "")
+
+    print(f"\n  ┌{'─' * (total_w)}┐")
+    print(f"  │ {title:^{total_w - 2}} │")
+    print(f"  │ {subtitle:^{total_w - 2}} │")
+    print(f"  ├{'─' * 18}{mode_top}┬{'─' * 10}┬{'─' * 10}┤")
+
+    header_line = f"  │ {'Task':<16} {mode_headers}│ {'Winner':^8} │ {'PL exec':^8} │"
+    print(header_line)
+    print(f"  ├{'─' * 18}{mode_dashes}┼{'─' * 10}┼{'─' * 10}┤")
+
+    task_names = list(aggs[modes[0]]["tasks"].keys())
+    for name in task_names:
+        vals = {}
+        for m in modes:
+            ts = aggs[m]["tasks"].get(name, {})
+            vals[m] = ts.get("median", 0.0)
+
+        # Determine winner (lowest median wins, 1.5s threshold for ~same)
+        sorted_modes = sorted(modes, key=lambda m: vals[m])
+        best = vals[sorted_modes[0]]
+        second = vals[sorted_modes[1]]
+        winner = _MODE_LABELS[sorted_modes[0]] if (second - best) > 1.5 else "~same"
+
+        # PL exec from patchloom CLI mode (MCP calls go through the server, not shim)
+        pl_exec_ms = aggs.get("patchloom", {}).get("tasks", {}).get(name, {}).get("pl_exec_median", 0)
+        pl_exec = f"{pl_exec_ms}ms" if pl_exec_ms > 0 else ""
+
+        cols = ""
+        for m in modes:
+            ts = aggs[m]["tasks"].get(name, {})
+            v = ts.get("median", 0.0)
+            sr = ts.get("success_rate", 0.0)
+            mark = "*" if sr < 1.0 else " "
+            if n_runs > 1:
+                lo = ts.get("min", v)
+                hi = ts.get("max", v)
+                rng = f" [{lo}-{hi}]" if hi - lo > 0.5 else ""
+                cell = f"{v:>5.1f}s{mark}{rng}"
+            else:
+                cell = f"{v:>7.1f}s{mark}"
+            cols += f"│ {cell:>{col_w}} "
+
+        print(f"  │ {name:<16} {cols}│ {winner:>8} │ {pl_exec:>8} │")
+
+    # Totals row
+    print(f"  ├{'─' * 18}{mode_dashes}┼{'─' * 10}┼{'─' * 10}┤")
+    cols = ""
+    for m in modes:
+        v = aggs[m]["median_total"]
+        if n_runs > 1:
+            lo = aggs[m]["min_total"]
+            hi = aggs[m]["max_total"]
+            rng = f" [{lo}-{hi}]" if hi - lo > 0.5 else ""
+            cell = f"{v:>5.1f}s {rng}"
+        else:
+            cell = f"{v:>7.1f}s "
+        cols += f"│ {cell:>{col_w}} "
+
+    total_pl_ms = sum(
+        aggs.get("patchloom", {}).get("tasks", {}).get(n, {}).get("pl_exec_median", 0)
+        for n in task_names
     )
-    print("  └──────────────────┴────────────┴──────────────┴──────────┴────────┴──────────┴────────────┘")
-    print("  (* = task failed)")
+    total_pl = f"{total_pl_ms}ms" if total_pl_ms > 0 else ""
+    print(f"  │ {'TOTAL':<16} {cols}│ {'':>8} │ {total_pl:>8} │")
+    print(f"  └{'─' * 18}{mode_bottom}┴{'─' * 10}┴{'─' * 10}┘")
+    print("  (* = task failed in at least one run)")
 
-    # First-task overhead analysis
-    ft_delta = pl.first_task_secs - native.first_task_secs
-    sa_delta = pl.subsequent_avg_secs - native.subsequent_avg_secs
-    print(f"\n  First-task latency:   PL {pl.first_task_secs:.1f}s  vs  Native {native.first_task_secs:.1f}s  (delta: {ft_delta:+.1f}s)")
-    print(f"  Subsequent avg:       PL {pl.subsequent_avg_secs:.1f}s  vs  Native {native.subsequent_avg_secs:.1f}s  (delta: {sa_delta:+.1f}s)")
-    if ft_delta > sa_delta + 1.0:
-        overhead = ft_delta - sa_delta
-        print(f"  Estimated AGENTS.md ingestion overhead: ~{overhead:.1f}s")
+    # First-task latency analysis (use first run of each mode)
+    if "patchloom" in modes and "native" in modes:
+        pl_first = all_runs["patchloom"][0].first_task_secs
+        nat_first = all_runs["native"][0].first_task_secs
+        pl_subseq = all_runs["patchloom"][0].subsequent_avg_secs
+        nat_subseq = all_runs["native"][0].subsequent_avg_secs
+        ft_delta = pl_first - nat_first
+        sa_delta = pl_subseq - nat_subseq
+        print(f"\n  First-task latency:   PL-CLI {pl_first:.1f}s  vs  Native {nat_first:.1f}s  (delta: {ft_delta:+.1f}s)")
+        print(f"  Subsequent avg:       PL-CLI {pl_subseq:.1f}s  vs  Native {nat_subseq:.1f}s  (delta: {sa_delta:+.1f}s)")
+        if ft_delta > sa_delta + 1.0:
+            overhead = ft_delta - sa_delta
+            print(f"  Estimated AGENTS.md ingestion overhead: ~{overhead:.1f}s")
 
 
-def _save_results(pl, native, output_dir):
+# ---------------------------------------------------------------------------
+# JSON export
+# ---------------------------------------------------------------------------
+
+
+def _save_results(all_runs, modes, output_dir, n_runs):
     """Save benchmark results to a JSON file for historical comparison."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    model = all_runs[modes[0]][0].model
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    filename = f"{pl.model}_{timestamp}.json"
+    filename = f"{model}_{timestamp}.json"
 
     def _session_dict(s):
         return {
@@ -346,10 +598,17 @@ def _save_results(pl, native, output_dir):
 
     data = {
         "timestamp": timestamp,
-        "model": pl.model,
-        "patchloom": _session_dict(pl),
-        "native": _session_dict(native),
+        "model": model,
+        "n_runs": n_runs,
     }
+    for mode in modes:
+        runs = all_runs[mode]
+        agg = _aggregate_runs(runs)
+        data[mode] = {
+            "aggregate": agg,
+            "runs": [_session_dict(r) for r in runs],
+        }
+
     filepath = output_dir / filename
     filepath.write_text(json.dumps(data, indent=2) + "\n")
     print(f"\n  Results saved to {filepath}")

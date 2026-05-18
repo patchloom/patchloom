@@ -53,8 +53,8 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 bench-cli: build ## Run CLI benchmarks vs native tools (requires hyperfine)
 	cd benches/cli && bash run.sh
 
-bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL=X to switch LLM.
+bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL=X RUNS=N to configure.
 	@cd tests/agent && \
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
-		.venv/bin/pytest test_bench.py -v -s --timeout 1200 $(if $(MODEL),--model $(MODEL),)
+		.venv/bin/pytest test_bench.py -v -s --timeout 1200 $(if $(MODEL),--model $(MODEL),) $(if $(RUNS),--runs $(RUNS),)
