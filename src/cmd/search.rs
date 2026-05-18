@@ -184,12 +184,10 @@ fn search_one_file(
                 context_after: None,
             });
         }
-    } else if args.context.is_some()
-        || args.before_context.is_some()
-        || args.after_context.is_some()
-    {
+    } else {
         let ctx_before = args.before_context.or(args.context).unwrap_or(0);
         let ctx_after = args.after_context.or(args.context).unwrap_or(0);
+        let has_ctx = ctx_before > 0 || ctx_after > 0;
         let lines: Vec<&str> = content.lines().collect();
         for (i, line) in lines.iter().copied().enumerate() {
             let found = matcher.find(line);
@@ -208,44 +206,24 @@ fn search_one_file(
                 }
                 continue;
             }
-            let start = i.saturating_sub(ctx_before);
-            let end = (i + 1 + ctx_after).min(lines.len());
             let column = found.map_or(1, |(s, _)| s + 1);
-            file_matches.push(SearchMatch {
-                path: path_str.clone(),
-                line: i + 1,
-                column,
-                text: line.to_string(),
-                context_before: Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
-                context_after: Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
-            });
-        }
-    } else {
-        for (i, line) in content.lines().enumerate() {
-            let found = matcher.find(line);
-            let is_match = if args.invert_match {
-                found.is_none()
+            let (ctx_b, ctx_a) = if has_ctx {
+                let start = i.saturating_sub(ctx_before);
+                let end = (i + 1 + ctx_after).min(lines.len());
+                (
+                    Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
+                    Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
+                )
             } else {
-                found.is_some()
+                (None, None)
             };
-            if !is_match {
-                continue;
-            }
-            count += 1;
-            if count_only {
-                if args.files_with_matches {
-                    break;
-                }
-                continue;
-            }
-            let column = found.map_or(1, |(s, _)| s + 1);
             file_matches.push(SearchMatch {
                 path: path_str.clone(),
                 line: i + 1,
                 column,
                 text: line.to_string(),
-                context_before: None,
-                context_after: None,
+                context_before: ctx_b,
+                context_after: ctx_a,
             });
         }
     }
