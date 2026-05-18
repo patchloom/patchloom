@@ -4,6 +4,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+/// Convert a path to a string safe for embedding in YAML/TOML values.
+/// On Windows, backslashes in paths like `C:\Users\...` are interpreted
+/// as escape sequences (`\U` = unicode escape). Forward slashes work
+/// fine on Windows and avoid the problem.
+fn portable_path_str(p: &Path) -> String {
+    p.to_str().unwrap().replace('\\', "/")
+}
+
 fn nonexistent_path(name: &str) -> String {
     #[cfg(windows)]
     {
@@ -5295,6 +5303,7 @@ fn test_tx_file_create_without_force_fails_on_existing() {
 }
 
 #[test]
+#[cfg(not(windows))] // Shell quoting for format/validate steps is fragile through cmd /C
 fn test_tx_format_step_runs_between_write_and_validate() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -6222,6 +6231,7 @@ fn test_tx_patch_apply_uses_pending_file_state() {
 }
 
 #[test]
+#[cfg(not(windows))] // PowerShell timeout behavior differs on Windows
 fn test_tx_validate_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -6255,6 +6265,7 @@ fn test_tx_validate_timeout_kills_hanging_command() {
 }
 
 #[test]
+#[cfg(not(windows))] // PowerShell timeout behavior differs on Windows
 fn test_tx_format_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -7428,7 +7439,7 @@ fn test_tx_yaml_plan() {
 
     let yaml_plan = format!(
         "operations:\n  - op: replace\n    path: \"{}\"\n    from: old\n    to: new\n",
-        file.to_str().unwrap()
+        portable_path_str(&file)
     );
     let plan_file = dir.path().join("plan.yaml");
     fs::write(&plan_file, &yaml_plan).unwrap();
@@ -7453,7 +7464,7 @@ fn test_tx_toml_plan() {
 
     let toml_plan = format!(
         "[[operations]]\nop = \"replace\"\npath = \"{}\"\nfrom = \"hello\"\nto = \"goodbye\"\n",
-        file.to_str().unwrap()
+        portable_path_str(&file)
     );
     let plan_file = dir.path().join("plan.toml");
     fs::write(&plan_file, &toml_plan).unwrap();
@@ -7478,7 +7489,7 @@ fn test_tx_yaml_plan_from_stdin() {
 
     let yaml_plan = format!(
         "operations:\n  - op: replace\n    path: \"{}\"\n    from: aaa\n    to: bbb\n",
-        file.to_str().unwrap()
+        portable_path_str(&file)
     );
 
     Command::cargo_bin("patchloom")
@@ -7574,6 +7585,7 @@ fn test_tx_create_after_delete_unmarks_deletion() {
 }
 
 #[test]
+#[cfg(not(windows))] // Shell quoting for format/validate steps is fragile through cmd /C
 fn test_tx_format_and_validate_success_path() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
