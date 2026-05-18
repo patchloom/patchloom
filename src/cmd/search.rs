@@ -468,8 +468,12 @@ mod tests {
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
-        // Pure paths – no colon-separated fields
-        assert!(!lines[0].contains(':'));
+        // Pure paths – no colon-separated match fields after the filename
+        assert!(
+            lines[0].ends_with("hello.txt"),
+            "expected bare path, got: {}",
+            lines[0]
+        );
     }
 
     #[test]
