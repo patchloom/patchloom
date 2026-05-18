@@ -177,9 +177,11 @@ Command::<Name>(args) => {
 Command::<Name>(args) => <name>::run(args, &global),
 ```
 
-5. Add tests that cover success, failure, and edge-case exit codes.
+5. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
 
-6. Run `make check`.
+6. Add tests that cover success, failure, and edge-case exit codes.
+
+7. Run `make check`.
 
 ## Coding conventions
 

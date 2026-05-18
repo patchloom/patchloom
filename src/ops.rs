@@ -1177,6 +1177,51 @@ mod tests {
         }
 
         #[test]
+        fn move_at_path_renames_key() {
+            let mut root = json!({"old_name": "value", "other": 1});
+            let from = crate::selector::parse("old_name").unwrap();
+            let to = crate::selector::parse("new_name").unwrap();
+            move_at_path(&mut root, &from, &to).unwrap();
+            assert_eq!(root, json!({"other": 1, "new_name": "value"}));
+        }
+
+        #[test]
+        fn move_at_path_to_nested_creates_intermediates() {
+            let mut root = json!({"src": 42});
+            let from = crate::selector::parse("src").unwrap();
+            let to = crate::selector::parse("a.b.dst").unwrap();
+            move_at_path(&mut root, &from, &to).unwrap();
+            assert_eq!(root, json!({"a": {"b": {"dst": 42}}}));
+        }
+
+        #[test]
+        fn move_at_path_missing_source_fails() {
+            let mut root = json!({"a": 1});
+            let from = crate::selector::parse("nonexistent").unwrap();
+            let to = crate::selector::parse("b").unwrap();
+            assert!(move_at_path(&mut root, &from, &to).is_err());
+        }
+
+        #[test]
+        fn move_at_path_empty_from_selector_fails() {
+            let mut root = json!({"a": 1});
+            let from: Vec<crate::selector::Segment> = vec![];
+            let to = crate::selector::parse("b").unwrap();
+            assert!(move_at_path(&mut root, &from, &to).is_err());
+        }
+
+        #[test]
+        fn move_at_path_to_array_index() {
+            let mut root = json!({"src": "x", "arr": [1, 2, 3]});
+            let from = crate::selector::parse("src").unwrap();
+            let to = crate::selector::parse("arr[1]").unwrap();
+            move_at_path(&mut root, &from, &to).unwrap();
+            let arr = root["arr"].as_array().unwrap();
+            assert_eq!(arr.len(), 4);
+            assert_eq!(arr[1], json!("x"));
+        }
+
+        #[test]
         fn update_matching_by_key() {
             let mut val = json!({"a": {"b": "old"}});
             let seg = crate::selector::parse("a.b").unwrap();
