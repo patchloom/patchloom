@@ -1084,6 +1084,76 @@ fn test_doc_append_yaml_sequence_root() {
 }
 
 #[test]
+fn test_doc_update_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nitems:\n  - name: a\n    status: pending # TODO\n  - name: b\n    status: pending\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("update")
+        .arg(&file)
+        .arg("items[*].status")
+        .arg("done")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(content.contains("done"), "updated value missing: {content}");
+    assert!(
+        !content.contains("pending"),
+        "old value still present: {content}"
+    );
+}
+
+#[test]
+fn test_doc_ensure_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Server\nserver:\n  host: localhost\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("server.port")
+        .arg("8080")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(content.contains("8080"), "ensured value missing: {content}");
+    assert!(
+        content.contains("name: my-app"),
+        "existing key missing: {content}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

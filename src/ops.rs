@@ -73,8 +73,13 @@ pub(crate) mod doc {
                     .map_err(|e| anyhow::anyhow!("YAML re-parse for comment preservation: {e}"))?;
                 if let Some(doc) = file.document() {
                     if let Some(mapping) = doc.as_mapping() {
-                        apply_yaml_mapping_diff(&mapping, old_value, new_value);
-                        return Ok(file.to_string());
+                        // Only use the CST path when both old and new are
+                        // objects; a root type change (e.g. mapping -> scalar)
+                        // cannot be applied via the mapping diff.
+                        if old_value.is_object() && new_value.is_object() {
+                            apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
+                            return Ok(file.to_string());
+                        }
                     }
                 }
                 // Root is not a mapping (e.g. sequence-rooted YAML); fall back
@@ -261,13 +266,13 @@ pub(crate) mod doc {
         mapping: &yaml_edit::Mapping,
         old: &serde_json::Value,
         new: &serde_json::Value,
-    ) {
+    ) -> anyhow::Result<()> {
         if old == new {
-            return;
+            return Ok(());
         }
 
         let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
-            return;
+            return Ok(());
         };
 
         // Remove keys that no longer exist.
@@ -290,9 +295,9 @@ pub(crate) mod doc {
                     // Both objects: recurse into the nested mapping.
                     (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                         if let Some(child) = mapping.get_mapping(key.as_str()) {
-                            apply_yaml_mapping_diff(&child, old_val, new_val);
+                            apply_yaml_mapping_diff(&child, old_val, new_val)?;
                         } else {
-                            mapping.set(key.as_str(), json_to_yaml_mapping(new_val));
+                            mapping.set(key.as_str(), json_to_yaml_mapping(new_val)?);
                         }
                     }
                     // Both arrays of the same length: update element by element.
@@ -300,21 +305,22 @@ pub(crate) mod doc {
                         if old_arr.len() == new_arr.len() =>
                     {
                         if let Some(seq) = mapping.get_sequence(key.as_str()) {
-                            apply_yaml_sequence_diff(&seq, old_arr, new_arr);
+                            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
                         } else {
-                            mapping.set(key.as_str(), json_to_yaml_node(new_val));
+                            mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
                         }
                     }
                     // Type changed, different-length arrays, or scalar change.
                     _ => {
-                        mapping.set(key.as_str(), json_to_yaml_node(new_val));
+                        mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
                     }
                 }
             } else {
                 // New key: add it.
-                mapping.set(key.as_str(), json_to_yaml_node(new_val));
+                mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
             }
         }
+        Ok(())
     }
 
     /// Element-by-element diff for same-length YAML sequences.
@@ -322,7 +328,7 @@ pub(crate) mod doc {
         seq: &yaml_edit::Sequence,
         old_arr: &[serde_json::Value],
         new_arr: &[serde_json::Value],
-    ) {
+    ) -> anyhow::Result<()> {
         for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
             if o == n {
                 continue;
@@ -331,17 +337,18 @@ pub(crate) mod doc {
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                     if let Some(node) = seq.get(i) {
                         if let Some(child_mapping) = node.as_mapping() {
-                            apply_yaml_mapping_diff(child_mapping, o, n);
+                            apply_yaml_mapping_diff(child_mapping, o, n)?;
                             continue;
                         }
                     }
-                    seq.set(i, json_to_yaml_node(n));
+                    seq.set(i, json_to_yaml_node(n)?);
                 }
                 _ => {
-                    seq.set(i, json_to_yaml_node(n));
+                    seq.set(i, json_to_yaml_node(n)?);
                 }
             }
         }
+        Ok(())
     }
 
     /// Convert a `serde_json::Value` to a `yaml_edit::YamlNode` by
@@ -350,7 +357,7 @@ pub(crate) mod doc {
     ///
     /// The value is embedded under a temporary key `__v__` so that
     /// `serde_yaml_ng` handles indentation of block sequences/mappings.
-    fn json_to_yaml_node(val: &serde_json::Value) -> yaml_edit::YamlNode {
+    fn json_to_yaml_node(val: &serde_json::Value) -> anyhow::Result<yaml_edit::YamlNode> {
         use std::str::FromStr;
         let wrapper = serde_json::json!({ "__v__": val });
         let yaml_text = serde_yaml_ng::to_string(&wrapper).unwrap_or_else(|_| {
@@ -358,21 +365,21 @@ pub(crate) mod doc {
             "__v__: null\n".to_string()
         });
         let doc = yaml_edit::Document::from_str(&yaml_text)
-            .expect("serde_yaml_ng output must be valid YAML");
+            .map_err(|e| anyhow::anyhow!("YAML CST re-parse failed: {e}"))?;
         doc.as_mapping()
             .and_then(|m| m.get("__v__"))
-            .expect("wrapper key must exist")
+            .ok_or_else(|| anyhow::anyhow!("YAML CST wrapper key missing"))
     }
 
     /// Convert a JSON object to a `yaml_edit::Mapping`.
-    fn json_to_yaml_mapping(val: &serde_json::Value) -> yaml_edit::Mapping {
+    fn json_to_yaml_mapping(val: &serde_json::Value) -> anyhow::Result<yaml_edit::Mapping> {
         let mapping = yaml_edit::Mapping::new();
         if let Some(obj) = val.as_object() {
             for (k, v) in obj {
-                mapping.set(k.as_str(), json_to_yaml_node(v));
+                mapping.set(k.as_str(), json_to_yaml_node(v)?);
             }
         }
-        mapping
+        Ok(mapping)
     }
 
     pub(crate) fn parse_doc(
@@ -1625,6 +1632,30 @@ mod tests {
             assert!(result.contains("item3"), "appended item missing: {result}");
             assert!(result.contains("item1"), "item1 missing: {result}");
             assert!(result.contains("item2"), "item2 missing: {result}");
+        }
+
+        #[test]
+        fn yaml_mapping_to_scalar_root_type_change_not_lost() {
+            let yaml = "name: app\nversion: 1\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let new = json!("overridden");
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(
+                result.contains("overridden"),
+                "root type change lost: {result}"
+            );
+        }
+
+        #[test]
+        fn yaml_mapping_to_array_root_type_change_not_lost() {
+            let yaml = "name: app\nversion: 1\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let new = json!(["a", "b"]);
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("a"), "array item missing: {result}");
+            assert!(result.contains("b"), "array item missing: {result}");
         }
 
         #[test]
