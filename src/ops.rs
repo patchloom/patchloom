@@ -44,8 +44,60 @@ pub(crate) mod doc {
     ) -> anyhow::Result<serde_json::Value> {
         match format {
             FileFormat::Json => Ok(serde_json::from_str(content)?),
-            FileFormat::Yaml => Ok(serde_yaml_ng::from_str(content)?),
+            FileFormat::Yaml => {
+                let mut val: serde_json::Value = serde_yaml_ng::from_str(content)?;
+                resolve_yaml_merge_keys(&mut val);
+                Ok(val)
+            }
             FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
+        }
+    }
+
+    /// Recursively resolve YAML merge keys (`<<`) in a parsed JSON value.
+    ///
+    /// When `serde_yaml_ng` deserializes `<<: *anchor`, it produces a literal
+    /// `"<<"` key whose value is the referenced mapping.  This function walks
+    /// the tree and flattens those entries into the parent object, matching
+    /// YAML merge-key semantics (existing keys take precedence).
+    fn resolve_yaml_merge_keys(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                // First, recurse into all child values (including the merge value itself).
+                for v in map.values_mut() {
+                    resolve_yaml_merge_keys(v);
+                }
+
+                // Then resolve `<<` if present.
+                if let Some(merge_val) = map.remove("<<") {
+                    match merge_val {
+                        serde_json::Value::Object(merged) => {
+                            for (k, v) in merged {
+                                map.entry(&k).or_insert(v);
+                            }
+                        }
+                        serde_json::Value::Array(arr) => {
+                            // Multiple merges: `<<: [*a, *b]` — first wins.
+                            for item in arr {
+                                if let serde_json::Value::Object(merged) = item {
+                                    for (k, v) in merged {
+                                        map.entry(&k).or_insert(v);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            // Non-object merge value — put it back as-is.
+                            map.insert("<<".to_string(), merge_val);
+                        }
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for v in arr {
+                    resolve_yaml_merge_keys(v);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -998,6 +1050,31 @@ mod tests {
                 detect_format("Cargo.toml").unwrap(),
                 FileFormat::Toml
             ));
+        }
+
+        #[test]
+        fn yaml_merge_keys_resolved() {
+            let yaml = "defaults: &d\n  timeout: 30\n  retries: 3\nstaging:\n  <<: *d\n";
+            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            assert_eq!(val["staging"]["retries"], json!(3));
+            assert_eq!(val["staging"]["timeout"], json!(30));
+            // The merge key itself must be removed.
+            assert!(val["staging"].get("<<").is_none());
+        }
+
+        #[test]
+        fn yaml_merge_key_existing_wins() {
+            let yaml = "base: &b\n  x: 1\nchild:\n  <<: *b\n  x: 99\n";
+            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            assert_eq!(val["child"]["x"], json!(99));
+        }
+
+        #[test]
+        fn yaml_merge_key_multiple() {
+            let yaml = "a: &a\n  x: 1\nb: &b\n  y: 2\nc:\n  <<:\n    - *a\n    - *b\n";
+            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            assert_eq!(val["c"]["x"], json!(1));
+            assert_eq!(val["c"]["y"], json!(2));
         }
 
         #[test]
