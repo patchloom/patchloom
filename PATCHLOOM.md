@@ -94,6 +94,8 @@ Operations available inside `tx` plans:
 | `hygiene.fix` | Normalize whitespace and newlines |
 | `file.create` / `file.delete` | Create or delete files |
 | `patch.apply` | Apply a unified diff |
+| `search` | Literal or regex search within a file (read-only, for conditional logic) |
+| `read` | Read file contents with optional line range (read-only) |
 
 ## Security
 
