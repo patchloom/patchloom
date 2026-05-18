@@ -1735,6 +1735,28 @@ fn test_doc_get_yaml() {
 }
 
 #[test]
+fn test_doc_get_yaml_merge_key_resolved() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "defaults: &d\n  timeout: 30\n  retries: 3\nstaging:\n  <<: *d\n",
+    )
+    .unwrap();
+
+    // Inherited key via merge must be accessible.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("staging.retries")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("3"));
+}
+
+#[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");
