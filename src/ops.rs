@@ -1727,6 +1727,60 @@ mod tests {
         }
 
         #[test]
+        fn apply_hunks_two_hunks_offset_tracking() {
+            // First hunk adds a line (shifting later content down), second
+            // hunk must correctly account for the offset.
+            let original = "a\nb\nc\nd\ne\n";
+            let hunks = vec![
+                Hunk {
+                    old_start: 1,
+                    old_count: 2,
+                    new_start: 1,
+                    new_count: 3,
+                    lines: vec![
+                        PatchLine::Context("a".into()),
+                        PatchLine::Add("INSERTED".into()),
+                        PatchLine::Context("b".into()),
+                    ],
+                },
+                Hunk {
+                    old_start: 4,
+                    old_count: 2,
+                    new_start: 5,
+                    new_count: 2,
+                    lines: vec![
+                        PatchLine::Remove("d".into()),
+                        PatchLine::Add("D".into()),
+                        PatchLine::Context("e".into()),
+                    ],
+                },
+            ];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\nINSERTED\nb\nc\nD\ne\n");
+        }
+
+        #[test]
+        fn apply_hunks_pure_addition_on_empty() {
+            // A patch that creates a file from scratch: old_start=0, old_count=0,
+            // hunk contains only additions.
+            let original = "";
+            let hunks = vec![Hunk {
+                old_start: 0,
+                old_count: 0,
+                new_start: 1,
+                new_count: 2,
+                lines: vec![
+                    PatchLine::Add("new_line1".into()),
+                    PatchLine::Add("new_line2".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            // Empty original is treated as having a final newline, so the
+            // output also gets one.
+            assert_eq!(result, "new_line1\nnew_line2\n");
+        }
+
+        #[test]
         fn apply_hunks_preserves_no_final_newline() {
             let original = "line1\nline2";
             let hunks = vec![Hunk {
