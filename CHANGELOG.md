@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- 12 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`
-- 24 transaction plan operation types for atomic multi-file changes
+- 13 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`, `agent-rules`
+- 22 transaction plan operation types for atomic multi-file changes
 - `format` and `validate` lifecycle arrays in tx plans with configurable timeout
 - `--nth N` flag for replace (standalone and tx) to target a specific occurrence
 - `--case-insensitive` / `-i` for search and replace
