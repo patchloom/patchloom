@@ -881,6 +881,77 @@ fn test_doc_set_toml_preserves_comments() {
 }
 
 #[test]
+fn test_doc_merge_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\n\n[server]\nhost = \"localhost\"\nport = 8080 # default\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"logging": "debug"}"#)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(content.contains("logging"), "merged key missing: {content}");
+}
+
+#[test]
+fn test_doc_delete_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\nname = \"my-app\"\nversion = 1\n\n# Server\n[server]\nhost = \"localhost\"\nport = 8080\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("version")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(
+        !content.contains("version"),
+        "deleted key still present: {content}"
+    );
+    assert!(content.contains("name"), "surviving key missing: {content}");
+}
+
+#[test]
 fn test_doc_set_yaml_preserves_comments() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");
