@@ -50,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent integration tests (`make agent-test`): 19 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
 - CLI benchmarks (`make bench-cli`): patchloom vs native tools (grep, sed, cat, jq) using hyperfine across small/medium/large synthetic corpora
 - Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
-- 599 tests (318 unit + 281 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 602 tests (321 unit + 281 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 
 ### Changed
 
