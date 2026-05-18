@@ -39,15 +39,18 @@ pub(crate) mod doc {
     }
 
     /// Serialize a value back to its original format, preserving comments and
-    /// formatting for TOML files.
+    /// formatting for TOML and YAML files.
     ///
     /// For TOML, the original text is re-parsed with `toml_edit::DocumentMut`
     /// (which retains comments and whitespace), and only the paths that differ
     /// between `old_value` and `new_value` are updated.  Untouched keys keep
     /// their original formatting, inline comments, and section ordering.
     ///
-    /// JSON and YAML fall through to [`serialize_value`] (JSON has no comments;
-    /// YAML comment preservation is tracked in issue #204).
+    /// For YAML, the original text is re-parsed with `yaml_edit::Document`
+    /// (a Rowan-based CST that retains comments and whitespace), and only the
+    /// paths that differ between `old_value` and `new_value` are updated.
+    ///
+    /// JSON falls through to [`serialize_value`] (JSON has no comments).
     pub(crate) fn serialize_value_preserving(
         original_content: &str,
         old_value: &serde_json::Value,
@@ -62,7 +65,20 @@ pub(crate) mod doc {
                 apply_value_diff(doc.as_item_mut(), old_value, new_value);
                 Ok(doc.to_string())
             }
-            // JSON has no comments; YAML preservation tracked in #204.
+            FileFormat::Yaml => {
+                use std::str::FromStr;
+                // Use YamlFile (not Document) so file-level comments that
+                // precede the first mapping entry are preserved.
+                let file = yaml_edit::YamlFile::from_str(original_content)
+                    .map_err(|e| anyhow::anyhow!("YAML re-parse for comment preservation: {e}"))?;
+                if let Some(doc) = file.document() {
+                    if let Some(mapping) = doc.as_mapping() {
+                        apply_yaml_mapping_diff(&mapping, old_value, new_value);
+                    }
+                }
+                Ok(file.to_string())
+            }
+            // JSON has no comments.
             _ => serialize_value(new_value, format),
         }
     }
@@ -225,6 +241,131 @@ pub(crate) mod doc {
             }
             _ => toml_edit::Item::Value(json_to_toml_value(val)),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // YAML comment-preserving helpers
+    // -----------------------------------------------------------------------
+
+    /// Recursively walk `old` and `new` JSON value trees and apply only the
+    /// differences to the `yaml_edit::Mapping`, preserving comments and
+    /// formatting on unchanged parts.
+    fn apply_yaml_mapping_diff(
+        mapping: &yaml_edit::Mapping,
+        old: &serde_json::Value,
+        new: &serde_json::Value,
+    ) {
+        if old == new {
+            return;
+        }
+
+        let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
+            return;
+        };
+
+        // Remove keys that no longer exist.
+        let removed: Vec<String> = old_map
+            .keys()
+            .filter(|k| !new_map.contains_key(k.as_str()))
+            .cloned()
+            .collect();
+        for k in &removed {
+            mapping.remove(k.as_str());
+        }
+
+        // Add new keys or recurse into changed values.
+        for (key, new_val) in new_map {
+            if let Some(old_val) = old_map.get(key) {
+                if old_val == new_val {
+                    continue;
+                }
+                match (old_val, new_val) {
+                    // Both objects: recurse into the nested mapping.
+                    (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
+                        if let Some(child) = mapping.get_mapping(key.as_str()) {
+                            apply_yaml_mapping_diff(&child, old_val, new_val);
+                        } else {
+                            mapping.set(key.as_str(), json_to_yaml_mapping(new_val));
+                        }
+                    }
+                    // Both arrays of the same length: update element by element.
+                    (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr))
+                        if old_arr.len() == new_arr.len() =>
+                    {
+                        if let Some(seq) = mapping.get_sequence(key.as_str()) {
+                            apply_yaml_sequence_diff(&seq, old_arr, new_arr);
+                        } else {
+                            mapping.set(key.as_str(), json_to_yaml_node(new_val));
+                        }
+                    }
+                    // Type changed, different-length arrays, or scalar change.
+                    _ => {
+                        mapping.set(key.as_str(), json_to_yaml_node(new_val));
+                    }
+                }
+            } else {
+                // New key: add it.
+                mapping.set(key.as_str(), json_to_yaml_node(new_val));
+            }
+        }
+    }
+
+    /// Element-by-element diff for same-length YAML sequences.
+    fn apply_yaml_sequence_diff(
+        seq: &yaml_edit::Sequence,
+        old_arr: &[serde_json::Value],
+        new_arr: &[serde_json::Value],
+    ) {
+        for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
+            if o == n {
+                continue;
+            }
+            match (o, n) {
+                (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
+                    if let Some(node) = seq.get(i) {
+                        if let Some(child_mapping) = node.as_mapping() {
+                            apply_yaml_mapping_diff(child_mapping, o, n);
+                            continue;
+                        }
+                    }
+                    seq.set(i, json_to_yaml_node(n));
+                }
+                _ => {
+                    seq.set(i, json_to_yaml_node(n));
+                }
+            }
+        }
+    }
+
+    /// Convert a `serde_json::Value` to a `yaml_edit::YamlNode` by
+    /// round-tripping through `serde_yaml_ng` (for correct serialization)
+    /// and `yaml_edit` (for a CST node that `Mapping::set` can accept).
+    ///
+    /// The value is embedded under a temporary key `__v__` so that
+    /// `serde_yaml_ng` handles indentation of block sequences/mappings.
+    fn json_to_yaml_node(val: &serde_json::Value) -> yaml_edit::YamlNode {
+        use std::str::FromStr;
+        let wrapper = serde_json::json!({ "__v__": val });
+        let yaml_text = serde_yaml_ng::to_string(&wrapper).unwrap_or_else(|_| {
+            // Shouldn't happen, but fall back to a null literal.
+            "__v__: null\n".to_string()
+        });
+        let doc = yaml_edit::Document::from_str(&yaml_text)
+            .expect("serde_yaml_ng output must be valid YAML");
+        doc.as_mapping()
+            .and_then(|m| m.get("__v__"))
+            .expect("wrapper key must exist")
+    }
+
+    /// Convert a JSON object to a `yaml_edit::Mapping`.
+    fn json_to_yaml_mapping(val: &serde_json::Value) -> yaml_edit::Mapping {
+        let mapping = yaml_edit::Mapping::new();
+        if let Some(obj) = val.as_object() {
+            for (k, v) in obj {
+                mapping.set(k.as_str(), json_to_yaml_node(v));
+            }
+        }
+        mapping
     }
 
     pub(crate) fn parse_doc(
@@ -1366,6 +1507,104 @@ mod tests {
             // No change — verify round-trip preserves inline style.
             let result = serialize_value_preserving(toml, &old, &old, &FileFormat::Toml).unwrap();
             assert!(result.contains("serde = {"), "inline table style lost");
+        }
+
+        // -- YAML comment preservation ----------------------------------------
+
+        #[test]
+        fn yaml_comment_preserved_on_set() {
+            let yaml = "# top\nserver:\n  host: localhost # hostname\n  port: 8080\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[
+                    selector::Segment::Key("server".into()),
+                    selector::Segment::Key("port".into()),
+                ],
+                json!(9090),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("# top"), "top comment missing");
+            assert!(result.contains("# hostname"), "inline comment missing");
+            assert!(result.contains("9090"), "new value missing");
+            assert!(!result.contains("8080"), "old value still present");
+        }
+
+        #[test]
+        fn yaml_comment_preserved_on_delete() {
+            let yaml = "# keep this\na: 1\nb: 2 # inline\nc: 3\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            // Delete key "a".
+            new.as_object_mut().unwrap().remove("a");
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("# keep this"), "top comment missing");
+            assert!(result.contains("# inline"), "inline comment missing");
+            assert!(result.contains("b: 2"), "surviving key missing");
+            assert!(!result.contains("a: 1"), "deleted key still present");
+        }
+
+        #[test]
+        fn yaml_key_order_preserved() {
+            let yaml = "z_last: 1\na_first: 2\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[selector::Segment::Key("a_first".into())],
+                json!(99),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let z_pos = result.find("z_last").unwrap();
+            let a_pos = result.find("a_first").unwrap();
+            assert!(z_pos < a_pos, "key order changed: z@{z_pos} a@{a_pos}");
+        }
+
+        #[test]
+        fn yaml_new_key_inserted_without_breaking_comments() {
+            let yaml = "# config\nname: app\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[selector::Segment::Key("version".into())],
+                json!("1.0"),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("# config"), "comment missing");
+            assert!(result.contains("name: app"), "existing key missing");
+            assert!(result.contains("version"), "new key missing");
+        }
+
+        #[test]
+        fn yaml_noop_roundtrip_preserves_comments() {
+            let yaml = "# top comment\nname: app\n# section\nserver:\n  port: 8080\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            // No change — verify round-trip preserves everything.
+            let result = serialize_value_preserving(yaml, &old, &old, &FileFormat::Yaml).unwrap();
+            assert_eq!(result, yaml, "no-op roundtrip should be identical");
+        }
+
+        #[test]
+        fn yaml_section_comment_between_keys_preserved() {
+            let yaml = "a: 1\n\n# Section B\nb: 2\n\n# Section C\nc: 3\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            set_at_path(&mut new, &[selector::Segment::Key("b".into())], json!(99)).unwrap();
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("# Section B"), "section B comment missing");
+            assert!(result.contains("# Section C"), "section C comment missing");
+            assert!(result.contains("99"), "new value missing");
+            assert!(!result.contains("b: 2"), "old value still present");
         }
 
         #[test]

@@ -881,6 +881,54 @@ fn test_doc_set_toml_preserves_comments() {
 }
 
 #[test]
+fn test_doc_set_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("server.port")
+        .arg("9090")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    // Comments must survive.
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    // Value must be updated.
+    assert!(content.contains("9090"), "new value missing: {content}");
+    assert!(!content.contains("8080"), "old value present: {content}");
+    // Key order must be preserved.
+    let server_pos = content.find("server:").expect("server: missing");
+    let db_pos = content.find("database:").expect("database: missing");
+    assert!(
+        server_pos < db_pos,
+        "key order changed: server@{server_pos} db@{db_pos}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
