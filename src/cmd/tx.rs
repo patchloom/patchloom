@@ -1000,6 +1000,105 @@ fn print_diffs(changes: &[(PathBuf, String, String)]) {
 }
 
 // ---------------------------------------------------------------------------
+// Lifecycle helpers (extracted from run() for testability)
+// ---------------------------------------------------------------------------
+
+struct LifecycleError {
+    message: String,
+    kind: &'static str,
+}
+
+fn run_format_steps(steps: &[plan::FormatStep]) -> Result<(), LifecycleError> {
+    for (index, step) in steps.iter().enumerate() {
+        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
+        match run_shell_with_timeout(&step.cmd, timeout_secs) {
+            Ok(status) if !status.success() => {
+                let msg = format!(
+                    "format step failed (step {}, {})",
+                    index + 1,
+                    describe_exit_status(status)
+                );
+                eprintln!("tx: {msg}");
+                return Err(LifecycleError {
+                    message: msg,
+                    kind: "format_failed",
+                });
+            }
+            Err(e) => {
+                let msg = format!("format step error (step {}): {e}", index + 1);
+                eprintln!("tx: {msg}");
+                return Err(LifecycleError {
+                    message: msg,
+                    kind: "format_failed",
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn run_validate_steps(steps: &[plan::ValidationStep]) -> Result<(), LifecycleError> {
+    for (index, step) in steps.iter().enumerate() {
+        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
+        let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
+            Ok(status) if status.success() => true,
+            Ok(status) => {
+                let msg = format!(
+                    "required validation failed (step {}, {})",
+                    index + 1,
+                    describe_exit_status(status)
+                );
+                eprintln!("tx: {msg}");
+                if step.required.unwrap_or(false) {
+                    return Err(LifecycleError {
+                        message: msg,
+                        kind: "validation_failed",
+                    });
+                }
+                false
+            }
+            Err(e) => {
+                let msg = format!("validation error (step {}): {e}", index + 1);
+                eprintln!("tx: {msg}");
+                if step.required.unwrap_or(false) {
+                    return Err(LifecycleError {
+                        message: msg,
+                        kind: "validation_failed",
+                    });
+                }
+                false
+            }
+        };
+        let _ = success;
+    }
+    Ok(())
+}
+
+fn rollback_strict(
+    changes: &[(PathBuf, String, String)],
+    pending: &HashMap<PathBuf, (String, String)>,
+    deletions: &HashSet<PathBuf>,
+    existed_before: &HashSet<PathBuf>,
+) {
+    let noop_policy = WritePolicy::default();
+    for (path, original, _) in changes {
+        if !existed_before.contains(path) && !deletions.contains(path) {
+            let _ = std::fs::remove_file(path);
+        } else {
+            let _ = atomic_write(path, original, &noop_policy);
+        }
+    }
+    for path in deletions {
+        if let Some((orig, _)) = pending.get(path) {
+            if existed_before.contains(path) {
+                let _ = atomic_write(path, orig, &noop_policy);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -1179,110 +1278,32 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             print_diffs(&changes);
         }
 
-        // 7. Run format steps (between writes and validation).
-        let mut lifecycle_failed = false;
-        let mut lifecycle_error = None;
-        let mut lifecycle_error_kind = "validation_failed";
-        if let Some(ref format_steps) = plan.format {
-            for (index, step) in format_steps.iter().enumerate() {
-                let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-                match run_shell_with_timeout(&step.cmd, timeout_secs) {
-                    Ok(status) if !status.success() => {
-                        let msg = format!(
-                            "format step failed (step {}, {})",
-                            index + 1,
-                            describe_exit_status(status)
-                        );
-                        eprintln!("tx: {msg}");
-                        lifecycle_error = Some(msg);
-                        lifecycle_error_kind = "format_failed";
-                        lifecycle_failed = true;
-                        break;
-                    }
-                    Err(e) => {
-                        let msg = format!("format step error (step {}): {e}", index + 1);
-                        eprintln!("tx: {msg}");
-                        lifecycle_error = Some(msg);
-                        lifecycle_error_kind = "format_failed";
-                        lifecycle_failed = true;
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        }
+        // 7. Run format steps, then validation steps.
+        let lifecycle_err = plan
+            .format
+            .as_deref()
+            .map(run_format_steps)
+            .unwrap_or(Ok(()))
+            .err()
+            .or_else(|| {
+                plan.validate
+                    .as_deref()
+                    .and_then(|steps| run_validate_steps(steps).err())
+            });
 
-        // 8. Run validation steps.
-        if !lifecycle_failed {
-            if let Some(ref validate) = plan.validate {
-                for (index, step) in validate.iter().enumerate() {
-                    let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-                    let success = match run_shell_with_timeout(&step.cmd, timeout_secs) {
-                        Ok(status) if status.success() => true,
-                        Ok(status) => {
-                            let msg = format!(
-                                "required validation failed (step {}, {})",
-                                index + 1,
-                                describe_exit_status(status)
-                            );
-                            eprintln!("tx: {msg}");
-                            lifecycle_error = Some(msg);
-                            false
-                        }
-                        Err(e) => {
-                            let msg = format!("validation error (step {}): {e}", index + 1);
-                            eprintln!("tx: {msg}");
-                            lifecycle_error = Some(msg);
-                            false
-                        }
-                    };
-
-                    if !success && step.required.unwrap_or(false) {
-                        lifecycle_failed = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if lifecycle_failed {
+        if let Some(err) = lifecycle_err {
             if plan.strict {
-                // Restore original file contents.
-                let noop_policy = WritePolicy::default();
-                for (path, original, _) in &changes {
-                    if !existed_before.contains(path) && !deletions.contains(path) {
-                        // File was created by the tx; remove it.
-                        let _ = std::fs::remove_file(path);
-                    } else {
-                        let _ = atomic_write(path, original, &noop_policy);
-                    }
-                }
-                // Restore files that were deleted.
-                for path in &deletions {
-                    if let Some((orig, _)) = pending.get(path) {
-                        if existed_before.contains(path) {
-                            let _ = atomic_write(path, orig, &noop_policy);
-                        }
-                    }
-                }
-                let rollback_msg = match lifecycle_error.as_deref() {
-                    Some(reason) => format!("strict mode -- all changes reverted ({reason})"),
-                    None => "strict mode -- all changes reverted".to_string(),
-                };
+                rollback_strict(&changes, &pending, &deletions, &existed_before);
+                let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
                 if global.json {
-                    emit_error_json_with_prefix(lifecycle_error_kind, "rollback", &rollback_msg);
+                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg);
                 } else {
                     eprintln!("tx: {rollback_msg}");
                 }
                 return Ok(exit::ROLLBACK);
             }
             if global.json {
-                emit_error_json(
-                    lifecycle_error_kind,
-                    lifecycle_error
-                        .as_deref()
-                        .unwrap_or("format or validation step failed"),
-                );
+                emit_error_json(err.kind, &err.message);
             }
             return Ok(exit::VALIDATION_FAILED);
         }
