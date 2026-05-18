@@ -35,6 +35,8 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **Use when:** You are wiring Patchloom into CI, pre-commit validation, or agent workflows that should fail on drift.
 - **Prefer instead:** Use `--diff` when you need the actual patch text, or `--apply` when you want the mutation.
 
+`--diff`, `--apply`, and `--check` are mutually exclusive. Passing more than one is rejected with an error. When none is specified, `--diff` is the default.
+
 ### Write policy flags
 
 These flags shape how written content is normalized before it reaches disk.

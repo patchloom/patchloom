@@ -14,3 +14,38 @@ pub fn value_matches_str(field: &serde_json::Value, pred_val: &str) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn value_matches_str_string() {
+        assert!(value_matches_str(&json!("hello"), "hello"));
+        assert!(!value_matches_str(&json!("hello"), "world"));
+    }
+
+    #[test]
+    fn value_matches_str_number() {
+        assert!(value_matches_str(&json!(42), "42"));
+        assert!(!value_matches_str(&json!(42), "43"));
+    }
+
+    #[test]
+    fn value_matches_str_bool() {
+        assert!(value_matches_str(&json!(true), "true"));
+        assert!(value_matches_str(&json!(false), "false"));
+        assert!(!value_matches_str(&json!(true), "false"));
+    }
+
+    #[test]
+    fn value_matches_str_null_returns_false() {
+        assert!(!value_matches_str(&json!(null), "null"));
+    }
+
+    #[test]
+    fn value_matches_str_object_returns_false() {
+        assert!(!value_matches_str(&json!({"a": 1}), ""));
+    }
+}

@@ -1085,6 +1085,37 @@ mod tests {
         }
 
         #[test]
+        fn delete_where_removes_matching_items() {
+            let mut root = json!({"items": [{"name": "a"}, {"name": "b"}, {"name": "c"}]});
+            let sel = crate::selector::parse("items").unwrap();
+            let removed = delete_where(&mut root, &sel, "name=b").unwrap();
+            assert_eq!(removed, 1);
+            assert_eq!(root["items"].as_array().unwrap().len(), 2);
+        }
+
+        #[test]
+        fn delete_where_no_match_returns_zero() {
+            let mut root = json!({"items": [{"name": "a"}]});
+            let sel = crate::selector::parse("items").unwrap();
+            let removed = delete_where(&mut root, &sel, "name=zzz").unwrap();
+            assert_eq!(removed, 0);
+        }
+
+        #[test]
+        fn delete_where_invalid_predicate_fails() {
+            let mut root = json!({"items": [{"name": "a"}]});
+            let sel = crate::selector::parse("items").unwrap();
+            assert!(delete_where(&mut root, &sel, "no-equals-sign").is_err());
+        }
+
+        #[test]
+        fn delete_where_non_array_fails() {
+            let mut root = json!({"items": "not-an-array"});
+            let sel = crate::selector::parse("items").unwrap();
+            assert!(delete_where(&mut root, &sel, "k=v").is_err());
+        }
+
+        #[test]
         fn update_matching_by_key() {
             let mut val = json!({"a": {"b": "old"}});
             let seg = crate::selector::parse("a.b").unwrap();

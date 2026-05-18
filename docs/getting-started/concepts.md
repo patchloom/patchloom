@@ -28,7 +28,7 @@ Every write command supports three modes:
 | `--check` | Exit 0 if clean, exit 2 if changes detected | CI pipelines, dry-run validation |
 | `--apply` | Write changes to disk | Actual mutation |
 
-This means patchloom is safe by default. Nothing is written unless you pass `--apply`.
+These modes are mutually exclusive. Patchloom is safe by default: nothing is written unless you pass `--apply`.
 
 ## Write policy
 
