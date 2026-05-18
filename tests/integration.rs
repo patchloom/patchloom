@@ -838,6 +838,49 @@ fn test_doc_set_preserves_key_order() {
 }
 
 #[test]
+fn test_doc_set_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\n[server]\nhost = \"localhost\"\nport = 8080\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("server.port")
+        .arg("9090")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    // Comments must survive.
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# DB"),
+        "section comment stripped: {content}"
+    );
+    // Value must be updated.
+    assert!(content.contains("9090"), "new value missing: {content}");
+    assert!(!content.contains("8080"), "old value present: {content}");
+    // Section order must be preserved.
+    let server_pos = content.find("[server]").expect("[server] missing");
+    let db_pos = content.find("[database]").expect("[database] missing");
+    assert!(
+        server_pos < db_pos,
+        "section order changed: server@{server_pos} db@{db_pos}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

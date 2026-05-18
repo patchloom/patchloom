@@ -38,6 +38,195 @@ pub(crate) mod doc {
         }
     }
 
+    /// Serialize a value back to its original format, preserving comments and
+    /// formatting for TOML files.
+    ///
+    /// For TOML, the original text is re-parsed with `toml_edit::DocumentMut`
+    /// (which retains comments and whitespace), and only the paths that differ
+    /// between `old_value` and `new_value` are updated.  Untouched keys keep
+    /// their original formatting, inline comments, and section ordering.
+    ///
+    /// JSON and YAML fall through to [`serialize_value`] (JSON has no comments;
+    /// YAML comment preservation is tracked in issue #204).
+    pub(crate) fn serialize_value_preserving(
+        original_content: &str,
+        old_value: &serde_json::Value,
+        new_value: &serde_json::Value,
+        format: &FileFormat,
+    ) -> anyhow::Result<String> {
+        match format {
+            FileFormat::Toml => {
+                let mut doc: toml_edit::DocumentMut = original_content
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("TOML re-parse for comment preservation: {e}"))?;
+                apply_value_diff(doc.as_item_mut(), old_value, new_value);
+                Ok(doc.to_string())
+            }
+            // JSON has no comments; YAML preservation tracked in #204.
+            _ => serialize_value(new_value, format),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TOML comment-preserving helpers
+    // -----------------------------------------------------------------------
+
+    /// Recursively walk `old` and `new` JSON value trees and apply only the
+    /// differences to the `toml_edit::Item`, preserving comments and formatting
+    /// on unchanged parts.
+    fn apply_value_diff(
+        item: &mut toml_edit::Item,
+        old: &serde_json::Value,
+        new: &serde_json::Value,
+    ) {
+        if old == new {
+            return;
+        }
+
+        match (old, new) {
+            (serde_json::Value::Object(old_map), serde_json::Value::Object(new_map)) => {
+                // Try to get a mutable table reference from the item.
+                let table = if let Some(t) = item.as_table_mut() {
+                    t
+                } else if item.as_inline_table_mut().is_some() {
+                    // Inline table: fall back to wholesale replacement since
+                    // inline tables don't carry per-key comments.
+                    *item = json_to_toml_item(new);
+                    return;
+                } else {
+                    *item = json_to_toml_item(new);
+                    return;
+                };
+
+                // Remove keys that no longer exist.
+                let removed: Vec<String> = old_map
+                    .keys()
+                    .filter(|k| !new_map.contains_key(k.as_str()))
+                    .cloned()
+                    .collect();
+                for k in &removed {
+                    table.remove(k);
+                }
+
+                // Add new keys or recurse into changed values.
+                for (key, new_val) in new_map {
+                    if let Some(old_val) = old_map.get(key) {
+                        if old_val != new_val {
+                            if let Some(child) = table.get_mut(key) {
+                                apply_value_diff(child, old_val, new_val);
+                            }
+                        }
+                    } else {
+                        table.insert(key, json_to_toml_item(new_val));
+                    }
+                }
+            }
+
+            (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr))
+                if old_arr.len() == new_arr.len() =>
+            {
+                // Same-length arrays: recurse element by element.
+                if let Some(arr) = item.as_array_mut() {
+                    for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
+                        if o != n {
+                            if let Some(v) = arr.get_mut(i) {
+                                *v = json_to_toml_value(n);
+                            }
+                        }
+                    }
+                } else if let Some(aot) = item.as_array_of_tables_mut() {
+                    for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
+                        if o != n {
+                            if let Some(table_item) = aot.get_mut(i) {
+                                let mut tbl_item = toml_edit::Item::Table(table_item.clone());
+                                apply_value_diff(&mut tbl_item, o, n);
+                                if let toml_edit::Item::Table(t) = tbl_item {
+                                    *table_item = t;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    *item = json_to_toml_item(new);
+                }
+            }
+
+            // Type changed, different-length arrays, or scalar change:
+            // wholesale replacement.
+            _ => {
+                *item = json_to_toml_item(new);
+            }
+        }
+    }
+
+    /// Convert a `serde_json::Value` to a `toml_edit::Value` (scalar/array/inline-table).
+    fn json_to_toml_value(val: &serde_json::Value) -> toml_edit::Value {
+        match val {
+            serde_json::Value::String(s) => toml_edit::Value::from(s.as_str()),
+            serde_json::Value::Bool(b) => toml_edit::Value::from(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    toml_edit::Value::from(i)
+                } else if let Some(f) = n.as_f64() {
+                    toml_edit::Value::from(f)
+                } else {
+                    // u64 that doesn't fit in i64; store as float.
+                    toml_edit::Value::from(n.as_f64().unwrap_or(0.0))
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                let mut a = toml_edit::Array::new();
+                for v in arr {
+                    a.push(json_to_toml_value(v));
+                }
+                toml_edit::Value::Array(a)
+            }
+            serde_json::Value::Object(map) => {
+                let mut t = toml_edit::InlineTable::new();
+                for (k, v) in map {
+                    t.insert(k, json_to_toml_value(v));
+                }
+                toml_edit::Value::InlineTable(t)
+            }
+            serde_json::Value::Null => {
+                // TOML has no null; use empty string as fallback.
+                toml_edit::Value::from("")
+            }
+        }
+    }
+
+    /// Convert a `serde_json::Value` to a `toml_edit::Item`.
+    ///
+    /// Objects become full `Table`s (not inline tables) so they render as
+    /// `[section]` blocks. Arrays of objects become arrays-of-tables.
+    fn json_to_toml_item(val: &serde_json::Value) -> toml_edit::Item {
+        match val {
+            serde_json::Value::Object(map) => {
+                let mut table = toml_edit::Table::new();
+                for (k, v) in map {
+                    table.insert(k, json_to_toml_item(v));
+                }
+                toml_edit::Item::Table(table)
+            }
+            serde_json::Value::Array(arr)
+                if !arr.is_empty() && arr.iter().all(|v| v.is_object()) =>
+            {
+                let mut aot = toml_edit::ArrayOfTables::new();
+                for v in arr {
+                    if let serde_json::Value::Object(map) = v {
+                        let mut table = toml_edit::Table::new();
+                        for (k, v2) in map {
+                            table.insert(k, json_to_toml_item(v2));
+                        }
+                        aot.push(table);
+                    }
+                }
+                toml_edit::Item::ArrayOfTables(aot)
+            }
+            _ => toml_edit::Item::Value(json_to_toml_value(val)),
+        }
+    }
+
     pub(crate) fn parse_doc(
         content: &str,
         format: &FileFormat,
@@ -1022,6 +1211,7 @@ mod tests {
     // ── doc module tests ──────────────────────────────────────────────
     mod doc_tests {
         use crate::ops::doc::*;
+        use crate::selector;
         use serde_json::json;
 
         #[test]
@@ -1080,6 +1270,102 @@ mod tests {
         #[test]
         fn detect_format_unsupported() {
             assert!(detect_format("readme.txt").is_err());
+        }
+
+        // -- TOML comment preservation ----------------------------------------
+
+        #[test]
+        fn toml_comment_preserved_on_set() {
+            let toml = "# top\n[server]\nhost = \"localhost\" # hostname\nport = 8080\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[
+                    selector::Segment::Key("server".into()),
+                    selector::Segment::Key("port".into()),
+                ],
+                json!(9090),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(toml, &old, &new, &FileFormat::Toml).unwrap();
+            assert!(result.contains("# top"), "top comment missing");
+            assert!(result.contains("# hostname"), "inline comment missing");
+            assert!(result.contains("9090"), "new value missing");
+            assert!(!result.contains("8080"), "old value still present");
+        }
+
+        #[test]
+        fn toml_comment_preserved_on_delete() {
+            let toml = "# keep this\n[section]\na = 1\nb = 2 # inline\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            let mut new = old.clone();
+            // Delete key "a" from section.
+            new.as_object_mut()
+                .unwrap()
+                .get_mut("section")
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove("a");
+
+            let result = serialize_value_preserving(toml, &old, &new, &FileFormat::Toml).unwrap();
+            assert!(result.contains("# keep this"), "top comment missing");
+            assert!(result.contains("# inline"), "inline comment missing");
+            assert!(result.contains("b = 2"), "surviving key missing");
+            assert!(!result.contains("a = 1"), "deleted key still present");
+        }
+
+        #[test]
+        fn toml_section_order_preserved() {
+            let toml = "[z_last]\nval = 1\n\n[a_first]\nval = 2\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[
+                    selector::Segment::Key("a_first".into()),
+                    selector::Segment::Key("val".into()),
+                ],
+                json!(99),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(toml, &old, &new, &FileFormat::Toml).unwrap();
+            let z_pos = result.find("z_last").unwrap();
+            let a_pos = result.find("a_first").unwrap();
+            assert!(z_pos < a_pos, "section order changed: z@{z_pos} a@{a_pos}");
+        }
+
+        #[test]
+        fn toml_new_key_inserted_without_breaking_comments() {
+            let toml = "# config\n[pkg]\nname = \"app\"\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            let mut new = old.clone();
+            set_at_path(
+                &mut new,
+                &[
+                    selector::Segment::Key("pkg".into()),
+                    selector::Segment::Key("version".into()),
+                ],
+                json!("1.0"),
+            )
+            .unwrap();
+
+            let result = serialize_value_preserving(toml, &old, &new, &FileFormat::Toml).unwrap();
+            assert!(result.contains("# config"), "comment missing");
+            assert!(result.contains("name = \"app\""), "existing key missing");
+            assert!(result.contains("version"), "new key missing");
+        }
+
+        #[test]
+        fn toml_inline_table_style_preserved() {
+            let toml = "[deps]\nserde = { version = \"1\", features = [\"derive\"] }\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            // No change — verify round-trip preserves inline style.
+            let result = serialize_value_preserving(toml, &old, &old, &FileFormat::Toml).unwrap();
+            assert!(result.contains("serde = {"), "inline table style lost");
         }
 
         #[test]

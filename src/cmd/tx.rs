@@ -3,7 +3,7 @@ use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::ops::doc::{
     deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
-    serialize_value, set_at_path, update_matching,
+    serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
@@ -276,9 +276,10 @@ where
     let content = read_file_content(pending, &file_path, cwd)?;
     let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    let old_value = root.clone();
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let new_content =
-        serialize_value(&root, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+    let new_content = serialize_value_preserving(content, &old_value, &root, &format)
+        .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     update_file_content(pending, deletions, &file_path, new_content);
     Ok(())
 }

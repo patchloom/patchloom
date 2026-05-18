@@ -3,7 +3,7 @@ use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
     deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
-    serialize_value, set_at_path, update_matching, FileFormat,
+    serialize_value_preserving, set_at_path, update_matching, FileFormat,
 };
 use crate::selector;
 use crate::write;
@@ -377,18 +377,20 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             value,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let parsed = parse_value(value);
 
             set_at_path(&mut root, &sel, parsed)?;
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
         DocAction::Delete { file, selector } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
@@ -426,7 +428,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 _ => anyhow::bail!("cannot delete at wildcard/predicate"),
             }
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
@@ -436,6 +438,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             predicate,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
@@ -445,12 +448,13 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 return Ok((String::new(), exit::NO_MATCHES));
             }
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
         DocAction::Merge { file, stdin, value } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
 
             let merge_str = if *stdin {
                 std::io::read_to_string(std::io::stdin())?
@@ -463,7 +467,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let merge_val = parse_value(&merge_str);
             deep_merge(&mut root, &merge_val);
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
@@ -473,6 +477,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             value,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let parsed = parse_value(value);
@@ -483,7 +488,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 None => return Ok((String::new(), exit::FAILURE)),
             }
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
@@ -493,6 +498,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             value,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let parsed = parse_value(value);
@@ -503,7 +509,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 None => return Ok((String::new(), exit::FAILURE)),
             }
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
@@ -513,6 +519,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             value,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let parsed = parse_value(value);
@@ -522,19 +529,20 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 return Ok((String::new(), exit::NO_MATCHES));
             }
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
         DocAction::Move { file, from, to } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let from_sel =
                 selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
             move_at_path(&mut root, &from_sel, &to_sel)?;
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
@@ -544,6 +552,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             value,
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
+            let old_value = root.clone();
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
@@ -556,7 +565,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let parsed = parse_value(value);
             set_at_path(&mut root, &sel, parsed)?;
 
-            let new_content = serialize_value(&root, &format)?;
+            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
         }
 
