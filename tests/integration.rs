@@ -2134,6 +2134,45 @@ fn test_replace_json_check_output() {
     assert!(v["files"].is_array(), "files should list affected paths");
 }
 
+#[test]
+fn test_replace_jsonl_check_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hello again\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("bye")
+        .arg("--check")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+
+    assert_eq!(
+        lines.len(),
+        2,
+        "should have one JSONL line per matched file"
+    );
+    for line in &lines {
+        assert!(line["path"].is_string());
+        assert!(line["match_count"].as_u64().unwrap() >= 1);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CLI flags
 // ---------------------------------------------------------------------------
