@@ -671,7 +671,7 @@ pub(crate) mod patch {
         Ok(files)
     }
 
-    pub(crate) fn parse_file_path(line: &str) -> String {
+    fn parse_file_path(line: &str) -> String {
         let raw = line
             .strip_prefix("+++ ")
             .or_else(|| line.strip_prefix("--- "))
@@ -683,7 +683,7 @@ pub(crate) mod patch {
             .to_string()
     }
 
-    pub(crate) fn parse_hunk_header(line: &str) -> Result<Hunk, String> {
+    fn parse_hunk_header(line: &str) -> Result<Hunk, String> {
         let trimmed = line
             .strip_prefix("@@ ")
             .ok_or_else(|| format!("invalid hunk header: {line}"))?;
@@ -710,7 +710,7 @@ pub(crate) mod patch {
         })
     }
 
-    pub(crate) fn parse_range(s: &str) -> Result<(usize, usize), String> {
+    fn parse_range(s: &str) -> Result<(usize, usize), String> {
         if let Some((a, b)) = s.split_once(',') {
             let start = a
                 .parse::<usize>()
@@ -727,7 +727,7 @@ pub(crate) mod patch {
         }
     }
 
-    pub(crate) const FUZZ_RANGE: usize = 3;
+    const FUZZ_RANGE: usize = 3;
 
     pub(crate) fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
         let mut src_lines: Vec<String> = original.lines().map(String::from).collect();
@@ -788,7 +788,7 @@ pub(crate) mod patch {
         Ok(join_lines(&src_lines, had_final_newline))
     }
 
-    pub(crate) fn join_lines(lines: &[String], final_newline: bool) -> String {
+    fn join_lines(lines: &[String], final_newline: bool) -> String {
         if lines.is_empty() {
             return String::new();
         }
@@ -799,7 +799,7 @@ pub(crate) mod patch {
         out
     }
 
-    pub(crate) fn find_match(
+    fn find_match(
         haystack: &[&str],
         needle: &[&str],
         expected: isize,
