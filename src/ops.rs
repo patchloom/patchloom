@@ -581,28 +581,28 @@ pub(crate) mod md {
 
 pub(crate) mod patch {
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum PatchLine {
+    pub(crate) enum PatchLine {
         Context(String),
         Remove(String),
         Add(String),
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    struct Hunk {
-        old_start: usize,
-        old_count: usize,
-        new_start: usize,
-        new_count: usize,
-        lines: Vec<PatchLine>,
+    pub(crate) struct Hunk {
+        pub(crate) old_start: usize,
+        pub(crate) old_count: usize,
+        pub(crate) new_start: usize,
+        pub(crate) new_count: usize,
+        pub(crate) lines: Vec<PatchLine>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    struct PatchFile {
-        path: String,
-        hunks: Vec<Hunk>,
+    pub(crate) struct PatchFile {
+        pub(crate) path: String,
+        pub(crate) hunks: Vec<Hunk>,
     }
 
-    fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
+    pub(crate) fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         let lines: Vec<&str> = input.lines().collect();
         let mut files: Vec<PatchFile> = Vec::new();
         let mut i = 0;
@@ -671,7 +671,7 @@ pub(crate) mod patch {
         Ok(files)
     }
 
-    fn parse_file_path(line: &str) -> String {
+    pub(crate) fn parse_file_path(line: &str) -> String {
         let raw = line
             .strip_prefix("+++ ")
             .or_else(|| line.strip_prefix("--- "))
@@ -683,7 +683,7 @@ pub(crate) mod patch {
             .to_string()
     }
 
-    fn parse_hunk_header(line: &str) -> Result<Hunk, String> {
+    pub(crate) fn parse_hunk_header(line: &str) -> Result<Hunk, String> {
         let trimmed = line
             .strip_prefix("@@ ")
             .ok_or_else(|| format!("invalid hunk header: {line}"))?;
@@ -710,7 +710,7 @@ pub(crate) mod patch {
         })
     }
 
-    fn parse_range(s: &str) -> Result<(usize, usize), String> {
+    pub(crate) fn parse_range(s: &str) -> Result<(usize, usize), String> {
         if let Some((a, b)) = s.split_once(',') {
             let start = a
                 .parse::<usize>()
@@ -727,9 +727,9 @@ pub(crate) mod patch {
         }
     }
 
-    const FUZZ_RANGE: usize = 3;
+    pub(crate) const FUZZ_RANGE: usize = 3;
 
-    fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
+    pub(crate) fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
         let mut src_lines: Vec<String> = original.lines().map(String::from).collect();
         let had_final_newline = original.ends_with('\n') || original.is_empty();
         let mut offset: isize = 0;
@@ -788,7 +788,7 @@ pub(crate) mod patch {
         Ok(join_lines(&src_lines, had_final_newline))
     }
 
-    fn join_lines(lines: &[String], final_newline: bool) -> String {
+    pub(crate) fn join_lines(lines: &[String], final_newline: bool) -> String {
         if lines.is_empty() {
             return String::new();
         }
@@ -799,7 +799,7 @@ pub(crate) mod patch {
         out
     }
 
-    fn find_match(
+    pub(crate) fn find_match(
         haystack: &[&str],
         needle: &[&str],
         expected: isize,
