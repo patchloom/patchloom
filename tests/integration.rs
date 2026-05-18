@@ -2344,6 +2344,30 @@ fn test_md_dedupe_headings_removes_duplicate() {
 }
 
 #[test]
+fn test_md_dedupe_headings_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg("--file")
+        .arg(&file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0].as_str().unwrap(), "## Dup");
+}
+
+#[test]
 fn test_md_lint_agents_clean_file_exits_0() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("AGENTS.md");
@@ -2377,6 +2401,65 @@ fn test_md_lint_agents_bad_file_exits_2() {
         .arg(&file)
         .assert()
         .code(2);
+}
+
+#[test]
+fn test_md_lint_agents_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(
+        &file,
+        "# AGENTS.md\n\n## Build\n\nRun make\n\n## Build\n\nDuplicate\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let arr = parsed.as_array().unwrap();
+    assert!(!arr.is_empty());
+    // Each issue must have an "issue" field
+    assert!(arr[0].get("issue").is_some());
+}
+
+#[test]
+fn test_md_lint_agents_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(
+        &file,
+        "# AGENTS.md\n\n## Build\n\nRun make\n\n## Build\n\nDuplicate\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert!(!lines.is_empty());
+    // Each line must be valid JSON with an "issue" field
+    for line in &lines {
+        let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert!(parsed.get("issue").is_some());
+    }
 }
 
 // ---------------------------------------------------------------------------
