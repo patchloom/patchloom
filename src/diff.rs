@@ -139,4 +139,20 @@ mod tests {
         assert!(output.contains("+++ b/file2.txt"));
         assert!(!output.contains("unchanged.txt"));
     }
+
+    #[test]
+    fn format_diff_result_empty_produces_empty_string() {
+        let result = DiffResult {
+            diffs: Vec::new(),
+            total_files_changed: 0,
+        };
+        assert!(format_diff_result(&result).is_empty());
+    }
+
+    #[test]
+    fn both_empty_produces_no_changes() {
+        let result = unified_diff("empty.txt", "", "");
+        assert!(!result.has_changes);
+        assert!(result.hunks.is_empty());
+    }
 }

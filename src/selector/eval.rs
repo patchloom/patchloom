@@ -104,4 +104,38 @@ mod tests {
         let results = eval(&data, &sel);
         assert!(results.is_empty());
     }
+
+    // ── edge cases ─────────────────────────────────────────────────
+
+    #[test]
+    fn eval_empty_selector_returns_root() {
+        let data = json!({"a": 1});
+        let sel = parse("").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results, vec![&data]);
+    }
+
+    #[test]
+    fn eval_index_out_of_bounds_returns_empty() {
+        let data = json!({"items": [10, 20]});
+        let sel = parse("items[99]").unwrap();
+        let results = eval(&data, &sel);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn eval_wildcard_on_non_array_returns_empty() {
+        let data = json!({"name": "hello"});
+        let sel = parse("name[*]").unwrap();
+        let results = eval(&data, &sel);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn eval_predicate_on_empty_array() {
+        let data = json!({"items": []});
+        let sel = parse("items[id=x]").unwrap();
+        let results = eval(&data, &sel);
+        assert!(results.is_empty());
+    }
 }
