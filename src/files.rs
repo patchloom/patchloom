@@ -268,4 +268,49 @@ mod tests {
         });
         assert_eq!(results, vec![1]);
     }
+
+    // ── read_text_file ────────────────────────────────────────────────
+
+    #[test]
+    fn read_text_file_returns_content_for_utf8_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("hello.txt");
+        std::fs::write(&file, "hello world\n").unwrap();
+        let result = read_text_file(&file, "test", false);
+        assert_eq!(result.unwrap(), "hello world\n");
+    }
+
+    #[test]
+    fn read_text_file_returns_none_for_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("binary.bin");
+        std::fs::write(&file, b"hello\x00world").unwrap();
+        assert!(read_text_file(&file, "test", false).is_none());
+    }
+
+    #[test]
+    fn read_text_file_returns_none_for_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("empty.txt");
+        std::fs::write(&file, b"").unwrap();
+        assert!(read_text_file(&file, "test", false).is_none());
+    }
+
+    #[test]
+    fn read_text_file_returns_none_for_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bad.txt");
+        std::fs::write(&file, b"hello \xff world\n").unwrap();
+        assert!(read_text_file(&file, "test", false).is_none());
+    }
+
+    #[test]
+    fn read_text_file_returns_none_for_missing_file() {
+        let result = read_text_file(
+            Path::new("/tmp/patchloom_nonexistent_xyz.txt"),
+            "test",
+            false,
+        );
+        assert!(result.is_none());
+    }
 }
