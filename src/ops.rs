@@ -122,6 +122,32 @@ pub(crate) mod doc {
         Ok(())
     }
 
+    /// Parse a `key=value` predicate and remove matching items from the array
+    /// at `segments`. Returns the number of items removed.
+    pub(crate) fn delete_where(
+        root: &mut serde_json::Value,
+        segments: &[selector::Segment],
+        predicate: &str,
+    ) -> anyhow::Result<usize> {
+        let eq_pos = predicate
+            .find('=')
+            .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
+        let pred_key = &predicate[..eq_pos];
+        let pred_val = &predicate[eq_pos + 1..];
+
+        let target = navigate_mut(root, segments, false)?;
+        let arr = target
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
+
+        let before_len = arr.len();
+        arr.retain(|item| {
+            item.get(pred_key)
+                .map_or(true, |field| !selector::value_matches_str(field, pred_val))
+        });
+        Ok(before_len - arr.len())
+    }
+
     const MAX_MERGE_DEPTH: usize = 128;
 
     pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {

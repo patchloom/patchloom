@@ -2,7 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
+    deep_merge, delete_where, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
     update_matching, FileFormat,
 };
 use crate::selector;
@@ -442,24 +442,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
-            let eq_pos = predicate
-                .find('=')
-                .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
-            let pred_key = &predicate[..eq_pos];
-            let pred_val = &predicate[eq_pos + 1..];
+            let removed = delete_where(&mut root, &sel, predicate)?;
 
-            let target = navigate_mut(&mut root, &sel, false)?;
-            let arr = target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
-
-            let before_len = arr.len();
-            arr.retain(|item| {
-                item.get(pred_key)
-                    .map_or(true, |field| !selector::value_matches_str(field, pred_val))
-            });
-
-            if arr.len() == before_len {
+            if removed == 0 {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
 

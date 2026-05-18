@@ -2,7 +2,7 @@ use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
+    deep_merge, delete_where, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
     update_matching,
 };
 use crate::ops::md::{
@@ -557,21 +557,7 @@ fn execute_operation(
             let predicate = predicate.clone();
             with_doc(pending, deletions, path, cwd, |root| {
                 let sel = parse_selector(&key)?;
-                let eq_pos = predicate
-                    .find('=')
-                    .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
-                let pred_key = &predicate[..eq_pos];
-                let pred_val = &predicate[eq_pos + 1..];
-
-                let target = navigate_mut(root, &sel, false)?;
-                let arr = target
-                    .as_array_mut()
-                    .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
-
-                arr.retain(|item| {
-                    item.get(pred_key)
-                        .map_or(true, |field| !selector::value_matches_str(field, pred_val))
-                });
+                delete_where(root, &sel, &predicate)?;
                 Ok(())
             })?;
         }
