@@ -1,0 +1,106 @@
+{
+  "timestamp": "20260518_144659",
+  "model": "sxs-gpt-5-4",
+  "patchloom": {
+    "mode": "patchloom",
+    "model": "sxs-gpt-5-4",
+    "total_secs": 279.7,
+    "first_task_secs": 17.2,
+    "subsequent_avg_secs": 52.5,
+    "tasks": [
+      {
+        "name": "search",
+        "duration_secs": 17.2,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "replace",
+        "duration_secs": 28.2,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "doc_set",
+        "duration_secs": 50.3,
+        "patchloom_calls": 2,
+        "patchloom_duration_ms": 11,
+        "success": true
+      },
+      {
+        "name": "md_table",
+        "duration_secs": 35.1,
+        "patchloom_calls": 2,
+        "patchloom_duration_ms": 20,
+        "success": true
+      },
+      {
+        "name": "tx_multi_file",
+        "duration_secs": 43.6,
+        "patchloom_calls": 1,
+        "patchloom_duration_ms": 3,
+        "success": true
+      },
+      {
+        "name": "batch_6_files",
+        "duration_secs": 105.2,
+        "patchloom_calls": 1,
+        "patchloom_duration_ms": 3,
+        "success": true
+      }
+    ]
+  },
+  "native": {
+    "mode": "native",
+    "model": "sxs-gpt-5-4",
+    "total_secs": 312.2,
+    "first_task_secs": 27.0,
+    "subsequent_avg_secs": 57.0,
+    "tasks": [
+      {
+        "name": "search",
+        "duration_secs": 27.0,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "replace",
+        "duration_secs": 44.7,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "doc_set",
+        "duration_secs": 22.2,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "md_table",
+        "duration_secs": 21.5,
+        "patchloom_calls": 0,
+        "patchloom_duration_ms": 0,
+        "success": true
+      },
+      {
+        "name": "tx_multi_file",
+        "duration_secs": 95.6,
+        "patchloom_calls": 1,
+        "patchloom_duration_ms": 19,
+        "success": true
+      },
+      {
+        "name": "batch_6_files",
+        "duration_secs": 101.1,
+        "patchloom_calls": 1,
+        "patchloom_duration_ms": 2,
+        "success": true
+      }
+    ]
+  }
+}
