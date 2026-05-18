@@ -1164,6 +1164,103 @@ fn test_doc_append_yaml_sequence_root() {
 }
 
 #[test]
+fn test_doc_set_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "# Items list\n- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("[1]")
+        .arg("updated")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Items list"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("item1"),
+        "unchanged element lost: {content}"
+    );
+    assert!(
+        content.contains("updated"),
+        "updated element missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_delete_where_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(
+        &file,
+        "# Contact links\n- name: keep\n  url: keep.com\n- name: remove\n  url: remove.com\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("")
+        .arg("--predicate")
+        .arg("name=remove")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Contact links"),
+        "top comment stripped: {content}"
+    );
+    assert!(content.contains("keep"), "kept element missing: {content}");
+    assert!(
+        !content.contains("remove"),
+        "removed element still present: {content}"
+    );
+}
+
+#[test]
+fn test_doc_prepend_yaml_produces_valid_output() {
+    // Verifies the safety net: prepend changes array length, CST path
+    // may produce invalid YAML, but the output must still be valid.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "# Config\nname: app\nitems:\n  - existing\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("\"first\"")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let parsed: serde_json::Value =
+        serde_yaml_ng::from_str(&content).expect("output is not valid YAML");
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "first", "prepended item not at position 0");
+    assert_eq!(items[1], "existing", "original item not at position 1");
+}
+
+#[test]
 fn test_doc_update_yaml_preserves_comments() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");
