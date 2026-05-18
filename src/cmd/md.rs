@@ -295,7 +295,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     println!("{}", serde_json::to_string_pretty(&removed)?);
                 } else if !global.quiet {
                     for h in &removed {
-                        eprintln!("removed duplicate: {h}");
+                        eprintln!("md: removed duplicate: {h}");
                     }
                 }
             }

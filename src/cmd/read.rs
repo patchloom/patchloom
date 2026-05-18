@@ -134,7 +134,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
             Err(e) => {
                 if !global.quiet {
-                    eprintln!("error: {e}");
+                    eprintln!("read: {e}");
                 }
                 errors.push(e);
             }
