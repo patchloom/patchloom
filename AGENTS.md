@@ -42,8 +42,9 @@ src/
   cmd/patch.rs         Preview or apply unified diffs
   cmd/md.rs            Markdown section-aware operations (replace section, insert before/after heading,
                        upsert bullet, table append, dedupe headings, lint)
-  cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (set, delete, merge, append,
-                       prepend, update, move, ensure, delete-where, select, flatten, diff)
+  cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (get, has, keys, len, set,
+                       delete, merge, append, prepend, update, move, ensure, delete-where,
+                       select, flatten, diff)
   cmd/hygiene.rs       Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
   cmd/read.rs          Read file contents with optional line range
