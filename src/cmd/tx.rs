@@ -695,10 +695,23 @@ fn execute_operation(
         Operation::HygieneFix {
             path,
             ensure_final_newline,
+            trim_trailing_whitespace,
+            normalize_eol,
         } => {
             let file_path = tx.cwd.join(path);
             let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
             let mut new = content.to_string();
+            if trim_trailing_whitespace.unwrap_or(false) {
+                new = crate::write::trim_trailing_whitespace(&new);
+            }
+            if let Some(eol) = normalize_eol {
+                let mode = match eol.as_str() {
+                    "lf" => crate::cli::global::EolMode::Lf,
+                    "crlf" => crate::cli::global::EolMode::Crlf,
+                    _ => crate::cli::global::EolMode::Keep,
+                };
+                new = crate::write::normalize_eol(&new, mode);
+            }
             if ensure_final_newline.unwrap_or(true) {
                 new = crate::write::ensure_final_newline(&new);
             }

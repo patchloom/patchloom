@@ -4951,6 +4951,66 @@ fn test_tx_hygiene_fix_in_plan() {
 }
 
 #[test]
+fn test_tx_hygiene_fix_trim_trailing_whitespace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello   \nworld\t\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "hygiene.fix",
+            "path": file.to_str().unwrap(),
+            "trim_trailing_whitespace": true,
+            "ensure_final_newline": false
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(result, "hello\nworld\n");
+}
+
+#[test]
+fn test_tx_hygiene_fix_normalize_eol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("crlf.txt");
+    fs::write(&file, "line1\r\nline2\r\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "hygiene.fix",
+            "path": file.to_str().unwrap(),
+            "normalize_eol": "lf",
+            "ensure_final_newline": false
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(result, "line1\nline2\n");
+}
+
+#[test]
 fn test_tx_doc_append_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");

@@ -146,6 +146,8 @@ pub enum Operation {
     HygieneFix {
         path: String,
         ensure_final_newline: Option<bool>,
+        trim_trailing_whitespace: Option<bool>,
+        normalize_eol: Option<String>,
     },
     #[serde(rename = "file.create")]
     FileCreate {
@@ -339,6 +341,7 @@ mod tests {
             {"op": "md.table_append", "path": "f.md", "heading": "H", "row": "| a | b |"},
             {"op": "md.dedupe_headings", "path": "f.md"},
             {"op": "hygiene.fix", "path": "f.txt"},
+            {"op": "hygiene.fix", "path": "f.txt", "trim_trailing_whitespace": true, "normalize_eol": "lf"},
             {"op": "file.create", "path": "f.txt", "content": "c"},
             {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
             {"op": "file.delete", "path": "f.txt"},
@@ -349,7 +352,7 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 26);
+        assert_eq!(plan.operations.len(), 27);
     }
 
     #[test]
