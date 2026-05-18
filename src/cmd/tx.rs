@@ -569,17 +569,8 @@ fn execute_operation(
                     .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
 
                 arr.retain(|item| {
-                    if let Some(field) = item.get(pred_key) {
-                        let matches = match field {
-                            serde_json::Value::String(s) => s == pred_val,
-                            serde_json::Value::Number(n) => n.to_string() == pred_val,
-                            serde_json::Value::Bool(b) => b.to_string() == pred_val,
-                            _ => false,
-                        };
-                        !matches
-                    } else {
-                        true
-                    }
+                    item.get(pred_key)
+                        .map_or(true, |field| !selector::value_matches_str(field, pred_val))
                 });
                 Ok(())
             })?;

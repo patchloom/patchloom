@@ -455,17 +455,8 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
 
             let before_len = arr.len();
             arr.retain(|item| {
-                if let Some(field) = item.get(pred_key) {
-                    let matches = match field {
-                        serde_json::Value::String(s) => s == pred_val,
-                        serde_json::Value::Number(n) => n.to_string() == pred_val,
-                        serde_json::Value::Bool(b) => b.to_string() == pred_val,
-                        _ => false,
-                    };
-                    !matches
-                } else {
-                    true
-                }
+                item.get(pred_key)
+                    .map_or(true, |field| !selector::value_matches_str(field, pred_val))
             });
 
             if arr.len() == before_len {
@@ -729,10 +720,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             if json_mode {
                 let obj: serde_json::Map<String, serde_json::Value> =
                     entries.into_iter().map(|(k, v)| (k, v.clone())).collect();
-                Ok((
-                    serde_json::to_string_pretty(&obj).expect("serialize"),
-                    exit::SUCCESS,
-                ))
+                Ok((serde_json::to_string_pretty(&obj)?, exit::SUCCESS))
             } else {
                 let lines: Vec<String> = entries
                     .iter()
@@ -751,10 +739,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
                 return Ok(("identical\n".to_string(), exit::SUCCESS));
             }
             if json_mode {
-                Ok((
-                    serde_json::to_string_pretty(&entries).expect("serialize"),
-                    exit::SUCCESS,
-                ))
+                Ok((serde_json::to_string_pretty(&entries)?, exit::SUCCESS))
             } else {
                 let mut out = String::new();
                 for e in &entries {

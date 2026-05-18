@@ -73,11 +73,11 @@ pub struct WriteFlags {
     pub diff: bool,
 
     /// Actually mutate files.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, conflicts_with = "check")]
     pub apply: bool,
 
     /// Compute and report changes without writing.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, conflicts_with = "apply")]
     pub check: bool,
 
     /// Ensure non-empty written files end with a newline.

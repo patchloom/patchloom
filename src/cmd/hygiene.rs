@@ -130,11 +130,11 @@ fn render_issues(issues: &[HygieneIssue], global: &GlobalFlags) {
         };
         println!(
             "{}",
-            serde_json::to_string_pretty(&output).expect("serialize output")
+            serde_json::to_string_pretty(&output).unwrap_or_default()
         );
     } else if global.jsonl {
         for issue in issues {
-            println!("{}", serde_json::to_string(issue).expect("serialize issue"));
+            println!("{}", serde_json::to_string(issue).unwrap_or_default());
         }
     } else {
         for issue in issues {

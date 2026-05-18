@@ -276,7 +276,7 @@ Read a JSON value:
 patchloom doc get package.json name
 ```
 
-Check if a key exists (exit 0 = yes, exit 3 = no):
+Check if a key exists (prints `true` or `false`, always exit 0):
 
 ```
 patchloom doc has config.yaml database.host

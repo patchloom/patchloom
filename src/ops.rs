@@ -187,14 +187,9 @@ pub(crate) mod doc {
                 let mut count = 0;
                 if let Some(arr) = value.as_array_mut() {
                     for item in arr.iter_mut() {
-                        let matches = {
-                            item.get(key.as_str()).is_some_and(|field| match field {
-                                serde_json::Value::String(s) => s == pred_val,
-                                serde_json::Value::Number(n) => n.to_string() == *pred_val,
-                                serde_json::Value::Bool(b) => b.to_string() == *pred_val,
-                                _ => false,
-                            })
-                        };
+                        let matches = item
+                            .get(key.as_str())
+                            .is_some_and(|field| selector::value_matches_str(field, pred_val));
                         if matches {
                             count += update_matching(item, rest, new_val);
                         }

@@ -316,7 +316,8 @@ fn format_results(
             out.push_str(&format!("{path}:{count}\n"));
         }
     } else {
-        let has_ctx = args.context.is_some();
+        let has_ctx =
+            args.context.is_some() || args.before_context.is_some() || args.after_context.is_some();
         let mut first = true;
         for m in &results.matches {
             if has_ctx && !first {
