@@ -195,6 +195,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use standalone commands when one direct operation is enough.
 - **Related:** [examples/README.md](../../examples/README.md), `tx` fields, `tx` operations
 
+<!-- ref:command:batch -->
+## `batch`
+
+- **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers the common operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, replace, file.create, file.delete, md.upsert_bullet, md.table_append, hygiene.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
+- **Related:** `tx`
+
 <!-- ref:command:read -->
 ## `read`
 

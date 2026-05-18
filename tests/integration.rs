@@ -135,7 +135,7 @@ fn test_agent_rules_outputs_markdown() {
         .success()
         .stdout(predicates::str::contains("# Patchloom"))
         .stdout(predicates::str::contains("## Quick reference"))
-        .stdout(predicates::str::contains("## Batching with `tx`"));
+        .stdout(predicates::str::contains("## Batching with `batch`"));
 }
 
 #[test]

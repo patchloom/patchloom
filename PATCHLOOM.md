@@ -19,19 +19,22 @@ patchloom md table-append --file README.md --heading "## API" --row "| new | row
 patchloom tx --plan plan.json --apply
 ```
 
-## Batching with `tx`
+## Batching with `batch` (recommended for multi-file edits)
 
-When editing 3+ files, batch into one `tx` call:
+When editing 3+ files, use `batch` for the simplest syntax:
 
-```json
-{
-  "operations": [
-    { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
-    { "op": "replace", "path": "src/main.rs", "from": "old", "to": "new" },
-    { "op": "file.create", "path": "new.txt", "content": "hello" }
-  ]
-}
+```bash
+patchloom batch --apply <<'EOF'
+doc.set config.json version "2.0.0"
+doc.set config.yaml app.version "2.0.0"
+replace README.md "1.0.0" "2.0.0"
+file.create hello.txt "Hello, World!"
+EOF
 ```
+
+One line per operation, positional arguments, double-quote values with spaces.
+
+For complex plans needing format/validate steps or regex replace, use `tx` with JSON:
 
 ```bash
 patchloom tx --plan plan.json --apply

@@ -1,9 +1,9 @@
 //! Transaction plan format parsing.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A transaction plan containing multiple operations to execute atomically.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
@@ -15,7 +15,7 @@ pub struct Plan {
 }
 
 /// A format step to run after applying operations but before validation.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct FormatStep {
     pub cmd: String,
     /// Timeout in seconds (default: 60).
@@ -23,7 +23,7 @@ pub struct FormatStep {
 }
 
 /// Write policy settings specified in the plan.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PlanWritePolicy {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
@@ -31,7 +31,7 @@ pub struct PlanWritePolicy {
 }
 
 /// A single operation within a plan.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "op")]
 pub enum Operation {
     #[serde(rename = "replace")]
@@ -183,7 +183,7 @@ pub enum Operation {
 }
 
 /// A validation step to run after applying operations.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ValidationStep {
     pub cmd: String,
     pub required: Option<bool>,

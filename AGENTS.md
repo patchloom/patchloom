@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides thirteen commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, shell completion generation, and end-user agent rules generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides fourteen commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, line-oriented batch operations, shell completion generation, and end-user agent rules generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -38,6 +38,7 @@ src/
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
                        --respect-editorconfig). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
+  cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
   cmd/replace.rs       Literal/regex string replacement with diff preview, --nth, -i, atomic write
   cmd/delete.rs        Delete a file (with --apply/--check modes)

@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod create;
 pub mod delete;
 pub mod doc;
@@ -37,6 +38,8 @@ pub enum Command {
     Hygiene(hygiene::HygieneArgs),
     /// Execute a multi-operation plan atomically.
     Tx(tx::TxArgs),
+    /// Execute multiple operations from a simple line-oriented format.
+    Batch(batch::BatchArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
     AgentRules,
     /// Generate shell completions for bash, zsh, fish, or elvish.
@@ -96,6 +99,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Tx(args) => {
             global.merge_write(&args.write);
             tx::run(args, &global)
+        }
+        Command::Batch(args) => {
+            global.merge_write(&args.write);
+            batch::run(args, &global)
         }
     }
 }
