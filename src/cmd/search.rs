@@ -6,7 +6,6 @@ use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::fs;
 
 #[derive(Debug, Args)]
 pub struct SearchArgs {
@@ -158,28 +157,7 @@ fn search_one_file(
     args: &SearchArgs,
     quiet: bool,
 ) -> Option<FileResult> {
-    // Read as bytes first, skip binary files (#170).
-    let data = match fs::read(path) {
-        Ok(d) => d,
-        Err(e) => {
-            if !quiet {
-                eprintln!("search: skipping {}: {e}", path.display());
-            }
-            return None;
-        }
-    };
-    if crate::is_binary(&data) {
-        return None;
-    }
-    let content = match String::from_utf8(data) {
-        Ok(s) => s,
-        Err(_) => {
-            if !quiet {
-                eprintln!("search: skipping {} (invalid UTF-8)", path.display());
-            }
-            return None;
-        }
-    };
+    let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
     let path_str = path.to_string_lossy().to_string();
@@ -428,6 +406,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::TempDir;
 
     fn make_test_dir() -> TempDir {

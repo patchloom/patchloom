@@ -8,7 +8,6 @@ use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
 use regex::RegexBuilder;
 use serde::Serialize;
-use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Args)]
@@ -80,8 +79,6 @@ struct FileReplacement {
     match_count: usize,
 }
 
-use crate::is_binary;
-
 fn build_replacement(args: &ReplaceArgs) -> String {
     replacement_text(
         &args.from,
@@ -128,28 +125,9 @@ fn collect_replacements(
             continue;
         }
 
-        let data = match fs::read(path) {
-            Ok(d) => d,
-            Err(e) => {
-                if !global.quiet {
-                    eprintln!("replace: skipping {}: {e}", path.display());
-                }
-                continue;
-            }
-        };
-
-        if data.is_empty() || is_binary(&data) {
-            continue;
-        }
-
-        let content = match String::from_utf8(data) {
-            Ok(s) => s,
-            Err(_) => {
-                if !global.quiet {
-                    eprintln!("replace: skipping {} (invalid UTF-8)", path.display());
-                }
-                continue;
-            }
+        let content = match crate::read_text_file(path, "replace", global.quiet) {
+            Some(s) => s,
+            None => continue,
         };
 
         let (replaced, count) = replace_content(

@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, update_matching,
-    FileFormat,
+    deep_merge, detect_format, navigate_mut, parse_doc, serialize_value, set_at_path,
+    update_matching, FileFormat,
 };
 use crate::selector;
 use crate::write;
@@ -384,31 +384,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let parsed = parse_value(value);
 
-            let last = sel
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
-            let parent_path = &sel[..sel.len() - 1];
-            let parent = navigate_mut(&mut root, parent_path, true)?;
-
-            match last {
-                selector::Segment::Key(k) => {
-                    parent
-                        .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
-                        .insert(k.clone(), parsed);
-                }
-                selector::Segment::Index(i) => {
-                    let arr = parent
-                        .as_array_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
-                    if *i < arr.len() {
-                        arr[*i] = parsed;
-                    } else {
-                        anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
-                    }
-                }
-                _ => anyhow::bail!("cannot set at wildcard/predicate"),
-            }
+            set_at_path(&mut root, &sel, parsed)?;
 
             let new_content = serialize_value(&root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -657,31 +633,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
 
             // Path does not exist – create it (same logic as set).
             let parsed = parse_value(value);
-            let last = sel
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
-            let parent_path = &sel[..sel.len() - 1];
-            let parent = navigate_mut(&mut root, parent_path, true)?;
-
-            match last {
-                selector::Segment::Key(k) => {
-                    parent
-                        .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
-                        .insert(k.clone(), parsed);
-                }
-                selector::Segment::Index(i) => {
-                    let arr = parent
-                        .as_array_mut()
-                        .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
-                    if *i < arr.len() {
-                        arr[*i] = parsed;
-                    } else {
-                        anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
-                    }
-                }
-                _ => anyhow::bail!("cannot ensure at wildcard/predicate"),
-            }
+            set_at_path(&mut root, &sel, parsed)?;
 
             let new_content = serialize_value(&root, &format)?;
             write_result(file, &original, &new_content, ctx)

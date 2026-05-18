@@ -86,6 +86,42 @@ pub(crate) mod doc {
         Ok(current)
     }
 
+    /// Set a value at the location described by `segments`.  Navigates to the
+    /// parent (creating intermediate keys when needed) and inserts the value at
+    /// the final Key or Index segment.
+    pub(crate) fn set_at_path(
+        root: &mut serde_json::Value,
+        segments: &[selector::Segment],
+        value: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let last = segments
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
+        let parent_path = &segments[..segments.len() - 1];
+        let parent = navigate_mut(root, parent_path, true)?;
+
+        match last {
+            selector::Segment::Key(k) => {
+                parent
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
+                    .insert(k.clone(), value);
+            }
+            selector::Segment::Index(i) => {
+                let arr = parent
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+                if *i < arr.len() {
+                    arr[*i] = value;
+                } else {
+                    anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
+                }
+            }
+            _ => anyhow::bail!("cannot set at wildcard/predicate"),
+        }
+        Ok(())
+    }
+
     const MAX_MERGE_DEPTH: usize = 128;
 
     pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {

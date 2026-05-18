@@ -78,6 +78,32 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     }
 }
 
+/// Read a file as UTF-8 text, skipping binary files and logging errors.
+/// Returns `None` for binary, empty, unreadable, or non-UTF-8 files.
+pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            if !quiet {
+                eprintln!("{cmd}: skipping {}: {e}", path.display());
+            }
+            return None;
+        }
+    };
+    if data.is_empty() || is_binary(&data) {
+        return None;
+    }
+    match String::from_utf8(data) {
+        Ok(s) => Some(s),
+        Err(_) => {
+            if !quiet {
+                eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
+            }
+            None
+        }
+    }
+}
+
 /// Process file paths using adaptive parallelism via `std::thread::scope`.
 ///
 /// Files are split into chunks (one per available core). The calling thread
