@@ -50,6 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent integration tests (`make agent-test`): 19 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
 - CLI benchmarks (`make bench-cli`): patchloom vs native tools (grep, sed, cat, jq) using hyperfine across small/medium/large synthetic corpora
 - Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
+- TOML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.toml` files (uses `toml_edit` CST)
+- YAML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.yaml`/`.yml` files (uses `yaml_edit` CST)
 - 621 tests (336 unit + 285 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 
 ### Changed
@@ -70,3 +72,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - tx replace plans missing all of `to`, `insert_before`, and `insert_after` now return PARSE_ERROR instead of silently deleting matches
 - Replace-only tx plans with zero matches now return NO_MATCHES (exit 3) instead of SUCCESS
 - tx glob replace no longer buffers non-matching files into pending state
+- Sequence-rooted YAML files (`- item1\n- item2`) no longer silently discard mutations in `doc` operations; falls back to non-preserving serialization when the root is not a mapping

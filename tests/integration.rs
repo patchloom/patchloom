@@ -929,6 +929,161 @@ fn test_doc_set_yaml_preserves_comments() {
 }
 
 #[test]
+fn test_doc_merge_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"logging": "debug"}"#)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(content.contains("logging"), "merged key missing: {content}");
+    assert!(content.contains("debug"), "merged value missing: {content}");
+}
+
+#[test]
+fn test_doc_delete_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("version")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(
+        !content.contains("version:"),
+        "deleted key still present: {content}"
+    );
+    assert!(
+        content.contains("name: my-app"),
+        "surviving key missing: {content}"
+    );
+}
+
+#[test]
+fn test_tx_yaml_doc_set_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n",
+    )
+    .unwrap();
+
+    let plan = dir.path().join("plan.yaml");
+    fs::write(
+        &plan,
+        format!(
+            "operations:\n  - op: doc.set\n    path: {}\n    selector: server.port\n    value: \"9090\"\n",
+            file.display()
+        ),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("9090"), "new value missing: {content}");
+    assert!(!content.contains("8080"), "old value present: {content}");
+}
+
+#[test]
+fn test_doc_append_yaml_sequence_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("")
+        .arg("item3")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("item1"), "item1 missing: {content}");
+    assert!(content.contains("item2"), "item2 missing: {content}");
+    assert!(
+        content.contains("item3"),
+        "appended item3 missing: {content}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

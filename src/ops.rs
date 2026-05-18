@@ -74,9 +74,16 @@ pub(crate) mod doc {
                 if let Some(doc) = file.document() {
                     if let Some(mapping) = doc.as_mapping() {
                         apply_yaml_mapping_diff(&mapping, old_value, new_value);
+                        return Ok(file.to_string());
                     }
                 }
-                Ok(file.to_string())
+                // Root is not a mapping (e.g. sequence-rooted YAML); fall back
+                // to non-preserving serialization so mutations are not lost.
+                if old_value == new_value {
+                    Ok(original_content.to_string())
+                } else {
+                    serialize_value(new_value, format)
+                }
             }
             // JSON has no comments.
             _ => serialize_value(new_value, format),
@@ -1605,6 +1612,27 @@ mod tests {
             assert!(result.contains("# Section C"), "section C comment missing");
             assert!(result.contains("99"), "new value missing");
             assert!(!result.contains("b: 2"), "old value still present");
+        }
+
+        #[test]
+        fn yaml_sequence_root_mutation_not_lost() {
+            let yaml = "- item1\n- item2\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            new.as_array_mut().unwrap().push(json!("item3"));
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("item3"), "appended item missing: {result}");
+            assert!(result.contains("item1"), "item1 missing: {result}");
+            assert!(result.contains("item2"), "item2 missing: {result}");
+        }
+
+        #[test]
+        fn yaml_sequence_root_noop_preserves_content() {
+            let yaml = "- item1\n- item2\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let result = serialize_value_preserving(yaml, &old, &old, &FileFormat::Yaml).unwrap();
+            assert_eq!(result, yaml, "no-op roundtrip should be identical");
         }
 
         #[test]
