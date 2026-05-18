@@ -1997,6 +1997,37 @@ fn test_create_check_exits_2() {
     assert!(!file.exists(), "file should not be created in --check mode");
 }
 
+#[test]
+fn test_create_check_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--check")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    // diff field should be absent in --check mode
+    assert!(json.get("diff").is_none());
+
+    assert!(
+        !file.exists(),
+        "file should not be created in --check --json mode"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // output format
 // ---------------------------------------------------------------------------
