@@ -1914,6 +1914,29 @@ fn test_hygiene_check_exits_2_with_issues() {
 }
 
 #[test]
+fn test_hygiene_check_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "trailing spaces   \nno final newline").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("hygiene")
+        .arg("check")
+        .arg(&file)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert!(json["issue_count"].as_u64().unwrap() >= 2);
+    assert!(json["issues"].is_array());
+}
+
+#[test]
 fn test_hygiene_check_exits_0_when_clean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -1951,6 +1974,39 @@ fn test_patch_check_exits_0_when_clean() {
         .arg(&patch_file)
         .assert()
         .success();
+}
+
+#[test]
+fn test_patch_check_json_output_clean() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert!(json["files"].is_array());
+    assert_eq!(json["files"][0]["status"], "clean");
 }
 
 #[test]
