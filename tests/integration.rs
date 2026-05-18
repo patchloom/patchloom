@@ -6706,6 +6706,41 @@ fn test_tx_multi_op_batch_all_new_ops() {
     assert_eq!(fs::read_to_string(&new_file).unwrap(), "created!\n");
 }
 
+#[test]
+fn test_tx_create_then_replace_on_same_file() {
+    let dir = TempDir::new().unwrap();
+    let new_file = dir.path().join("created.txt");
+
+    let plan = serde_json::json!({
+        "operations": [
+            {
+                "op": "file.create",
+                "path": new_file.to_str().unwrap(),
+                "content": "hello world\n"
+            },
+            {
+                "op": "replace",
+                "path": new_file.to_str().unwrap(),
+                "from": "world",
+                "to": "patchloom"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&new_file).unwrap(), "hello patchloom\n");
+}
+
 // ---------------------------------------------------------------------------
 // smoke tests: docs and examples
 // ---------------------------------------------------------------------------
