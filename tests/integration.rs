@@ -4891,6 +4891,130 @@ fn test_tx_md_dedupe_headings_in_plan() {
 }
 
 #[test]
+fn test_tx_md_insert_after_heading_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\nExisting content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "md.insert_after_heading",
+            "path": file.to_str().unwrap(),
+            "heading": "Title",
+            "content": "Inserted line\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert!(result.contains("Inserted line\nExisting content"));
+}
+
+#[test]
+fn test_tx_hygiene_fix_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    // File has no final newline.
+    fs::write(&file, "line1\nline2").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "hygiene.fix",
+            "path": file.to_str().unwrap(),
+            "ensure_final_newline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(result, "line1\nline2\n");
+}
+
+#[test]
+fn test_tx_doc_append_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items": [1, 2]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.append",
+            "path": file.to_str().unwrap(),
+            "key": "items",
+            "value": 3
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(result["items"], serde_json::json!([1, 2, 3]));
+}
+
+#[test]
+fn test_tx_doc_merge_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a": 1, "b": {"c": 2}}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "doc.merge",
+            "path": file.to_str().unwrap(),
+            "value": {"b": {"d": 3}, "e": 4}
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(result["a"], 1);
+    assert_eq!(result["b"]["c"], 2);
+    assert_eq!(result["b"]["d"], 3);
+    assert_eq!(result["e"], 4);
+}
+
+#[test]
 fn test_tx_replace_case_insensitive_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
