@@ -1154,6 +1154,131 @@ fn test_doc_ensure_yaml_preserves_comments() {
 }
 
 #[test]
+fn test_doc_move_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nold_name: my-app\n\n# Server\nserver:\n  host: localhost\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("old_name")
+        .arg("new_name")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("new_name"),
+        "renamed key missing: {content}"
+    );
+    assert!(
+        !content.contains("old_name"),
+        "old key still present: {content}"
+    );
+    assert!(
+        content.contains("my-app"),
+        "value lost during move: {content}"
+    );
+}
+
+#[test]
+fn test_doc_prepend_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing # keep\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("first")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("first"),
+        "prepended item missing: {content}"
+    );
+    assert!(
+        content.contains("existing"),
+        "original item missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_delete_where_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - name: keep\n    val: 1\n  - name: remove\n    val: 2\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("items")
+        .arg("--predicate")
+        .arg("name=remove")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("keep"),
+        "surviving item missing: {content}"
+    );
+    assert!(
+        !content.contains("remove"),
+        "deleted item still present: {content}"
+    );
+}
+
+#[test]
 fn test_doc_delete_where() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
