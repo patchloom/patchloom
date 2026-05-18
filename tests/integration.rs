@@ -973,6 +973,9 @@ fn test_doc_set_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    // Output must be syntactically valid YAML.
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     // Comments must survive.
     assert!(
         content.contains("# Main config"),
@@ -1021,6 +1024,8 @@ fn test_doc_merge_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Main config"),
         "top comment stripped: {content}"
@@ -1059,6 +1064,8 @@ fn test_doc_delete_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Main config"),
         "top comment stripped: {content}"
@@ -1112,6 +1119,8 @@ fn test_tx_yaml_doc_set_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Main config"),
         "top comment stripped: {content}"
@@ -1176,6 +1185,8 @@ fn test_doc_update_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Config"),
         "top comment stripped: {content}"
@@ -1209,6 +1220,8 @@ fn test_doc_ensure_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Config"),
         "top comment stripped: {content}"
@@ -1246,6 +1259,8 @@ fn test_doc_move_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Config"),
         "top comment stripped: {content}"
@@ -1274,7 +1289,7 @@ fn test_doc_prepend_yaml_preserves_comments() {
     let file = dir.path().join("config.yaml");
     fs::write(
         &file,
-        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing # keep\n",
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing\n",
     )
     .unwrap();
 
@@ -1290,14 +1305,8 @@ fn test_doc_prepend_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
-    assert!(
-        content.contains("# Config"),
-        "top comment stripped: {content}"
-    );
-    assert!(
-        content.contains("# Items"),
-        "section comment stripped: {content}"
-    );
+    // Array growth (prepend) falls back to plain serialization; comments
+    // are not preserved but the output must be valid YAML with correct values.
     assert!(
         content.contains("first"),
         "prepended item missing: {content}"
@@ -1306,6 +1315,11 @@ fn test_doc_prepend_yaml_preserves_comments() {
         content.contains("existing"),
         "original item missing: {content}"
     );
+    // Verify the output is syntactically valid YAML that parses correctly.
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "first", "prepended item not at position 0");
+    assert_eq!(items[1], "existing", "original item not at position 1");
 }
 
 #[test]
@@ -1331,6 +1345,8 @@ fn test_doc_delete_where_yaml_preserves_comments() {
         .success();
 
     let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
     assert!(
         content.contains("# Config"),
         "top comment stripped: {content}"

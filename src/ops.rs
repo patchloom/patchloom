@@ -78,7 +78,18 @@ pub(crate) mod doc {
                         // cannot be applied via the mapping diff.
                         if old_value.is_object() && new_value.is_object() {
                             apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
-                            return Ok(file.to_string());
+                            let result = file.to_string();
+                            // Safety net: verify the CST output is still valid
+                            // YAML that parses to a mapping.  Catches both
+                            // invalid syntax (parse failure) and structural
+                            // corruption where a broken `mapping.set` causes
+                            // the root to degenerate from a mapping to a
+                            // sequence or scalar.
+                            if serde_yaml_ng::from_str::<serde_json::Value>(&result)
+                                .is_ok_and(|v| v.is_object())
+                            {
+                                return Ok(result);
+                            }
                         }
                     }
                 }
@@ -300,17 +311,27 @@ pub(crate) mod doc {
                             mapping.set(key.as_str(), json_to_yaml_mapping(new_val)?);
                         }
                     }
-                    // Both arrays of the same length: update element by element.
-                    (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr))
-                        if old_arr.len() == new_arr.len() =>
-                    {
+                    // Both arrays: update via the existing sequence node to
+                    // preserve block/flow style and the key-value newline.
+                    (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) => {
                         if let Some(seq) = mapping.get_sequence(key.as_str()) {
-                            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+                            if old_arr.len() == new_arr.len() {
+                                apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+                            } else {
+                                apply_yaml_sequence_resize(
+                                    &seq,
+                                    old_arr,
+                                    new_arr,
+                                    mapping,
+                                    key.as_str(),
+                                    new_val,
+                                )?;
+                            }
                         } else {
                             mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
                         }
                     }
-                    // Type changed, different-length arrays, or scalar change.
+                    // Type changed or scalar change.
                     _ => {
                         mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
                     }
@@ -348,6 +369,52 @@ pub(crate) mod doc {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Handle different-length array diffs.
+    ///
+    /// Deletion is handled via targeted `Sequence::remove()` calls, which
+    /// preserves comments and formatting on surrounding entries.
+    ///
+    /// Growth (prepend, append) falls back to `mapping.set()`.  The caller's
+    /// validation safety-net in `serialize_value_preserving` will detect any
+    /// invalid CST output and fall back to plain serialization.
+    fn apply_yaml_sequence_resize(
+        seq: &yaml_edit::Sequence,
+        old_arr: &[serde_json::Value],
+        new_arr: &[serde_json::Value],
+        mapping: &yaml_edit::Mapping,
+        key: &str,
+        new_val: &serde_json::Value,
+    ) -> anyhow::Result<()> {
+        let old_len = old_arr.len();
+        let new_len = new_arr.len();
+
+        if new_len < old_len {
+            // Deletion: find which old indices are absent in new_arr.
+            let mut remove_indices = Vec::new();
+            let mut ni = 0;
+            for (oi, old_item) in old_arr.iter().enumerate() {
+                if ni < new_len && *old_item == new_arr[ni] {
+                    ni += 1;
+                } else {
+                    remove_indices.push(oi);
+                }
+            }
+            if ni == new_len {
+                // All new elements found in order; remove the extras
+                // (iterate in reverse to keep indices stable).
+                for &idx in remove_indices.iter().rev() {
+                    seq.remove(idx);
+                }
+                return Ok(());
+            }
+        }
+        // Growth or complex restructuring: fall back to mapping.set().
+        // The validation guard in serialize_value_preserving will catch
+        // any CST corruption and fall through to plain serialization.
+        mapping.set(key, json_to_yaml_node(new_val)?);
         Ok(())
     }
 
