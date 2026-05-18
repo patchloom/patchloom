@@ -178,4 +178,88 @@ mod tests {
     fn parse_range_end_before_start_fails() {
         assert!(parse_line_range("10:5").is_err());
     }
+
+    #[test]
+    fn read_one_file_empty_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        fs::write(&file, "").unwrap();
+        let result = read_one_file(file.to_str().unwrap(), &None).unwrap();
+        assert_eq!(result.content, "");
+        assert_eq!(result.total_lines, 0);
+        assert_eq!(result.start_line, 1);
+        assert_eq!(result.end_line, 0);
+    }
+
+    #[test]
+    fn read_one_file_line_range_clamped_to_file_length() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("short.txt");
+        fs::write(&file, "line1\nline2\nline3\n").unwrap();
+        let spec = Some("2:100".to_string());
+        let result = read_one_file(file.to_str().unwrap(), &spec).unwrap();
+        assert_eq!(result.content, "line2\nline3\n");
+        assert_eq!(result.start_line, 2);
+        assert_eq!(result.end_line, 3);
+        assert_eq!(result.total_lines, 3);
+    }
+
+    #[test]
+    fn read_one_file_no_lines_spec_preserves_trailing_newline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("trail.txt");
+        fs::write(&file, "hello\n").unwrap();
+        let result = read_one_file(file.to_str().unwrap(), &None).unwrap();
+        assert_eq!(result.content, "hello\n");
+        assert_eq!(result.total_lines, 1);
+    }
+
+    #[test]
+    fn read_one_file_no_trailing_newline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("notrail.txt");
+        fs::write(&file, "hello").unwrap();
+        let result = read_one_file(file.to_str().unwrap(), &None).unwrap();
+        assert_eq!(result.content, "hello");
+        assert_eq!(result.total_lines, 1);
+    }
+
+    #[test]
+    fn read_one_file_with_lines_preserves_trailing_newline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("trail.txt");
+        fs::write(&file, "a\nb\nc\n").unwrap();
+        // Request to end of file: trailing newline should be preserved.
+        let spec = Some("2:3".to_string());
+        let result = read_one_file(file.to_str().unwrap(), &spec).unwrap();
+        assert_eq!(result.content, "b\nc\n");
+    }
+
+    #[test]
+    fn read_one_file_mid_range_no_trailing_newline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("mid.txt");
+        fs::write(&file, "a\nb\nc\nd\n").unwrap();
+        // Request lines 2:3 (not end of file): no trailing newline added.
+        let spec = Some("2:3".to_string());
+        let result = read_one_file(file.to_str().unwrap(), &spec).unwrap();
+        assert_eq!(result.content, "b\nc");
+    }
+
+    #[test]
+    fn read_one_file_empty_file_with_line_range() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        fs::write(&file, "").unwrap();
+        let spec = Some("1:5".to_string());
+        let result = read_one_file(file.to_str().unwrap(), &spec).unwrap();
+        assert_eq!(result.content, "");
+        assert_eq!(result.total_lines, 0);
+    }
+
+    #[test]
+    fn read_one_file_nonexistent_returns_error() {
+        let result = read_one_file("/tmp/does-not-exist-patchloom-test.txt", &None);
+        assert!(result.is_err());
+    }
 }

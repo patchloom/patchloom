@@ -7572,3 +7572,119 @@ fn test_hygiene_skips_binary_files() {
     let bin_after = fs::read(&bin_file).unwrap();
     assert_eq!(bin_after, bin_content, "binary file should not be modified");
 }
+
+// ---------------------------------------------------------------------------
+// status: staged new file (porcelain code "A") shows as created
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_status_staged_new_file_shows_as_created() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Create initial commit so HEAD exists.
+    fs::write(dir.path().join("init.txt"), "init\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "init.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Stage a new file without committing (porcelain code "A ").
+    fs::write(dir.path().join("new.txt"), "new content\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "new.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2)); // CHANGES_DETECTED
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let created = json["created"].as_array().unwrap();
+    assert!(
+        created.iter().any(|v| v.as_str() == Some("new.txt")),
+        "staged new file should appear in created list, got: {json}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc delete --check exits 2 when changes would be made
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_delete_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"key":"value","other":"keep"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("key")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    // File should be unchanged in --check mode.
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("key"),
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc merge --check exits 2 when changes would be made
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_merge_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg(r#"{"b":2}"#)
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        !content.contains("b"),
+        "file should be unchanged in --check mode"
+    );
+}
