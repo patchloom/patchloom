@@ -867,8 +867,8 @@ pub(crate) mod patch {
                 })
                 .collect();
 
-            let src_refs: Vec<&str> = src_lines.iter().map(|s| s.as_str()).collect();
-            let old_refs: Vec<&str> = old_lines.iter().map(|s| s.as_str()).collect();
+            let src_refs: Vec<&str> = src_lines.iter().map(std::string::String::as_str).collect();
+            let old_refs: Vec<&str> = old_lines.iter().map(std::string::String::as_str).collect();
 
             let pos = find_match(&src_refs, &old_refs, expected, FUZZ_RANGE).ok_or_else(|| {
                 let snippet = old_lines

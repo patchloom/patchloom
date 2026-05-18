@@ -54,7 +54,7 @@ pub(crate) fn collect_file_paths_opts(
         .build()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-        .map(|e| e.into_path())
+        .map(ignore::DirEntry::into_path)
         .collect())
 }
 

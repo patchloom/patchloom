@@ -605,7 +605,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             }
             match results[0].as_object() {
                 Some(obj) => {
-                    let keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+                    let keys: Vec<&str> = obj.keys().map(std::string::String::as_str).collect();
                     Ok((keys.join("\n"), exit::SUCCESS))
                 }
                 None => Ok((String::new(), exit::FAILURE)),
