@@ -403,7 +403,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 Use these when the top level `doc` command is right, but you need a specific structured operation.
 
-**Comment preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact.
+**Comment preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact. Operations that change YAML array length (`append`, `prepend`, `delete-where`) fall back to plain serialization when needed, which may not preserve comments on the affected file. Syntax is always valid regardless of code path.
 
 <!-- ref:doc-action:get -->
 ### `doc get`
