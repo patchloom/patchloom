@@ -144,3 +144,110 @@ where
         results
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_binary ─────────────────────────────────────────────────────
+
+    #[test]
+    fn text_is_not_binary() {
+        assert!(!is_binary(b"hello world\n"));
+    }
+
+    #[test]
+    fn empty_is_not_binary() {
+        assert!(!is_binary(b""));
+    }
+
+    #[test]
+    fn nul_byte_makes_binary() {
+        assert!(is_binary(b"hello\x00world"));
+    }
+
+    #[test]
+    fn nul_at_8k_boundary_is_binary() {
+        let mut data = vec![b'a'; 8191];
+        data.push(0);
+        assert!(is_binary(&data));
+    }
+
+    #[test]
+    fn nul_past_8k_is_not_binary() {
+        let mut data = vec![b'a'; 8192];
+        data.push(0);
+        assert!(!is_binary(&data));
+    }
+
+    // ── matches_glob ──────────────────────────────────────────────────
+
+    #[test]
+    fn no_matcher_matches_everything() {
+        assert!(matches_glob(Path::new("any/file.rs"), None));
+    }
+
+    #[test]
+    fn glob_matches_extension() {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("*.rs").unwrap());
+        let matcher = builder.build().unwrap();
+        assert!(matches_glob(Path::new("src/main.rs"), Some(&matcher)));
+    }
+
+    #[test]
+    fn glob_rejects_non_matching() {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("*.rs").unwrap());
+        let matcher = builder.build().unwrap();
+        assert!(!matches_glob(Path::new("src/main.py"), Some(&matcher)));
+    }
+
+    // ── par_process_files ─────────────────────────────────────────────
+
+    #[test]
+    fn par_process_single_file() {
+        let paths = vec![PathBuf::from("a.txt")];
+        let results = par_process_files(&paths, None, |p| Some(p.to_string_lossy().to_string()));
+        assert_eq!(results, vec!["a.txt"]);
+    }
+
+    #[test]
+    fn par_process_filters_with_glob() {
+        let paths = vec![
+            PathBuf::from("a.rs"),
+            PathBuf::from("b.py"),
+            PathBuf::from("c.rs"),
+        ];
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("*.rs").unwrap());
+        let matcher = builder.build().unwrap();
+        let results = par_process_files(&paths, Some(&matcher), |p| {
+            Some(p.to_string_lossy().to_string())
+        });
+        assert_eq!(results.len(), 2);
+        assert!(results.contains(&"a.rs".to_string()));
+        assert!(results.contains(&"c.rs".to_string()));
+    }
+
+    #[test]
+    fn par_process_empty_paths() {
+        let paths: Vec<PathBuf> = vec![];
+        let results: Vec<String> =
+            par_process_files(&paths, None, |p| Some(p.to_string_lossy().to_string()));
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn par_process_closure_can_filter() {
+        let paths = vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")];
+        let results = par_process_files(&paths, None, |p| {
+            if p.to_string_lossy().contains('a') {
+                Some(1)
+            } else {
+                None
+            }
+        });
+        assert_eq!(results, vec![1]);
+    }
+}

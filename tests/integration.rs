@@ -7303,3 +7303,94 @@ fn test_reference_doc_requires_use_when_stanza() {
         errors.join("\n\n")
     );
 }
+
+// ── binary file handling ─────────────────────────────────────────────
+
+#[test]
+fn test_search_skips_binary_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "needle in text\n").unwrap();
+    // Binary file: contains NUL byte.
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&bin_file, b"needle\x00in binary").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path().to_str().unwrap())
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("text.txt"),
+        "should find match in text file"
+    );
+    assert!(
+        !stdout.contains("data.bin"),
+        "should skip binary file, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_replace_skips_binary_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "old value\n").unwrap();
+    // Binary file with the same target text.
+    let bin_file = dir.path().join("data.bin");
+    let mut bin_content = b"old value".to_vec();
+    bin_content.push(0);
+    bin_content.extend_from_slice(b" more data");
+    fs::write(&bin_file, &bin_content).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("old value")
+        .arg("--to")
+        .arg("new value")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "new value\n");
+
+    // Binary file should be untouched.
+    let bin_after = fs::read(&bin_file).unwrap();
+    assert_eq!(bin_after, bin_content, "binary file should not be modified");
+}
+
+#[test]
+fn test_hygiene_skips_binary_files() {
+    let dir = TempDir::new().unwrap();
+    // Text file with trailing whitespace.
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "hello   \n").unwrap();
+    // Binary file with trailing spaces (should not be touched).
+    let bin_file = dir.path().join("data.bin");
+    let mut bin_content = b"hello   ".to_vec();
+    bin_content.push(0);
+    fs::write(&bin_file, &bin_content).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("hygiene")
+        .arg("fix")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--trim-trailing-whitespace")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "hello\n");
+
+    let bin_after = fs::read(&bin_file).unwrap();
+    assert_eq!(bin_after, bin_content, "binary file should not be modified");
+}
