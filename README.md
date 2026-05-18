@@ -3,18 +3,48 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-639%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-660%20passing-brightgreen)](#)
 
-**Make your AI agent edit files faster.**
+**One binary. Every platform. Structured file edits for AI agents.**
 
-> Your agent spends 6 tool calls editing 6 files. Each call is a round-trip back to the LLM.
-> Patchloom's `tx` command batches all 6 into **one call**. Same result, fraction of the time.
+Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by key (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
+
+```bash
+# Edit a YAML key without breaking comments or formatting
+patchloom doc set config.yaml database.port 5432 --apply
+
+# Batch 6 file edits into a single tool call
+patchloom batch --apply <<'EOF'
+doc.set package.json version "2.0.0"
+doc.set config.yaml app.version "2.0.0"
+doc.set config.toml project.version "2.0.0"
+replace README.md "1.0.0" "2.0.0"
+replace CHANGELOG.md "1.0.0" "2.0.0"
+file.create VERSION "2.0.0"
+EOF
+```
 
 ---
 
 ## Why Patchloom?
 
-AI coding agents (Grok, GPT, Claude) edit files through tool calls. Each tool call is a round-trip: the agent generates a request, the tool executes, the result goes back, the agent plans the next call. When a task touches multiple files, these round-trips add up fast.
+### The problem
+
+AI agents edit files through tool calls. Each call is a round-trip back to the LLM. When a task touches config files, that process has three failure modes:
+
+1. **Syntax corruption.** The agent uses text replacement on JSON, YAML, or TOML and produces invalid output (mismatched braces, broken indentation, lost comments).
+2. **Round-trip tax.** Editing 6 files means 6 separate tool calls. Each one waits for the LLM to generate, execute, read the result, and plan the next call.
+3. **Platform fragmentation.** On Linux the agent uses `sed`, `jq`, `grep`. On Windows, none of those exist. The agent falls back to verbose PowerShell or makes errors with unfamiliar syntax.
+
+### How patchloom solves each one
+
+| Problem | How patchloom solves it |
+|---|---|
+| **Syntax corruption** | `doc` commands parse the file, change the value by key path, and write valid output. Comments and formatting are preserved. No regex needed. |
+| **Round-trip tax** | `batch` and `tx` combine N operations into 1 tool call. Six file edits become one command with atomic rollback on failure. |
+| **Platform fragmentation** | Single static binary with zero dependencies. Same commands, same flags, same behavior on Linux, macOS, and Windows. |
+
+### What changes with patchloom
 
 <table>
 <tr>
@@ -35,10 +65,10 @@ Agent: edit file 6  ─── tool call ───▶  15s
 </td>
 <td width="50%">
 
-**With patchloom tx** (1 tool call)
+**With patchloom batch** (1 tool call)
 
 ```
-Agent: tx plan with
+Agent: batch with
   all 6 edits     ─── tool call ───▶  25s
 
 
@@ -51,36 +81,52 @@ Agent: tx plan with
 </tr>
 </table>
 
-### Three things patchloom does that native tools cannot
+### Key capabilities
 
-| | Feature | What it means |
+| Capability | What it does | Example |
 |---|---|---|
-| **1** | **Batch N edits into 1 call** | `tx` runs doc, markdown, replace, create, and delete operations in a single plan. One tool call replaces N. |
-| **2** | **Parser-backed structured edits** | `doc set config.json version "2.0"` parses JSON/YAML/TOML, changes the value, and writes valid output. No regex, no broken syntax. |
-| **3** | **Atomic with rollback** | With `strict: true`, a failed format or validate step reverts every file. Partial writes never reach disk. |
+| **Parser-backed edits** | Edit JSON/YAML/TOML by key, preserving comments and formatting | `doc set config.yaml db.port 5432 --apply` |
+| **Batch N files in 1 call** | `batch` and `tx` combine operations into one tool call with rollback | `batch --apply < ops.txt` |
+| **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
+| **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append --file README.md --heading "API" --row "\| new \| row \|" --apply` |
+| **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx --plan plan.json --apply` |
+| **MCP server** | Expose all operations as structured MCP tool calls (no shell syntax needed) | `patchloom mcp-server` |
+| **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
 
-### Benchmark results
+### When to use patchloom vs native tools
 
-Multi-turn sessions with 6 tasks each on Grok 4.3, measuring wall-clock time:
+Patchloom is not a replacement for all file operations. Its instructions tell agents exactly when to use it and when native tools are faster:
+
+| Task | Use patchloom? | Why |
+|---|---|---|
+| Edit a JSON/YAML/TOML value by key | **Yes** | Parser guarantees valid output, preserves comments |
+| Edit 3+ files in one task | **Yes** | `batch`/`tx` eliminates round-trips |
+| Append a row to a markdown table | **Yes** | Heading-aware, no line number guessing |
+| Read a single file | No | Native `read_file` is faster |
+| Simple text search | No | Native `grep` is faster |
+| Single-file text replacement | No | Native `search_replace` is faster |
+
+### Benchmark: CLI vs MCP vs native
+
+7-task sessions on Claude Opus 4.6 via Grok 4.3, measuring wall-clock time per task:
 
 ```
-                      patchloom        native
-                      ─────────        ──────
- tx_multi_file    ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░  23.8s
-                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  34.1s    ◀ 10.3s faster
-
- batch_6_files    ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░  31.0s
-                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  33.9s    ◀  2.9s faster
-
- md_table         ▓▓▓▓▓▓▓▓░░░░░░░░░  10.8s
-                  ▓▓▓▓▓▓▓▓▓▓░░░░░░░  13.0s    ◀  2.2s faster
-
- ─────────────────────────────────────────────
- TOTAL            ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░  107.8s
-                  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  119.5s   ◀ 11.7s faster (9.8%)
+Task               PL-CLI    MCP    Native
+─────────────────  ──────  ──────  ──────
+search              26.5s   15.9s   11.6s  ◀ native fastest (expected)
+replace             31.4s   20.9s   27.2s  ◀ MCP fastest
+doc_set             19.5s   14.7s   14.8s  ◀ MCP ≈ native
+md_table            13.3s   15.4s   13.4s  ◀ tied
+tx_multi_file       21.5s   35.1s   19.3s  ◀ native fastest
+batch_6_files       49.9s   37.8s   28.3s  ◀ native fastest
+batch_mixed_ops     25.8s   16.7s   18.3s  ◀ MCP fastest
+─────────────────  ──────  ──────  ──────
+TOTAL              187.9s  156.4s  132.9s
 ```
 
-Tested on Grok 4.3, GPT-5.4, and Claude Opus 4.6. Patchloom wins on multi-file tasks where `tx` batching eliminates round-trips. For single-file edits, native tools are faster (and patchloom's instructions say so).
+**MCP mode is 17% faster than CLI mode** because the agent discovers tools via protocol instead of reading AGENTS.md, and sends structured calls instead of constructing shell commands.
+
+**What the benchmarks don't capture**: correctness. `doc set` parses JSON/YAML/TOML and guarantees valid output with comments preserved. Native text replacement can corrupt syntax, lose comments, or produce invalid files. Speed matters, but a fast edit that breaks your config is worse than a slower one that's correct.
 
 ---
 
@@ -108,10 +154,21 @@ Your AI agent reads `AGENTS.md` and learns when to use patchloom vs native tools
 ### 2. Edit a config file safely
 
 ```bash
-patchloom doc set config.json database.port 5432 --apply
+# Parser-backed: changes the value, preserves comments and formatting
+patchloom doc set config.yaml database.port 5432 --apply
 ```
 
 ### 3. Batch multiple edits into one call
+
+```bash
+patchloom batch --apply <<'EOF'
+doc.set config.json version "2.0"
+md.upsert_bullet AGENTS.md "Rules" "- Always test"
+replace src/main.rs "v1" "v2"
+EOF
+```
+
+Or use a JSON plan with format and validate lifecycle:
 
 ```json
 {
@@ -129,7 +186,17 @@ patchloom doc set config.json database.port 5432 --apply
 patchloom tx --plan plan.json --apply
 ```
 
-One call. Three files edited, formatted, and validated.
+### 4. Or use MCP for structured tool calls (no shell syntax)
+
+```bash
+# Build with MCP support
+cargo build --features mcp
+
+# Add to your agent's MCP config
+patchloom mcp-server
+```
+
+MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"file": "config.json", "key": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
 ## Getting started
 
@@ -147,11 +214,13 @@ One call. Three files edited, formatted, and validated.
 
 | Command | What it does | When to use |
 |---|---|---|
-| `tx` | Batch N operations into 1 atomic call | Editing 3+ files in one task |
+| `batch` | Line-oriented multi-file edits in 1 call | Editing 3+ files with simple syntax |
+| `tx` | JSON plan with format/validate lifecycle | Complex multi-file edits with rollback |
 | `doc` | Parser-backed JSON/YAML/TOML edits | Changing config values without breaking syntax |
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
 | `hygiene` | Whitespace and newline normalization | CI checks for text hygiene |
+| `mcp-server` | MCP protocol server (structured tool calls) | MCP-capable agents (no shell syntax) |
 
 ### General-purpose (also useful in scripts and CI)
 
@@ -526,6 +595,45 @@ Get structured JSON output for CI pipelines:
 patchloom --json tx --plan plan.json --apply
 ```
 
+### batch
+
+Batch multiple operations in a simple line-oriented format:
+
+```
+patchloom batch --apply <<'EOF'
+doc.set config.json version "2.0.0"
+doc.set config.yaml app.version "2.0.0"
+replace README.md "1.0.0" "2.0.0"
+file.create VERSION "2.0.0"
+md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
+hygiene.fix src/main.rs
+EOF
+```
+
+Supported operations: `doc.set`, `doc.delete`, `doc.merge`, `doc.ensure`, `doc.append`, `doc.prepend`, `replace`, `file.create`, `file.delete`, `md.upsert_bullet`, `md.table_append`, `hygiene.fix`.
+
+For operations needing format/validate lifecycle, regex, or `--nth`, use `tx` with a JSON plan instead.
+
+### mcp-server
+
+Start an MCP server for structured tool calls (requires `--features mcp` build):
+
+```bash
+# Build with MCP support
+cargo build --features mcp
+
+# Start the server (agents connect via stdio)
+patchloom mcp-server
+```
+
+MCP-capable agents discover patchloom's 13 tools via the MCP protocol and call them with structured JSON, with no shell quoting or command syntax. Add to your agent's MCP config:
+
+```toml
+[mcp_servers.patchloom]
+command = "patchloom"
+args = ["mcp-server"]
+```
+
 ## Shell completions
 
 Generate shell completions for your shell:
@@ -679,28 +787,41 @@ All commits must be signed off with `git commit -s`.
 
 ### Agent integration tests
 
-`make agent-test` runs 19 pytest scenarios that verify AI agents correctly use patchloom when given instructions. Tests run against Grok 4.3, GPT-5.4, and Claude Opus 4.6. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+`make agent-test` runs 19 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 7 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
 
 ## How it works with your AI agent
 
+Two integration modes, same capabilities:
+
 ```
-┌─────────────────────────────────────────────────┐
-│  Your project                                   │
-│                                                 │
-│  AGENTS.md  ◄── patchloom agent-rules >> ...    │
-│  (tells the agent when to use patchloom)        │
-│                                                 │
-│  Agent reads AGENTS.md at session start         │
-│  ├── Simple edit?     → native tool (faster)    │
-│  ├── Config edit?     → patchloom doc (safer)   │
-│  ├── Markdown edit?   → patchloom md (smarter)  │
-│  └── Multi-file edit? → patchloom tx (batched)  │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  CLI mode (any agent)                                   │
+│                                                         │
+│  AGENTS.md  ◄── patchloom agent-rules >> ...            │
+│  (tells the agent when to use patchloom)                │
+│                                                         │
+│  Agent reads AGENTS.md at session start                 │
+│  ├── Simple edit?     → native tool (faster)            │
+│  ├── Config edit?     → patchloom doc (safer)           │
+│  ├── Markdown edit?   → patchloom md (smarter)          │
+│  └── Multi-file edit? → patchloom batch (batched)       │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  MCP mode (MCP-capable agents)                          │
+│                                                         │
+│  Agent discovers patchloom tools via MCP protocol       │
+│  No shell syntax needed, no quoting errors              │
+│  Same operations, structured tool calls                 │
+│                                                         │
+│  Start: patchloom mcp-server                            │
+│  Build: cargo build --features mcp                      │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## Status
 
-639 passing tests across 13 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+660 passing tests across 14 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 
