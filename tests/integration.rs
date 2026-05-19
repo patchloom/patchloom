@@ -3084,6 +3084,60 @@ fn test_rename_binary_file() {
 }
 
 #[test]
+fn test_rename_json_output() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dst.to_str().unwrap());
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
+}
+
+#[test]
+fn test_rename_check_json_output() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(dir.path().join("new.txt"))
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    // --check returns exit code 2 (CHANGES_DETECTED).
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    // Source should still exist in --check mode.
+    assert!(src.exists());
+}
+
+#[test]
 fn test_rename_binary_file_diff_mode() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("binary.bin");
