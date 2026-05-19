@@ -4739,6 +4739,32 @@ fn test_replace_nth_replaces_only_nth_occurrence() {
 }
 
 #[test]
+fn test_replace_nth_zero_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("--from")
+        .arg("hello")
+        .arg("--to")
+        .arg("hi")
+        .arg("--nth")
+        .arg("0")
+        .arg("--apply")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("1-based"));
+
+    // File must be unchanged.
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "hello world\n");
+}
+
+#[test]
 fn test_replace_nth_no_match_when_out_of_range() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -8220,6 +8246,18 @@ fn test_smoke_example_06_batch_version_bump() {
     assert!(
         readme.contains("version-2.0.0-blue"),
         "README badge not updated: {readme}"
+    );
+
+    let pyproject = fs::read_to_string(dir.path().join("pyproject.toml")).unwrap();
+    assert!(
+        pyproject.contains("2.0.0"),
+        "pyproject.toml not updated: {pyproject}"
+    );
+
+    let settings = fs::read_to_string(dir.path().join("config/settings.yaml")).unwrap();
+    assert!(
+        settings.contains("2.0.0"),
+        "config/settings.yaml not updated: {settings}"
     );
 
     let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap();

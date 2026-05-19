@@ -4,6 +4,10 @@ use crate::plan::{Operation, Plan};
 use clap::Args;
 use std::io::Read;
 
+/// Maximum number of operations in a single batch. Prevents unbounded
+/// memory allocation from accidentally or maliciously large inputs.
+const MAX_BATCH_OPERATIONS: usize = 10_000;
+
 /// Execute multiple operations from a simple line-oriented format.
 ///
 /// Each line is one operation with positional arguments:
@@ -242,9 +246,17 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
+    if operations.len() > MAX_BATCH_OPERATIONS {
+        anyhow::bail!(
+            "batch: too many operations ({}, max {MAX_BATCH_OPERATIONS})",
+            operations.len()
+        );
+    }
+
     // Build a plan and delegate to tx.
     let plan_json = {
         let plan = Plan {
+            version: None,
             cwd: None,
             write_policy: None,
             strict: false,
@@ -270,6 +282,32 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn max_batch_operations_limit_is_enforced() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Build input with MAX+1 lines.
+        let lines: String = (0..=MAX_BATCH_OPERATIONS)
+            .map(|i| format!("doc.set f.json key{i} \"v\""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let input_file = dir.path().join("ops.txt");
+        std::fs::write(&input_file, &lines).unwrap();
+
+        let args = BatchArgs {
+            input: input_file.to_str().unwrap().to_string(),
+            write: Default::default(),
+        };
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_str().unwrap().to_string()),
+            ..GlobalFlags::default()
+        };
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            err.to_string().contains("too many operations"),
+            "expected limit error: {err}"
+        );
+    }
 
     #[test]
     fn tokenize_simple() {

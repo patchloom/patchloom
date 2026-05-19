@@ -1137,6 +1137,21 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
+    if let Some(ref v) = plan.version {
+        if v != crate::plan::SCHEMA_VERSION {
+            let msg = format!(
+                "unsupported plan version '{v}' (this build supports version {})",
+                crate::plan::SCHEMA_VERSION
+            );
+            if global.json {
+                emit_error_json("parse_error", &msg);
+            } else {
+                eprintln!("tx: {msg}");
+            }
+            return Ok(exit::PARSE_ERROR);
+        }
+    }
+
     if let Err(e) = validate_plan_operations(&plan) {
         if global.json {
             emit_error_json("parse_error", &e.to_string());

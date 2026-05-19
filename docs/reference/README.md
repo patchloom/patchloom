@@ -628,6 +628,13 @@ Use these when newline and whitespace correctness is the main concern.
 
 ### Plan fields
 
+<!-- ref:tx-field:version -->
+### `version`
+
+- **What it does:** Declares the plan schema version. Patchloom rejects plans whose version exceeds the highest version it supports.
+- **Use when:** You want forward-compatibility safety so an old patchloom build does not silently misinterpret a plan written for a newer schema.
+- **Default:** When omitted, the plan is accepted without version checking for backward compatibility.
+
 <!-- ref:tx-field:cwd -->
 ### `cwd`
 

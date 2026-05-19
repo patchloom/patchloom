@@ -2,9 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Current plan schema version.
+pub const SCHEMA_VERSION: &str = "1";
+
 /// A transaction plan containing multiple operations to execute atomically.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
+    /// Optional schema version string. When present, validated against
+    /// the supported version. When absent, the plan is accepted as-is
+    /// for backward compatibility with all existing plans.
+    #[serde(default)]
+    pub version: Option<String>,
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
     #[serde(default)]
@@ -244,7 +252,22 @@ mod tests {
         assert!(plan.cwd.is_none());
         assert!(plan.write_policy.is_none());
         assert!(plan.validate.is_none());
+        assert!(plan.version.is_none());
         assert_eq!(plan.operations.len(), 1);
+    }
+
+    #[test]
+    fn parse_plan_version_field_accepted() {
+        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.version.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn parse_plan_without_version_defaults_to_none() {
+        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(plan.version.is_none());
     }
 
     #[test]

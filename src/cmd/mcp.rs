@@ -219,7 +219,10 @@ fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
                 }
                 p
             }
-            Operation::PatchApply { .. } => vec![], // paths are in diff text
+            // TODO(#223): PatchApply paths live inside diff text, not in
+            // struct fields. A future enhancement should parse the diff
+            // headers and validate each --- a/path and +++ b/path.
+            Operation::PatchApply { .. } => vec![],
         };
         for path in paths {
             validate_path_contained(path)?;
@@ -300,6 +303,7 @@ fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, Mcp
 
 fn make_plan(operations: Vec<Operation>) -> Plan {
     Plan {
+        version: None,
         cwd: None,
         write_policy: None,
         strict: false,
