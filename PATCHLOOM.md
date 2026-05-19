@@ -41,3 +41,16 @@ patchloom tx --plan plan.json --apply
 ```
 
 Add `--apply` to all write commands. Without it, patchloom previews changes without writing.
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (operation completed, or no changes needed) |
+| 1 | Failure (error during execution) |
+| 2 | Changes detected (`--check` mode found pending changes) |
+| 3 | No matches (search/replace found nothing matching the pattern) |
+| 4 | Parse error (malformed input file or plan) |
+| 5 | Ambiguous (replacement matched multiple locations; use `--nth` to disambiguate) |
+| 6 | Validation failed (tx plan validation step returned non-zero) |
+| 7 | Rollback (tx apply failed partway; changes were rolled back) |
