@@ -510,7 +510,7 @@ patchloom delete --file obsolete.txt --apply
 
 ### rename
 
-Move (rename) a file:
+Move (rename) a file. Handles both text and binary files (uses `fs::rename` when no write-policy transforms are active):
 
 ```
 patchloom rename --from old_name.txt --to new_name.txt --apply
