@@ -45,6 +45,22 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("destination already exists: {}", args.to);
     }
 
+    // If source and destination resolve to the same path, it's a no-op.
+    if src == dst {
+        if global.json {
+            let output = RenameOutput {
+                ok: true,
+                from: args.from.clone(),
+                to: args.to.clone(),
+                diff: None,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if !global.quiet {
+            println!("source and destination are the same: {}", args.from);
+        }
+        return Ok(exit::SUCCESS);
+    }
+
     let content = fs::read_to_string(&src)?;
 
     // --check mode: report that rename would happen.
@@ -249,6 +265,28 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn rename_same_path_is_noop() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("same.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let mut global = default_global();
+        global.apply = true;
+
+        let args = RenameArgs {
+            from: file.to_string_lossy().into_owned(),
+            to: file.to_string_lossy().into_owned(),
+            force: true,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(file.exists(), "file should still exist");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
     }
 
     #[test]

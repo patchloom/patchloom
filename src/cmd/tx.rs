@@ -824,6 +824,11 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
 
+            // If source and destination are the same path, no-op.
+            if src_path == dst_path {
+                return Ok(0);
+            }
+
             // Read source content into pending (validates it exists).
             let content = read_file_content(tx.pending, &src_path, tx.cwd)?.to_string();
 
