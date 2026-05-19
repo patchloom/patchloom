@@ -1,8 +1,11 @@
 # Installation
 
+Patchloom is not yet published to crates.io or Homebrew. Install from source
+for now. The sections below describe the planned post-launch channels.
+
 ## From source (current)
 
-Patchloom is not yet published to crates.io. Install from source:
+Install from source:
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git

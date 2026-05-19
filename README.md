@@ -144,13 +144,16 @@ MCP mode is 17% faster than CLI mode because the agent discovers tools via proto
 ## Install
 
 ```bash
-# From source (requires Rust 1.81+)
+# Current install path (requires Rust 1.81+)
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
-
-# Coming soon: cargo install patchloom
 ```
+
+Other install channels are planned for public launch, including crates.io,
+GitHub Releases binaries, and Homebrew. See
+[Installation](./docs/getting-started/installation.md) for the current path and
+planned post-launch options.
 
 ## Quick start
 
