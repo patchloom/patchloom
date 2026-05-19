@@ -542,13 +542,37 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
-        execute_plan(
-            make_plan(vec![Operation::Read {
-                path: p.path,
-                lines: None,
-            }]),
-            &self.cwd,
-        )
+        // doc get is a read-only command, not a tx operation. Run it directly.
+        let exe = std::env::current_exe().map_err(|e| {
+            McpError::internal_error(format!("failed to get current exe: {e}"), None)
+        })?;
+        let output = std::process::Command::new(&exe)
+            .args(["--json", "doc", "get"])
+            .arg(self.cwd.join(&p.path))
+            .arg(&p.key)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if output.status.success() {
+            let msg = if stdout.trim().is_empty() {
+                "null".to_string()
+            } else {
+                stdout.trim().to_string()
+            };
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = if !stderr.trim().is_empty() {
+                stderr.trim().to_string()
+            } else if !stdout.trim().is_empty() {
+                stdout.trim().to_string()
+            } else {
+                "Key not found.".to_string()
+            };
+            Ok(CallToolResult::error(vec![Content::text(msg)]))
+        }
     }
 
     #[tool(description = "Read file contents with optional line range.")]
@@ -760,6 +784,8 @@ mod tests {
         let tools = client.peer().list_all_tools().await.unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert!(names.contains(&"patchloom_doc_set"), "missing doc_set tool");
+        assert!(names.contains(&"patchloom_doc_get"), "missing doc_get tool");
+        assert!(names.contains(&"patchloom_read"), "missing read tool");
         assert!(names.contains(&"patchloom_replace"), "missing replace tool");
         assert!(names.contains(&"patchloom_batch"), "missing batch tool");
         assert!(names.contains(&"patchloom_hygiene"), "missing hygiene tool");
@@ -851,5 +877,29 @@ mod tests {
     #[test]
     fn path_rejects_single_parent() {
         assert!(validate_path_contained("..").is_err());
+    }
+
+    #[test]
+    fn resolved_path_allows_existing_file_inside_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("safe.txt"), "ok").unwrap();
+        assert!(validate_path_resolved("safe.txt", dir.path()).is_ok());
+    }
+
+    #[test]
+    fn resolved_path_allows_nonexistent_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Non-existent files skip the canonicalize check (new file case).
+        assert!(validate_path_resolved("new_file.txt", dir.path()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_path_rejects_symlink_escaping_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("escape");
+        std::os::unix::fs::symlink("/tmp", &link).unwrap();
+        let result = validate_path_resolved("escape", dir.path());
+        assert!(result.is_err(), "symlink escaping cwd should be rejected");
     }
 }
