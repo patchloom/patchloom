@@ -8312,6 +8312,24 @@ fn test_delete_default_dry_run_does_not_remove() {
 }
 
 #[test]
+fn test_md_table_append_missing_file_includes_path_in_error() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("table-append")
+        .arg("--file")
+        .arg("does-not-exist.md")
+        .arg("--heading")
+        .arg("## T")
+        .arg("--row")
+        .arg("| a | b |")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("does-not-exist.md"));
+}
+
+#[test]
 fn test_md_insert_before_heading_not_found() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");
