@@ -1198,18 +1198,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .collect();
 
     // 5. Apply write policy and collect actual file changes.
-    //    Drain the pending map to move data instead of cloning (#224).
-    let drained: Vec<(PathBuf, (String, String))> = pending.drain().collect();
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
-    for (path, (original, current)) in &drained {
+    for (path, (original, current)) in &pending {
         let write_policy = build_write_policy(&plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
         if *original != final_content {
             changes.push((path.clone(), original.clone(), final_content));
         }
     }
-    // Re-populate pending from drained so rollback_strict still works.
-    let pending: HashMap<PathBuf, (String, String)> = drained.into_iter().collect();
     changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 6. Output based on mode.
