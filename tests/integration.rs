@@ -45,27 +45,15 @@ fn shell_exit_1() -> &'static str {
     }
 }
 
+#[cfg(not(windows))]
 fn shell_sleep_300() -> &'static str {
-    #[cfg(windows)]
-    {
-        "powershell -Command \"Start-Sleep -Seconds 300\""
-    }
-    #[cfg(not(windows))]
-    {
-        "sleep 300"
-    }
+    "sleep 300"
 }
 
+#[cfg(not(windows))]
 fn shell_touch(path: &Path) -> String {
     let path = path.display();
-    #[cfg(windows)]
-    {
-        format!("powershell -Command \"New-Item -ItemType File -Path '{path}' -Force | Out-Null\"")
-    }
-    #[cfg(not(windows))]
-    {
-        format!("touch '{path}'")
-    }
+    format!("touch '{path}'")
 }
 
 fn shell_fail_with_secret(secret: &str) -> String {
@@ -79,16 +67,10 @@ fn shell_fail_with_secret(secret: &str) -> String {
     }
 }
 
+#[cfg(not(windows))]
 fn shell_test_exists(path: &Path) -> String {
     let path = path.display();
-    #[cfg(windows)]
-    {
-        format!("if exist \"{path}\" (exit /b 0) else (exit /b 1)")
-    }
-    #[cfg(not(windows))]
-    {
-        format!("test -f '{path}'")
-    }
+    format!("test -f '{path}'")
 }
 
 // ---------------------------------------------------------------------------
