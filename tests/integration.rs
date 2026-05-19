@@ -5331,6 +5331,37 @@ fn test_md_insert_before_heading() {
 }
 
 #[test]
+fn test_tx_file_create_new_file_writes_content() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("brand_new.txt");
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": file.to_str().unwrap(),
+            "content": "created via tx\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "created via tx\n",
+        "file.create via tx should write correct content through File::create_new"
+    );
+}
+
+#[test]
 fn test_tx_file_create_force_overwrites() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("existing.txt");
