@@ -485,7 +485,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let target = navigate_mut(&mut root, &sel, false)?;
             match target.as_array_mut() {
                 Some(arr) => arr.push(parsed),
-                None => return Ok((String::new(), exit::FAILURE)),
+                None => {
+                    eprintln!("doc append: target at '{selector}' is not an array");
+                    return Ok((String::new(), exit::FAILURE));
+                }
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
@@ -506,7 +509,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let target = navigate_mut(&mut root, &sel, false)?;
             match target.as_array_mut() {
                 Some(arr) => arr.insert(0, parsed),
-                None => return Ok((String::new(), exit::FAILURE)),
+                None => {
+                    eprintln!("doc prepend: target at '{selector}' is not an array");
+                    return Ok((String::new(), exit::FAILURE));
+                }
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;

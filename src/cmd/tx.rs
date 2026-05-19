@@ -148,10 +148,13 @@ fn run_shell_with_timeout(
     }
 }
 
-/// Kill a shell process and all its descendants.
+/// Kill a shell process and its descendants.
 ///
-/// On Unix, `child.kill()` sends SIGKILL to the immediate child (`sh`),
-/// which is sufficient because the shell's children inherit the signal.
+/// On Unix, `child.kill()` sends SIGKILL to the immediate child. For
+/// simple commands, `sh -c "cmd"` typically exec()s into `cmd` so there
+/// is only one process. For compound commands (pipelines, `&&` chains),
+/// grandchildren may survive; a future improvement could use
+/// `killpg(pid, SIGKILL)` for process-group-level cleanup.
 ///
 /// On Windows, `child.kill()` calls `TerminateProcess` which only kills
 /// the immediate `cmd.exe` process, leaving grandchildren (ping, powershell,
@@ -738,11 +741,7 @@ fn execute_operation(
                 new = crate::write::trim_trailing_whitespace(&new);
             }
             if let Some(eol) = normalize_eol {
-                let mode = match eol.as_str() {
-                    "lf" => crate::cli::global::EolMode::Lf,
-                    "crlf" => crate::cli::global::EolMode::Crlf,
-                    _ => crate::cli::global::EolMode::Keep,
-                };
+                let mode = plan_normalize_eol(eol)?;
                 new = crate::write::normalize_eol(&new, mode);
             }
             if ensure_final_newline.unwrap_or(true) {
@@ -816,11 +815,14 @@ fn execute_operation(
 // Write policy
 // ---------------------------------------------------------------------------
 
-fn plan_normalize_eol(mode: &str) -> EolMode {
+fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
     match mode {
-        "lf" => EolMode::Lf,
-        "crlf" => EolMode::Crlf,
-        _ => EolMode::Keep,
+        "lf" => Ok(EolMode::Lf),
+        "crlf" => Ok(EolMode::Crlf),
+        "keep" => Ok(EolMode::Keep),
+        _ => {
+            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
+        }
     }
 }
 
@@ -829,23 +831,27 @@ fn plan_normalize_eol(mode: &str) -> EolMode {
 /// Start from the CLI-derived per-file defaults, including any EditorConfig
 /// values resolved by `policy_from_flags()`, then let plan-level `write_policy`
 /// entries override only the keys they set.
-fn build_write_policy(plan: &Plan, global: &GlobalFlags, path: &Path) -> WritePolicy {
+fn build_write_policy(
+    plan: &Plan,
+    global: &GlobalFlags,
+    path: &Path,
+) -> anyhow::Result<WritePolicy> {
     let mut write_policy = crate::write::policy_from_flags(global, Some(path));
     let Some(plan_write_policy) = &plan.write_policy else {
-        return write_policy;
+        return Ok(write_policy);
     };
 
     if let Some(ensure_final_newline) = plan_write_policy.ensure_final_newline {
         write_policy.ensure_final_newline = ensure_final_newline;
     }
     if let Some(normalize_eol) = plan_write_policy.normalize_eol.as_deref() {
-        write_policy.normalize_eol = plan_normalize_eol(normalize_eol);
+        write_policy.normalize_eol = plan_normalize_eol(normalize_eol)?;
     }
     if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
         write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
     }
 
-    write_policy
+    Ok(write_policy)
 }
 
 // ---------------------------------------------------------------------------
@@ -1169,7 +1175,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 5. Apply write policy and collect actual file changes.
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
     for (path, (original, current)) in &pending {
-        let write_policy = build_write_policy(&plan, global, path);
+        let write_policy = build_write_policy(&plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
         if *original != final_content {
             changes.push((path.clone(), original.clone(), final_content));
