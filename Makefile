@@ -18,7 +18,7 @@ test: ## Run unit tests
 	cargo test --lib --all-features
 
 integration-test: ## Run integration tests
-	cargo test --test integration
+	cargo test --test integration --all-features
 
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings

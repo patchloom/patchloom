@@ -10179,7 +10179,7 @@ async fn test_mcp_batch_round_trip() {
         return;
     }
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("a.json"), r#"{"version":"1.0"}"#).unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"version":"1.0.0"}"#).unwrap();
     fs::write(dir.path().join("b.txt"), "old text\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
@@ -10187,7 +10187,7 @@ async fn test_mcp_batch_round_trip() {
         &client,
         "patchloom_batch",
         serde_json::json!({
-            "operations": "doc.set a.json version \"2.0\"\nreplace b.txt \"old\" \"new\""
+            "operations": ["doc.set a.json version \"2.0.0\"", "replace b.txt \"old\" \"new\""]
         }),
     )
     .await;
@@ -10195,7 +10195,7 @@ async fn test_mcp_batch_round_trip() {
 
     let a: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
-    assert_eq!(a["version"], "2.0", "batch doc.set failed");
+    assert_eq!(a["version"], "2.0.0", "batch doc.set failed");
     let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
     assert_eq!(b, "new text\n", "batch replace failed");
     client.cancel().await.unwrap();
