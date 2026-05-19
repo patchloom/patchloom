@@ -3083,6 +3083,50 @@ fn test_rename_binary_file() {
     assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
 }
 
+#[test]
+fn test_rename_binary_file_diff_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("binary.bin");
+    fs::write(&src, b"\x00\x01\x02\xff").unwrap();
+
+    // Default mode (--diff) should not crash on binary files.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(dir.path().join("moved.bin"))
+        .assert()
+        .success();
+
+    // Source should still exist (no --apply).
+    assert!(src.exists());
+}
+
+#[test]
+fn test_rename_with_write_policy() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("no-newline.txt");
+    let dst = dir.path().join("fixed.txt");
+    fs::write(&src, "no newline at end").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "no newline at end\n");
+}
+
 // ---------------------------------------------------------------------------
 // create --check parent directory verification
 // ---------------------------------------------------------------------------

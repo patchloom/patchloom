@@ -375,6 +375,32 @@ mod tests {
     }
 
     #[test]
+    fn noop_policy_detected() {
+        assert!(WritePolicy::default().is_noop());
+    }
+
+    #[test]
+    fn non_noop_policy_detected() {
+        let p = WritePolicy {
+            ensure_final_newline: true,
+            ..Default::default()
+        };
+        assert!(!p.is_noop());
+
+        let p2 = WritePolicy {
+            normalize_eol: EolMode::Lf,
+            ..Default::default()
+        };
+        assert!(!p2.is_noop());
+
+        let p3 = WritePolicy {
+            trim_trailing_whitespace: true,
+            ..Default::default()
+        };
+        assert!(!p3.is_noop());
+    }
+
+    #[test]
     fn atomic_create_new_writes_content() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("new.txt");
