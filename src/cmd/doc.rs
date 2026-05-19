@@ -331,6 +331,7 @@ fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Val
 struct WriteContext {
     check: bool,
     apply: bool,
+    quiet: bool,
     write_policy: write::WritePolicy,
 }
 
@@ -486,7 +487,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             match target.as_array_mut() {
                 Some(arr) => arr.push(parsed),
                 None => {
-                    eprintln!("doc append: target at '{selector}' is not an array");
+                    if !ctx.quiet {
+                        eprintln!("doc append: target at '{selector}' is not an array");
+                    }
                     return Ok((String::new(), exit::FAILURE));
                 }
             }
@@ -510,7 +513,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             match target.as_array_mut() {
                 Some(arr) => arr.insert(0, parsed),
                 None => {
-                    eprintln!("doc prepend: target at '{selector}' is not an array");
+                    if !ctx.quiet {
+                        eprintln!("doc prepend: target at '{selector}' is not an array");
+                    }
                     return Ok((String::new(), exit::FAILURE));
                 }
             }
@@ -779,6 +784,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let ctx = WriteContext {
             check: global.check,
             apply: global.apply,
+            quiet: global.quiet,
             write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
         };
         let (output, code) = execute_write(&args.action, &ctx)?;

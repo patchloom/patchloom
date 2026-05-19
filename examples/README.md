@@ -1,15 +1,20 @@
 # Examples
 
-Sample transaction plans demonstrating Patchloom's capabilities.
+Sample transaction plans and batch scripts demonstrating Patchloom's capabilities.
 
-These plans are **illustrative templates**, not guaranteed to run unchanged in
+These examples are **illustrative templates**, not guaranteed to run unchanged in
 this repo. Read the target paths in each file first, then adapt them to your
 project before applying.
 
 ```
+# Transaction plans (JSON)
 patchloom tx --plan examples/01-basic-replace.json --diff     # preview
 patchloom tx --plan examples/01-basic-replace.json --apply    # apply after adapting paths
 patchloom --json tx --plan examples/01-basic-replace.json --apply  # JSON output
+
+# Batch format (line-oriented)
+patchloom batch --file examples/06-batch-version-bump.txt --diff   # preview
+patchloom batch --file examples/06-batch-version-bump.txt --apply  # apply
 ```
 
 ## Plans
@@ -21,6 +26,7 @@ patchloom --json tx --plan examples/01-basic-replace.json --apply  # JSON output
 | [03-markdown-editing.json](03-markdown-editing.json) | Update changelog, add rules, append table rows, deduplicate headings | `md.replace_section`, `md.upsert_bullet`, `md.table_append`, `md.dedupe_headings` |
 | [04-doc-mutations.json](04-doc-mutations.json) | Structured config changes: set, ensure, merge, append, delete, delete-where | `doc.set`, `doc.ensure`, `doc.merge`, `doc.append`, `doc.delete`, `doc.delete_where` |
 | [05-strict-mode.json](05-strict-mode.json) | Create a module, wire it, update changelog; rolls back everything if build or tests fail | `file.create`, `replace`, `md.insert_after_heading`, `strict`, `format`, `validate` |
+| [06-batch-version-bump.txt](06-batch-version-bump.txt) | Version bump across JSON, YAML, and markdown using the batch line format | `doc.set`, `replace`, `md.upsert_bullet` |
 
 ## Write modes
 

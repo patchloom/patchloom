@@ -1,0 +1,25 @@
+# Batch example: version bump across multiple files
+# Each line is one operation. Comments (lines starting with #) are ignored.
+# Syntax: <op> <path> <args...>
+#
+# Usage:
+#   patchloom batch --file examples/06-batch-version-bump.txt --diff
+#   patchloom batch --file examples/06-batch-version-bump.txt --apply
+
+# Set version in package.json
+doc.set package.json version "2.0.0"
+
+# Set version in Cargo.toml
+doc.set Cargo.toml package.version "2.0.0"
+
+# Update version in pyproject.toml
+doc.set pyproject.toml project.version "2.0.0"
+
+# Replace version string in a YAML config
+doc.set config/settings.yaml app.version "2.0.0"
+
+# Text replacement in a README badge
+replace README.md "version-1.9.0-blue" "version-2.0.0-blue"
+
+# Add changelog entry
+md.upsert_bullet CHANGELOG.md "Unreleased" "- Bump version to 2.0.0"
