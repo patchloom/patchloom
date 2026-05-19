@@ -14,8 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- 15 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`, `mcp-server`
-- 22 transaction plan operation types for atomic multi-file changes
+- 16 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`, `mcp-server`
+- 23 transaction plan operation types for atomic multi-file changes
+- `rename` standalone command for moving files with `--apply`/`--check`/`--force` modes
+- `file.rename` tx/batch operation with `force` option for atomic renames
+- `atomic_create_new()` in write module, unifying TOCTOU-safe file creation with write policy
+- `create --check` now verifies parent directory exists (non-force mode)
 - `format` and `validate` lifecycle arrays in tx plans with configurable timeout
 - `--nth N` flag for replace (standalone and tx) to target a specific occurrence
 - `--case-insensitive` / `-i` for search and replace
