@@ -133,7 +133,7 @@ TOTAL              187.9s  156.4s  132.9s
 ## Install
 
 ```bash
-# From source
+# From source (requires Rust 1.81+)
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
