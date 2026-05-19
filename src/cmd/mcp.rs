@@ -250,8 +250,12 @@ fn validate_path_resolved(path: &str, cwd: &std::path::Path) -> Result<(), McpEr
     Ok(())
 }
 
-/// Validate all paths in a list of operations parsed from batch input.
-fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
+/// Validate all paths in a list of operations.
+/// Checks both syntactic containment and symlink resolution.
+fn validate_operation_paths(
+    operations: &[Operation],
+    cwd: &std::path::Path,
+) -> Result<(), McpError> {
     for op in operations {
         let paths: Vec<&str> = match op {
             Operation::DocSet { path, .. }
@@ -300,6 +304,7 @@ fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
         };
         for path in paths {
             validate_path_contained(path)?;
+            validate_path_resolved(path, cwd)?;
         }
     }
     Ok(())
@@ -331,6 +336,9 @@ impl PatchloomService {
 /// the MCP server owns stdout for JSON-RPC. Any patchloom output to stdout
 /// would corrupt the MCP protocol stream.
 fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
+    // Validate all operation paths for containment (syntactic + symlink).
+    validate_operation_paths(&plan.operations, cwd)?;
+
     let plan_json = serde_json::to_string(&plan)
         .map_err(|e| McpError::internal_error(format!("failed to serialize plan: {e}"), None))?;
 
@@ -716,7 +724,7 @@ impl PatchloomService {
             )]));
         }
 
-        validate_operation_paths(&operations)?;
+        validate_operation_paths(&operations, &self.cwd)?;
         execute_plan(make_plan(operations), &self.cwd)
     }
 }
@@ -820,13 +828,13 @@ mod tests {
 
     #[test]
     fn patch_apply_path_containment_validation() {
-        // Validate that PatchApply paths are checked by validate_operation_paths.
+        let dir = tempfile::TempDir::new().unwrap();
         let evil_diff =
             "--- a/../../etc/passwd\n+++ b/../../etc/passwd\n@@ -1,1 +1,1 @@\n-root\n+hacked\n";
         let ops = vec![Operation::PatchApply {
             diff: evil_diff.to_string(),
         }];
-        let result = validate_operation_paths(&ops);
+        let result = validate_operation_paths(&ops, dir.path());
         assert!(
             result.is_err(),
             "PatchApply with escaping paths should be rejected"
@@ -835,11 +843,12 @@ mod tests {
 
     #[test]
     fn patch_apply_safe_paths_pass_containment() {
+        let dir = tempfile::TempDir::new().unwrap();
         let safe_diff = "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
         let ops = vec![Operation::PatchApply {
             diff: safe_diff.to_string(),
         }];
-        let result = validate_operation_paths(&ops);
+        let result = validate_operation_paths(&ops, dir.path());
         assert!(result.is_ok(), "PatchApply with safe paths should pass");
     }
 
