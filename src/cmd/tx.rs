@@ -236,7 +236,29 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
                 }
             }
         }
-        _ => Ok(()),
+        // Exhaustive match ensures the compiler flags new variants that may
+        // need validation constraints.
+        Operation::DocSet { .. }
+        | Operation::DocDelete { .. }
+        | Operation::DocMerge { .. }
+        | Operation::DocAppend { .. }
+        | Operation::DocPrepend { .. }
+        | Operation::DocUpdate { .. }
+        | Operation::DocMove { .. }
+        | Operation::DocEnsure { .. }
+        | Operation::DocDeleteWhere { .. }
+        | Operation::MdReplaceSection { .. }
+        | Operation::MdInsertAfterHeading { .. }
+        | Operation::MdInsertBeforeHeading { .. }
+        | Operation::MdUpsertBullet { .. }
+        | Operation::MdTableAppend { .. }
+        | Operation::MdDedupeHeadings { .. }
+        | Operation::HygieneFix { .. }
+        | Operation::FileCreate { .. }
+        | Operation::FileDelete { .. }
+        | Operation::Read { .. }
+        | Operation::Search { .. }
+        | Operation::PatchApply { .. } => Ok(()),
     }
 }
 
@@ -864,7 +886,6 @@ fn build_tx_output(
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
-    reads: Vec<TxReadResult>,
     cwd: &Path,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
@@ -919,7 +940,7 @@ fn build_tx_output(
         files_created: created,
         files_deleted: deleted_count,
         changes: tx_changes,
-        reads,
+        reads: Vec::new(),
         searches: Vec::new(),
         error_kind: None,
         error: None,
@@ -1200,15 +1221,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::NO_MATCHES);
             }
             if global.json {
-                let mut output = build_tx_output(
-                    "success",
-                    true,
-                    &changes,
-                    &deletions,
-                    &existed_before,
-                    Vec::new(),
-                    &cwd,
-                );
+                let mut output =
+                    build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
                 output.reads = std::mem::take(&mut tx_reads);
                 output.searches = std::mem::take(&mut tx_searches);
                 println!("{}", serde_json::to_string_pretty(&output)?);
@@ -1222,7 +1236,6 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 &changes,
                 &deletions,
                 &existed_before,
-                Vec::new(),
                 &cwd,
             );
             output.reads = std::mem::take(&mut tx_reads);
@@ -1297,15 +1310,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::NO_MATCHES);
         }
         if global.json {
-            let mut output = build_tx_output(
-                "success",
-                true,
-                &changes,
-                &deletions,
-                &existed_before,
-                Vec::new(),
-                &cwd,
-            );
+            let mut output =
+                build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
             println!("{}", serde_json::to_string_pretty(&output)?);
@@ -1319,15 +1325,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show unified diffs.
     if global.json {
-        let mut output = build_tx_output(
-            "success",
-            true,
-            &changes,
-            &deletions,
-            &existed_before,
-            Vec::new(),
-            &cwd,
-        );
+        let mut output =
+            build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
         output.reads = std::mem::take(&mut tx_reads);
         output.searches = std::mem::take(&mut tx_searches);
         println!("{}", serde_json::to_string_pretty(&output)?);

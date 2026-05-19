@@ -136,6 +136,99 @@ pub struct BatchParams {
 }
 
 // ---------------------------------------------------------------------------
+// Path containment
+// ---------------------------------------------------------------------------
+
+/// Reject paths that would escape the MCP server's working directory.
+///
+/// The MCP server accepts tool calls from AI agents that may be influenced
+/// by prompt injection. Without containment, a crafted path like
+/// `/etc/shadow` or `../../etc/passwd` would let operations read or write
+/// arbitrary files on the host.
+fn validate_path_contained(path: &str) -> Result<(), McpError> {
+    let p = std::path::Path::new(path);
+
+    if p.is_absolute() {
+        return Err(McpError::invalid_params(
+            format!("absolute paths are not allowed: {path}"),
+            None,
+        ));
+    }
+
+    // Walk components and track depth relative to cwd. If depth ever goes
+    // negative, the path escapes the working directory.
+    let mut depth: i32 = 0;
+    for component in p.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return Err(McpError::invalid_params(
+                        format!("path must not escape working directory: {path}"),
+                        None,
+                    ));
+                }
+            }
+            std::path::Component::Normal(_) => {
+                depth += 1;
+            }
+            std::path::Component::CurDir => {}
+            _ => {
+                return Err(McpError::invalid_params(
+                    format!("unexpected path component in: {path}"),
+                    None,
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate all paths in a list of operations parsed from batch input.
+fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
+    for op in operations {
+        let paths: Vec<&str> = match op {
+            Operation::DocSet { path, .. }
+            | Operation::DocDelete { path, .. }
+            | Operation::DocAppend { path, .. }
+            | Operation::DocPrepend { path, .. }
+            | Operation::DocEnsure { path, .. }
+            | Operation::DocDeleteWhere { path, .. }
+            | Operation::DocUpdate { path, .. }
+            | Operation::DocMove { path, .. }
+            | Operation::MdReplaceSection { path, .. }
+            | Operation::MdInsertAfterHeading { path, .. }
+            | Operation::MdInsertBeforeHeading { path, .. }
+            | Operation::MdUpsertBullet { path, .. }
+            | Operation::MdTableAppend { path, .. }
+            | Operation::MdDedupeHeadings { path, .. }
+            | Operation::HygieneFix { path, .. }
+            | Operation::FileCreate { path, .. }
+            | Operation::FileDelete { path, .. }
+            | Operation::Read { path, .. }
+            | Operation::Search { path, .. } => vec![path.as_str()],
+            Operation::DocMerge { path, .. } => vec![path.as_str()],
+            Operation::Replace { path, glob, .. } => {
+                let mut p = Vec::new();
+                if let Some(path) = path {
+                    p.push(path.as_str());
+                }
+                if let Some(glob) = glob {
+                    p.push(glob.as_str());
+                }
+                p
+            }
+            Operation::PatchApply { .. } => vec![], // paths are in diff text
+        };
+        for path in paths {
+            validate_path_contained(path)?;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -225,6 +318,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
@@ -240,6 +334,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
@@ -254,6 +349,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocMerge {
                 path: p.path,
@@ -268,6 +364,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
@@ -283,6 +380,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
@@ -298,6 +396,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
@@ -313,6 +412,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
@@ -328,6 +428,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         let mode = if p.regex {
             Some("regex".to_string())
         } else {
@@ -356,6 +457,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdUpsertBullet {
                 path: p.path,
@@ -371,6 +473,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdTableAppend {
                 path: p.path,
@@ -386,6 +489,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdReplaceSection {
                 path: p.path,
@@ -401,6 +505,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<HygieneParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::HygieneFix {
                 path: p.path,
@@ -441,6 +546,7 @@ impl PatchloomService {
             )]));
         }
 
+        validate_operation_paths(&operations)?;
         execute_plan(make_plan(operations), &self.cwd)
     }
 }
