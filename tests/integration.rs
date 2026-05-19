@@ -180,6 +180,65 @@ fn test_agent_rules_includes_version() {
     assert!(!stdout.contains("{{VERSION}}"));
 }
 
+#[test]
+fn test_agent_rules_mode_cli_omits_mcp() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--mode", "cli"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("## Batching"))
+        .stdout(predicates::str::contains("## Structured edits"))
+        .stdout(predicates::str::contains("## MCP mode").not());
+}
+
+#[test]
+fn test_agent_rules_mode_mcp_omits_cli() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--mode", "mcp"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("## MCP mode"))
+        .stdout(predicates::str::contains("## Batching").not())
+        .stdout(predicates::str::contains("## Structured edits").not());
+}
+
+#[test]
+fn test_agent_rules_platform_linux_omits_windows() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--platform", "linux"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("<<'EOF'"))
+        .stdout(predicates::str::contains("--input ops.txt").not());
+}
+
+#[test]
+fn test_agent_rules_platform_windows_omits_heredoc() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--platform", "windows"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--input ops.txt"))
+        .stdout(predicates::str::contains("<<'EOF'").not());
+}
+
+#[test]
+fn test_agent_rules_mode_and_platform_compose() {
+    // --mode mcp should have no CLI sections regardless of platform
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--mode", "mcp", "--platform", "windows"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("## MCP mode"))
+        .stdout(predicates::str::contains("## Batching").not())
+        .stdout(predicates::str::contains("--input ops.txt").not());
+}
+
 // ---------------------------------------------------------------------------
 // --glob flag
 // ---------------------------------------------------------------------------
