@@ -239,10 +239,15 @@ fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
                 }
                 p
             }
-            // TODO(#229): PatchApply paths live inside diff text, not in
-            // struct fields. Parse the --- a/path and +++ b/path headers
-            // and validate each with validate_path_contained().
-            Operation::PatchApply { .. } => vec![],
+            Operation::PatchApply { diff } => {
+                // Validate paths embedded in the unified diff text (#229).
+                if let Ok(patch_files) = crate::ops::patch::parse_patch(diff) {
+                    for pf in &patch_files {
+                        validate_path_contained(&pf.path)?;
+                    }
+                }
+                vec![]
+            }
         };
         for path in paths {
             validate_path_contained(path)?;
@@ -649,6 +654,85 @@ pub fn run_mcp_server() -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rmcp::ServiceExt;
+
+    /// Spin up a PatchloomService over a duplex stream and return the
+    /// connected client handle.
+    async fn spawn_test_client(
+        cwd: std::path::PathBuf,
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+        let (server_transport, client_transport) = tokio::io::duplex(16384);
+        let service = PatchloomService::new(cwd);
+        tokio::spawn(async move {
+            let server = service.serve(server_transport).await.unwrap();
+            server.waiting().await.unwrap();
+        });
+        ().serve(client_transport).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn mcp_lists_expected_tools() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let tools = client.peer().list_all_tools().await.unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert!(names.contains(&"patchloom_doc_set"), "missing doc_set tool");
+        assert!(names.contains(&"patchloom_replace"), "missing replace tool");
+        assert!(names.contains(&"patchloom_batch"), "missing batch tool");
+        assert!(names.contains(&"patchloom_hygiene"), "missing hygiene tool");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_server_info_has_correct_name() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let info = client.peer_info().expect("peer info should be set");
+        assert_eq!(info.server_info.name, "patchloom");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_path_traversal_rejected_via_protocol() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let params = rmcp::model::CallToolRequestParams::new("patchloom_doc_set").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "../../etc/passwd",
+                "key": "root",
+                "value": "hacked"
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(result.is_err(), "path traversal should be rejected");
+        client.cancel().await.unwrap();
+    }
+
+    #[test]
+    fn patch_apply_path_containment_validation() {
+        // Validate that PatchApply paths are checked by validate_operation_paths.
+        let evil_diff =
+            "--- a/../../etc/passwd\n+++ b/../../etc/passwd\n@@ -1,1 +1,1 @@\n-root\n+hacked\n";
+        let ops = vec![Operation::PatchApply {
+            diff: evil_diff.to_string(),
+        }];
+        let result = validate_operation_paths(&ops);
+        assert!(
+            result.is_err(),
+            "PatchApply with escaping paths should be rejected"
+        );
+    }
+
+    #[test]
+    fn patch_apply_safe_paths_pass_containment() {
+        let safe_diff = "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+        let ops = vec![Operation::PatchApply {
+            diff: safe_diff.to_string(),
+        }];
+        let result = validate_operation_paths(&ops);
+        assert!(result.is_ok(), "PatchApply with safe paths should pass");
+    }
 
     #[test]
     fn path_rejects_absolute() {

@@ -1025,6 +1025,44 @@ pub(crate) mod doc {
         Ok(())
     }
 
+    /// Delete the value at the given selector path. Returns `true` if
+    /// something was removed, `false` if the path did not exist.
+    pub(crate) fn delete_at_selector(
+        root: &mut serde_json::Value,
+        segments: &[selector::Segment],
+    ) -> anyhow::Result<bool> {
+        let Some(last) = segments.last() else {
+            return Ok(false);
+        };
+        let parent_path = &segments[..segments.len() - 1];
+        let parent = match navigate_mut(root, parent_path, false) {
+            Ok(p) => p,
+            Err(_) => return Ok(false),
+        };
+        match last {
+            selector::Segment::Key(k) => {
+                if let Some(obj) = parent.as_object_mut() {
+                    Ok(obj.remove(k.as_str()).is_some())
+                } else {
+                    Ok(false)
+                }
+            }
+            selector::Segment::Index(i) => {
+                if let Some(arr) = parent.as_array_mut() {
+                    if *i < arr.len() {
+                        arr.remove(*i);
+                        Ok(true)
+                    } else {
+                        Ok(false)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            _ => anyhow::bail!("cannot delete at wildcard/predicate"),
+        }
+    }
+
     /// Parse a `key=value` predicate and remove matching items from the array
     /// at `segments`. Returns the number of items removed.
     pub(crate) fn delete_where(

@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
-    serialize_value_preserving, set_at_path, update_matching, FileFormat,
+    deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
+    parse_doc, serialize_value_preserving, set_at_path, update_matching, FileFormat,
 };
 use crate::selector;
 use crate::write;
@@ -395,38 +395,8 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             let sel =
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
 
-            let Some(last) = sel.last() else {
+            if !delete_at_selector(&mut root, &sel)? {
                 return Ok((String::new(), exit::NO_MATCHES));
-            };
-            let parent_path = &sel[..sel.len() - 1];
-
-            let parent = match navigate_mut(&mut root, parent_path, false) {
-                Ok(p) => p,
-                Err(_) => return Ok((String::new(), exit::NO_MATCHES)),
-            };
-
-            match last {
-                selector::Segment::Key(k) => {
-                    if let Some(obj) = parent.as_object_mut() {
-                        if obj.remove(k.as_str()).is_none() {
-                            return Ok((String::new(), exit::NO_MATCHES));
-                        }
-                    } else {
-                        return Ok((String::new(), exit::NO_MATCHES));
-                    }
-                }
-                selector::Segment::Index(i) => {
-                    if let Some(arr) = parent.as_array_mut() {
-                        if *i < arr.len() {
-                            arr.remove(*i);
-                        } else {
-                            return Ok((String::new(), exit::NO_MATCHES));
-                        }
-                    } else {
-                        return Ok((String::new(), exit::NO_MATCHES));
-                    }
-                }
-                _ => anyhow::bail!("cannot delete at wildcard/predicate"),
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;

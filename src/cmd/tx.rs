@@ -2,8 +2,8 @@ use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_where, detect_format, move_at_path, navigate_mut, parse_doc,
-    serialize_value_preserving, set_at_path, update_matching,
+    deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
+    parse_doc, serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
@@ -116,8 +116,12 @@ fn host_shell_command(cmd: &str, cwd: &Path) -> std::process::Command {
     }
     #[cfg(not(windows))]
     {
+        use std::os::unix::process::CommandExt;
         let mut command = std::process::Command::new("sh");
         command.arg("-c").arg(cmd).current_dir(cwd);
+        // Spawn the child in its own process group so that
+        // kill_process_tree can kill the entire group (#220).
+        command.process_group(0);
         command
     }
 }
@@ -150,11 +154,11 @@ fn run_shell_with_timeout(
 
 /// Kill a shell process and its descendants.
 ///
-/// On Unix, `child.kill()` sends SIGKILL to the immediate child. For
-/// simple commands, `sh -c "cmd"` typically exec()s into `cmd` so there
-/// is only one process. For compound commands (pipelines, `&&` chains),
-/// grandchildren may survive; a future improvement could use
-/// `killpg(pid, SIGKILL)` for process-group-level cleanup.
+/// On Unix, the child is spawned in its own process group (via
+/// `CommandExt::process_group(0)`), so we send SIGKILL to the entire
+/// group with `libc::killpg`. This ensures compound commands
+/// (pipelines, `&&` chains) have all descendants killed, not just the
+/// immediate `sh` process.
 ///
 /// On Windows, `child.kill()` calls `TerminateProcess` which only kills
 /// the immediate `cmd.exe` process, leaving grandchildren (ping, powershell,
@@ -172,7 +176,16 @@ fn kill_process_tree(child: &mut std::process::Child) {
     }
     #[cfg(not(windows))]
     {
-        let _ = child.kill();
+        // The child was spawned in its own process group, so its PID
+        // equals its PGID. Kill the entire group.
+        let pid = child.id() as i32;
+        // SAFETY: killpg is a POSIX function that sends a signal to a
+        // process group. We pass the child's PID (which is also its
+        // PGID due to process_group(0)) and SIGKILL (9).
+        #[allow(unsafe_code)]
+        unsafe {
+            libc::killpg(pid, libc::SIGKILL);
+        }
     }
     let _ = child.wait();
 }
@@ -336,7 +349,12 @@ where
     let content = read_file_content(pending, &file_path, cwd)?;
     let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let old_value = root.clone();
+    // Only clone old_value for TOML/YAML (needed for comment-preserving
+    // serialization). JSON serialization ignores old_value (#224).
+    let old_value = match format {
+        crate::ops::doc::FileFormat::Json => serde_json::Value::Null,
+        _ => root.clone(),
+    };
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let new_content = serialize_value_preserving(content, &old_value, &root, &format)
         .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
@@ -578,26 +596,7 @@ fn execute_operation(
             let key = key.clone();
             with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
-                let Some(last) = sel.last() else {
-                    return Ok(());
-                };
-                let parent_path = &sel[..sel.len() - 1];
-                let parent = navigate_mut(root, parent_path, false)?;
-                match last {
-                    selector::Segment::Key(k) => {
-                        if let Some(obj) = parent.as_object_mut() {
-                            obj.remove(k.as_str());
-                        }
-                    }
-                    selector::Segment::Index(i) => {
-                        if let Some(arr) = parent.as_array_mut() {
-                            if *i < arr.len() {
-                                arr.remove(*i);
-                            }
-                        }
-                    }
-                    _ => anyhow::bail!("cannot delete at wildcard/predicate"),
-                }
+                delete_at_selector(root, &sel)?;
                 Ok(())
             })?;
         }
@@ -1213,14 +1212,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .collect();
 
     // 5. Apply write policy and collect actual file changes.
+    //    Drain the pending map to move data instead of cloning (#224).
+    let drained: Vec<(PathBuf, (String, String))> = pending.drain().collect();
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
-    for (path, (original, current)) in &pending {
+    for (path, (original, current)) in &drained {
         let write_policy = build_write_policy(&plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
         if *original != final_content {
             changes.push((path.clone(), original.clone(), final_content));
         }
     }
+    // Re-populate pending from drained so rollback_strict still works.
+    let pending: HashMap<PathBuf, (String, String)> = drained.into_iter().collect();
     changes.sort_by(|a, b| a.0.cmp(&b.0));
 
     // 6. Output based on mode.

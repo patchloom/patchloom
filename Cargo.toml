@@ -34,9 +34,14 @@ rmcp = { version = "1", features = ["server", "transport-io", "macros"], optiona
 tokio = { version = "1", features = ["full"], optional = true }
 schemars = { version = "1", optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
+rmcp = { version = "1", features = ["client", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
 
 # The profile that 'dist' will build with
 [profile.release]
