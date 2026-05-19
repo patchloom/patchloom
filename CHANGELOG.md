@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Bump MSRV from 1.70 to 1.81 (requires Rust 1.81+ to build from source)
+- `create --apply` (non-force) and `tx` file.create now use `File::create_new` for race-free creation
+- `unsafe_code = "deny"` lint moved from `lib.rs` attribute to `[lints.rust]` in Cargo.toml
+
 ### Added
 
 - 15 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`, `mcp-server`
