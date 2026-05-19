@@ -45,15 +45,31 @@ fn shell_exit_1() -> &'static str {
     }
 }
 
-#[cfg(not(windows))]
 fn shell_sleep_300() -> &'static str {
-    "sleep 300"
+    #[cfg(windows)]
+    {
+        // ping localhost 301 times (1 second apart) to sleep ~300 seconds.
+        // Redirect to nul to suppress output.
+        "ping -n 301 127.0.0.1 > nul"
+    }
+    #[cfg(not(windows))]
+    {
+        "sleep 300"
+    }
 }
 
-#[cfg(not(windows))]
 fn shell_touch(path: &Path) -> String {
-    let path = path.display();
-    format!("touch '{path}'")
+    #[cfg(windows)]
+    {
+        let path = path.to_str().unwrap();
+        // type nul produces empty output; > redirects it to create the file.
+        format!("type nul > \"{path}\"")
+    }
+    #[cfg(not(windows))]
+    {
+        let path = path.display();
+        format!("touch '{path}'")
+    }
 }
 
 fn shell_fail_with_secret(secret: &str) -> String {
@@ -67,10 +83,17 @@ fn shell_fail_with_secret(secret: &str) -> String {
     }
 }
 
-#[cfg(not(windows))]
 fn shell_test_exists(path: &Path) -> String {
-    let path = path.display();
-    format!("test -f '{path}'")
+    #[cfg(windows)]
+    {
+        let path = path.to_str().unwrap();
+        format!("if exist \"{path}\" (exit /b 0) else (exit /b 1)")
+    }
+    #[cfg(not(windows))]
+    {
+        let path = path.display();
+        format!("test -f '{path}'")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5285,7 +5308,6 @@ fn test_tx_file_create_without_force_fails_on_existing() {
 }
 
 #[test]
-#[cfg(not(windows))] // Shell quoting for format/validate steps is fragile through cmd /C
 fn test_tx_format_step_runs_between_write_and_validate() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -6213,7 +6235,6 @@ fn test_tx_patch_apply_uses_pending_file_state() {
 }
 
 #[test]
-#[cfg(not(windows))] // PowerShell timeout behavior differs on Windows
 fn test_tx_validate_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -6247,7 +6268,6 @@ fn test_tx_validate_timeout_kills_hanging_command() {
 }
 
 #[test]
-#[cfg(not(windows))] // PowerShell timeout behavior differs on Windows
 fn test_tx_format_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -7567,7 +7587,6 @@ fn test_tx_create_after_delete_unmarks_deletion() {
 }
 
 #[test]
-#[cfg(not(windows))] // Shell quoting for format/validate steps is fragile through cmd /C
 fn test_tx_format_and_validate_success_path() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

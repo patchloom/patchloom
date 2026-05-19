@@ -104,8 +104,14 @@ const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(10);
 fn host_shell_command(cmd: &str, cwd: &Path) -> std::process::Command {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let mut command = std::process::Command::new("cmd");
-        command.arg("/C").arg(cmd).current_dir(cwd);
+        // Use raw_arg so cmd.exe receives the command string without Rust's
+        // MSVC-style argument quoting. Rust's .arg() wraps in double quotes
+        // and escapes inner quotes with backslash, which cmd.exe does not
+        // understand. raw_arg passes the string verbatim, letting cmd's /C
+        // handler parse redirects (>), pipes (|), and inner quotes correctly.
+        command.arg("/C").raw_arg(cmd).current_dir(cwd);
         command
     }
     #[cfg(not(windows))]
@@ -135,12 +141,37 @@ fn run_shell_with_timeout(
             return Ok(status);
         }
         if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_process_tree(&mut child);
             anyhow::bail!("timed out after {timeout_secs}s");
         }
         std::thread::sleep(SHELL_POLL_INTERVAL);
     }
+}
+
+/// Kill a shell process and all its descendants.
+///
+/// On Unix, `child.kill()` sends SIGKILL to the immediate child (`sh`),
+/// which is sufficient because the shell's children inherit the signal.
+///
+/// On Windows, `child.kill()` calls `TerminateProcess` which only kills
+/// the immediate `cmd.exe` process, leaving grandchildren (ping, powershell,
+/// etc.) running as orphans. We use `taskkill /F /T /PID` to kill the
+/// entire process tree.
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id();
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
 }
 
 /// Short label for an operation, used in error messages.
