@@ -8572,6 +8572,82 @@ fn test_tx_create_then_replace_on_same_file() {
     assert_eq!(fs::read_to_string(&new_file).unwrap(), "hello patchloom\n");
 }
 
+#[test]
+fn test_tx_multiple_doc_set_on_same_yaml_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# App config\nname: myapp\nversion: \"1.0\"\nport: 8080\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.set", "path": portable_path_str(&file), "key": "version", "value": "2.0"},
+            {"op": "doc.set", "path": portable_path_str(&file), "key": "port", "value": 9090},
+            {"op": "doc.set", "path": portable_path_str(&file), "key": "debug", "value": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let result = fs::read_to_string(&file).unwrap();
+    // All three mutations applied correctly.
+    assert!(
+        result.contains("version: '2.0'") || result.contains("version: \"2.0\""),
+        "version not updated: {result}"
+    );
+    assert!(result.contains("9090"), "port not updated: {result}");
+    assert!(
+        result.contains("debug: true") || result.contains("debug: True"),
+        "debug not added: {result}"
+    );
+    // YAML comment preserved (verifies serialize_value_preserving worked).
+    assert!(
+        result.contains("# App config"),
+        "YAML comment lost: {result}"
+    );
+}
+
+#[test]
+fn test_tx_doc_set_then_replace_on_same_file_flushes_cache() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"name": "old", "version": "1.0"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "doc.set", "path": file.to_str().unwrap(), "key": "name", "value": "new"},
+            {"op": "replace", "path": file.to_str().unwrap(), "from": "1.0", "to": "2.0"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["name"], "new", "doc.set mutation lost after cache flush");
+    assert_eq!(v["version"], "2.0", "replace did not see flushed content");
+}
+
 // ---------------------------------------------------------------------------
 // smoke tests: docs and examples
 // ---------------------------------------------------------------------------

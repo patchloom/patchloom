@@ -3,7 +3,7 @@ use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::ops::doc::{
     deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
-    parse_doc, serialize_value_preserving, set_at_path, update_matching,
+    parse_doc, serialize_value_preserving, set_at_path, update_matching, FileFormat,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
@@ -335,11 +335,43 @@ fn update_file_content(
 // Operation execution
 // ---------------------------------------------------------------------------
 
-/// Load a structured document from the pending buffer, apply a mutation closure,
-/// and write the result back. Reduces boilerplate across 9 doc.* operations.
-fn with_doc<F>(
+/// Flush a single cached document back to the pending text map.
+fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
+    path: PathBuf,
+    cached: CachedDoc,
+) -> anyhow::Result<()> {
+    let new_content = serialize_value_preserving(
+        &cached.original_text,
+        &cached.old_value,
+        &cached.value,
+        &cached.format,
+    )
+    .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    update_file_content(pending, deletions, &path, new_content);
+    Ok(())
+}
+
+/// Flush all cached documents back to the pending text map. Called before
+/// the write phase or when a non-doc operation needs the current text.
+fn flush_doc_cache(
+    pending: &mut HashMap<PathBuf, (String, String)>,
+    deletions: &mut HashSet<PathBuf>,
+    doc_cache: &mut HashMap<PathBuf, CachedDoc>,
+) -> anyhow::Result<()> {
+    for (path, cached) in doc_cache.drain() {
+        flush_doc_cache_entry(pending, deletions, path, cached)?;
+    }
+    Ok(())
+}
+
+/// Load a structured document from the cache (or parse from pending buffer),
+/// apply a mutation closure, and store back in the cache. Serialization is
+/// deferred until the cache is flushed.
+fn with_doc<F>(
+    pending: &mut HashMap<PathBuf, (String, String)>,
+    doc_cache: &mut HashMap<PathBuf, CachedDoc>,
     path: &str,
     cwd: &Path,
     mutate: F,
@@ -348,26 +380,53 @@ where
     F: FnOnce(&mut serde_json::Value) -> anyhow::Result<()>,
 {
     let file_path = cwd.join(path);
+
+    // Check cache first; if cached, mutate in place without re-parsing.
+    if let Some(cached) = doc_cache.get_mut(&file_path) {
+        mutate(&mut cached.value).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+        return Ok(());
+    }
+
+    // Not cached: parse from text, apply mutation, and insert into cache.
     let content = read_file_content(pending, &file_path, cwd)?;
     let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
     let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    // Only clone old_value for TOML/YAML (needed for comment-preserving
-    // serialization). JSON serialization ignores old_value (#224).
     let old_value = match format {
-        crate::ops::doc::FileFormat::Json => serde_json::Value::Null,
+        FileFormat::Json => serde_json::Value::Null,
         _ => root.clone(),
     };
+    let original_text = content.to_owned();
     mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let new_content = serialize_value_preserving(content, &old_value, &root, &format)
-        .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    update_file_content(pending, deletions, &file_path, new_content);
+    doc_cache.insert(
+        file_path,
+        CachedDoc {
+            value: root,
+            format,
+            original_text,
+            old_value,
+        },
+    );
     Ok(())
+}
+
+/// Cached parsed document for avoiding redundant parse-serialize cycles when
+/// multiple doc.* operations target the same file in a single transaction.
+struct CachedDoc {
+    value: serde_json::Value,
+    format: FileFormat,
+    /// The text content at the time the document was first parsed.
+    /// Used as `original_content` for comment-preserving serialization.
+    original_text: String,
+    /// Snapshot of the value at parse time; needed by YAML/TOML comment
+    /// preservation. Null for JSON (#224).
+    old_value: serde_json::Value,
 }
 
 /// Mutable transaction state passed through operation execution.
 struct TxState<'a> {
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     deletions: &'a mut HashSet<PathBuf>,
+    doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
     tx_reads: &'a mut Vec<TxReadResult>,
     tx_searches: &'a mut Vec<TxSearchResult>,
     cwd: &'a Path,
@@ -564,6 +623,25 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     Ok(())
 }
 
+/// Returns true if the operation works on raw text and needs any cached
+/// doc values flushed (serialized) back to the pending text map first.
+fn op_needs_doc_flush(op: &Operation) -> bool {
+    matches!(
+        op,
+        Operation::Replace { .. }
+            | Operation::MdReplaceSection { .. }
+            | Operation::MdInsertAfterHeading { .. }
+            | Operation::MdInsertBeforeHeading { .. }
+            | Operation::MdUpsertBullet { .. }
+            | Operation::MdTableAppend { .. }
+            | Operation::MdDedupeHeadings { .. }
+            | Operation::PatchApply { .. }
+            | Operation::Read { .. }
+            | Operation::Search { .. }
+            | Operation::HygieneFix { .. }
+    )
+}
+
 fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     match op {
         Operation::Replace { .. } => {
@@ -573,7 +651,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::DocSet { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 set_at_path(root, &sel, value)?;
                 Ok(())
@@ -582,7 +660,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::DocDelete { path, key } => {
             let key = key.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 delete_at_selector(root, &sel)?;
                 Ok(())
@@ -591,7 +669,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::DocMerge { path, value } => {
             let value = value.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 deep_merge(root, &value);
                 Ok(())
             })?;
@@ -600,7 +678,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::DocAppend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -614,7 +692,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::DocPrepend { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let target = navigate_mut(root, &sel, false)?;
                 target
@@ -627,7 +705,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::DocUpdate { path, key, value } => {
             let key = key.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 let count = update_matching(root, &sel, value);
                 if count == 0 {
@@ -640,7 +718,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::DocMove { path, from, to } => {
             let from = from.clone();
             let to = to.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let from_sel = parse_selector(&from)?;
                 let to_sel = parse_selector(&to)?;
                 move_at_path(root, &from_sel, &to_sel)?;
@@ -651,7 +729,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::DocEnsure { path, key, value } => {
             let key = key.clone();
             let value = value.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
 
                 // If the path already exists, no-op.
@@ -671,7 +749,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         } => {
             let key = key.clone();
             let predicate = predicate.clone();
-            with_doc(tx.pending, tx.deletions, path, tx.cwd, |root| {
+            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
                 let sel = parse_selector(&key)?;
                 delete_where(root, &sel, &predicate)?;
                 Ok(())
@@ -1206,6 +1284,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut total_replace_matches = 0usize;
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
     let mut tx_searches: Vec<TxSearchResult> = Vec::new();
+    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
 
     for (i, op) in plan.operations.iter().enumerate() {
         if let Operation::Replace { if_exists, .. } = op {
@@ -1213,9 +1292,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 has_non_idempotent_replace = true;
             }
         }
+        // Flush the doc cache before non-doc operations that work on raw
+        // text, so they see the latest serialized content.
+        if op_needs_doc_flush(op) {
+            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+        }
         let mut tx = TxState {
             pending: &mut pending,
             deletions: &mut deletions,
+            doc_cache: &mut doc_cache,
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             cwd: &cwd,
@@ -1236,6 +1321,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
     }
+
+    // Flush any remaining cached docs before the write phase.
+    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
 
     let existed_before: HashSet<PathBuf> = pending
         .keys()
