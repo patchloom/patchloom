@@ -16,6 +16,7 @@ use crate::ops::replace::{
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::write::{apply_policy, atomic_write, WritePolicy};
+use anyhow::Context;
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -182,7 +183,7 @@ fn kill_process_tree(child: &mut std::process::Child) {
         // SAFETY: killpg is a POSIX function that sends a signal to a
         // process group. We pass the child's PID (which is also its
         // PGID due to process_group(0)) and SIGKILL (9).
-        #[allow(unsafe_code)]
+        #[expect(unsafe_code)]
         unsafe {
             libc::killpg(pid, libc::SIGKILL);
         }
@@ -1271,7 +1272,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         std::fs::create_dir_all(parent)?;
                     }
                 }
-                atomic_write(path, new_content, &noop_policy)?;
+                if !existed_before.contains(path) {
+                    // New file: use File::create_new for TOCTOU safety.
+                    // This atomically fails if another process created the
+                    // file between validation and commit.
+                    use std::io::Write;
+                    let mut file = std::fs::File::create_new(path)
+                        .with_context(|| format!("file already exists: {}", path.display()))?;
+                    file.write_all(new_content.as_bytes())
+                        .with_context(|| format!("failed to write {}", path.display()))?;
+                } else {
+                    atomic_write(path, new_content, &noop_policy)?;
+                }
             }
         }
         // Handle deletions not captured in changes (e.g. empty files whose

@@ -141,7 +141,7 @@ where
         return process_slice(paths, glob_matcher, &f);
     }
 
-    let chunk_size = (paths.len() + num_splits - 1) / num_splits;
+    let chunk_size = paths.len().div_ceil(num_splits);
     let chunks: Vec<&[PathBuf]> = paths.chunks(chunk_size).collect();
 
     std::thread::scope(|s| {

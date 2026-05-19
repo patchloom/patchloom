@@ -62,8 +62,9 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let path = cwd.join(&args.file);
 
-    // Check if file already exists.
-    if path.exists() && !args.force {
+    // For non-write modes, an early exists check is fine (no TOCTOU concern).
+    // The --apply path below uses File::create_new for race-free creation.
+    if !global.apply && !args.force && path.exists() {
         bail!("file already exists: {}", args.file);
     }
 
@@ -82,7 +83,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::CHANGES_DETECTED);
     }
 
-    // --apply mode: write file using atomic_write.
+    // --apply mode: write file.
     if global.apply {
         let policy = policy_from_flags(global, Some(&path));
 
@@ -93,7 +94,21 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        atomic_write(&path, &content, &policy)?;
+        if args.force {
+            atomic_write(&path, &content, &policy)?;
+        } else {
+            // TOCTOU-safe: atomically create-or-fail in one syscall.
+            use std::io::Write;
+            let final_content = crate::write::apply_policy(&content, &policy);
+            let mut file = std::fs::File::create_new(&path).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    anyhow::anyhow!("file already exists: {}", args.file)
+                } else {
+                    anyhow::Error::from(e)
+                }
+            })?;
+            file.write_all(final_content.as_bytes())?;
+        }
 
         if global.json {
             let diff_text = if global.diff {

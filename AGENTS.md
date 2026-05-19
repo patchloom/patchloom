@@ -198,7 +198,7 @@ Command::<Name>(args) => <name>::run(args, &global),
 - All commits require a `Signed-off-by` line (DCO). Use `git commit -s`.
 - Keep `main.rs` thin. No business logic in `main.rs` or `lib.rs`.
 - Prefer returning exit codes over panicking. Never use `unwrap()` in non-test code.
-- `#![deny(unsafe_code)]` is enforced. No unsafe Rust.
+- `unsafe_code = "deny"` is enforced via `[lints.rust]` in Cargo.toml. No unsafe Rust.
 - Use `anyhow::Context` to add context to errors rather than custom `.map_err()` chains.
 
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.

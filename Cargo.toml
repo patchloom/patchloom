@@ -2,7 +2,7 @@
 name = "patchloom"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.81"
 description = "A Rust CLI for agent-grade repo operations"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/patchloom/patchloom"
@@ -42,6 +42,9 @@ assert_cmd = "2"
 predicates = "3"
 rmcp = { version = "1", features = ["client", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
+
+[lints.rust]
+unsafe_code = "deny"
 
 # The profile that 'dist' will build with
 [profile.release]
