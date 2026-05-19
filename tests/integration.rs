@@ -9055,6 +9055,29 @@ fn test_batch_json_output_on_apply() {
 }
 
 #[test]
+fn test_batch_empty_quoted_string_sets_empty_value() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name":"old"}"#).unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set data.json name \"\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert!(
+        content.contains(r#""name": """#) || content.contains(r#""name":"""#),
+        "empty quoted string should set value to empty string, got: {content}"
+    );
+}
+
+#[test]
 fn test_doc_get_honors_cwd() {
     let dir = TempDir::new().unwrap();
     fs::write(

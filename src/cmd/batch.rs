@@ -258,14 +258,20 @@ fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
     let mut current = String::new();
+    // Track whether we've entered a token (via quoting or non-whitespace).
+    // This ensures empty quoted strings like "" produce an empty-string token
+    // instead of being silently dropped.
+    let mut in_token = false;
 
     while let Some(&ch) = chars.peek() {
         if ch.is_whitespace() {
-            if !current.is_empty() {
+            if in_token {
                 tokens.push(std::mem::take(&mut current));
+                in_token = false;
             }
             chars.next();
         } else if ch == '"' {
+            in_token = true;
             chars.next(); // consume opening quote
             loop {
                 match chars.next() {
@@ -279,11 +285,12 @@ fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
                 }
             }
         } else {
+            in_token = true;
             current.push(ch);
             chars.next();
         }
     }
-    if !current.is_empty() {
+    if in_token {
         tokens.push(current);
     }
     Ok(tokens)
@@ -406,6 +413,18 @@ mod tests {
         // Unquoted JSON without internal quotes works fine.
         let tokens = tokenize("doc.set f.json key 42").unwrap();
         assert_eq!(tokens, vec!["doc.set", "f.json", "key", "42"]);
+    }
+
+    #[test]
+    fn tokenize_empty_quoted_string() {
+        let tokens = tokenize(r#"doc.set f.json key """#).unwrap();
+        assert_eq!(tokens, vec!["doc.set", "f.json", "key", ""]);
+    }
+
+    #[test]
+    fn tokenize_empty_quoted_string_mid_line() {
+        let tokens = tokenize(r#"replace f.txt "" "new""#).unwrap();
+        assert_eq!(tokens, vec!["replace", "f.txt", "", "new"]);
     }
 
     #[test]
