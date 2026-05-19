@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Commands
 
-16 commands covering search, structured editing, batching, and file operations:
+15 commands (plus `mcp-server` with `--features mcp`) covering search, structured editing, batching, and file operations:
 
 - **search** / **replace** - Literal and regex search/replace across files, with context lines, `--nth`, `--case-insensitive`, `--insert-before`/`--insert-after`, `--assert-count`, and `--if-exists` for idempotent runs
 - **doc** - Parser-backed JSON, YAML, and TOML editing (get, set, delete, merge, append, prepend, update, move, ensure, delete-where, select, flatten, diff). Preserves comments and formatting in YAML and TOML
@@ -58,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing and benchmarks
 
-- 721 tests (386 unit + 335 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 723 tests (386 unit + 337 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - Agent integration tests: 19 scenarios with invocation-capture shim
 - CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
 - Agent A/B benchmarks measuring duration, tool calls, and success rate
