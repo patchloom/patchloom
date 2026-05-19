@@ -3,8 +3,8 @@
 # Syntax: <op> <path> <args...>
 #
 # Usage:
-#   patchloom batch --file examples/06-batch-version-bump.txt --diff
-#   patchloom batch --file examples/06-batch-version-bump.txt --apply
+#   patchloom batch --input examples/06-batch-version-bump.txt --diff
+#   patchloom batch --input examples/06-batch-version-bump.txt --apply
 
 # Set version in package.json
 doc.set package.json version "2.0.0"

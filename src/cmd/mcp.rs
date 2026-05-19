@@ -587,3 +587,44 @@ pub fn run_mcp_server() -> anyhow::Result<u8> {
 
     Ok(crate::exit::SUCCESS)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_rejects_absolute() {
+        assert!(validate_path_contained("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn path_rejects_traversal() {
+        assert!(validate_path_contained("../../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn path_rejects_deep_traversal() {
+        assert!(validate_path_contained("a/b/../../../escape").is_err());
+    }
+
+    #[test]
+    fn path_allows_relative() {
+        assert!(validate_path_contained("src/main.rs").is_ok());
+    }
+
+    #[test]
+    fn path_allows_dot_relative() {
+        assert!(validate_path_contained("./foo/bar.json").is_ok());
+    }
+
+    #[test]
+    fn path_allows_safe_parent() {
+        // a/../b resolves within cwd
+        assert!(validate_path_contained("a/../b").is_ok());
+    }
+
+    #[test]
+    fn path_rejects_single_parent() {
+        assert!(validate_path_contained("..").is_err());
+    }
+}

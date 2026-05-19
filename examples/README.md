@@ -13,8 +13,8 @@ patchloom tx --plan examples/01-basic-replace.json --apply    # apply after adap
 patchloom --json tx --plan examples/01-basic-replace.json --apply  # JSON output
 
 # Batch format (line-oriented)
-patchloom batch --file examples/06-batch-version-bump.txt --diff   # preview
-patchloom batch --file examples/06-batch-version-bump.txt --apply  # apply
+patchloom batch --input examples/06-batch-version-bump.txt --diff   # preview
+patchloom batch --input examples/06-batch-version-bump.txt --apply  # apply
 ```
 
 ## Plans

@@ -10,7 +10,7 @@ For read, search, create, and delete, use your native agent tools.
 ```bash
 # Edit a key in JSON/YAML/TOML (parser-backed, preserves comments)
 patchloom doc set config.json version '"2.0.0"' --apply
-patchloom doc merge config.yaml '{"db":{"pool":10}}' --apply
+patchloom doc merge config.yaml --value '{"db":{"pool":10}}' --apply
 
 # Append a row to a markdown table
 patchloom md table-append --file README.md --heading "## API" --row "| new | row |" --apply

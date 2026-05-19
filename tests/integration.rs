@@ -8166,6 +8166,70 @@ fn test_smoke_example_05_strict_mode_plan() {
 }
 
 #[test]
+fn test_smoke_example_06_batch_version_bump() {
+    let dir = TempDir::new().unwrap();
+
+    // Create fixture files matching the batch example operations.
+    fs::write(
+        dir.path().join("package.json"),
+        "{\n  \"version\": \"1.9.0\"\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nversion = \"1.9.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("pyproject.toml"),
+        "[project]\nversion = \"1.9.0\"\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(
+        dir.path().join("config/settings.yaml"),
+        "app:\n  version: \"1.9.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("README.md"),
+        "# Project\n\n![version](https://img.shields.io/badge/version-1.9.0-blue)\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## Unreleased\n\n## v1.9.0\n- Initial\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(example_plan_path("06-batch-version-bump.txt"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let pkg = fs::read_to_string(dir.path().join("package.json")).unwrap();
+    assert!(pkg.contains("2.0.0"), "package.json not updated: {pkg}");
+
+    let cargo = fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
+    assert!(cargo.contains("2.0.0"), "Cargo.toml not updated: {cargo}");
+
+    let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
+    assert!(
+        readme.contains("version-2.0.0-blue"),
+        "README badge not updated: {readme}"
+    );
+
+    let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap();
+    assert!(
+        changelog.contains("Bump version to 2.0.0"),
+        "CHANGELOG bullet not added: {changelog}"
+    );
+}
+
+#[test]
 fn test_doc_get_honors_cwd() {
     let dir = TempDir::new().unwrap();
     fs::write(
@@ -8899,6 +8963,7 @@ fn test_doc_merge_check_exits_2() {
         .arg("doc")
         .arg("merge")
         .arg(&file)
+        .arg("--value")
         .arg(r#"{"b":2}"#)
         .arg("--check")
         .assert()
