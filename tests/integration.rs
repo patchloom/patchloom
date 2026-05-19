@@ -2232,7 +2232,12 @@ fn test_create_refuses_overwrite() {
         .arg("overwrite")
         .arg("--apply")
         .assert()
-        .code(1);
+        .code(1)
+        .stderr(predicates::str::contains("already exists"));
+
+    // Original content must be preserved.
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "original content\n");
 }
 
 // ---------------------------------------------------------------------------
