@@ -158,6 +158,10 @@ cargo install --path .
 
 ```bash
 patchloom agent-rules >> AGENTS.md
+
+# Or tailor the output:
+patchloom agent-rules --mode mcp >> AGENTS.md            # MCP-only (no CLI examples)
+patchloom agent-rules --platform windows >> AGENTS.md     # Windows-only syntax
 ```
 
 Your AI agent reads `AGENTS.md` and learns when to use patchloom vs native tools.

@@ -232,8 +232,11 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Prints an end-user AGENTS.md that teaches AI agents how to use patchloom. Includes command reference, exit codes, write modes, transaction plan format, and usage examples.
 - **Use when:** You are setting up a project where agents should use patchloom for file operations and need an AGENTS.md or SKILL.md that describes patchloom's interface.
+- **Notable flags:**
+  - `--mode cli|mcp|all` (default: `all`): `cli` omits MCP section, `mcp` omits CLI shell examples, `all` includes everything.
+  - `--platform linux|windows|all` (default: `all`): `linux` uses heredocs and single-quote syntax, `windows` uses `--input` files and double-quote escaping, `all` shows both.
 - **Prefer instead:** Nothing; this is the only way to generate the end-user agent documentation.
-- **Related:** `completions`
+- **Related:** `completions`, `mcp-server`
 
 <!-- ref:command:mcp-server -->
 ## `mcp-server`
