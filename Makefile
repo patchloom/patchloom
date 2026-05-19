@@ -12,10 +12,10 @@ fmt-check: ## Check formatting without modifying files
 	cargo fmt --all -- --check
 
 build: ## Run cargo build
-	cargo build
+	cargo build --all-features
 
 test: ## Run unit tests
-	cargo test --lib
+	cargo test --lib --all-features
 
 integration-test: ## Run integration tests
 	cargo test --test integration
