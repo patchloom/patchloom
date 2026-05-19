@@ -165,6 +165,14 @@ pub enum Operation {
     },
     #[serde(rename = "file.delete")]
     FileDelete { path: String },
+    #[serde(rename = "file.rename")]
+    FileRename {
+        from: String,
+        to: String,
+        /// If true, overwrite the destination if it already exists.
+        #[serde(default)]
+        force: bool,
+    },
     #[serde(rename = "patch.apply")]
     PatchApply {
         /// Inline diff text to apply.

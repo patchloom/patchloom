@@ -137,6 +137,14 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 path: args[0].clone(),
             })
         }
+        "file.rename" => {
+            require_args(op, args, 2, line_num)?;
+            Ok(Operation::FileRename {
+                from: args[0].clone(),
+                to: args[1].clone(),
+                force: false,
+            })
+        }
         "md.upsert_bullet" => {
             require_args(op, args, 3, line_num)?;
             Ok(Operation::MdUpsertBullet {

@@ -3,7 +3,7 @@
 
 Patchloom is a CLI for structured file edits. Use it instead of search_replace when editing JSON, YAML, TOML, or markdown, or when batching edits across multiple files.
 
-For read, search, create, and delete, use your native agent tools.
+For read, search, create, delete, and rename, use your native agent tools.
 
 ## Quick reference
 
@@ -29,6 +29,7 @@ doc.set config.json version "2.0.0"
 doc.set config.yaml app.version "2.0.0"
 replace README.md "1.0.0" "2.0.0"
 file.create hello.txt "Hello, World!"
+file.rename old.txt new.txt
 EOF
 ```
 

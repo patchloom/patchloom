@@ -157,6 +157,27 @@ pub fn policy_from_flags(
     }
 }
 
+/// Create a new file at `path` after applying `policy`, failing if the file
+/// already exists.
+///
+/// Uses `File::create_new` (O_CREAT | O_EXCL) so the existence check and
+/// creation happen in a single syscall, eliminating the TOCTOU race inherent
+/// in a separate `path.exists()` + write sequence.
+pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
+    use std::io::Write;
+    let final_content = apply_policy(content, policy);
+    let mut file = std::fs::File::create_new(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            anyhow::anyhow!("file already exists: {}", path.display())
+        } else {
+            anyhow::Error::from(e).context(format!("failed to create {}", path.display()))
+        }
+    })?;
+    file.write_all(final_content.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
 /// Atomically write `content` to `path` after applying `policy`.
 ///
 /// A temporary file is created in the same directory as `path`, written to, then
@@ -340,6 +361,36 @@ mod tests {
         assert_eq!(
             mode, 0o755,
             "permissions should be preserved after atomic_write"
+        );
+    }
+
+    #[test]
+    fn atomic_create_new_writes_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("new.txt");
+
+        let policy = WritePolicy {
+            ensure_final_newline: true,
+            normalize_eol: EolMode::Lf,
+            trim_trailing_whitespace: false,
+        };
+
+        atomic_create_new(&target, "hello", &policy).unwrap();
+        let got = fs::read_to_string(&target).unwrap();
+        assert_eq!(got, "hello\n");
+    }
+
+    #[test]
+    fn atomic_create_new_fails_if_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("existing.txt");
+        fs::write(&target, "old").unwrap();
+
+        let policy = WritePolicy::default();
+        let err = atomic_create_new(&target, "new", &policy).unwrap_err();
+        assert!(
+            err.to_string().contains("already exists"),
+            "error should mention 'already exists': {err}"
         );
     }
 

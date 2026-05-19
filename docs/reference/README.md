@@ -187,6 +187,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
 - **Related:** `create`, `tx file.delete`
 
+<!-- ref:command:rename -->
+## `rename`
+
+- **What it does:** Moves (renames) a file from one path to another.
+- **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
+- **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
+- **Related:** `create`, `delete`, `tx file.rename`
+
 <!-- ref:command:tx -->
 ## `tx`
 
@@ -816,6 +824,13 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Deletes a file inside a transaction.
 - **Use when:** File removal should roll back if later format or validation steps fail.
 - **Related:** top level `delete`
+
+<!-- ref:tx-op:file.rename -->
+### `file.rename`
+
+- **What it does:** Renames (moves) a file inside a transaction.
+- **Use when:** File renames should roll back if later format or validation steps fail. More efficient than `read` + `file.create` + `file.delete` as a single operation.
+- **Related:** top level `rename`
 
 <!-- ref:tx-op:search -->
 ### `search`

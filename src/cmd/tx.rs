@@ -15,8 +15,7 @@ use crate::ops::replace::{
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
-use crate::write::{apply_policy, atomic_write, WritePolicy};
-use anyhow::Context;
+use crate::write::{apply_policy, atomic_create_new, atomic_write, WritePolicy};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -213,6 +212,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::HygieneFix { .. } => "hygiene.fix",
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
+        Operation::FileRename { .. } => "file.rename",
         Operation::PatchApply { .. } => "patch.apply",
         Operation::Read { .. } => "read",
         Operation::Search { .. } => "search",
@@ -274,6 +274,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::HygieneFix { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
+        | Operation::FileRename { .. }
         | Operation::Read { .. }
         | Operation::Search { .. }
         | Operation::PatchApply { .. } => Ok(()),
@@ -818,6 +819,38 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 tx.deletions.insert(file_path);
             }
         }
+
+        Operation::FileRename { from, to, force } => {
+            let src_path = tx.cwd.join(from);
+            let dst_path = tx.cwd.join(to);
+
+            // Read source content into pending (validates it exists).
+            let content = read_file_content(tx.pending, &src_path, tx.cwd)?.to_string();
+
+            // Check destination does not already exist (unless force).
+            if !force {
+                let dst_exists = tx.pending.contains_key(&dst_path) || dst_path.exists();
+                if dst_exists {
+                    anyhow::bail!("destination already exists: {to}");
+                }
+            }
+
+            // Write content to destination.
+            update_file_content(tx.pending, tx.deletions, &dst_path, content);
+
+            // Delete source (same logic as file.delete for tx-created files).
+            let created_in_tx = match tx.pending.get(&src_path) {
+                Some((original, _)) => original.is_empty() && !src_path.exists(),
+                None => false,
+            };
+            if created_in_tx {
+                tx.pending.remove(&src_path);
+                tx.deletions.remove(&src_path);
+            } else {
+                update_file_content(tx.pending, tx.deletions, &src_path, String::new());
+                tx.deletions.insert(src_path);
+            }
+        }
     }
 
     Ok(0)
@@ -1273,14 +1306,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }
                 }
                 if !existed_before.contains(path) {
-                    // New file: use File::create_new for TOCTOU safety.
-                    // This atomically fails if another process created the
-                    // file between validation and commit.
-                    use std::io::Write;
-                    let mut file = std::fs::File::create_new(path)
-                        .with_context(|| format!("file already exists: {}", path.display()))?;
-                    file.write_all(new_content.as_bytes())
-                        .with_context(|| format!("failed to write {}", path.display()))?;
+                    // New file: use atomic_create_new for TOCTOU safety.
+                    // Policy already applied, so pass a noop policy.
+                    atomic_create_new(path, new_content, &noop_policy)?;
                 } else {
                     atomic_write(path, new_content, &noop_policy)?;
                 }

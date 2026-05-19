@@ -1,7 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
-use crate::write::{atomic_write, policy_from_flags};
+use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
@@ -68,8 +68,16 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("file already exists: {}", args.file);
     }
 
-    // --check mode: report that file would be created, exit 2.
+    // --check mode: verify parent directory exists (unless --force will create
+    // it), then report that file would be created.
     if global.check {
+        if !args.force {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() && !parent.exists() {
+                    bail!("parent directory does not exist: {}", parent.display());
+                }
+            }
+        }
         if global.json {
             let output = CreateOutput {
                 ok: true,
@@ -97,17 +105,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if args.force {
             atomic_write(&path, &content, &policy)?;
         } else {
-            // TOCTOU-safe: atomically create-or-fail in one syscall.
-            use std::io::Write;
-            let final_content = crate::write::apply_policy(&content, &policy);
-            let mut file = std::fs::File::create_new(&path).map_err(|e| {
-                if e.kind() == std::io::ErrorKind::AlreadyExists {
-                    anyhow::anyhow!("file already exists: {}", args.file)
-                } else {
-                    anyhow::Error::from(e)
-                }
-            })?;
-            file.write_all(final_content.as_bytes())?;
+            atomic_create_new(&path, &content, &policy)?;
         }
 
         if global.json {

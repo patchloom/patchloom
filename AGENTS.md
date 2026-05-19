@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides fifteen commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `batch`, `mcp-server`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, multi-operation atomic transactions, line-oriented batch operations, MCP server for structured tool calls, shell completion generation, and end-user agent rules generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides sixteen commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `mcp-server`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, MCP server for structured tool calls, shell completion generation, and end-user agent rules generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -43,6 +43,7 @@ src/
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
   cmd/replace.rs       Literal/regex string replacement with diff preview, --nth, -i, atomic write
   cmd/delete.rs        Delete a file (with --apply/--check modes)
+  cmd/rename.rs        Rename (move) a file (with --apply/--check modes, --force for overwrite)
   cmd/patch.rs         Preview or apply unified diffs
   cmd/md.rs            Markdown section-aware operations (replace section, insert before/after heading,
                        upsert bullet, table append, dedupe headings, lint)

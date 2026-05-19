@@ -8,6 +8,7 @@ pub mod mcp;
 pub mod md;
 pub mod patch;
 pub mod read;
+pub mod rename;
 pub mod replace;
 pub mod search;
 pub mod status;
@@ -32,6 +33,8 @@ pub enum Command {
     Patch(patch::PatchArgs),
     /// Read file contents with optional line range.
     Read(read::ReadArgs),
+    /// Rename (move) a file.
+    Rename(rename::RenameArgs),
     /// Markdown section-aware operations.
     Md(md::MdArgs),
     /// Parser-backed JSON, YAML, and TOML operations.
@@ -82,6 +85,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Delete(args) => {
             global.merge_write(&args.write);
             delete::run(args, &global)
+        }
+        Command::Rename(args) => {
+            global.merge_write(&args.write);
+            rename::run(args, &global)
         }
         Command::Replace(args) => {
             global.merge_write(&args.write);

@@ -288,6 +288,7 @@ fn validate_operation_paths(
                 }
                 p
             }
+            Operation::FileRename { from, to, .. } => vec![from.as_str(), to.as_str()],
             Operation::PatchApply { diff } => {
                 // Validate paths embedded in the unified diff text (#229).
                 let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
