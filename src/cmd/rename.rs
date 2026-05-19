@@ -61,9 +61,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    let content = fs::read_to_string(&src)?;
-
-    // --check mode: report that rename would happen.
+    // --check mode: report that rename would happen (no file read needed).
     if global.check {
         if global.json {
             let output = RenameOutput {
@@ -79,10 +77,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::CHANGES_DETECTED);
     }
 
+    let policy = policy_from_flags(global, Some(&dst));
+
     // --apply mode: perform the rename.
     if global.apply {
-        let policy = policy_from_flags(global, Some(&dst));
-
         // Ensure parent directories exist for the destination.
         if let Some(parent) = dst.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
@@ -90,48 +88,105 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        if args.force {
-            atomic_write(&dst, &content, &policy)?;
-        } else {
-            atomic_create_new(&dst, &content, &policy)?;
-        }
-        fs::remove_file(&src)?;
-
-        if global.json {
-            let diff_text = if global.diff {
-                Some(make_diff_output(&args.from, &args.to, &content))
+        // Fast path: when no write-policy transforms are active, use
+        // fs::rename (atomic, handles binary files, no memory allocation).
+        // Falls back to fs::copy + fs::remove_file for cross-filesystem moves.
+        if policy.is_noop() {
+            if args.force || !dst.exists() {
+                rename_or_copy(&src, &dst)?;
             } else {
-                None
-            };
-            let output = RenameOutput {
-                ok: true,
-                from: args.from.clone(),
-                to: args.to.clone(),
-                diff: diff_text,
-            };
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.diff {
-            print!("{}", make_diff_output(&args.from, &args.to, &content));
+                anyhow::bail!("destination already exists: {}", args.to);
+            }
+        } else {
+            // Write-policy transforms require reading as text.
+            let content = fs::read_to_string(&src)?;
+            if args.force {
+                atomic_write(&dst, &content, &policy)?;
+            } else {
+                atomic_create_new(&dst, &content, &policy)?;
+            }
+            fs::remove_file(&src)?;
+        }
+
+        if global.json || global.diff {
+            // After --apply, source is gone; read from destination.
+            let diff_text = try_diff(&dst, &args.from, &args.to);
+            if global.json {
+                let output = RenameOutput {
+                    ok: true,
+                    from: args.from.clone(),
+                    to: args.to.clone(),
+                    diff: if global.diff { diff_text } else { None },
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else if let Some(d) = diff_text {
+                print!("{d}");
+            } else if !global.quiet {
+                println!("renamed {} -> {} (binary)", args.from, args.to);
+            }
         } else if !global.quiet {
             println!("renamed {} -> {}", args.from, args.to);
         }
         return Ok(exit::SUCCESS);
     }
 
-    // Default / --diff mode: show what would happen.
+    // Default / --diff mode: show what would happen (source still exists).
+    let diff_text = try_diff(&src, &args.from, &args.to);
     if global.json {
         let output = RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: args.to.clone(),
-            diff: Some(make_diff_output(&args.from, &args.to, &content)),
+            diff: diff_text,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        print!("{}", make_diff_output(&args.from, &args.to, &content));
+    } else if let Some(d) = diff_text {
+        print!("{d}");
+    } else if !global.quiet {
+        println!("would rename {} -> {} (binary)", args.from, args.to);
     }
 
     Ok(exit::SUCCESS)
+}
+
+/// Try to read `path` as text and produce a rename diff. Returns `None` for
+/// binary files (non-UTF-8 content) or if the file cannot be read.
+fn try_diff(path: &std::path::Path, from_label: &str, to_label: &str) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    Some(make_diff_output(from_label, to_label, &content))
+}
+
+/// Rename a file, falling back to copy+delete when the source and destination
+/// are on different filesystems (where `fs::rename` would fail).
+fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+    match fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device(&e) => {
+            fs::copy(src, dst)?;
+            fs::remove_file(src)?;
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Check if an I/O error is a cross-device link error (EXDEV on Unix,
+/// ERROR_NOT_SAME_DEVICE on Windows).
+fn is_cross_device(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        e.raw_os_error() == Some(libc::EXDEV)
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_NOT_SAME_DEVICE = 17
+        e.raw_os_error() == Some(17)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = e;
+        false
+    }
 }
 
 fn make_diff_output(from: &str, to: &str, content: &str) -> String {
@@ -287,6 +342,30 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         assert!(file.exists(), "file should still exist");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+    }
+
+    #[test]
+    fn rename_binary_file() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("image.bin");
+        let dst = dir.path().join("moved.bin");
+        // Write non-UTF-8 content.
+        fs::write(&src, b"\x00\x01\x02\xff\xfe").unwrap();
+
+        let mut global = default_global();
+        global.apply = true;
+
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists());
+        assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
     }
 
     #[test]

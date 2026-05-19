@@ -14,6 +14,16 @@ pub struct WritePolicy {
     pub trim_trailing_whitespace: bool,
 }
 
+impl WritePolicy {
+    /// Returns `true` when no transformations are configured, meaning content
+    /// can be written (or moved) byte-for-byte without interpretation.
+    pub fn is_noop(&self) -> bool {
+        !self.ensure_final_newline
+            && matches!(self.normalize_eol, EolMode::Keep)
+            && !self.trim_trailing_whitespace
+    }
+}
+
 impl Default for WritePolicy {
     fn default() -> Self {
         Self {

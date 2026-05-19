@@ -3060,6 +3060,29 @@ fn test_rename_missing_source_fails() {
         .failure();
 }
 
+#[test]
+fn test_rename_binary_file() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("image.bin");
+    let dst = dir.path().join("moved.bin");
+    // Non-UTF-8 content.
+    fs::write(&src, b"\x00\x01\x02\xff\xfe").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists());
+    assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
+}
+
 // ---------------------------------------------------------------------------
 // create --check parent directory verification
 // ---------------------------------------------------------------------------

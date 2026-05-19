@@ -169,6 +169,17 @@ pub struct HygieneParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FileRenameParams {
+    /// Source file path (relative to working directory).
+    pub from: String,
+    /// Destination file path (relative to working directory).
+    pub to: String,
+    /// If true, overwrite the destination if it already exists.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct BatchParams {
     /// List of operations, one per string, in line-oriented batch format.
     /// Example: ["doc.set config.json version \"2.0.0\"", "replace README.md \"old\" \"new\""]
@@ -698,6 +709,62 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Rename (move) a file. Handles binary files. Use force to overwrite an existing destination."
+    )]
+    async fn patchloom_file_rename(
+        &self,
+        Parameters(p): Parameters<FileRenameParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.from)?;
+        validate_path_contained(&p.to)?;
+        validate_path_resolved(&p.from, &self.cwd)?;
+        validate_path_resolved(&p.to, &self.cwd)?;
+
+        // Use the standalone rename command (handles binary files via
+        // fs::rename) instead of going through the tx engine.
+        let exe = std::env::current_exe().map_err(|e| {
+            McpError::internal_error(format!("failed to get current exe: {e}"), None)
+        })?;
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["--json", "rename", "--from"])
+            .arg(&p.from)
+            .arg("--to")
+            .arg(&p.to)
+            .arg("--apply");
+        if p.force {
+            cmd.arg("--force");
+        }
+        let output = cmd
+            .current_dir(&self.cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let code = output.status.code().unwrap_or(1);
+
+        if code == crate::exit::SUCCESS as i32 {
+            let msg = if stdout.trim().is_empty() {
+                format!("Renamed {} -> {}", p.from, p.to)
+            } else {
+                stdout.trim().to_string()
+            };
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let msg = if !stderr.trim().is_empty() {
+                stderr.trim().to_string()
+            } else if !stdout.trim().is_empty() {
+                stdout.trim().to_string()
+            } else {
+                format!("Rename failed with exit code {code}.")
+            };
+            Ok(CallToolResult::error(vec![Content::text(msg)]))
+        }
+    }
+
+    #[tool(
         description = "Execute multiple operations atomically. Each string is one line in batch format: 'doc.set config.json version \"2.0\"'"
     )]
     async fn patchloom_batch(
@@ -799,6 +866,10 @@ mod tests {
         assert!(names.contains(&"patchloom_replace"), "missing replace tool");
         assert!(names.contains(&"patchloom_batch"), "missing batch tool");
         assert!(names.contains(&"patchloom_hygiene"), "missing hygiene tool");
+        assert!(
+            names.contains(&"patchloom_file_rename"),
+            "missing file_rename tool"
+        );
         client.cancel().await.unwrap();
     }
 
