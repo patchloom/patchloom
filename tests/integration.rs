@@ -9981,3 +9981,181 @@ fn test_json_error_envelope_on_delete_nonexistent_file() {
         .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
     assert_eq!(json["ok"], false);
 }
+
+// ---------------------------------------------------------------------------
+// MCP server integration tests
+// ---------------------------------------------------------------------------
+// These tests spawn `patchloom mcp-server` as a real subprocess and
+// communicate via the MCP stdio transport, verifying end-to-end tool calls.
+
+/// Check if the patchloom binary was built with MCP support.
+fn has_mcp_support() -> bool {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("mcp-server")
+        .arg("--help")
+        .ok()
+        .is_ok()
+}
+
+/// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
+async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    use rmcp::transport::TokioChildProcess;
+    use rmcp::ServiceExt;
+
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.arg("mcp-server").current_dir(cwd);
+
+    let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
+    ().serve(transport)
+        .await
+        .expect("failed to connect MCP client")
+}
+
+/// Helper: call a tool and return the text content from the first Content item.
+async fn call_tool_text(
+    client: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    tool: impl Into<String>,
+    args: serde_json::Value,
+) -> (bool, String) {
+    let params = rmcp::model::CallToolRequestParams::new(tool.into())
+        .with_arguments(serde_json::from_value(args).unwrap());
+    let result = client.peer().call_tool(params).await.unwrap();
+    let is_error = result.is_error.unwrap_or(false);
+    let text = result
+        .content
+        .first()
+        .and_then(|c| match &c.raw {
+            rmcp::model::RawContent::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    (is_error, text)
+}
+
+#[tokio::test]
+async fn test_mcp_doc_set_round_trip() {
+    if !has_mcp_support() {
+        return; // binary built without --features mcp
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"old","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "patchloom_doc_set",
+        serde_json::json!({"path": "config.json", "key": "name", "value": "new"}),
+    )
+    .await;
+    assert!(!is_error, "doc_set should succeed");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["name"], "new", "doc_set did not update file: {content}");
+    assert_eq!(
+        v["version"], "1.0",
+        "doc_set clobbered other keys: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "patchloom_replace",
+        serde_json::json!({"path": "hello.txt", "from": "world", "to": "patchloom"}),
+    )
+    .await;
+    assert!(!is_error, "replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("hello.txt")).unwrap();
+    assert_eq!(content, "hello patchloom\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_read_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "line1\nline2\nline3\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_read",
+        serde_json::json!({"path": "data.txt"}),
+    )
+    .await;
+    assert!(!is_error, "read should succeed");
+    assert!(
+        text.contains("line1"),
+        "read should return file content: {text}"
+    );
+    assert!(
+        text.contains("line3"),
+        "read should return all lines: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"version":"1.0"}"#).unwrap();
+    fs::write(dir.path().join("b.txt"), "old text\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "patchloom_batch",
+        serde_json::json!({
+            "operations": "doc.set a.json version \"2.0\"\nreplace b.txt \"old\" \"new\""
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch should succeed");
+
+    let a: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
+    assert_eq!(a["version"], "2.0", "batch doc.set failed");
+    let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
+    assert_eq!(b, "new text\n", "batch replace failed");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_set_nonexistent_file_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "patchloom_doc_set",
+        serde_json::json!({"path": "nope.json", "key": "x", "value": 1}),
+    )
+    .await;
+    assert!(is_error, "doc_set on nonexistent file should return error");
+    client.cancel().await.unwrap();
+}

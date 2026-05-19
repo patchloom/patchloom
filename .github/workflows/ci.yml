@@ -63,8 +63,8 @@ jobs:
       - name: Build
         run: cargo build
 
-      - name: Unit tests
-        run: cargo test --lib
+      - name: Unit tests (including MCP)
+        run: cargo test --lib --all-features
 
       - name: Integration tests
         run: cargo test --test integration
