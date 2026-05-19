@@ -239,9 +239,9 @@ fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
                 }
                 p
             }
-            // TODO(#223): PatchApply paths live inside diff text, not in
-            // struct fields. A future enhancement should parse the diff
-            // headers and validate each --- a/path and +++ b/path.
+            // TODO(#229): PatchApply paths live inside diff text, not in
+            // struct fields. Parse the --- a/path and +++ b/path headers
+            // and validate each with validate_path_contained().
             Operation::PatchApply { .. } => vec![],
         };
         for path in paths {
