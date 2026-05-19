@@ -376,6 +376,8 @@ mod tests {
             {"op": "file.create", "path": "f.txt", "content": "c"},
             {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
             {"op": "file.delete", "path": "f.txt"},
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"},
+            {"op": "file.rename", "from": "a.txt", "to": "b.txt", "force": true},
             {"op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-a\n+b"},
             {"op": "read", "path": "f.txt"},
             {"op": "read", "path": "f.txt", "lines": "1:10"},
@@ -383,7 +385,7 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 27);
+        assert_eq!(plan.operations.len(), 29);
     }
 
     #[test]
