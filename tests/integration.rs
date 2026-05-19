@@ -2945,6 +2945,172 @@ fn test_create_check_json_output() {
 }
 
 // ---------------------------------------------------------------------------
+// rename command
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rename_moves_file() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be removed");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
+}
+
+#[test]
+fn test_rename_check_does_not_move() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(src.exists(), "source should still exist in --check mode");
+    assert!(
+        !dst.exists(),
+        "destination should not be created in --check mode"
+    );
+}
+
+#[test]
+fn test_rename_refuses_overwrite_without_force() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "source\n").unwrap();
+    fs::write(&dst, "existing\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .failure();
+
+    // Both files should remain untouched.
+    assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "existing\n");
+}
+
+#[test]
+fn test_rename_force_overwrites() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "new content\n").unwrap();
+    fs::write(&dst, "old content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "new content\n");
+}
+
+#[test]
+fn test_rename_missing_source_fails() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(dir.path().join("nope.txt"))
+        .arg("--to")
+        .arg(dir.path().join("dst.txt"))
+        .arg("--apply")
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
+// create --check parent directory verification
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_create_check_fails_if_parent_missing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("nonexistent").join("sub").join("file.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "create --check should fail when parent dir doesn't exist"
+    );
+}
+
+#[test]
+fn test_create_check_force_skips_parent_verification() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("nonexistent").join("sub").join("file.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "create --check --force should succeed even if parent doesn't exist"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // output format
 // ---------------------------------------------------------------------------
 
@@ -4344,6 +4510,130 @@ fn test_tx_file_delete_empty_file() {
         .success();
 
     assert!(!file.exists(), "empty file should be deleted");
+}
+
+#[test]
+fn test_tx_file_rename_moves_file() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be deleted after rename");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "content\n"
+    );
+}
+
+#[test]
+fn test_tx_file_rename_fails_if_dst_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "src\n").unwrap();
+    fs::write(dir.path().join("new.txt"), "existing\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    // Should roll back (exit 7).
+    assert_eq!(output.status.code(), Some(7));
+    // Both files should be untouched.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.txt")).unwrap(),
+        "src\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "existing\n"
+    );
+}
+
+#[test]
+fn test_tx_file_rename_force_overwrites() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "new content\n").unwrap();
+    fs::write(dir.path().join("existing.txt"), "old content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "existing.txt", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!dir.path().join("old.txt").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+        "new content\n"
+    );
+}
+
+#[test]
+fn test_batch_file_rename() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("file.rename old.txt new.txt\n")
+        .assert()
+        .success();
+
+    assert!(!dir.path().join("old.txt").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "hello\n"
+    );
 }
 
 #[test]
