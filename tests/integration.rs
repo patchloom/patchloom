@@ -4736,6 +4736,36 @@ fn test_tx_file_rename_force_overwrites() {
 }
 
 #[test]
+fn test_tx_file_rename_same_path_is_noop() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("same.txt"), "keep me\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "same.txt", "to": "same.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("same.txt")).unwrap(),
+        "keep me\n"
+    );
+}
+
+#[test]
 fn test_batch_file_rename() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
