@@ -19,11 +19,18 @@ const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// doc.ensure <path> <key> <value>
 /// doc.append <path> <key> <value>
 /// doc.prepend <path> <key> <value>
+/// doc.update <path> <selector> <value>
+/// doc.move <path> <from> <to>
+/// doc.delete_where <path> <selector> <predicate>
 /// replace <path> <from> <to>
 /// file.create <path> <content>
 /// file.delete <path>
 /// md.upsert_bullet <path> <heading> <bullet>
 /// md.table_append <path> <heading> <row>
+/// md.replace_section <path> <heading> <content>
+/// md.insert_after_heading <path> <heading> <content>
+/// md.insert_before_heading <path> <heading> <content>
+/// md.dedupe_headings <path>
 /// hygiene.fix <path>
 /// ```
 ///

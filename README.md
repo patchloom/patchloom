@@ -610,7 +610,7 @@ hygiene.fix src/main.rs
 EOF
 ```
 
-Supported operations: `doc.set`, `doc.delete`, `doc.merge`, `doc.ensure`, `doc.append`, `doc.prepend`, `replace`, `file.create`, `file.delete`, `md.upsert_bullet`, `md.table_append`, `hygiene.fix`.
+Supported operations: `doc.set`, `doc.delete`, `doc.merge`, `doc.ensure`, `doc.append`, `doc.prepend`, `doc.update`, `doc.move`, `doc.delete_where`, `replace`, `file.create`, `file.delete`, `md.upsert_bullet`, `md.table_append`, `md.replace_section`, `md.insert_after_heading`, `md.insert_before_heading`, `md.dedupe_headings`, `hygiene.fix`.
 
 For operations needing format/validate lifecycle, regex, or `--nth`, use `tx` with a JSON plan instead.
 
@@ -626,7 +626,7 @@ cargo build --features mcp
 patchloom mcp-server
 ```
 
-MCP-capable agents discover patchloom's 13 tools via the MCP protocol and call them with structured JSON, with no shell quoting or command syntax. Add to your agent's MCP config:
+MCP-capable agents discover patchloom's tools via the MCP protocol and call them with structured JSON, with no shell quoting or command syntax. Add to your agent's MCP config:
 
 ```toml
 [mcp_servers.patchloom]

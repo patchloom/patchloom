@@ -100,8 +100,12 @@ pub struct ReplaceParams {
     pub path: String,
     /// Text to find.
     pub from: String,
-    /// Text to replace with.
-    pub to: String,
+    /// Text to replace with. Mutually exclusive with insert_before/insert_after.
+    pub to: Option<String>,
+    /// Insert text before each match instead of replacing. Mutually exclusive with to/insert_after.
+    pub insert_before: Option<String>,
+    /// Insert text after each match instead of replacing. Mutually exclusive with to/insert_before.
+    pub insert_after: Option<String>,
     /// Use regex mode for the `from` pattern.
     #[serde(default)]
     pub regex: bool,
@@ -110,6 +114,22 @@ pub struct ReplaceParams {
     /// Case-insensitive matching.
     #[serde(default)]
     pub case_insensitive: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocGetParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    /// Key/selector for the value to read (e.g., "version", "db.pool").
+    pub key: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ReadFileParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    /// Optional line range (e.g., "10:20"). Omit to read the entire file.
+    pub lines: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -202,6 +222,31 @@ fn validate_path_contained(path: &str) -> Result<(), McpError> {
         }
     }
 
+    Ok(())
+}
+
+/// Validate a resolved path does not escape the working directory via symlinks.
+///
+/// After the syntactic check, canonicalize the joined path and verify it
+/// starts with the canonicalized cwd. This catches symlinks that point
+/// outside the workspace (#231).
+fn validate_path_resolved(path: &str, cwd: &std::path::Path) -> Result<(), McpError> {
+    let joined = cwd.join(path);
+    // Only check if the path actually exists on disk (new files are fine).
+    if joined.exists() {
+        let canon_cwd = cwd.canonicalize().map_err(|e| {
+            McpError::internal_error(format!("failed to canonicalize cwd: {e}"), None)
+        })?;
+        let canon_path = joined.canonicalize().map_err(|e| {
+            McpError::internal_error(format!("failed to canonicalize path '{path}': {e}"), None)
+        })?;
+        if !canon_path.starts_with(&canon_cwd) {
+            return Err(McpError::invalid_params(
+                format!("resolved path escapes working directory: {path}"),
+                None,
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -490,7 +535,41 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Replace text in a file. Supports literal and regex modes.")]
+    #[tool(description = "Read a value from a JSON, YAML, or TOML file by key path.")]
+    async fn patchloom_doc_get(
+        &self,
+        Parameters(p): Parameters<DocGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        execute_plan(
+            make_plan(vec![Operation::Read {
+                path: p.path,
+                lines: None,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "Read file contents with optional line range.")]
+    async fn patchloom_read(
+        &self,
+        Parameters(p): Parameters<ReadFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        execute_plan(
+            make_plan(vec![Operation::Read {
+                path: p.path,
+                lines: p.lines,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Replace text in a file. Supports literal and regex modes, plus insert_before/insert_after."
+    )]
     async fn patchloom_replace(
         &self,
         Parameters(p): Parameters<ReplaceParams>,
@@ -507,10 +586,10 @@ impl PatchloomService {
                 path: Some(p.path),
                 mode,
                 from: p.from,
-                to: Some(p.to),
+                to: p.to,
                 nth: p.nth,
-                insert_before: None,
-                insert_after: None,
+                insert_before: p.insert_before,
+                insert_after: p.insert_after,
                 case_insensitive: p.case_insensitive,
                 multiline: false,
                 if_exists: false,

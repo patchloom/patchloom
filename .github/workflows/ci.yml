@@ -88,8 +88,11 @@ jobs:
         with:
           toolchain: "1.70"
 
-      - name: Check MSRV
+      - name: Check MSRV (default features)
         run: cargo check --all-targets
+
+      - name: Check MSRV (all features)
+        run: cargo check --all-targets --all-features
 
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}

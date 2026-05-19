@@ -1075,15 +1075,22 @@ fn rollback_strict(
     let noop_policy = WritePolicy::default();
     for (path, original, _) in changes {
         if !existed_before.contains(path) && !deletions.contains(path) {
-            let _ = std::fs::remove_file(path);
-        } else {
-            let _ = atomic_write(path, original, &noop_policy);
+            if let Err(e) = std::fs::remove_file(path) {
+                eprintln!("tx: rollback: failed to remove {}: {e}", path.display());
+            }
+        } else if let Err(e) = atomic_write(path, original, &noop_policy) {
+            eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
         }
     }
     for path in deletions {
         if let Some((orig, _)) = pending.get(path) {
             if existed_before.contains(path) {
-                let _ = atomic_write(path, orig, &noop_policy);
+                if let Err(e) = atomic_write(path, orig, &noop_policy) {
+                    eprintln!(
+                        "tx: rollback: failed to restore deleted {}: {e}",
+                        path.display()
+                    );
+                }
             }
         }
     }
