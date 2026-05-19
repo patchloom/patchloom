@@ -491,7 +491,14 @@ mod tests {
     #[test]
     fn parse_line_hygiene_fix() {
         let op = parse_line("hygiene.fix src/lib.rs", 1).unwrap();
-        assert!(matches!(op, Operation::HygieneFix { path, .. } if path == "src/lib.rs"));
+        assert!(matches!(
+            op,
+            Operation::HygieneFix { path, ensure_final_newline, trim_trailing_whitespace, normalize_eol }
+            if path == "src/lib.rs"
+                && ensure_final_newline.is_none()
+                && trim_trailing_whitespace.is_none()
+                && normalize_eol.is_none()
+        ));
     }
 
     #[test]
@@ -507,26 +514,44 @@ mod tests {
 
     #[test]
     fn parse_line_doc_update() {
-        let op = parse_line(r#"doc.update config.json items[*] {"active":true}"#, 1).unwrap();
-        assert!(matches!(op, Operation::DocUpdate { .. }));
+        // JSON objects with internal quotes must be escaped inside double quotes
+        // in batch format (see tokenize_json_value_quoted test).
+        let op = parse_line(r#"doc.update config.json items[*] "{\"active\":true}""#, 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::DocUpdate { path, key, value }
+            if path == "config.json" && key == "items[*]" && value == serde_json::json!({"active": true})
+        ));
     }
 
     #[test]
     fn parse_line_doc_move() {
         let op = parse_line(r#"doc.move config.json old_key new_key"#, 1).unwrap();
-        assert!(matches!(op, Operation::DocMove { .. }));
+        assert!(matches!(
+            op,
+            Operation::DocMove { path, from, to }
+            if path == "config.json" && from == "old_key" && to == "new_key"
+        ));
     }
 
     #[test]
     fn parse_line_doc_delete_where() {
         let op = parse_line(r#"doc.delete_where config.json items "status=obsolete""#, 1).unwrap();
-        assert!(matches!(op, Operation::DocDeleteWhere { .. }));
+        assert!(matches!(
+            op,
+            Operation::DocDeleteWhere { path, key, predicate }
+            if path == "config.json" && key == "items" && predicate == "status=obsolete"
+        ));
     }
 
     #[test]
     fn parse_line_md_replace_section() {
         let op = parse_line("md.replace_section README.md \"## API\" \"New content\"", 1).unwrap();
-        assert!(matches!(op, Operation::MdReplaceSection { .. }));
+        assert!(matches!(
+            op,
+            Operation::MdReplaceSection { path, heading, content }
+            if path == "README.md" && heading == "## API" && content == "New content"
+        ));
     }
 
     #[test]
@@ -536,7 +561,11 @@ mod tests {
             1,
         )
         .unwrap();
-        assert!(matches!(op, Operation::MdInsertAfterHeading { .. }));
+        assert!(matches!(
+            op,
+            Operation::MdInsertAfterHeading { path, heading, content }
+            if path == "README.md" && heading == "## Rules" && content == "New paragraph"
+        ));
     }
 
     #[test]
@@ -546,13 +575,21 @@ mod tests {
             1,
         )
         .unwrap();
-        assert!(matches!(op, Operation::MdInsertBeforeHeading { .. }));
+        assert!(matches!(
+            op,
+            Operation::MdInsertBeforeHeading { path, heading, content }
+            if path == "README.md" && heading == "## Rules" && content == "Preamble"
+        ));
     }
 
     #[test]
     fn parse_line_md_dedupe_headings() {
         let op = parse_line("md.dedupe_headings CHANGELOG.md", 1).unwrap();
-        assert!(matches!(op, Operation::MdDedupeHeadings { .. }));
+        assert!(matches!(
+            op,
+            Operation::MdDedupeHeadings { path }
+            if path == "CHANGELOG.md"
+        ));
     }
 
     #[test]
