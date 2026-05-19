@@ -9221,3 +9221,46 @@ fn test_doc_merge_check_exits_2() {
         "file should be unchanged in --check mode"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --json error envelope (#227)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_json_error_envelope_on_doc_get_nonexistent_file() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("get")
+        .arg(nonexistent_path("json-error-test.json"))
+        .arg("key")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+    assert!(!json["error"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn test_json_error_envelope_on_delete_nonexistent_file() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("delete")
+        .arg("--file")
+        .arg(nonexistent_path("json-error-del.txt"))
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+}

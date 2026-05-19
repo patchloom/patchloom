@@ -2383,6 +2383,36 @@ mod tests {
         }
 
         #[test]
+        fn delete_at_selector_removes_key() {
+            let mut root = json!({"a": 1, "b": 2});
+            let sel = crate::selector::parse("b").unwrap();
+            assert!(delete_at_selector(&mut root, &sel).unwrap());
+            assert_eq!(root, json!({"a": 1}));
+        }
+
+        #[test]
+        fn delete_at_selector_missing_returns_false() {
+            let mut root = json!({"a": 1});
+            let sel = crate::selector::parse("nonexistent").unwrap();
+            assert!(!delete_at_selector(&mut root, &sel).unwrap());
+        }
+
+        #[test]
+        fn delete_at_selector_array_index() {
+            let mut root = json!({"items": [10, 20, 30]});
+            let sel = crate::selector::parse("items[1]").unwrap();
+            assert!(delete_at_selector(&mut root, &sel).unwrap());
+            assert_eq!(root, json!({"items": [10, 30]}));
+        }
+
+        #[test]
+        fn delete_at_selector_empty_returns_false() {
+            let mut root = json!({"a": 1});
+            let sel: Vec<crate::selector::Segment> = vec![];
+            assert!(!delete_at_selector(&mut root, &sel).unwrap());
+        }
+
+        #[test]
         fn move_at_path_renames_key() {
             let mut root = json!({"old_name": "value", "other": 1});
             let from = crate::selector::parse("old_name").unwrap();

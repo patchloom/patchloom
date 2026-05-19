@@ -241,10 +241,14 @@ fn validate_operation_paths(operations: &[Operation]) -> Result<(), McpError> {
             }
             Operation::PatchApply { diff } => {
                 // Validate paths embedded in the unified diff text (#229).
-                if let Ok(patch_files) = crate::ops::patch::parse_patch(diff) {
-                    for pf in &patch_files {
-                        validate_path_contained(&pf.path)?;
-                    }
+                let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
+                    McpError::invalid_params(
+                        format!("failed to parse diff for path validation: {e}"),
+                        None,
+                    )
+                })?;
+                for pf in &patch_files {
+                    validate_path_contained(&pf.path)?;
                 }
                 vec![]
             }
