@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- 13 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `completions`, `agent-rules`
+- 15 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`, `mcp-server`
 - 22 transaction plan operation types for atomic multi-file changes
 - `format` and `validate` lifecycle arrays in tx plans with configurable timeout
 - `--nth N` flag for replace (standalone and tx) to target a specific occurrence
@@ -52,7 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
 - TOML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.toml` files (uses `toml_edit` CST)
 - YAML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.yaml`/`.yml` files (uses `yaml_edit` CST)
-- 639 tests (340 unit + 299 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 660 tests (359 unit + 301 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 
 ### Changed
 
