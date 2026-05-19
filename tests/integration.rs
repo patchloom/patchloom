@@ -3184,6 +3184,57 @@ fn test_rename_with_write_policy() {
 }
 
 // ---------------------------------------------------------------------------
+// rename: default diff preview and tx --check mode
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rename_default_diff_preview() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "hello\n").unwrap();
+    let dst = dir.path().join("new.txt");
+
+    // No --apply or --check: default mode shows diff preview.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("-hello"))
+        .stdout(predicate::str::contains("+hello"));
+
+    // Source should still exist (no mutation in preview mode).
+    assert!(src.exists());
+    assert!(!dst.exists());
+}
+
+#[test]
+fn test_rename_creates_parent_dirs() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("flat.txt");
+    let dst = dir.path().join("sub").join("dir").join("moved.txt");
+    fs::write(&src, "data\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "data\n");
+}
+
+// ---------------------------------------------------------------------------
 // create --check parent directory verification
 // ---------------------------------------------------------------------------
 
