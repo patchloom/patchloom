@@ -6,80 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Changed
+### Commands
 
-- Bump MSRV from 1.70 to 1.81 (requires Rust 1.81+ to build from source)
-- `create --apply` (non-force) and `tx` file.create now use `File::create_new` for race-free creation
-- `unsafe_code = "deny"` lint moved from `lib.rs` attribute to `[lints.rust]` in Cargo.toml
+16 commands covering search, structured editing, batching, and file operations:
 
-### Added
+- **search** / **replace** - Literal and regex search/replace across files, with context lines, `--nth`, `--case-insensitive`, `--insert-before`/`--insert-after`, `--assert-count`, and `--if-exists` for idempotent runs
+- **doc** - Parser-backed JSON, YAML, and TOML editing (get, set, delete, merge, append, prepend, update, move, ensure, delete-where, select, flatten, diff). Preserves comments and formatting in YAML and TOML
+- **md** - Heading-aware markdown editing (replace-section, insert-after/before-heading, upsert-bullet, table-append, dedupe-headings, lint-agents)
+- **tx** - Atomic multi-file transactions with 23 operation types, format/validate lifecycle, strict rollback mode, and YAML/TOML plan format support
+- **batch** - Line-oriented multi-operation syntax for quick multi-file edits without JSON
+- **patch** - Apply or check unified diffs with fuzz matching
+- **create** / **delete** / **rename** - File lifecycle operations with `--apply`/`--check`/`--force` modes. Rename handles binary files natively via `fs::rename`
+- **read** / **status** - File inspection and git working-tree status
+- **mcp-server** - MCP protocol server exposing all operations as structured tool calls
+- **agent-rules** / **completions** - Generate AI agent instructions or shell completions
 
-- 16 commands: `search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`, `mcp-server`
-- 23 transaction plan operation types for atomic multi-file changes
-- `rename` standalone command for moving files with `--apply`/`--check`/`--force` modes
-- `file.rename` tx/batch operation with `force` option for atomic renames
-- `atomic_create_new()` in write module, unifying TOCTOU-safe file creation with write policy
-- `create --check` now verifies parent directory exists (non-force mode)
-- `format` and `validate` lifecycle arrays in tx plans with configurable timeout
-- `--nth N` flag for replace (standalone and tx) to target a specific occurrence
-- `--case-insensitive` / `-i` for search and replace
-- `--glob` flag is repeatable for multi-pattern filtering via GlobSet
-- `md insert-before-heading` subcommand and tx operation
-- `delete` standalone command with `--apply` / `--check` modes
-- `file.create` tx operation with `force: true` option to overwrite
-- `doc.prepend`, `doc.update`, `doc.move`, `doc.ensure`, `doc.delete_where` tx operations
-- `md.table_append`, `md.dedupe_headings`, `md.insert_before_heading` tx operations
-- `patch.apply` and `file.delete` tx operations
-- Depth guard (128 levels) on `deep_merge` to prevent stack overflow
-- File path context in `with_doc` error messages
-- Dual license: MIT OR Apache-2.0
-- CONTRIBUTING.md, SECURITY.md, AGENTS.md
-- CI with fmt, clippy, tests, MSRV check, and dependency audit
-- `read` command for file content inspection with optional line range and multi-file batch support
-- `status` command showing uncommitted changes vs git HEAD
-- `replace --insert-before` and `--insert-after` modes for inserting text around matches
-- `replace --if-exists` flag for idempotent replacements that succeed on no match
-- `search --assert-count N` mode for CI invariant checks
-- YAML and TOML plan format support for `tx` (auto-detected from file extension, or `--plan-format`)
-- `--plan -` reads tx plan from stdin
-- tx replace `case_insensitive` and `multiline` fields for parity with standalone replace
-- tx replace `if_exists` field for idempotent replacements inside transactions
-- `delete --json` structured output for consistency with other write commands
-- `agent-rules` command that prints an end-user AGENTS.md teaching AI agents how to use patchloom
-- `search --before-context` (`-B`) and `--after-context` (`-A`) for asymmetric context around matches
-- `read` operation in `tx` plans for inspect-then-edit workflows in a single call
-- `search` operation in `tx` plans for locate-then-edit workflows in a single call
-- Stderr diagnostics for silently skipped files in search, replace, and tx glob replace
-- Documentation for tx operation ordering semantics
-- Documentation for `write_policy` in tx plans (applies to all operations including `file.create`)
-- `strict` mode for tx plans: reverts all writes on format/validate failure (exit code 7)
-- Thread-based timeout for format/validate steps (replaces polling loop)
-- JSON output mode for `tx` command via `--json` flag
-- JSON error output on all tx failure paths, with explicit `error_kind` values for parse_error, rollback, validation_failed, and format_failed while preserving backward-compatible legacy `error` prefixes
-- `PATCHLOOM.md` generated file containing CLI usage instructions for AI agents, kept in sync via `make sync-patchloom-md` and verified by `make check-patchloom-md`
-- Agent integration tests (`make agent-test`): 19 scenarios verifying AI agents use patchloom when given PATCHLOOM.md instructions. Uses a shim binary to capture every patchloom invocation. Supports pluggable agent drivers (Grok Build CLI first, extensible to Claude Code and others)
-- CLI benchmarks (`make bench-cli`): patchloom vs native tools (grep, sed, cat, jq) using hyperfine across small/medium/large synthetic corpora
-- Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
-- TOML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.toml` files (uses `toml_edit` CST)
-- YAML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.yaml`/`.yml` files (uses `yaml_edit` CST)
-- 721 tests (386 unit + 335 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+### Structured file safety
 
-### Changed
+- YAML and TOML edits preserve inline comments, section comments, and formatting (CST-level editing)
+- JSON/YAML/TOML mutations are parser-backed; output is always valid
+- Sequence-rooted YAML files are handled correctly (falls back to non-preserving serialization when root is not a mapping)
+- `doc` operations include depth guard (128 levels) on deep merge to prevent stack overflow
+- All file writes go through atomic write (tempfile + rename) for crash safety
 
-- Agent instructions (`agent-rules` output) rewritten to lead with `tx` batching as the primary speed advantage
-- Agent instructions now explicitly direct agents to use native tools for read/search/create/delete and patchloom for doc/md/tx/hygiene/patch
-- Single unified instruction set works across all three tested LLM models (no per-model variants needed)
-- README.md redesigned with sales pitch showing benchmark results and visual comparison
-- AGENTS.md cleaned up: removed "Using the patchloom CLI" section (AGENTS.md now focuses purely on repo development conventions)
-- Reference documentation (`docs/reference/README.md`) updated with agent-specific guidance for each command
+### Batching and transactions
 
-### Fixed
+- `tx` plans support `format` and `validate` lifecycle arrays with configurable timeouts
+- `strict` mode reverts all writes on format/validate failure (exit code 7)
+- `read` and `search` operations in tx plans for inspect-then-edit workflows in a single call
+- `batch` provides simpler line-oriented syntax covering 21 operation types
+- Operation ordering is well-defined: last write wins, delete-then-create works, each op sees prior results
+
+### Correctness fixes
 
 - `file.create` after `file.delete` in the same tx plan no longer silently loses the file
-- Makefile `update-readme` dynamically reads version, command count, and test counts instead of hardcoding
-- Empty `--from` string in replace and tx replace is now rejected instead of silently inserting between every character
-- tx replace with conflicting fields (`to` + `insert_before`, or `insert_before` + `insert_after`) now returns PARSE_ERROR instead of undefined behavior
-- tx replace plans missing all of `to`, `insert_before`, and `insert_after` now return PARSE_ERROR instead of silently deleting matches
-- Replace-only tx plans with zero matches now return NO_MATCHES (exit 3) instead of SUCCESS
+- Empty `--from` in replace/tx is rejected instead of inserting between every character
+- tx replace with conflicting fields (`to` + `insert_before`) returns PARSE_ERROR
+- tx replace missing all output fields returns PARSE_ERROR instead of silently deleting
+- Replace-only tx plans with zero matches return NO_MATCHES (exit 3) instead of SUCCESS
 - tx glob replace no longer buffers non-matching files into pending state
-- Sequence-rooted YAML files (`- item1\n- item2`) no longer silently discard mutations in `doc` operations; falls back to non-preserving serialization when the root is not a mapping
+- `create --check` verifies parent directory exists (non-force mode)
+- Race-free file creation via `File::create_new` for `create --apply` and tx `file.create`
+
+### Output and diagnostics
+
+- `--json` structured output on all commands including tx error paths
+- `--jsonl` streaming output for search and read
+- Explicit `error_kind` values in tx JSON output (parse_error, rollback, validation_failed, format_failed)
+- Stderr diagnostics for silently skipped files in search, replace, and tx glob
+- File path context in doc operation error messages
+
+### Testing and benchmarks
+
+- 721 tests (386 unit + 335 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- Agent integration tests: 19 scenarios with invocation-capture shim
+- CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
+- Agent A/B benchmarks measuring duration, tool calls, and success rate
+
+### Infrastructure
+
+- MSRV: Rust 1.81+
+- License: MIT OR Apache-2.0
+- CI: fmt, clippy, tests, MSRV check, dependency audit
+- `make check` runs the full gate locally

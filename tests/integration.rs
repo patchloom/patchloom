@@ -158,8 +158,10 @@ fn test_agent_rules_outputs_markdown() {
         .assert()
         .success()
         .stdout(predicates::str::contains("# Patchloom"))
-        .stdout(predicates::str::contains("## Quick reference"))
-        .stdout(predicates::str::contains("## Batching with `batch`"));
+        .stdout(predicates::str::contains(
+            "## Batching (the main speed win)",
+        ))
+        .stdout(predicates::str::contains("## Structured edits"));
 }
 
 #[test]
@@ -9184,16 +9186,12 @@ fn test_smoke_quickstart_transaction_snippet() {
 
 #[test]
 fn test_smoke_shell_completion_docs_include_elvish() {
-    for (path, label) in [
-        (installation_path(), "installation guide"),
-        (readme_path(), "README"),
-    ] {
-        let content = fs::read_to_string(path).unwrap();
-        assert!(
-            content.contains("patchloom completions elvish"),
-            "{label} should document elvish completions"
-        );
-    }
+    // Shell completions docs live in the installation guide (not README).
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains("patchloom completions elvish"),
+        "installation guide should document elvish completions"
+    );
 }
 
 #[test]
@@ -9214,15 +9212,19 @@ fn test_smoke_source_install_docs_use_cargo_install_path() {
 
 #[test]
 fn test_smoke_readme_command_examples() {
+    // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains("docs/reference/README.md"),
+        "README should link to the command reference"
+    );
+    // Verify the reference doc contains the detailed examples.
+    let reference = fs::read_to_string(repo_root().join("docs/reference/README.md")).unwrap();
+    assert!(reference.contains("`search`"));
+    assert!(reference.contains("`replace`"));
+    assert!(reference.contains("`doc`"));
+    assert!(reference.contains("`hygiene`"));
     let merge_value = r#"{"settings": {"debug": true}}"#;
-    let merge_command = format!("patchloom doc merge config.json --value '{merge_value}' --apply");
-    assert!(readme.contains("patchloom search 'TODO' src/"));
-    assert!(readme.contains("patchloom replace --from 'old_name' --to 'new_name' src/ --apply"));
-    assert!(readme.contains("patchloom doc keys package.json ."));
-    assert!(readme.contains(&merge_command));
-    assert!(readme.contains("patchloom hygiene check src/"));
-    assert!(readme.contains("patchloom hygiene fix . --ensure-final-newline --apply"));
 
     let dir = TempDir::new().unwrap();
     seed_docs_smoke_fixture(dir.path());
