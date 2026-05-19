@@ -26,11 +26,11 @@ clippy: ## Run clippy linter
 check: fmt-check build test integration-test clippy check-patchloom-md ## Run all checks (full CI gate)
 
 update-readme: ## Update README.md and CHANGELOG.md test counts
-	@unit=$$(cargo test --lib 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
+	@unit=$$(cargo test --lib --all-features 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	integ=$$(cargo test --test integration 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	total=$$((unit + integ)); \
-	cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
+	cmds=$$(cargo run --all-features --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	sed -i "s/tests-[0-9]*%20passing/tests-$$total%20passing/" README.md; \
 	sed -i "s/[0-9]* passing tests across [0-9]* commands/$$total passing tests across $$cmds commands/" README.md; \
 	sed -i "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
