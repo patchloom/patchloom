@@ -8267,6 +8267,214 @@ fn test_smoke_example_06_batch_version_bump() {
     );
 }
 
+// ── Batch integration tests ───────────────────────────────────────────
+
+#[test]
+fn test_batch_diff_mode_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("pkg.json"), r#"{"version":"1.0.0"}"#).unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set pkg.json version \"2.0.0\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .assert()
+        .success();
+
+    // File must be unchanged in default (diff) mode.
+    let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();
+    assert!(
+        content.contains("1.0.0"),
+        "file should be unchanged: {content}"
+    );
+}
+
+#[test]
+fn test_batch_apply_modifies_files() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("pkg.json"), r#"{"version":"1.0.0"}"#).unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set pkg.json version \"2.0.0\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();
+    assert!(
+        content.contains("2.0.0"),
+        "file should be updated: {content}"
+    );
+}
+
+#[test]
+fn test_batch_empty_input_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("empty.txt");
+    fs::write(&ops, "").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("no operations found"));
+}
+
+#[test]
+fn test_batch_comment_only_input_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("comments.txt");
+    fs::write(&ops, "# This is a comment\n\n# Another comment\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("no operations found"));
+}
+
+#[test]
+fn test_batch_malformed_line_fails() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("bad.txt");
+    fs::write(&ops, "unknown.op foo bar\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("unknown operation"));
+}
+
+#[test]
+fn test_batch_nonexistent_target_file_rollback() {
+    let dir = TempDir::new().unwrap();
+    // Do NOT create missing.json.
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set missing.json version \"2.0.0\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+}
+
+#[test]
+fn test_batch_from_stdin() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name":"old"}"#).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("doc.set data.json name \"new\"\n")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert!(
+        content.contains("new"),
+        "stdin batch should update file: {content}"
+    );
+}
+
+#[test]
+fn test_batch_check_mode_reports_changes() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("pkg.json"), r#"{"version":"1.0.0"}"#).unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set pkg.json version \"2.0.0\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--check")
+        .assert()
+        .code(2); // CHANGES_DETECTED
+
+    // File must be unchanged in --check mode.
+    let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();
+    assert!(
+        content.contains("1.0.0"),
+        "file should be unchanged in check mode: {content}"
+    );
+}
+
+#[test]
+fn test_batch_quiet_suppresses_empty_message() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("empty.txt");
+    fs::write(&ops, "").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "quiet should suppress stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_batch_json_output_on_apply() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"key":"old"}"#).unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set data.json key \"new\"\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["files_changed"], 1);
+}
+
 #[test]
 fn test_doc_get_honors_cwd() {
     let dir = TempDir::new().unwrap();

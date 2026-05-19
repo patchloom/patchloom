@@ -52,7 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Agent A/B benchmarks (`make bench-agent`): compares agent performance with and without patchloom AGENTS.md instructions, measuring duration, tool call count, and success rate
 - TOML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.toml` files (uses `toml_edit` CST)
 - YAML comment preservation: `doc` operations preserve inline comments, section comments, and formatting when editing `.yaml`/`.yml` files (uses `yaml_edit` CST)
-- 662 tests (360 unit + 302 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 676 tests (363 unit + 313 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 
 ### Changed
 
