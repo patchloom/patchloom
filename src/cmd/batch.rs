@@ -350,7 +350,11 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     std::fs::write(tmp.path(), &plan_json)?;
 
     let tx_args = crate::cmd::tx::TxArgs {
-        plan: tmp.path().to_str().unwrap().to_string(),
+        plan: tmp
+            .path()
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("temp file path is not valid UTF-8"))?
+            .to_string(),
         plan_format: None,
         write: args.write,
     };
