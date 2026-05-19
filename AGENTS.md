@@ -118,6 +118,8 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Use `tempfile::TempDir` for test fixtures that need a filesystem.
 - Use `GlobalFlags::default()` for test helpers. Override specific fields with struct update syntax: `GlobalFlags { apply: true, ..GlobalFlags::default() }`.
 - Test both the internal functions and the public `run()` function to verify exit codes.
+- When embedding file paths in YAML or TOML plan strings in integration tests, use `portable_path_str(&path)` (defined in `tests/integration.rs`) to convert backslashes to forward slashes. Windows paths like `C:\Users` contain `\U` which YAML and TOML parsers interpret as a unicode escape sequence.
+- For non-existent file paths in tests, use `nonexistent_path("name")` which returns a platform-appropriate path.
 
 ### Writes
 
