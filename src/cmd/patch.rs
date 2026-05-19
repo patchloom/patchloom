@@ -206,7 +206,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if global.check {
                 let has_changes = diffs.iter().any(|d| d.has_changes);
                 if has_changes {
-                    println!("{} file(s) would change", file_changes.len());
+                    if !global.quiet {
+                        println!("{} file(s) would change", file_changes.len());
+                    }
                     return Ok(exit::CHANGES_DETECTED);
                 }
                 return Ok(exit::SUCCESS);
