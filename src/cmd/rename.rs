@@ -2,6 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{format_diff_result, unified_diff, DiffResult};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
+use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::fs;
@@ -99,7 +100,8 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         } else {
             // Write-policy transforms require reading as text.
-            let content = fs::read_to_string(&src)?;
+            let content =
+                fs::read_to_string(&src).with_context(|| format!("reading {}", args.from))?;
             if args.force {
                 atomic_write(&dst, &content, &policy)?;
             } else {
