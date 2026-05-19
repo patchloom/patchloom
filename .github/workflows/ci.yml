@@ -60,14 +60,14 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build
+      - name: Build (all features including MCP)
+        run: cargo build --all-features
 
       - name: Unit tests (including MCP)
         run: cargo test --lib --all-features
 
-      - name: Integration tests
-        run: cargo test --test integration
+      - name: Integration tests (including MCP)
+        run: cargo test --test integration --all-features
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
