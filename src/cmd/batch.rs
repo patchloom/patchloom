@@ -146,6 +146,61 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 row: args[2].clone(),
             })
         }
+        "doc.update" => {
+            require_args(op, args, 3, line_num)?;
+            let value = parse_json_value(&args[2])?;
+            Ok(Operation::DocUpdate {
+                path: args[0].clone(),
+                key: args[1].clone(),
+                value,
+            })
+        }
+        "doc.move" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::DocMove {
+                path: args[0].clone(),
+                from: args[1].clone(),
+                to: args[2].clone(),
+            })
+        }
+        "doc.delete_where" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::DocDeleteWhere {
+                path: args[0].clone(),
+                key: args[1].clone(),
+                predicate: args[2].clone(),
+            })
+        }
+        "md.replace_section" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::MdReplaceSection {
+                path: args[0].clone(),
+                heading: args[1].clone(),
+                content: args[2].clone(),
+            })
+        }
+        "md.insert_after_heading" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::MdInsertAfterHeading {
+                path: args[0].clone(),
+                heading: args[1].clone(),
+                content: args[2].clone(),
+            })
+        }
+        "md.insert_before_heading" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::MdInsertBeforeHeading {
+                path: args[0].clone(),
+                heading: args[1].clone(),
+                content: args[2].clone(),
+            })
+        }
+        "md.dedupe_headings" => {
+            require_args(op, args, 1, line_num)?;
+            Ok(Operation::MdDedupeHeadings {
+                path: args[0].clone(),
+            })
+        }
         "hygiene.fix" => {
             require_args(op, args, 1, line_num)?;
             Ok(Operation::HygieneFix {
@@ -432,6 +487,56 @@ mod tests {
             Operation::MdUpsertBullet { path, heading, bullet }
             if path == "AGENTS.md" && heading == "## Rules" && bullet == "- New rule"
         ));
+    }
+
+    #[test]
+    fn parse_line_doc_update() {
+        let op = parse_line(r#"doc.update config.json items[*] {"active":true}"#, 1).unwrap();
+        assert!(matches!(op, Operation::DocUpdate { .. }));
+    }
+
+    #[test]
+    fn parse_line_doc_move() {
+        let op = parse_line(r#"doc.move config.json old_key new_key"#, 1).unwrap();
+        assert!(matches!(op, Operation::DocMove { .. }));
+    }
+
+    #[test]
+    fn parse_line_doc_delete_where() {
+        let op = parse_line(r#"doc.delete_where config.json items "status=obsolete""#, 1).unwrap();
+        assert!(matches!(op, Operation::DocDeleteWhere { .. }));
+    }
+
+    #[test]
+    fn parse_line_md_replace_section() {
+        let op = parse_line("md.replace_section README.md \"## API\" \"New content\"", 1).unwrap();
+        assert!(matches!(op, Operation::MdReplaceSection { .. }));
+    }
+
+    #[test]
+    fn parse_line_md_insert_after_heading() {
+        let op = parse_line(
+            "md.insert_after_heading README.md \"## Rules\" \"New paragraph\"",
+            1,
+        )
+        .unwrap();
+        assert!(matches!(op, Operation::MdInsertAfterHeading { .. }));
+    }
+
+    #[test]
+    fn parse_line_md_insert_before_heading() {
+        let op = parse_line(
+            "md.insert_before_heading README.md \"## Rules\" \"Preamble\"",
+            1,
+        )
+        .unwrap();
+        assert!(matches!(op, Operation::MdInsertBeforeHeading { .. }));
+    }
+
+    #[test]
+    fn parse_line_md_dedupe_headings() {
+        let op = parse_line("md.dedupe_headings CHANGELOG.md", 1).unwrap();
+        assert!(matches!(op, Operation::MdDedupeHeadings { .. }));
     }
 
     #[test]

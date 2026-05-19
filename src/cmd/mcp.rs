@@ -65,6 +65,26 @@ pub struct DocEnsureParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocUpdateParams {
+    /// File path.
+    pub path: String,
+    /// Wildcard selector for items to update (e.g., "items[*]").
+    pub key: String,
+    /// Value to set on each matched item.
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocMoveParams {
+    /// File path.
+    pub path: String,
+    /// Selector of the key to move.
+    pub from: String,
+    /// New selector path for the key.
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DocDeleteWhereParams {
     /// File path.
     pub path: String,
@@ -422,6 +442,40 @@ impl PatchloomService {
                 path: p.path,
                 key: p.key,
                 predicate: p.predicate,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file."
+    )]
+    async fn patchloom_doc_update(
+        &self,
+        Parameters(p): Parameters<DocUpdateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        execute_plan(
+            make_plan(vec![Operation::DocUpdate {
+                path: p.path,
+                key: p.key,
+                value: p.value,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "Move/rename a key in a JSON, YAML, or TOML file.")]
+    async fn patchloom_doc_move(
+        &self,
+        Parameters(p): Parameters<DocMoveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        execute_plan(
+            make_plan(vec![Operation::DocMove {
+                path: p.path,
+                from: p.from,
+                to: p.to,
             }]),
             &self.cwd,
         )
