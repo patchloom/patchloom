@@ -6,6 +6,7 @@ use crate::ops::md::{
     parse_headings, replace_section_in, table_append_in, upsert_bullet_in,
 };
 use crate::write::{atomic_write, policy_from_flags};
+use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -240,7 +241,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let replacement = read_content(stdin, &content)?;
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             match replace_section_in(&original, &heading, &replacement) {
                 Some(new) => apply_mutation(&file, &original, &new, global),
                 None => Ok(exit::NO_MATCHES),
@@ -254,7 +256,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let insertion = read_content(stdin, &content)?;
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             match insert_after_heading_in(&original, &heading, &insertion) {
                 Some(new) => apply_mutation(&file, &original, &new, global),
                 None => Ok(exit::NO_MATCHES),
@@ -268,7 +271,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let insertion = read_content(stdin, &content)?;
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             match insert_before_heading_in(&original, &heading, &insertion) {
                 Some(new) => apply_mutation(&file, &original, &new, global),
                 None => Ok(exit::NO_MATCHES),
@@ -280,7 +284,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             heading,
             bullet,
         } => {
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             match upsert_bullet_in(&original, &heading, &bullet) {
                 Some(new) => apply_mutation(&file, &original, &new, global),
                 None => Ok(exit::NO_MATCHES),
@@ -288,7 +293,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::DedupeHeadings { file } => {
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             let (new, removed) = dedupe_headings_in(&original);
             if !removed.is_empty() {
                 if global.json {
@@ -303,7 +309,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::LintAgents { file } => {
-            let content = std::fs::read_to_string(&file)?;
+            let content =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             let issues = lint_agents_content(&content);
 
             if global.json {
@@ -336,7 +343,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::TableAppend { file, heading, row } => {
-            let original = std::fs::read_to_string(&file)?;
+            let original =
+                std::fs::read_to_string(&file).with_context(|| format!("reading {file}"))?;
             match find_section(&original, &heading) {
                 None => Ok(exit::NO_MATCHES),
                 Some((body_start, body_end)) => {
