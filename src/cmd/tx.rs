@@ -562,21 +562,7 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     Ok(())
 }
 
-fn execute_operation(
-    op: &Operation,
-    pending: &mut HashMap<PathBuf, (String, String)>,
-    deletions: &mut HashSet<PathBuf>,
-    tx_reads: &mut Vec<TxReadResult>,
-    tx_searches: &mut Vec<TxSearchResult>,
-    cwd: &Path,
-) -> anyhow::Result<usize> {
-    let tx = &mut TxState {
-        pending,
-        deletions,
-        tx_reads,
-        tx_searches,
-        cwd,
-    };
+fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     match op {
         Operation::Replace { .. } => {
             return execute_replace_op(op, tx);
@@ -1181,14 +1167,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 has_non_idempotent_replace = true;
             }
         }
-        let result = execute_operation(
-            op,
-            &mut pending,
-            &mut deletions,
-            &mut tx_reads,
-            &mut tx_searches,
-            &cwd,
-        );
+        let mut tx = TxState {
+            pending: &mut pending,
+            deletions: &mut deletions,
+            tx_reads: &mut tx_reads,
+            tx_searches: &mut tx_searches,
+            cwd: &cwd,
+        };
+        let result = execute_operation(op, &mut tx);
         match result {
             Ok(match_count) => {
                 total_replace_matches += match_count;
