@@ -64,7 +64,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             applied: false,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
+    } else if !global.quiet {
         println!("would delete {}", args.file);
     }
     Ok(exit::SUCCESS)

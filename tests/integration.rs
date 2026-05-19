@@ -8392,6 +8392,25 @@ fn test_delete_default_dry_run_does_not_remove() {
 }
 
 #[test]
+fn test_delete_quiet_dry_run_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("quiet_delete.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert!(file.exists(), "quiet dry-run should not delete the file");
+}
+
+#[test]
 fn test_md_table_append_missing_file_includes_path_in_error() {
     Command::cargo_bin("patchloom")
         .unwrap()
