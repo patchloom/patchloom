@@ -11,6 +11,15 @@ Use patchloom when:
 
 For single-file read, search, create, delete, or rename, your native agent tools are faster.
 
+## MCP mode
+
+If patchloom MCP tools are available in your session (tool names starting with `patchloom_`), prefer them over CLI commands. MCP tools:
+- Apply changes directly (no `--apply` flag needed)
+- Accept structured JSON parameters (no shell quoting)
+- Enforce path containment (cannot escape working directory)
+
+Available tools: `patchloom_doc_set`, `patchloom_doc_delete`, `patchloom_doc_merge`, `patchloom_doc_append`, `patchloom_doc_prepend`, `patchloom_doc_ensure`, `patchloom_doc_delete_where`, `patchloom_doc_update`, `patchloom_doc_move`, `patchloom_doc_get`, `patchloom_replace`, `patchloom_md_upsert_bullet`, `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, `patchloom_hygiene`, `patchloom_file_rename`, `patchloom_batch`.
+
 ## Batching (the main speed win)
 
 Six file edits via native tools = six round-trips. One `batch` call = one round-trip:
@@ -27,6 +36,12 @@ EOF
 ```
 
 One line per operation. Double-quote values with spaces.
+
+On Windows (where heredocs are not available), write operations to a file and pass it:
+
+```bash
+patchloom batch --input ops.txt --apply
+```
 
 For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:
 
