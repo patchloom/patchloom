@@ -2,14 +2,14 @@
 
 ## Commands
 
-Patchloom has 15 commands, each targeting a different kind of repo operation:
+Patchloom has 16 commands, each targeting a different kind of repo operation:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
 - **md** -- markdown-aware editing (sections, bullets, tables, headings)
 - **doc** -- parser-backed JSON, YAML, and TOML mutations
 - **hygiene** -- whitespace and line-ending normalization
-- **create** / **delete** -- file lifecycle
+- **create** / **delete** / **rename** -- file lifecycle
 - **read** -- file content inspection with optional line range (supports multiple files)
 - **status** -- uncommitted change summary from git
 - **tx** -- atomic multi-operation transactions
