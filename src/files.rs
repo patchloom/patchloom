@@ -1,7 +1,8 @@
 use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
 /// in the first 8 KiB, the same heuristic Git uses).
@@ -50,12 +51,19 @@ pub(crate) fn collect_file_paths_opts(
     if include_hidden {
         builder.hidden(false);
     }
-    Ok(builder
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-        .map(ignore::DirEntry::into_path)
-        .collect())
+    let collected: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    builder.build_parallel().run(|| {
+        let collected = &collected;
+        Box::new(move |result| {
+            if let Ok(entry) = result {
+                if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                    collected.lock().unwrap().push(entry.into_path());
+                }
+            }
+            WalkState::Continue
+        })
+    });
+    Ok(collected.into_inner().unwrap())
 }
 
 /// Build a compiled glob matcher from `--glob`, or `None` if no globs given.
