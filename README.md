@@ -3,7 +3,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-711%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-712%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -230,6 +230,7 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 | `replace` | Mechanical string replacement with diff preview |
 | `create` | Create a new file with content |
 | `delete` | Delete a file |
+| `rename` | Move (rename) a file |
 | `read` | Read file contents with optional line range |
 | `status` | Show which files have uncommitted changes |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
@@ -507,6 +508,20 @@ Delete a file:
 patchloom delete --file obsolete.txt --apply
 ```
 
+### rename
+
+Move (rename) a file:
+
+```
+patchloom rename --from old_name.txt --to new_name.txt --apply
+```
+
+Force overwrite if the destination already exists:
+
+```
+patchloom rename --from src.txt --to dst.txt --force --apply
+```
+
 ### read
 
 Read a file:
@@ -610,7 +625,7 @@ hygiene.fix src/main.rs
 EOF
 ```
 
-Supported operations: `doc.set`, `doc.delete`, `doc.merge`, `doc.ensure`, `doc.append`, `doc.prepend`, `doc.update`, `doc.move`, `doc.delete_where`, `replace`, `file.create`, `file.delete`, `md.upsert_bullet`, `md.table_append`, `md.replace_section`, `md.insert_after_heading`, `md.insert_before_heading`, `md.dedupe_headings`, `hygiene.fix`.
+Supported operations: `doc.set`, `doc.delete`, `doc.merge`, `doc.ensure`, `doc.append`, `doc.prepend`, `doc.update`, `doc.move`, `doc.delete_where`, `replace`, `file.create`, `file.delete`, `file.rename`, `md.upsert_bullet`, `md.table_append`, `md.replace_section`, `md.insert_after_heading`, `md.insert_before_heading`, `md.dedupe_headings`, `hygiene.fix`.
 
 For operations needing format/validate lifecycle, regex, or `--nth`, use `tx` with a JSON plan instead.
 
@@ -695,6 +710,8 @@ The `tx` command accepts a JSON plan with an array of operations:
     { "op": "file.create", "path": "new.txt", "content": "hello" },
     { "op": "file.create", "path": "existing.txt", "content": "overwrite", "force": true },
     { "op": "file.delete", "path": "obsolete.txt" },
+    { "op": "file.rename", "from": "old.txt", "to": "new.txt" },
+    { "op": "file.rename", "from": "src.txt", "to": "dst.txt", "force": true },
     { "op": "patch.apply", "diff": "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new" },
     { "op": "read", "path": "src/main.rs", "lines": "1:10" },
     { "op": "search", "path": "src/main.rs", "pattern": "TODO", "context": 2 }
@@ -821,7 +838,7 @@ Two integration modes, same capabilities:
 
 ## Status
 
-711 passing tests across 15 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+712 passing tests across 15 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 

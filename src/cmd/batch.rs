@@ -25,6 +25,7 @@ const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// replace <path> <from> <to>
 /// file.create <path> <content>
 /// file.delete <path>
+/// file.rename <from> <to>
 /// md.upsert_bullet <path> <heading> <bullet>
 /// md.table_append <path> <heading> <row>
 /// md.replace_section <path> <heading> <content>
