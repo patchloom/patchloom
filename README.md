@@ -241,6 +241,18 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 | `agent-rules` | Generate agent instructions for your project |
 
+## How patchloom compares
+
+| Tool | Strength | Where patchloom differs |
+|------|----------|------------------------|
+| **jq** | JSON query/transform | patchloom also handles YAML, TOML, markdown; batches across files; preserves comments |
+| **yq** | YAML/JSON query/transform | patchloom preserves YAML comments via CST editing; adds markdown, batching, atomic transactions |
+| **dasel** | Multi-format get/set | patchloom adds batching (N edits in 1 call), atomic rollback, format/validate lifecycle |
+| **sd** | Regex find/replace | patchloom adds parser-backed structured edits; batching; never produces invalid JSON/YAML |
+| **comby** | Structural code patterns | patchloom targets config files and agent workflows, not source code pattern matching |
+
+The key difference: patchloom is designed for AI agent workflows. One `batch` or `tx` call replaces N sequential tool calls, cutting round-trips and eliminating partial-failure states.
+
 ## Full command reference
 
 Every command, flag, transaction operation, and exit code is documented in the **[Command Reference](docs/reference/README.md)**.
