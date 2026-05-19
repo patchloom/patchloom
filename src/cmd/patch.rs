@@ -189,7 +189,19 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             for pf in &patch_files {
                 let file_path = root.join(&pf.path);
-                let original = std::fs::read_to_string(&file_path).unwrap_or_default();
+                let original = match std::fs::read_to_string(&file_path) {
+                    Ok(s) => s,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                    Err(e) => {
+                        eprintln!(
+                            "patch apply: {} -- READ ERROR: failed to read {}: {}",
+                            pf.path,
+                            file_path.display(),
+                            e
+                        );
+                        return Ok(exit::AMBIGUOUS);
+                    }
+                };
                 let patched = match apply_hunks(&original, &pf.hunks) {
                     Ok(p) => p,
                     Err(msg) => {
@@ -479,6 +491,70 @@ mod tests {
     }
 
     // ── Integration: apply subcommand ───────────────────────────────
+
+    #[test]
+    fn apply_check_rejects_directory_target() {
+        let tmp = TempDir::new().unwrap();
+        let dir_target = tmp.path().join("hello.txt");
+        std::fs::create_dir(&dir_target).unwrap();
+
+        let diff_path = tmp.path().join("dir.patch");
+        std::fs::write(
+            &diff_path,
+            "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -0,0 +1 @@
++new line
+",
+        )
+        .unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.check = true;
+        let args = PatchArgs {
+            action: PatchAction::Apply {
+                file: Some(diff_path.to_string_lossy().to_string()),
+                stdin: false,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::AMBIGUOUS);
+        assert!(dir_target.is_dir());
+    }
+
+    #[test]
+    fn apply_rejects_directory_target() {
+        let tmp = TempDir::new().unwrap();
+        let dir_target = tmp.path().join("hello.txt");
+        std::fs::create_dir(&dir_target).unwrap();
+
+        let diff_path = tmp.path().join("dir.patch");
+        std::fs::write(
+            &diff_path,
+            "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -0,0 +1 @@
++new line
+",
+        )
+        .unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.apply = true;
+        let args = PatchArgs {
+            action: PatchAction::Apply {
+                file: Some(diff_path.to_string_lossy().to_string()),
+                stdin: false,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::AMBIGUOUS);
+        assert!(dir_target.is_dir());
+    }
 
     #[test]
     fn apply_writes_patched_file() {
