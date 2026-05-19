@@ -298,6 +298,7 @@ fn validate_operation_paths(
                 })?;
                 for pf in &patch_files {
                     validate_path_contained(&pf.path)?;
+                    validate_path_resolved(&pf.path, cwd)?;
                 }
                 vec![]
             }
