@@ -212,10 +212,14 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             to,
             insert_before,
             insert_after,
+            nth,
             ..
         } => {
             if from.is_empty() {
                 anyhow::bail!("replace operation requires a non-empty from field");
+            }
+            if *nth == Some(0) {
+                anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
             }
             match validate_replace_mode(
                 to.is_some(),

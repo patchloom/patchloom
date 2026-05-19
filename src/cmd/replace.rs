@@ -168,6 +168,9 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.from.is_empty() {
         anyhow::bail!("--from must not be empty");
     }
+    if args.nth == Some(0) {
+        anyhow::bail!("--nth is 1-based; use --nth 1 for the first occurrence");
+    }
 
     match validate_replace_mode(
         args.to.is_some(),
@@ -625,5 +628,29 @@ mod tests {
         // File must not be modified in check mode.
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "hello world\n");
+    }
+
+    #[test]
+    fn nth_zero_is_rejected() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "hello".to_string(),
+            to: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: Some(0),
+            case_insensitive: false,
+            write: Default::default(),
+        };
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(err.to_string().contains("1-based"), "{err}");
     }
 }
