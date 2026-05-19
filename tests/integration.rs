@@ -4616,6 +4616,55 @@ fn test_create_trim_trailing_whitespace() {
     );
 }
 
+#[test]
+fn test_create_ensure_final_newline() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("newline.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("no trailing newline")
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "no trailing newline\n",
+        "final newline should be appended via File::create_new path"
+    );
+}
+
+#[test]
+fn test_create_normalize_eol_lf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("eol.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("line1\r\nline2\r\n")
+        .arg("--normalize-eol")
+        .arg("lf")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "line1\nline2\n",
+        "CRLF should be normalized to LF via File::create_new path"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // multi-file replace --apply on directory
 // ---------------------------------------------------------------------------
