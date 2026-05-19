@@ -1373,7 +1373,10 @@ mod tests {
     fn shell_stderr_spam() -> &'static str {
         #[cfg(windows)]
         {
-            "powershell -Command \"1..4000 | ForEach-Object { Write-Error ('x' * 200) }; exit 0\""
+            // -NoProfile skips profile loading which can take 1-2 seconds on CI.
+            // Single Write() call instead of 4000 iterations keeps runtime well
+            // under the timeout even on slow runners.
+            "powershell -NoProfile -Command \"[Console]::Error.Write('x' * 800000); exit 0\""
         }
         #[cfg(not(windows))]
         {
@@ -1610,7 +1613,7 @@ mod tests {
         let plan_json = serde_json::json!({
             "operations": [],
             "validate": [
-                {"cmd": shell_stderr_spam(), "required": true, "timeout": 2}
+                {"cmd": shell_stderr_spam(), "required": true, "timeout": 10}
             ]
         });
 
