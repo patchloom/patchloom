@@ -604,7 +604,10 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
                     let keys: Vec<&str> = obj.keys().map(std::string::String::as_str).collect();
                     Ok((keys.join("\n"), exit::SUCCESS))
                 }
-                None => Ok((String::new(), exit::FAILURE)),
+                None => Ok((
+                    format!("doc keys: target at '{selector}' is not an object"),
+                    exit::FAILURE,
+                )),
             }
         }
 
@@ -622,7 +625,10 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             } else if let Some(obj) = target.as_object() {
                 Ok((obj.len().to_string(), exit::SUCCESS))
             } else {
-                Ok((String::new(), exit::FAILURE))
+                Ok((
+                    format!("doc len: target at '{selector}' is not an array or object"),
+                    exit::FAILURE,
+                ))
             }
         }
 
@@ -1343,7 +1349,7 @@ mod tests {
         };
         let (output, code) = execute(&action, false).unwrap();
         assert_eq!(code, exit::FAILURE);
-        assert!(output.is_empty());
+        assert!(output.contains("not an object"));
     }
 
     #[test]
@@ -1356,7 +1362,7 @@ mod tests {
         };
         let (output, code) = execute(&action, false).unwrap();
         assert_eq!(code, exit::FAILURE);
-        assert!(output.is_empty());
+        assert!(output.contains("not an array or object"));
     }
 
     #[test]

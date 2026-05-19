@@ -43,18 +43,28 @@ pub enum PatchAction {
 // ── Read diff input ────────────────────────────────────────────────
 
 /// Read diff text from the source indicated by the user.
-fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, u8> {
+/// Error from reading diff input.
+enum DiffReadError {
+    /// No input source specified.
+    NoSource,
+    /// IO error reading the specified file.
+    IoError(String, std::io::Error),
+    /// IO error reading stdin.
+    StdinError(std::io::Error),
+}
+
+fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, DiffReadError> {
     if let Some(path) = file {
-        std::fs::read_to_string(path).map_err(|_| exit::PARSE_ERROR)
+        std::fs::read_to_string(path).map_err(|e| DiffReadError::IoError(path.clone(), e))
     } else if stdin_flag {
         use std::io::Read;
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
-            .map_err(|_| exit::PARSE_ERROR)?;
+            .map_err(DiffReadError::StdinError)?;
         Ok(buf)
     } else {
-        Err(exit::PARSE_ERROR)
+        Err(DiffReadError::NoSource)
     }
 }
 
@@ -85,9 +95,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Read diff input.
     let diff_text = match read_diff_input(&file, stdin_flag) {
         Ok(text) => text,
-        Err(code) => {
+        Err(DiffReadError::NoSource) => {
             eprintln!("patch: must specify --file <path> or --stdin");
-            return Ok(code);
+            return Ok(exit::PARSE_ERROR);
+        }
+        Err(DiffReadError::IoError(path, e)) => {
+            eprintln!("patch: failed to read '{}': {}", path, e);
+            return Ok(exit::PARSE_ERROR);
+        }
+        Err(DiffReadError::StdinError(e)) => {
+            eprintln!("patch: failed to read stdin: {}", e);
+            return Ok(exit::PARSE_ERROR);
         }
     };
 
