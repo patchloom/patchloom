@@ -9,6 +9,8 @@
 
 Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by key (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
 
+![Patchloom demo: batch edit 4 files, preview diff, apply, verify YAML comments preserved](demo/demo.gif)
+
 ```bash
 # Edit a YAML key without breaking comments or formatting
 patchloom doc set config.yaml database.port 5432 --apply
