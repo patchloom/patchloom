@@ -215,6 +215,7 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 |---|---|
 | [Installation](./docs/getting-started/installation.md) | Install options and shell completions |
 | [Core concepts](./docs/getting-started/concepts.md) | Write modes, transaction plans, exit codes |
+| [MCP setup](./docs/getting-started/mcp-setup.md) | Configure patchloom as an MCP server for your agent |
 | [Quickstart](./docs/getting-started/quickstart.md) | 5-minute walkthrough |
 | [Reference](./docs/reference/README.md) | Every command, operation, and mode |
 | [Examples](./examples/README.md) | Transaction plan templates |
