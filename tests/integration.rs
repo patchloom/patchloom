@@ -3183,6 +3183,27 @@ fn test_rename_with_write_policy() {
     assert_eq!(fs::read_to_string(&dst).unwrap(), "no newline at end\n");
 }
 
+#[test]
+fn test_rename_binary_with_write_policy_includes_path_in_error() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("binary.bin");
+    // Non-UTF-8 content triggers read_to_string failure in write-policy branch.
+    fs::write(&src, b"\x00\x01\xff\xfe").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(dir.path().join("moved.bin"))
+        .arg("--trim-trailing-whitespace")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("binary.bin"));
+}
+
 // ---------------------------------------------------------------------------
 // rename: default diff preview and tx --check mode
 // ---------------------------------------------------------------------------
