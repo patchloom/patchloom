@@ -303,3 +303,93 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(mode: AgentMode, platform: AgentPlatform) -> AgentRulesArgs {
+        AgentRulesArgs { mode, platform }
+    }
+
+    #[test]
+    fn default_includes_all_sections() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        assert!(out.contains("# Patchloom"));
+        assert!(out.contains("## MCP mode"));
+        assert!(out.contains("## Batching"));
+        assert!(out.contains("## Structured edits"));
+        assert!(out.contains("## Exit codes"));
+        assert!(out.contains("<<'EOF'"));
+        assert!(out.contains("--input ops.txt"));
+    }
+
+    #[test]
+    fn mode_cli_omits_mcp_keeps_cli() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(!out.contains("## MCP mode"));
+        assert!(out.contains("## Batching"));
+        assert!(out.contains("## Structured edits"));
+    }
+
+    #[test]
+    fn mode_mcp_omits_cli_keeps_mcp() {
+        let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(out.contains("## MCP mode"));
+        assert!(!out.contains("## Batching"));
+        assert!(!out.contains("## Structured edits"));
+    }
+
+    #[test]
+    fn platform_linux_omits_windows() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Linux));
+        assert!(out.contains("<<'EOF'"));
+        assert!(!out.contains("--input ops.txt"));
+        // Single-quote syntax present, double-quote escaping absent
+        assert!(out.contains("'\"2.0.0\"'"));
+        assert!(!out.contains("\\\"2.0.0\\\""));
+    }
+
+    #[test]
+    fn platform_windows_omits_heredoc() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Windows));
+        assert!(!out.contains("<<'EOF'"));
+        assert!(out.contains("--input ops.txt"));
+        // Double-quote escaping present, single-quote syntax absent
+        assert!(out.contains("\\\"2.0.0\\\""));
+        assert!(!out.contains("'\"2.0.0\"'"));
+    }
+
+    #[test]
+    fn exit_codes_always_present() {
+        for mode in [AgentMode::All, AgentMode::Cli, AgentMode::Mcp] {
+            for platform in [
+                AgentPlatform::All,
+                AgentPlatform::Linux,
+                AgentPlatform::Windows,
+            ] {
+                let out = generate_agent_rules(&args(mode, platform));
+                assert!(
+                    out.contains("## Exit codes"),
+                    "exit codes missing for mode={mode:?} platform={platform:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn version_is_embedded() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        let version = env!("CARGO_PKG_VERSION");
+        assert!(out.contains(&format!("patchloom v{version}")));
+    }
+
+    #[test]
+    fn mcp_and_windows_compose_to_minimal() {
+        let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::Windows));
+        assert!(out.contains("## MCP mode"));
+        assert!(!out.contains("## Batching"));
+        assert!(!out.contains("--input ops.txt"));
+        assert!(!out.contains("<<'EOF'"));
+    }
+}
