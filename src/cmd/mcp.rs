@@ -806,6 +806,8 @@ impl ServerHandler for PatchloomService {
                 "Patchloom provides structured file editing tools for JSON, YAML, TOML, \
                      and Markdown files. Use patchloom_doc_* for config file edits, \
                      patchloom_md_* for markdown edits, patchloom_replace for text replacement, \
+                     patchloom_file_rename for moving/renaming files (binary-safe), \
+                     patchloom_read for reading files, patchloom_hygiene for whitespace fixes, \
                      and patchloom_batch for multi-file atomic edits.",
             );
         info.server_info.name = "patchloom".into();
