@@ -276,6 +276,18 @@ mod tests {
     }
 
     #[test]
+    fn noop_policy_returns_borrowed() {
+        let policy = WritePolicy::default();
+        let input = "hello\nworld\n";
+        let result = apply_policy(input, &policy);
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "no-op policy should return Cow::Borrowed"
+        );
+        assert_eq!(&*result, input);
+    }
+
+    #[test]
     fn apply_policy_chains_all() {
         let policy = WritePolicy {
             trim_trailing_whitespace: true,
