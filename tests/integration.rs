@@ -10552,6 +10552,16 @@ fn collect_serde_rename_values(path: &Path, anchor: &str) -> Vec<String> {
         .collect()
 }
 
+fn collect_batch_operation_names(path: &Path) -> Vec<String> {
+    let block = read_anchored_block(path, "match op");
+    let re = regex::Regex::new(r#"(?m)^\s*"([^"]+)"\s*=>"#).unwrap();
+    re.captures_iter(&block)
+        .map(|caps| caps[1].to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn collect_source_ref_markers(path: &Path) -> Vec<String> {
     let source = fs::read_to_string(path).unwrap();
     let re = regex::Regex::new(r"(?m)^\s*//\s*ref:([a-z0-9._:-]+)\s*$").unwrap();
@@ -10710,6 +10720,28 @@ fn test_reference_doc_requires_use_when_stanza() {
             .contains("reference section `patch-mode:file` must include a `Use when` stanza")),
         "expected missing `Use when` error, got:\n{}",
         errors.join("\n\n")
+    );
+}
+
+#[test]
+fn test_batch_reference_operation_count_matches_parser() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let markers = reference_markers(&reference);
+    let section = reference_section(&reference, &markers, "command:batch");
+    let listed = section
+        .split("covers ")
+        .nth(1)
+        .and_then(|rest| rest.split(" operations (").next())
+        .unwrap_or_else(|| panic!("batch reference section should contain an operation count"))
+        .parse::<usize>()
+        .unwrap();
+
+    let actual =
+        collect_batch_operation_names(&repo_root().join("src").join("cmd").join("batch.rs")).len();
+
+    assert_eq!(
+        listed, actual,
+        "batch reference doc should list the same number of operations the parser supports"
     );
 }
 
