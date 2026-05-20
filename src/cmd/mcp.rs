@@ -243,20 +243,36 @@ fn validate_path_contained(path: &str) -> Result<(), McpError> {
 /// outside the workspace (#231).
 fn validate_path_resolved(path: &str, cwd: &std::path::Path) -> Result<(), McpError> {
     let joined = cwd.join(path);
-    // Only check if the path actually exists on disk (new files are fine).
-    if joined.exists() {
-        let canon_cwd = cwd.canonicalize().map_err(|e| {
-            McpError::internal_error(format!("failed to canonicalize cwd: {e}"), None)
-        })?;
-        let canon_path = joined.canonicalize().map_err(|e| {
-            McpError::internal_error(format!("failed to canonicalize path '{path}': {e}"), None)
-        })?;
-        if !canon_path.starts_with(&canon_cwd) {
-            return Err(McpError::invalid_params(
-                format!("resolved path escapes working directory: {path}"),
-                None,
-            ));
+    // For existing paths, canonicalize directly.
+    // For non-existent paths, canonicalize the nearest existing ancestor
+    // to catch symlink directories that point outside the workspace.
+    let check_target = if joined.exists() {
+        joined.clone()
+    } else {
+        let mut ancestor = joined.as_path();
+        loop {
+            match ancestor.parent() {
+                Some(p) if p.exists() => {
+                    ancestor = p;
+                    break;
+                }
+                Some(p) => ancestor = p,
+                None => return Ok(()),
+            }
         }
+        ancestor.to_path_buf()
+    };
+    let canon_cwd = cwd
+        .canonicalize()
+        .map_err(|e| McpError::internal_error(format!("failed to canonicalize cwd: {e}"), None))?;
+    let canon_path = check_target.canonicalize().map_err(|e| {
+        McpError::internal_error(format!("failed to canonicalize path '{path}': {e}"), None)
+    })?;
+    if !canon_path.starts_with(&canon_cwd) {
+        return Err(McpError::invalid_params(
+            format!("resolved path escapes working directory: {path}"),
+            None,
+        ));
     }
     Ok(())
 }
@@ -973,7 +989,7 @@ mod tests {
     #[test]
     fn resolved_path_allows_nonexistent_file() {
         let dir = tempfile::TempDir::new().unwrap();
-        // Non-existent files skip the canonicalize check (new file case).
+        // Non-existent files with safe ancestors are allowed.
         assert!(validate_path_resolved("new_file.txt", dir.path()).is_ok());
     }
 
@@ -985,5 +1001,19 @@ mod tests {
         std::os::unix::fs::symlink("/tmp", &link).unwrap();
         let result = validate_path_resolved("escape", dir.path());
         assert!(result.is_err(), "symlink escaping cwd should be rejected");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_path_rejects_new_file_through_symlink_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("link_dir");
+        std::os::unix::fs::symlink("/tmp", &link).unwrap();
+        // The file doesn't exist, but the parent is a symlink outside cwd.
+        let result = validate_path_resolved("link_dir/new_file.txt", dir.path());
+        assert!(
+            result.is_err(),
+            "new file through symlink escaping cwd should be rejected"
+        );
     }
 }

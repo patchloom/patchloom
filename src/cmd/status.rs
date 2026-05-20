@@ -86,16 +86,23 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let total_changes = modified.len() + created.len() + deleted.len();
 
-    let out = StatusOutput {
-        ok: true,
-        modified: modified.clone(),
-        created: created.clone(),
-        deleted: deleted.clone(),
-        total_changes,
-    };
     if global.json {
+        let out = StatusOutput {
+            ok: true,
+            modified,
+            created,
+            deleted,
+            total_changes,
+        };
         println!("{}", serde_json::to_string_pretty(&out)?);
     } else if global.jsonl {
+        let out = StatusOutput {
+            ok: true,
+            modified,
+            created,
+            deleted,
+            total_changes,
+        };
         println!("{}", serde_json::to_string(&out)?);
     } else if !global.quiet {
         for f in &modified {
