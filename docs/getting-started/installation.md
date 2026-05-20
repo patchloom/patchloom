@@ -5,13 +5,23 @@ for now. The sections below describe the planned post-launch channels.
 
 ## From source (current)
 
-Install from source:
+Install the core CLI from source:
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
 ```
+
+Install with MCP support:
+
+```bash
+git clone https://github.com/patchloom/patchloom.git
+cd patchloom
+cargo install --path . --features mcp
+```
+
+The `mcp-server` command is feature-gated. If you only run `cargo install --path .`, you get the core CLI without MCP.
 
 ## From crates.io (after public launch)
 
