@@ -356,9 +356,21 @@ mod tests {
 
     #[test]
     fn trim_trailing_whitespace_removes_spaces() {
-        assert_eq!(
-            trim_trailing_whitespace("hello   \nworld\t\n"),
-            "hello\nworld\n"
+        let result = trim_trailing_whitespace("hello   \nworld\t\n");
+        assert_eq!(result, "hello\nworld\n");
+        assert!(
+            matches!(result, std::borrow::Cow::Owned(_)),
+            "trimmed content should be Cow::Owned"
+        );
+    }
+
+    #[test]
+    fn trim_trailing_whitespace_clean_returns_borrowed() {
+        let result = trim_trailing_whitespace("hello\nworld\n");
+        assert_eq!(result, "hello\nworld\n");
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "clean content should return Cow::Borrowed, not allocate"
         );
     }
 

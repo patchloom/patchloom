@@ -2602,6 +2602,11 @@ mod tests {
             let (out, count) = replace_content("hello", "zzz", "y", None, None);
             assert_eq!(out, "hello");
             assert_eq!(count, 0);
+            // Cow optimization: no-match must return Borrowed, not a cloned String.
+            assert!(
+                matches!(out, std::borrow::Cow::Borrowed(_)),
+                "expected Cow::Borrowed for no-match, got Owned"
+            );
         }
 
         #[test]
@@ -2616,6 +2621,7 @@ mod tests {
             let (out, count) = replace_content("aXb", "X", "Y", None, Some(5));
             assert_eq!(out, "aXb");
             assert_eq!(count, 0);
+            assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
         }
 
         #[test]
@@ -2640,6 +2646,35 @@ mod tests {
             let (out, count) = replace_content("user@host", "unused", "$2=$1", Some(&re), None);
             assert_eq!(out, "host=user");
             assert_eq!(count, 1);
+        }
+
+        #[test]
+        fn replace_content_regex_no_match_returns_borrowed() {
+            let re = regex::Regex::new(r"\d+").unwrap();
+            let (out, count) = replace_content("no digits here", "unused", "N", Some(&re), None);
+            assert_eq!(out, "no digits here");
+            assert_eq!(count, 0);
+            assert!(
+                matches!(out, std::borrow::Cow::Borrowed(_)),
+                "regex no-match should return Cow::Borrowed"
+            );
+        }
+
+        #[test]
+        fn replace_content_empty_from_returns_borrowed() {
+            let (out, count) = replace_content("hello", "", "y", None, None);
+            assert_eq!(out, "hello");
+            assert_eq!(count, 0);
+            assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
+        }
+
+        #[test]
+        fn replace_content_regex_nth_no_match_returns_borrowed() {
+            let re = regex::Regex::new(r"\d+").unwrap();
+            let (out, count) = replace_content("no digits here", "unused", "N", Some(&re), Some(1));
+            assert_eq!(out, "no digits here");
+            assert_eq!(count, 0);
+            assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
         }
     }
 
