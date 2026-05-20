@@ -851,7 +851,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:read -->
 ### `read`
 
-- **What it does:** Reads a file inside a transaction and includes its content in the JSON output without writing anything.
+- **What it does:** Reads a file inside a transaction and includes its content in the JSON output without writing anything. The JSON read result carries the same line metadata as top level `read` (`start_line`, `end_line`, `total_lines`), and when no line range is requested it preserves the raw file content exactly.
 - **Use when:** An agent needs to inspect file content before or after other operations in the same plan, enabling "understand then edit" in a single call.
 - **Related:** top level `read`
 
