@@ -49,11 +49,36 @@ Set a new value:
 patchloom doc set package.json version "2.0.0" --apply
 ```
 
-## Step 4: Run an atomic transaction
+## Step 4: Batch a few file edits into one call
 
-Adapt the paths and heading to files that actually exist in your repo.
+When you need several related edits at once, `batch` is the fastest path.
 This example assumes `package.json`, `README.md`, and `CHANGELOG.md`
 exist, and that `CHANGELOG.md` contains a `## Unreleased` heading:
+
+Preview the grouped edits:
+
+```bash
+patchloom batch <<'EOF'
+doc.set package.json version "3.0.0"
+replace README.md "v1.0.0" "v3.0.0"
+md.insert_after_heading CHANGELOG.md "## Unreleased" "- Bumped to v3.0.0"
+EOF
+```
+
+Apply them once the diff looks right:
+
+```bash
+patchloom batch --apply <<'EOF'
+doc.set package.json version "3.0.0"
+replace README.md "v1.0.0" "v3.0.0"
+md.insert_after_heading CHANGELOG.md "## Unreleased" "- Bumped to v3.0.0"
+EOF
+```
+
+## Step 5: Run an atomic transaction with a saved plan
+
+Use `tx` when the change should live in a reusable plan file, or when you need
+format/validate lifecycle steps in the same transaction.
 
 Create a plan file called `bump.json`:
 
@@ -82,7 +107,7 @@ patchloom tx --plan bump.json --apply
 
 If any operation fails, nothing is written.
 
-## Step 5: Use in CI
+## Step 6: Use in CI
 
 Check whether a plan would produce changes (exit code 2 = changes pending):
 

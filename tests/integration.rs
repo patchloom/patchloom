@@ -10202,6 +10202,8 @@ fn test_smoke_quickstart_command_flow() {
         .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply"));
     assert!(quickstart.contains("patchloom doc get package.json version"));
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
+    assert!(quickstart.contains("patchloom batch <<'EOF'"));
+    assert!(quickstart.contains("patchloom batch --apply <<'EOF'"));
 
     let dir = TempDir::new().unwrap();
     seed_docs_smoke_fixture(dir.path());
@@ -10278,6 +10280,40 @@ fn test_smoke_quickstart_command_flow() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package["version"], "2.0.0");
+
+    let batch_preview = patchloom_in(dir.path())
+        .arg("batch")
+        .write_stdin(
+            "doc.set package.json version \"3.0.0\"\nreplace README.md \"v1.0.0\" \"v3.0.0\"\nmd.insert_after_heading CHANGELOG.md \"## Unreleased\" \"- Bumped to v3.0.0\"\n",
+        )
+        .output()
+        .unwrap();
+    assert!(batch_preview.status.success());
+    let batch_preview_stdout = String::from_utf8_lossy(&batch_preview.stdout);
+    assert!(batch_preview_stdout.contains("package.json"));
+    assert!(batch_preview_stdout.contains("README.md"));
+    assert!(batch_preview_stdout.contains("CHANGELOG.md"));
+
+    let batch_apply = patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin(
+            "doc.set package.json version \"3.0.0\"\nreplace README.md \"v1.0.0\" \"v3.0.0\"\nmd.insert_after_heading CHANGELOG.md \"## Unreleased\" \"- Bumped to v3.0.0\"\n",
+        )
+        .output()
+        .unwrap();
+    assert!(batch_apply.status.success());
+
+    let package_after_batch: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_after_batch["version"], "3.0.0");
+    assert!(fs::read_to_string(dir.path().join("README.md"))
+        .unwrap()
+        .contains("v3.0.0"));
+    assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
+        .unwrap()
+        .contains("- Bumped to v3.0.0"));
 }
 
 #[test]
