@@ -78,13 +78,15 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
         }
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: None,
+        };
         if global.json {
-            let output = CreateOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: None,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("would create {}", args.file);
         }
@@ -108,18 +110,20 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             atomic_create_new(&path, &content, &policy)?;
         }
 
+        let diff_text = if global.diff {
+            Some(make_diff_output(&args.file, &content))
+        } else {
+            None
+        };
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: diff_text,
+        };
         if global.json {
-            let diff_text = if global.diff {
-                Some(make_diff_output(&args.file, &content))
-            } else {
-                None
-            };
-            let output = CreateOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: diff_text,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if global.diff {
             print!("{}", make_diff_output(&args.file, &content));
         } else if !global.quiet {
@@ -129,13 +133,15 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diff of changes.
+    let output = CreateOutput {
+        ok: true,
+        path: args.file.clone(),
+        diff: Some(make_diff_output(&args.file, &content)),
+    };
     if global.json {
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: Some(make_diff_output(&args.file, &content)),
-        };
         println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if global.jsonl {
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         print!("{}", make_diff_output(&args.file, &content));
     }

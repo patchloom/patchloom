@@ -2152,6 +2152,58 @@ fn test_status_modified_file() {
 }
 
 #[test]
+fn test_status_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    fs::write(dir.path().join("new.txt"), "new\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["total_changes"], 1);
+    assert!(json["created"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "new.txt"));
+}
+
+#[test]
 fn test_status_json_output() {
     let dir = TempDir::new().unwrap();
     std::process::Command::new("git")
@@ -3072,6 +3124,31 @@ fn test_create_check_exits_2() {
 }
 
 #[test]
+fn test_create_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--check")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    assert!(json["diff"].is_null());
+}
+
+#[test]
 fn test_create_check_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("new.txt");
@@ -3285,6 +3362,32 @@ fn test_rename_binary_file() {
 
     assert!(!src.exists());
     assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
+}
+
+#[test]
+fn test_rename_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(dir.path().join("new.txt"))
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dir.path().join("new.txt").to_str().unwrap());
+    assert!(json["diff"].is_null());
 }
 
 #[test]
@@ -5934,6 +6037,29 @@ fn test_delete_removes_file() {
         .success();
 
     assert!(!file.exists());
+}
+
+#[test]
+fn test_delete_jsonl_check_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "keep\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], false);
+    assert!(json["path"].as_str().unwrap().contains("safe.txt"));
 }
 
 #[test]

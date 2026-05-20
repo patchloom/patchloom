@@ -28,13 +28,15 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.check {
+        let output = DeleteOutput {
+            ok: true,
+            path: args.file.clone(),
+            applied: false,
+        };
         if global.json {
-            let output = DeleteOutput {
-                ok: true,
-                path: args.file.clone(),
-                applied: false,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("would delete {}", args.file);
         }
@@ -43,13 +45,15 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.apply {
         std::fs::remove_file(path)?;
+        let output = DeleteOutput {
+            ok: true,
+            path: args.file.clone(),
+            applied: true,
+        };
         if global.json {
-            let output = DeleteOutput {
-                ok: true,
-                path: args.file.clone(),
-                applied: true,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("deleted {}", args.file);
         }
@@ -57,13 +61,15 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default: dry-run.
+    let output = DeleteOutput {
+        ok: true,
+        path: args.file.clone(),
+        applied: false,
+    };
     if global.json {
-        let output = DeleteOutput {
-            ok: true,
-            path: args.file.clone(),
-            applied: false,
-        };
         println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if global.jsonl {
+        println!("{}", serde_json::to_string(&output)?);
     } else if !global.quiet {
         println!("would delete {}", args.file);
     }
