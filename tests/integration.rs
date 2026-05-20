@@ -4655,6 +4655,34 @@ fn test_tx_json_output_create_then_delete_is_noop() {
 }
 
 #[test]
+fn test_tx_file_delete_directory_target_fails() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.delete", "path": "folder"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
 fn test_tx_file_delete_existing() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doomed.txt");
@@ -5149,6 +5177,36 @@ fn test_tx_file_delete_empty_file() {
         .success();
 
     assert!(!file.exists(), "empty file should be deleted");
+}
+
+#[test]
+fn test_tx_file_rename_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("new-name");
+    fs::create_dir(&src).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "folder", "to": "new-name"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
 }
 
 #[test]
@@ -6467,6 +6525,35 @@ fn test_tx_file_create_new_file_writes_content() {
         "created via tx\n",
         "file.create via tx should write correct content through File::create_new"
     );
+}
+
+#[test]
+fn test_tx_file_create_force_directory_target_fails() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": target.to_str().unwrap(),
+            "content": "hello\n",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
 }
 
 #[test]

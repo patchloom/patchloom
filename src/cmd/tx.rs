@@ -847,6 +847,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             force,
         } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
                     let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
@@ -881,6 +884,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::FileDelete { path } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
@@ -902,6 +908,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
 
+            if src_path.exists() && !src_path.is_file() {
+                anyhow::bail!("source is not a file: {from}");
+            }
             if dst_path.exists() && !dst_path.is_file() {
                 anyhow::bail!("destination is not a file: {to}");
             }
