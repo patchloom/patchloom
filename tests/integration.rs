@@ -6131,6 +6131,43 @@ fn test_delete_check_mode_does_not_remove() {
 }
 
 #[test]
+fn test_delete_directory_target_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(target.to_str().unwrap())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_delete_directory_target_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(target.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
 fn test_delete_nonexistent_file_fails() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("ghost.txt");

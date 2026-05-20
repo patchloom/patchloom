@@ -26,6 +26,9 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if !path.exists() {
         anyhow::bail!("file not found: {}", args.file);
     }
+    if !path.is_file() {
+        anyhow::bail!("target is not a file: {}", args.file);
+    }
 
     if global.check {
         let output = DeleteOutput {
@@ -127,6 +130,23 @@ mod tests {
         let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(file.exists(), "--check should not delete the file");
+    }
+
+    #[test]
+    fn directory_target_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("folder");
+        std::fs::create_dir(&target).unwrap();
+
+        let result = run(
+            make_args(&target.to_string_lossy()),
+            &GlobalFlags::default(),
+        );
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("target is not a file"));
     }
 
     #[test]
