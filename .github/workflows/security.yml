@@ -53,8 +53,11 @@ jobs:
           GITLEAKS_VERSION: 8.30.1
         run: |
           archive="${RUNNER_TEMP}/gitleaks.tar.gz"
+          bindir="${RUNNER_TEMP}/gitleaks-bin"
+          mkdir -p "$bindir"
           curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
             -o "$archive" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          tar -xzf "$archive" -C /usr/local/bin gitleaks
+          tar -xzf "$archive" -C "$bindir" gitleaks
+          printf '%s\n' "$bindir" >> "$GITHUB_PATH"
       - run: gitleaks detect --source . --exit-code 1
