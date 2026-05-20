@@ -11443,3 +11443,80 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     assert!(is_error, "doc_set on nonexistent file should return error");
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_search_finds_pattern() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("haystack.txt"),
+        "first line\nsecond needle line\nthird line\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_search",
+        serde_json::json!({"pattern": "needle", "paths": ["haystack.txt"]}),
+    )
+    .await;
+    assert!(!is_error, "search should succeed: {text}");
+    assert!(
+        text.contains("needle"),
+        "search output should contain the match: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_has_existing_key() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name":"alice","age":30}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_has",
+        serde_json::json!({"path": "data.json", "key": "name"}),
+    )
+    .await;
+    assert!(!is_error, "doc_has should succeed: {text}");
+    assert!(
+        text.contains("true"),
+        "doc_has should return true for existing key: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_get_reads_value() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"version":"2.1.0","debug":false}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_get",
+        serde_json::json!({"path": "config.json", "key": "version"}),
+    )
+    .await;
+    assert!(!is_error, "doc_get should succeed: {text}");
+    assert!(
+        text.contains("2.1.0"),
+        "doc_get should return the value: {text}"
+    );
+    client.cancel().await.unwrap();
+}
