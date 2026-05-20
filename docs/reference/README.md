@@ -83,8 +83,8 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:jsonl -->
 ### `--jsonl`
 
-- **What it does:** Emits one JSON value per result line (compact, no pretty-printing).
-- **Use when:** A read style command may produce many results and you want to stream them incrementally to another tool. Also works for single-result commands where compact output is preferred.
+- **What it does:** Emits one compact JSON value per result line instead of one aggregate document.
+- **Use when:** A command naturally yields multiple result records, or you want compact machine-readable output from single-result commands like `create`, `delete`, `rename`, `status`, or `tx`.
 - **Prefer instead:** Use `--json` when you want one aggregate document for the whole command.
 
 <!-- ref:global-flag:quiet -->
@@ -174,7 +174,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:create -->
 ## `create`
 
-- **What it does:** Creates a new file from literal content or stdin.
+- **What it does:** Creates a file from literal content or stdin. Directory targets are rejected in all modes.
 - **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction. For AI agents creating a single file, native file creation tools are typically faster; use `file.create` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `doc`, `md`, or `replace` when the file already exists and only needs edits.
 - **Related:** `delete`, `tx file.create`
@@ -182,7 +182,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:delete -->
 ## `delete`
 
-- **What it does:** Removes a file.
+- **What it does:** Removes a file. Directory targets are rejected in all modes.
 - **Use when:** A file should disappear outright and no other atomic edits are needed. For AI agents deleting a single file, native delete tools are typically faster; use `file.delete` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
 - **Related:** `create`, `tx file.delete`
@@ -190,7 +190,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:rename -->
 ## `rename`
 
-- **What it does:** Moves (renames) a file from one path to another.
+- **What it does:** Moves (renames) a file from one path to another. Source and destination must both be file paths, not directories.
 - **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
 - **Related:** `create`, `delete`, `tx file.rename`
