@@ -68,7 +68,7 @@ fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, Di
 #[derive(Debug, Serialize)]
 struct PatchCheckResult {
     path: String,
-    status: String,
+    status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -127,7 +127,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let msg = format!("file not found: {}", file_path.display());
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "missing".to_string(),
+                            status: "missing",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -140,7 +140,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let msg = format!("failed to read {}: {}", file_path.display(), e);
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "error".to_string(),
+                            status: "error",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -154,7 +154,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Ok(_) => {
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "clean".to_string(),
+                            status: "clean",
                             error: None,
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -164,7 +164,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Err(msg) => {
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "stale".to_string(),
+                            status: "stale",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {

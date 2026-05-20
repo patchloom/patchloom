@@ -1371,10 +1371,11 @@ pub(crate) mod md {
     }
 
     pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
-        let lines: Vec<&str> = content.lines().collect();
         let mut headings = Vec::new();
+        let mut total_lines = 0usize;
 
-        for (idx, line) in lines.iter().enumerate() {
+        for (idx, line) in content.lines().enumerate() {
+            total_lines = idx + 1;
             if !line.starts_with('#') {
                 continue;
             }
@@ -1393,10 +1394,9 @@ pub(crate) mod md {
             });
         }
 
-        let total = lines.len();
         for i in 0..headings.len() {
             let lvl = headings[i].level;
-            let mut end = total;
+            let mut end = total_lines;
             for h in headings.iter().skip(i + 1) {
                 if h.level <= lvl {
                     end = h.line_start;

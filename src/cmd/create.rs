@@ -116,17 +116,22 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         } else {
             None
         };
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: diff_text,
-        };
         if global.json {
+            let output = CreateOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: diff_text,
+            };
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if global.jsonl {
+            let output = CreateOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: diff_text,
+            };
             println!("{}", serde_json::to_string(&output)?);
-        } else if global.diff {
-            print!("{}", make_diff_output(&args.file, &content));
+        } else if let Some(d) = diff_text {
+            print!("{d}");
         } else if !global.quiet {
             println!("created {}", args.file);
         }
@@ -134,17 +139,23 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diff of changes.
-    let output = CreateOutput {
-        ok: true,
-        path: args.file.clone(),
-        diff: Some(make_diff_output(&args.file, &content)),
-    };
+    let diff_text = make_diff_output(&args.file, &content);
     if global.json {
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: Some(diff_text),
+        };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if global.jsonl {
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: Some(diff_text),
+        };
         println!("{}", serde_json::to_string(&output)?);
     } else {
-        print!("{}", make_diff_output(&args.file, &content));
+        print!("{diff_text}");
     }
 
     Ok(exit::SUCCESS)
