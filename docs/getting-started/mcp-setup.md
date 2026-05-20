@@ -76,6 +76,14 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `patchloom_doc_update` | Update array elements matching a predicate |
 | `patchloom_doc_move` | Move a value from one key to another |
 | `patchloom_doc_get` | Read a value by key (read-only) |
+| `patchloom_doc_has` | Check whether a key path exists (read-only) |
+| `patchloom_doc_keys` | List object keys at a path (read-only) |
+| `patchloom_doc_len` | Count items in an array or object (read-only) |
+| `patchloom_doc_select` | Filter array items by selector (read-only) |
+| `patchloom_doc_flatten` | List all leaf key paths and values (read-only) |
+| `patchloom_doc_diff` | Compare two structured files (read-only) |
+| `patchloom_search` | Search files for a pattern with context (read-only) |
+| `patchloom_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `patchloom_read` | Read file contents with optional line range |
 | `patchloom_replace` | Replace text in a file (literal or regex) |
 | `patchloom_md_upsert_bullet` | Add a bullet under a markdown heading |
