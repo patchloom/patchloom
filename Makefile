@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
 
 .DEFAULT_GOAL := help
 
@@ -23,7 +23,9 @@ integration-test: ## Run integration tests
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check build test integration-test clippy check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test integration-test check-patchloom-md check-readme ## Run all checks (full CI gate)
+
+check-fast: fmt-check clippy test integration-test ## Fast check (skips doc verification)
 
 update-readme: ## Update README.md and CHANGELOG.md test counts
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l); \
