@@ -36,9 +36,12 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    // Validate source exists.
+    // Validate source exists and is a file.
     if !src.exists() {
         anyhow::bail!("source file not found: {}", args.from);
+    }
+    if !src.is_file() {
+        anyhow::bail!("source is not a file: {}", args.from);
     }
 
     // Validate destination does not exist (unless --force).

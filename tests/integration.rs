@@ -3219,6 +3219,52 @@ fn test_rename_missing_source_fails() {
 }
 
 #[test]
+fn test_rename_check_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
+}
+
+#[test]
+fn test_rename_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
+}
+
+#[test]
 fn test_rename_binary_file() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("image.bin");
