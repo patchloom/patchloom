@@ -2956,6 +2956,70 @@ fn test_patch_check_exits_5_when_stale() {
 }
 
 #[test]
+fn test_patch_check_exits_5_on_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .assert()
+        .code(5)
+        .stderr(predicate::str::contains(
+            "patch check: test.txt -- READ ERROR: failed to read",
+        ));
+}
+
+#[test]
+fn test_patch_check_json_reports_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["files"][0]["status"], "error");
+    assert!(json["files"][0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("failed to read"));
+}
+
+#[test]
 fn test_patch_apply_check_quiet_suppresses_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

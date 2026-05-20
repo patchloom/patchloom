@@ -128,7 +128,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 let file_path = root.join(&pf.path);
                 let original = match std::fs::read_to_string(&file_path) {
                     Ok(s) => s,
-                    Err(_) => {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                         let msg = format!("file not found: {}", file_path.display());
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
@@ -137,6 +137,19 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         });
                         if !global.json && !global.jsonl && !global.quiet {
                             eprintln!("patch check: {} -- MISSING: {}", pf.path, msg);
+                        }
+                        all_clean = false;
+                        continue;
+                    }
+                    Err(e) => {
+                        let msg = format!("failed to read {}: {}", file_path.display(), e);
+                        results.push(PatchCheckResult {
+                            path: pf.path.clone(),
+                            status: "error".to_string(),
+                            error: Some(msg.clone()),
+                        });
+                        if !global.json && !global.jsonl && !global.quiet {
+                            eprintln!("patch check: {} -- READ ERROR: {}", pf.path, msg);
                         }
                         all_clean = false;
                         continue;
