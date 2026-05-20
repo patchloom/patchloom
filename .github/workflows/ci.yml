@@ -131,7 +131,7 @@ jobs:
         run: cargo check --all-targets --all-features
 
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -146,7 +146,8 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Cache Rust dependencies
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-llvm-cov
