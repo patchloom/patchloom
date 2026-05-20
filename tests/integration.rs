@@ -10023,6 +10023,22 @@ fn test_batch_malformed_line_fails() {
 }
 
 #[test]
+fn test_batch_extra_args_fail() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("bad.txt");
+    fs::write(&ops, "file.delete old.txt extra\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("requires exactly 1 arguments"));
+}
+
+#[test]
 fn test_batch_nonexistent_target_file_rollback() {
     let dir = TempDir::new().unwrap();
     // Do NOT create missing.json.
