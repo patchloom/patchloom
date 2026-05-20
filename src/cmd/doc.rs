@@ -866,7 +866,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let (output, code) = execute_with_mode(&args.action, output_mode)?;
-    if !output.is_empty() {
+    if !output.is_empty() && (global.json || global.jsonl || !global.quiet) {
         println!("{output}");
     }
     Ok(code)

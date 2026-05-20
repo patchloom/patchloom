@@ -825,6 +825,29 @@ fn test_doc_get_jsonl_compound_value_is_single_line_json() {
 }
 
 #[test]
+fn test_doc_get_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet should suppress doc get output"
+    );
+}
+
+#[test]
 fn test_doc_get_json() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
