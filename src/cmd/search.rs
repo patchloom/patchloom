@@ -2,6 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use anyhow::bail;
 use clap::Args;
+use memchr::memchr_iter;
 use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
@@ -150,6 +151,16 @@ struct FileResult {
     count: usize,
 }
 
+fn line_and_column_for_offset(newline_offsets: &[usize], start: usize) -> (usize, usize) {
+    let line_index = newline_offsets.partition_point(|&offset| offset < start);
+    let line_start = if line_index == 0 {
+        0
+    } else {
+        newline_offsets[line_index - 1] + 1
+    };
+    (line_index + 1, start - line_start + 1)
+}
+
 /// Search a single file and return matches/counts.
 fn search_one_file(
     path: &std::path::Path,
@@ -165,6 +176,7 @@ fn search_one_file(
     let mut count = 0usize;
 
     if args.multiline {
+        let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
         for (start, end) in matcher.find_iter_positions(&content) {
             count += 1;
             if count_only {
@@ -173,12 +185,11 @@ fn search_one_file(
                 }
                 continue;
             }
-            let line_num = content[..start].matches('\n').count() + 1;
-            let col = start - content[..start].rfind('\n').map_or(0, |pos| pos + 1) + 1;
+            let (line, column) = line_and_column_for_offset(&newline_offsets, start);
             file_matches.push(SearchMatch {
                 path: path_str.clone(),
-                line: line_num,
-                column: col,
+                line,
+                column,
                 text: content[start..end].to_string(),
                 context_before: None,
                 context_after: None,
@@ -490,6 +501,15 @@ mod tests {
     }
 
     #[test]
+    fn line_and_column_for_offset_maps_multiline_positions() {
+        let newline_offsets = vec![2, 5];
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 0), (1, 1));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 2), (1, 3));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 3), (2, 1));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 6), (3, 1));
+    }
+
+    #[test]
     fn count_only_skips_match_construction() {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
@@ -575,6 +595,7 @@ mod tests {
             m.text
         );
         assert_eq!(m.line, 1, "match starts on line 1");
+        assert_eq!(m.column, 1, "match starts at column 1");
     }
 
     #[test]
