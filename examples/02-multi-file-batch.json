@@ -6,7 +6,7 @@
     { "op": "replace", "glob": "*.md", "from": "v0.1.0", "to": "v0.2.0" }
   ],
   "format": [
-    { "cmd": "cargo fmt --all", "timeout": 30 }
+    { "cmd": "cargo fmt --all" }
   ],
   "validate": [
     { "cmd": "cargo build", "required": true, "timeout": 120 }
