@@ -11,7 +11,7 @@ Patchloom aims to be a low-friction, high-trust open-source CLI. Keep contributi
 rustup update stable
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
-make check   # runs fmt, build, test, clippy, and doc checks
+make check   # runs fmt, build, test, clippy, and doc freshness checks
 ```
 
 ## Before You Open a Pull Request

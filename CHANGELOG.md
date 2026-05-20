@@ -67,5 +67,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - MSRV: Rust 1.81+
 - License: MIT OR Apache-2.0
-- CI: fmt, clippy, tests, MSRV check, dependency audit
-- `make check` runs the full gate locally
+- CI: fmt, clippy, tests, MSRV check, dependency audit, doc freshness checks
+- `make check` runs the full gate locally, including generated doc freshness

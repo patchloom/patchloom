@@ -14,8 +14,9 @@ Patchloom is a Rust CLI for agent-grade repo operations. The default build provi
 | `make test` | Run unit tests (`cargo test --lib --all-features`) |
 | `make integration-test` | Run integration tests (`cargo test --test integration --all-features`) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
-| `make check` | Run all of the above in sequence plus `check-patchloom-md` |
-| `make update-readme` | Update README.md and CHANGELOG.md test counts from actual `cargo test` output |
+| `make check` | Run all of the above in sequence plus `check-patchloom-md` and `check-readme` |
+| `make update-readme` | Update README.md and CHANGELOG.md test counts from current test inventory |
+| `make check-readme` | Verify README.md and CHANGELOG.md test counts are fresh (part of `check`) |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
