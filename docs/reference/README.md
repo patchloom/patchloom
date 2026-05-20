@@ -83,8 +83,8 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:jsonl -->
 ### `--jsonl`
 
-- **What it does:** Emits one JSON object per result line.
-- **Use when:** A read style command may produce many results and you want to stream them incrementally to another tool.
+- **What it does:** Emits one JSON value per result line (compact, no pretty-printing).
+- **Use when:** A read style command may produce many results and you want to stream them incrementally to another tool. Also works for single-result commands where compact output is preferred.
 - **Prefer instead:** Use `--json` when you want one aggregate document for the whole command.
 
 <!-- ref:global-flag:quiet -->
@@ -415,7 +415,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:tx-mode:plan-stdin -->
 ### `tx --plan -`
 
-- **What it does:** Reads the transaction plan JSON from stdin instead of a plan file.
+- **What it does:** Reads the transaction plan from stdin instead of a plan file. Defaults to JSON; use `--plan-format` for YAML or TOML.
 - **Use when:** The plan is generated on the fly or piped from another tool.
 - **Prefer instead:** Use `--plan <file>` when the plan should be stored, reviewed, or reused.
 
