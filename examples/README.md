@@ -3,8 +3,8 @@
 Sample transaction plans and batch scripts demonstrating Patchloom's capabilities.
 
 These examples are **illustrative templates**, not guaranteed to run unchanged in
-this repo. Read the target paths in each file first, then adapt them to your
-project before applying.
+this repo. Read the target paths and any embedded `format` or `validate`
+commands in each file first, then adapt them to your project before applying.
 
 ```
 # Transaction plans (JSON)
