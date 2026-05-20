@@ -539,6 +539,8 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
         let (s, e) = crate::cmd::read::parse_line_range(spec)?;
         let end = e.unwrap_or(total_lines).min(total_lines);
         (s, end)
+    } else if total_lines == 0 {
+        (0, 0)
     } else {
         (1, total_lines)
     };
