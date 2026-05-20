@@ -5,7 +5,7 @@ use clap::Args;
 
 /// Maximum number of operations in a single batch. Prevents unbounded
 /// memory allocation from accidentally or maliciously large inputs.
-const MAX_BATCH_OPERATIONS: usize = 10_000;
+pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 
 /// Execute multiple operations from a simple line-oriented format.
 ///

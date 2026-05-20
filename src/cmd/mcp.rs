@@ -984,6 +984,13 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<BatchParams>,
     ) -> Result<CallToolResult, McpError> {
+        if p.operations.len() > crate::cmd::batch::MAX_BATCH_OPERATIONS {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Too many operations ({}, max {}).",
+                p.operations.len(),
+                crate::cmd::batch::MAX_BATCH_OPERATIONS
+            ))]));
+        }
         let mut operations = Vec::new();
         for (i, line) in p.operations.iter().enumerate() {
             let trimmed = line.trim();
