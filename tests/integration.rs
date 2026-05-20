@@ -800,6 +800,31 @@ fn test_replace_multiline_regex() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_doc_get_jsonl_compound_value_is_single_line_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"obj":{"name":"patchloom","version":1}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("obj")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["name"], "patchloom");
+    assert_eq!(json["version"], 1);
+}
+
+#[test]
 fn test_doc_get_json() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
@@ -847,6 +872,34 @@ fn test_doc_has_missing_key() {
         .assert()
         .success()
         .stdout(predicate::str::contains("false"));
+}
+
+#[test]
+fn test_doc_keys_jsonl_outputs_one_key_per_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"scripts":{"build":"tsc","lint":"eslint"}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("scripts")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().any(|v| v == "build"));
+    assert!(lines.iter().any(|v| v == "lint"));
 }
 
 #[test]
@@ -2831,6 +2884,70 @@ fn test_hygiene_check_json_output() {
     assert_eq!(json["ok"], false);
     assert!(json["issue_count"].as_u64().unwrap() >= 2);
     assert!(json["issues"].is_array());
+}
+
+#[test]
+fn test_doc_flatten_jsonl_outputs_path_value_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1,"b":{"c":2}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(lines.iter().any(|v| v["path"] == "a" && v["value"] == 1));
+    assert!(lines.iter().any(|v| v["path"] == "b.c" && v["value"] == 2));
+}
+
+#[test]
+fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"name":"old","removed":true}"#).unwrap();
+    fs::write(&b, r#"{"name":"new","added":"yes"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "changed" && v["path"] == "name"));
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "removed" && v["path"] == "removed"));
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "added" && v["path"] == "added"));
 }
 
 #[test]
