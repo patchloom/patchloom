@@ -3212,6 +3212,50 @@ fn test_patch_check_json_reports_directory_read_error() {
 }
 
 #[test]
+fn test_patch_check_jsonl_reports_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+
+    assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
+    assert_eq!(lines[0]["path"], "test.txt");
+    assert_eq!(lines[0]["status"], "error");
+    assert!(lines[0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("failed to read"));
+}
+
+#[test]
 fn test_patch_apply_check_quiet_suppresses_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
