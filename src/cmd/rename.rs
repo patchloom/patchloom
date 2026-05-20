@@ -44,6 +44,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("source is not a file: {}", args.from);
     }
 
+    if dst.exists() && !dst.is_file() {
+        anyhow::bail!("destination is not a file: {}", args.to);
+    }
+
     // Validate destination does not exist (unless --force).
     if !args.force && dst.exists() {
         anyhow::bail!("destination already exists: {}", args.to);
@@ -270,6 +274,25 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn rename_force_rejects_directory_destination() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("old.txt");
+        let dst = dir.path().join("folder");
+        fs::write(&src, "hello\n").unwrap();
+        fs::create_dir(&dst).unwrap();
+
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: true,
+            write: Default::default(),
+        };
+
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(err.to_string().contains("destination is not a file"));
     }
 
     #[test]

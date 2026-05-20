@@ -3319,6 +3319,80 @@ fn test_rename_check_directory_source_fails() {
 }
 
 #[test]
+fn test_rename_force_directory_destination_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
+fn test_rename_force_directory_destination_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
+fn test_rename_force_directory_destination_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
 fn test_rename_directory_source_fails() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("folder");
