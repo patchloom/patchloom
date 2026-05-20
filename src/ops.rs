@@ -1084,7 +1084,7 @@ pub(crate) mod doc {
         let before_len = arr.len();
         arr.retain(|item| {
             item.get(pred_key)
-                .map_or(true, |field| !selector::value_matches_str(field, pred_val))
+                .is_none_or(|field| !selector::value_matches_str(field, pred_val))
         });
         Ok(before_len - arr.len())
     }

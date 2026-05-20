@@ -2,7 +2,7 @@
 name = "patchloom"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.95"
 description = "A Rust CLI for agent-grade repo operations"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/patchloom/patchloom"

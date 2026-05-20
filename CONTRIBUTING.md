@@ -7,7 +7,7 @@ Patchloom aims to be a low-friction, high-trust open-source CLI. Keep contributi
 ## Getting Started
 
 ```bash
-# Requires Rust 1.81+ (install or update via https://rustup.rs)
+# Requires Rust 1.95+ (install or update via https://rustup.rs)
 rustup update stable
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom

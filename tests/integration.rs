@@ -9639,6 +9639,10 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn ci_workflow_path() -> PathBuf {
+    repo_root().join(".github").join("workflows").join("ci.yml")
+}
+
 fn readme_path() -> PathBuf {
     repo_root().join("README.md")
 }
@@ -10430,6 +10434,49 @@ fn test_smoke_installation_docs_cover_mcp_feature_paths() {
     assert!(
         content.contains("The `mcp-server` command is feature-gated."),
         "installation guide should explain that MCP support is optional"
+    );
+}
+
+#[test]
+fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
+    let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
+    let rust_version_line = cargo
+        .lines()
+        .find(|line| line.starts_with("rust-version = "))
+        .expect("Cargo.toml should declare rust-version");
+    let rust_version = rust_version_line
+        .split('"')
+        .nth(1)
+        .expect("rust-version should be quoted");
+
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains(&format!("Rust {rust_version}+")),
+        "README should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let contributing = fs::read_to_string(repo_root().join("CONTRIBUTING.md")).unwrap();
+    assert!(
+        contributing.contains(&format!("Rust {rust_version}+")),
+        "CONTRIBUTING.md should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let changelog = fs::read_to_string(repo_root().join("CHANGELOG.md")).unwrap();
+    assert!(
+        changelog.contains(&format!("MSRV: Rust {rust_version}+")),
+        "CHANGELOG.md should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let installation = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        installation.contains(&format!("requires Rust {rust_version}+")),
+        "installation guide should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(
+        ci.contains(&format!("toolchain: \"{rust_version}\"")),
+        "ci.yml should pin the MSRV job to the same Rust version as Cargo.toml"
     );
 }
 

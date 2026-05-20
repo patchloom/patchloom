@@ -58,14 +58,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing and benchmarks
 
-- 808 tests (418 unit + 390 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 809 tests (418 unit + 391 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - Agent integration tests: 19 scenarios with invocation-capture shim
 - CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
 - Agent A/B benchmarks measuring duration, tool calls, and success rate
 
 ### Infrastructure
 
-- MSRV: Rust 1.81+
+- MSRV: Rust 1.95+
 - License: MIT OR Apache-2.0
 - CI: fmt, clippy, tests, MSRV check, dependency audit, doc freshness checks
 - `make check` runs the full gate locally, including generated doc freshness

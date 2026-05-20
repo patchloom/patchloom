@@ -5,7 +5,7 @@ for now. The sections below describe the planned post-launch channels.
 
 ## From source (current)
 
-Install the core CLI from source:
+Install the core CLI from source (requires Rust 1.95+):
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git
