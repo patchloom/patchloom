@@ -4312,6 +4312,29 @@ fn test_md_dedupe_headings_json_output() {
 }
 
 #[test]
+fn test_md_lint_agents_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# T\n\nUse git add .\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet should suppress lint-agents output"
+    );
+}
+
+#[test]
 fn test_md_lint_agents_clean_file_exits_0() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("AGENTS.md");

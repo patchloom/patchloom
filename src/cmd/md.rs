@@ -323,7 +323,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 for issue in &issues {
                     println!("{}", serde_json::to_string(issue)?);
                 }
-            } else {
+            } else if !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
