@@ -58,7 +58,7 @@ src/
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
-  agent_rules.md       End-user AGENTS.md template, embedded at compile time by agent-rules command
+  cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
@@ -69,7 +69,7 @@ src/
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
-                       22 operation types including all doc/md/replace/hygiene/file/patch ops
+                       23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops
 tests/
   integration.rs       Rust integration tests (cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom

@@ -9859,6 +9859,22 @@ fn test_reference_doc_requires_use_when_stanza() {
     );
 }
 
+#[test]
+fn test_agents_doc_project_inventory_matches_repo_state() {
+    let agents = fs::read_to_string(repo_root().join("AGENTS.md")).unwrap();
+
+    assert!(
+        agents.contains("cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output"),
+        "AGENTS.md should describe the current agent-rules implementation location"
+    );
+    assert!(
+        agents.contains(
+            "23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops"
+        ),
+        "AGENTS.md should describe the current tx operation count"
+    );
+}
+
 // ── binary file handling ─────────────────────────────────────────────
 
 #[test]
