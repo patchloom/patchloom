@@ -100,7 +100,29 @@ pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> 
 }
 
 /// Remove trailing spaces and tabs from every line, preserving line endings.
-pub fn trim_trailing_whitespace(content: &str) -> String {
+///
+/// Returns `Cow::Borrowed` when no trailing whitespace exists, avoiding
+/// allocation in the common case of clean files.
+pub fn trim_trailing_whitespace(content: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+
+    // Fast check: scan for any trailing whitespace before a newline or at EOF.
+    let bytes = content.as_bytes();
+    let has_trailing = memchr::memchr_iter(b'\n', bytes).any(|i| {
+        let prev = if i > 0 && bytes[i - 1] == b'\r' {
+            i.wrapping_sub(2)
+        } else {
+            i.wrapping_sub(1)
+        };
+        prev < bytes.len() && matches!(bytes[prev], b' ' | b'\t')
+    }) || (!content.is_empty()
+        && !content.ends_with('\n')
+        && matches!(bytes[bytes.len() - 1], b' ' | b'\t'));
+
+    if !has_trailing {
+        return Cow::Borrowed(content);
+    }
+
     let mut result = String::with_capacity(content.len());
     let mut rest = content;
 
@@ -123,7 +145,7 @@ pub fn trim_trailing_whitespace(content: &str) -> String {
         }
     }
 
-    result
+    Cow::Owned(result)
 }
 
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
@@ -137,7 +159,7 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
     }
 
     let mut s = if policy.trim_trailing_whitespace {
-        Cow::Owned(trim_trailing_whitespace(content))
+        trim_trailing_whitespace(content)
     } else {
         Cow::Borrowed(content)
     };

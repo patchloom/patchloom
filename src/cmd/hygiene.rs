@@ -211,9 +211,7 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if diff.has_changes {
                         println!("--- a/{}", r.rel_path);
                         println!("+++ b/{}", r.rel_path);
-                        for hunk in &diff.hunks {
-                            print!("{hunk}");
-                        }
+                        print!("{}", diff.hunks);
                     }
                 }
             }

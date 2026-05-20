@@ -7,8 +7,9 @@ use similar::TextDiff;
 pub struct FileDiff {
     /// The file path.
     pub path: String,
-    /// Each hunk as a unified diff text fragment.
-    pub hunks: Vec<String>,
+    /// All hunks concatenated into a single string, avoiding intermediate
+    /// `Vec<String>` allocation.
+    pub hunks: String,
     /// Whether the file has any changes.
     pub has_changes: bool,
 }
@@ -30,9 +31,13 @@ pub struct DiffResult {
 /// If there are no changes, returns a [`FileDiff`] with `has_changes: false`
 /// and empty hunks.
 pub fn unified_diff(path: &str, old: &str, new: &str) -> FileDiff {
+    use std::fmt::Write;
     let diff = TextDiff::from_lines(old, new);
     let unified = diff.unified_diff();
-    let hunks: Vec<String> = unified.iter_hunks().map(|h| h.to_string()).collect();
+    let mut hunks = String::new();
+    for hunk in unified.iter_hunks() {
+        let _ = write!(hunks, "{hunk}");
+    }
     let has_changes = !hunks.is_empty();
 
     FileDiff {
@@ -53,9 +58,7 @@ pub fn format_diff_result(result: &DiffResult) -> String {
     for diff in &result.diffs {
         if diff.has_changes {
             let _ = write!(output, "--- a/{}\n+++ b/{}\n", diff.path, diff.path);
-            for hunk in &diff.hunks {
-                output.push_str(hunk);
-            }
+            output.push_str(&diff.hunks);
         }
     }
     output
@@ -70,7 +73,7 @@ mod tests {
         let result = unified_diff("test.txt", "hello\n", "world\n");
         assert!(result.has_changes);
         assert_eq!(result.path, "test.txt");
-        assert!(!result.hunks.is_empty());
+        assert!(!result.hunks.is_empty(), "hunks should contain diff text");
 
         let diff_result = DiffResult {
             diffs: vec![result],
@@ -88,9 +91,8 @@ mod tests {
         let result = unified_diff("multi.txt", old, new);
         assert!(result.has_changes);
 
-        let hunk = &result.hunks[0];
-        assert!(hunk.contains("-old line"));
-        assert!(hunk.contains("+new line"));
+        assert!(result.hunks.contains("-old line"));
+        assert!(result.hunks.contains("+new line"));
     }
 
     #[test]
@@ -98,9 +100,7 @@ mod tests {
         let result = unified_diff("new_file.txt", "", "new content\n");
         assert!(result.has_changes);
         assert!(!result.hunks.is_empty());
-
-        let hunk = &result.hunks[0];
-        assert!(hunk.contains("+new content"));
+        assert!(result.hunks.contains("+new content"));
     }
 
     #[test]
@@ -108,9 +108,7 @@ mod tests {
         let result = unified_diff("deleted.txt", "old content\n", "");
         assert!(result.has_changes);
         assert!(!result.hunks.is_empty());
-
-        let hunk = &result.hunks[0];
-        assert!(hunk.contains("-old content"));
+        assert!(result.hunks.contains("-old content"));
     }
 
     #[test]

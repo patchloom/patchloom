@@ -25,27 +25,27 @@ pub enum Segment {
 /// ```
 pub fn parse(input: &str) -> Result<Selector, String> {
     let mut segments = Vec::new();
-    let chars: Vec<char> = input.chars().collect();
-    let len = chars.len();
+    let bytes = input.as_bytes();
+    let len = bytes.len();
     let mut i = 0;
 
     while i < len {
         // Skip dots between segments.
-        if chars[i] == '.' {
+        if bytes[i] == b'.' {
             i += 1;
             continue;
         }
 
-        if chars[i] == '[' {
+        if bytes[i] == b'[' {
             i += 1; // skip '['
             let start = i;
-            while i < len && chars[i] != ']' {
+            while i < len && bytes[i] != b']' {
                 i += 1;
             }
             if i >= len {
                 return Err("unclosed bracket in selector".to_string());
             }
-            let content: String = chars[start..i].iter().collect();
+            let content = &input[start..i];
             i += 1; // skip ']'
 
             if content == "*" {
@@ -65,12 +65,12 @@ pub fn parse(input: &str) -> Result<Selector, String> {
         } else {
             // Key segment: read until '.', '[', or end.
             let start = i;
-            while i < len && chars[i] != '.' && chars[i] != '[' {
+            while i < len && bytes[i] != b'.' && bytes[i] != b'[' {
                 i += 1;
             }
-            let key: String = chars[start..i].iter().collect();
+            let key = &input[start..i];
             if !key.is_empty() {
-                segments.push(Segment::Key(key));
+                segments.push(Segment::Key(key.to_string()));
             }
         }
     }

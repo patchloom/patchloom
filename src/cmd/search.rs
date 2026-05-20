@@ -7,6 +7,7 @@ use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Debug, Args)]
 pub struct SearchArgs {
@@ -57,7 +58,8 @@ pub struct SearchArgs {
 
 #[derive(Debug, Clone, Serialize)]
 struct SearchMatch {
-    path: String,
+    #[serde(serialize_with = "serialize_arc_str")]
+    path: Arc<str>,
     line: usize,
     column: usize,
     text: String,
@@ -65,6 +67,10 @@ struct SearchMatch {
     context_before: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     context_after: Option<Vec<String>>,
+}
+
+fn serialize_arc_str<S: serde::Serializer>(s: &Arc<str>, ser: S) -> Result<S::Ok, S::Error> {
+    ser.serialize_str(s)
 }
 
 #[derive(Debug, Serialize)]
@@ -77,7 +83,7 @@ struct SearchOutput {
 
 struct SearchResults {
     matches: Vec<SearchMatch>,
-    file_match_counts: BTreeMap<String, usize>,
+    file_match_counts: BTreeMap<Arc<str>, usize>,
 }
 
 /// Matcher abstraction: either a compiled regex or a memchr literal finder.
@@ -144,7 +150,7 @@ fn build_matcher(args: &SearchArgs) -> anyhow::Result<Matcher> {
 
 /// Per-file search result collected from parallel threads.
 struct FileResult {
-    path_str: String,
+    path_str: Arc<str>,
     matches: Vec<SearchMatch>,
     count: usize,
 }
@@ -169,7 +175,7 @@ fn search_one_file(
     let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
-    let path_str = path.to_string_lossy().into_owned();
+    let path_str: Arc<str> = Arc::from(path.to_string_lossy().as_ref());
     let mut file_matches: Vec<SearchMatch> = Vec::new();
     let mut count = 0usize;
 
@@ -274,7 +280,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     // Merge parallel results.
     let total_matches: usize = file_results.iter().map(|fr| fr.matches.len()).sum();
     let mut all_matches: Vec<SearchMatch> = Vec::with_capacity(total_matches);
-    let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut file_match_counts: BTreeMap<Arc<str>, usize> = BTreeMap::new();
     for fr in file_results {
         file_match_counts.insert(fr.path_str, fr.count);
         all_matches.extend(fr.matches);
@@ -311,13 +317,15 @@ fn format_results(
         if args.files_with_matches {
             // count_only mode: matches is empty, emit one line per file.
             for path in results.file_match_counts.keys() {
-                out.push_str(&serde_json::to_string(&serde_json::json!({"path": path}))?);
+                out.push_str(&serde_json::to_string(
+                    &serde_json::json!({"path": &**path}),
+                )?);
                 out.push('\n');
             }
         } else if args.count {
             for (path, count) in &results.file_match_counts {
                 out.push_str(&serde_json::to_string(
-                    &serde_json::json!({"path": path, "count": count}),
+                    &serde_json::json!({"path": &**path, "count": count}),
                 )?);
                 out.push('\n');
             }

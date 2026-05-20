@@ -1276,13 +1276,14 @@ pub(crate) mod replace {
         expanded
     }
 
-    pub(crate) fn replace_content(
-        content: &str,
+    pub(crate) fn replace_content<'a>(
+        content: &'a str,
         from: &str,
         to: &str,
         compiled_re: Option<&Regex>,
         nth: Option<usize>,
-    ) -> (String, usize) {
+    ) -> (std::borrow::Cow<'a, str>, usize) {
+        use std::borrow::Cow;
         match (nth, compiled_re) {
             (Some(n), Some(re)) => {
                 let mut count = 0usize;
@@ -1299,9 +1300,9 @@ pub(crate) mod replace {
                         result.push_str(&replacement);
                     }
                     result.push_str(&content[m.end()..]);
-                    return (result, 1);
+                    return (Cow::Owned(result), 1);
                 }
-                (content.to_owned(), 0)
+                (Cow::Borrowed(content), 0)
             }
             (Some(n), None) => {
                 let mut count = 0usize;
@@ -1315,27 +1316,29 @@ pub(crate) mod replace {
                     result.push_str(&content[..start]);
                     result.push_str(to);
                     result.push_str(&content[start + from.len()..]);
-                    return (result, 1);
+                    return (Cow::Owned(result), 1);
                 }
-                (content.to_owned(), 0)
+                (Cow::Borrowed(content), 0)
             }
             (None, Some(re)) => {
-                let mut count = 0usize;
-                let replaced = re
-                    .replace_all(content, |caps: &regex::Captures| {
-                        count += 1;
-                        expand_regex_replacement(caps, to)
-                    })
-                    .to_string();
-                if count == 0 {
-                    return (content.to_owned(), 0);
+                let replaced = re.replace_all(content, |caps: &regex::Captures| {
+                    expand_regex_replacement(caps, to)
+                });
+                match replaced {
+                    Cow::Borrowed(_) => (Cow::Borrowed(content), 0),
+                    Cow::Owned(s) => {
+                        // Count actual replacements by re-running find_iter.
+                        // This is cheaper than the closure counter since
+                        // replace_all already proved matches exist.
+                        let count = re.find_iter(content).count();
+                        (Cow::Owned(s), count)
+                    }
                 }
-                (replaced, count)
             }
             (None, None) => {
                 // Single-pass using SIMD-accelerated memchr::memmem::Finder.
                 if from.is_empty() {
-                    return (content.to_owned(), 0);
+                    return (Cow::Borrowed(content), 0);
                 }
                 let finder = memchr::memmem::Finder::new(from.as_bytes());
                 let bytes = content.as_bytes();
@@ -1350,10 +1353,10 @@ pub(crate) mod replace {
                     count += 1;
                 }
                 if count == 0 {
-                    return (content.to_owned(), 0);
+                    return (Cow::Borrowed(content), 0);
                 }
                 result.push_str(&content[last..]);
-                (result, count)
+                (Cow::Owned(result), count)
             }
         }
     }

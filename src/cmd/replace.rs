@@ -126,6 +126,7 @@ fn collect_replacements(
             let (replaced, count) =
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
             if count > 0 {
+                let replaced = replaced.into_owned();
                 Some(FileReplacement {
                     path: path.to_string_lossy().into_owned(),
                     original: content,

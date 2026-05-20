@@ -366,47 +366,43 @@ fn flush_doc_cache(
     Ok(())
 }
 
-/// Load a structured document from the cache (or parse from pending buffer),
-/// apply a mutation closure, and store back in the cache. Serialization is
+/// Load a structured document from the cache (or parse from pending buffer)
+/// and return a mutable reference to the parsed JSON value. Serialization is
 /// deferred until the cache is flushed.
-fn with_doc<F>(
+///
+/// Callers mutate the returned `&mut Value` directly using borrowed references
+/// from the `Operation` match arm, eliminating the need to clone `String` and
+/// `Value` fields into a closure.
+fn get_doc_root<'a>(
     pending: &mut HashMap<PathBuf, (String, String)>,
-    doc_cache: &mut HashMap<PathBuf, CachedDoc>,
+    doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
     path: &str,
     cwd: &Path,
-    mutate: F,
-) -> anyhow::Result<()>
-where
-    F: FnOnce(&mut serde_json::Value) -> anyhow::Result<()>,
-{
+) -> anyhow::Result<&'a mut serde_json::Value> {
     let file_path = cwd.join(path);
 
-    // Check cache first; if cached, mutate in place without re-parsing.
-    if let Some(cached) = doc_cache.get_mut(&file_path) {
-        mutate(&mut cached.value).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-        return Ok(());
+    // Ensure the document is in the cache.
+    if !doc_cache.contains_key(&file_path) {
+        let content = read_file_content(pending, &file_path, cwd)?;
+        let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+        let root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+        let old_value = match format {
+            FileFormat::Json => serde_json::Value::Null,
+            _ => root.clone(),
+        };
+        let original_text = content.to_owned();
+        doc_cache.insert(
+            file_path.clone(),
+            CachedDoc {
+                value: root,
+                format,
+                original_text,
+                old_value,
+            },
+        );
     }
 
-    // Not cached: parse from text, apply mutation, and insert into cache.
-    let content = read_file_content(pending, &file_path, cwd)?;
-    let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let mut root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    let old_value = match format {
-        FileFormat::Json => serde_json::Value::Null,
-        _ => root.clone(),
-    };
-    let original_text = content.to_owned();
-    mutate(&mut root).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-    doc_cache.insert(
-        file_path,
-        CachedDoc {
-            value: root,
-            format,
-            original_text,
-            old_value,
-        },
-    );
-    Ok(())
+    Ok(&mut doc_cache.get_mut(&file_path).unwrap().value)
 }
 
 /// Cached parsed document for avoiding redundant parse-serialize cycles when
@@ -475,7 +471,10 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
         let (replaced, match_count) =
             replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
-        update_file_content(tx.pending, tx.deletions, &file_path, replaced);
+        if match_count > 0 {
+            let owned = replaced.into_owned();
+            update_file_content(tx.pending, tx.deletions, &file_path, owned);
+        }
         Ok(match_count)
     } else if let Some(pattern) = glob {
         let matcher = Glob::new(pattern)?.compile_matcher();
@@ -517,7 +516,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth);
             total_matches += match_count;
             if match_count > 0 {
-                update_file_content(tx.pending, tx.deletions, &file_path, replaced);
+                update_file_content(tx.pending, tx.deletions, &file_path, replaced.into_owned());
             }
         }
         Ok(total_matches)
@@ -529,7 +528,10 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 /// Execute a read operation within a transaction.
 fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
-    let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_string();
+    // Ensure file is loaded into pending (mutable borrow), then release it.
+    read_file_content(tx.pending, &file_path, tx.cwd)?;
+    // Re-borrow immutably to avoid cloning the entire file content.
+    let content = &tx.pending[&file_path].1;
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
 
@@ -578,7 +580,10 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         unreachable!()
     };
     let file_path = tx.cwd.join(path);
-    let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_string();
+    // Ensure file is loaded into pending (mutable borrow), then release it.
+    read_file_content(tx.pending, &file_path, tx.cwd)?;
+    // Re-borrow immutably to avoid cloning the entire file content.
+    let content = &tx.pending[&file_path].1;
 
     let re = if *regex {
         let mut builder = RegexBuilder::new(pattern);
@@ -649,97 +654,76 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         }
 
         Operation::DocSet { path, key, value } => {
-            let key = key.clone();
-            let value = value.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                set_at_path(root, &sel, value)?;
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            set_at_path(root, &sel, value.clone()).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
         Operation::DocDelete { path, key } => {
-            let key = key.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                delete_at_selector(root, &sel)?;
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            delete_at_selector(root, &sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
         Operation::DocMerge { path, value } => {
-            let value = value.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                deep_merge(root, &value);
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            deep_merge(root, value);
         }
 
         Operation::DocAppend { path, key, value } => {
-            let key = key.clone();
-            let value = value.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                let target = navigate_mut(root, &sel, false)?;
-                target
-                    .as_array_mut()
-                    .ok_or_else(|| anyhow::anyhow!("target is not an array"))?
-                    .push(value);
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let target =
+                navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            target
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
+                .push(value.clone());
         }
 
         Operation::DocPrepend { path, key, value } => {
-            let key = key.clone();
-            let value = value.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                let target = navigate_mut(root, &sel, false)?;
-                target
-                    .as_array_mut()
-                    .ok_or_else(|| anyhow::anyhow!("target is not an array"))?
-                    .insert(0, value);
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let target =
+                navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            target
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
+                .insert(0, value.clone());
         }
 
         Operation::DocUpdate { path, key, value } => {
-            let key = key.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                let count = update_matching(root, &sel, value);
-                if count == 0 {
-                    anyhow::bail!("no matching nodes found for selector '{key}'");
-                }
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let count = update_matching(root, &sel, value);
+            if count == 0 {
+                anyhow::bail!("{path}: no matching nodes found for selector '{key}'");
+            }
         }
 
         Operation::DocMove { path, from, to } => {
-            let from = from.clone();
-            let to = to.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let from_sel = parse_selector(&from)?;
-                let to_sel = parse_selector(&to)?;
-                move_at_path(root, &from_sel, &to_sel)?;
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let from_sel = parse_selector(from).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let to_sel = parse_selector(to).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            move_at_path(root, &from_sel, &to_sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
         Operation::DocEnsure { path, key, value } => {
-            let key = key.clone();
-            let value = value.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-
-                // If the path already exists, no-op.
-                if !selector::eval(root, &sel).is_empty() {
-                    return Ok(());
-                }
-
-                set_at_path(root, &sel, value)?;
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            // If the path already exists, no-op.
+            if selector::eval(root, &sel).is_empty() {
+                set_at_path(root, &sel, value.clone())
+                    .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            }
         }
 
         Operation::DocDeleteWhere {
@@ -747,13 +731,10 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             key,
             predicate,
         } => {
-            let key = key.clone();
-            let predicate = predicate.clone();
-            with_doc(tx.pending, tx.doc_cache, path, tx.cwd, |root| {
-                let sel = parse_selector(&key)?;
-                delete_where(root, &sel, &predicate)?;
-                Ok(())
-            })?;
+            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
+                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            delete_where(root, &sel, predicate).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
         Operation::MdReplaceSection {
