@@ -2068,6 +2068,47 @@ fn test_read_nonexistent_file_fails() {
 }
 
 #[test]
+fn test_read_invalid_lines_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("0:1")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("line numbers are 1-based"));
+}
+
+#[test]
+fn test_read_json_invalid_lines_returns_error_object() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("0:1")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("invalid --lines value '0:1'"));
+    assert!(error.contains("line numbers are 1-based"));
+}
+
+#[test]
 fn test_read_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");

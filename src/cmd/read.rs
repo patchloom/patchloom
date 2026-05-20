@@ -115,6 +115,18 @@ fn read_one_file(path: &str, lines_spec: &Option<String>) -> Result<ReadOutput, 
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
+    if let Some(spec) = &args.lines
+        && let Err(err) = parse_line_range(spec)
+    {
+        if global.json || global.jsonl {
+            anyhow::bail!("invalid --lines value '{spec}': {err}");
+        }
+        if !global.quiet {
+            eprintln!("read: {err}");
+        }
+        return Ok(exit::FAILURE);
+    }
+
     let multi = args.files.len() > 1;
     let mut outputs: Vec<ReadOutput> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
