@@ -9511,6 +9511,23 @@ fn test_smoke_source_install_docs_use_cargo_install_path() {
 }
 
 #[test]
+fn test_smoke_installation_docs_cover_mcp_feature_paths() {
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains("cargo install --path . --features mcp"),
+        "installation guide should document MCP-capable source installs"
+    );
+    assert!(
+        content.contains("cargo install patchloom --features mcp"),
+        "installation guide should document MCP-capable crates.io installs after launch"
+    );
+    assert!(
+        content.contains("The `mcp-server` command is feature-gated."),
+        "installation guide should explain that MCP support is optional"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
