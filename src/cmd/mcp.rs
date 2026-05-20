@@ -770,6 +770,10 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
+        for path in &p.paths {
+            validate_path_contained(path)?;
+            validate_path_resolved(path, &self.cwd)?;
+        }
         let mut args: Vec<String> = vec!["--json".into(), "search".into()];
         if p.literal {
             args.push("--literal".into());

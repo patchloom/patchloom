@@ -11520,3 +11520,26 @@ async fn test_mcp_doc_get_reads_value() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_search_rejects_absolute_path() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("patchloom_search".to_string())
+        .with_arguments(
+            serde_json::from_value(
+                serde_json::json!({"pattern": "secret", "paths": ["/etc/passwd"]}),
+            )
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with absolute path should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
