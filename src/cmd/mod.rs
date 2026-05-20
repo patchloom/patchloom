@@ -139,7 +139,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              Available tools: `patchloom_doc_set`, `patchloom_doc_delete`, `patchloom_doc_merge`, \
              `patchloom_doc_append`, `patchloom_doc_prepend`, `patchloom_doc_ensure`, \
              `patchloom_doc_delete_where`, `patchloom_doc_update`, `patchloom_doc_move`, \
-             `patchloom_doc_get`, `patchloom_replace`, `patchloom_md_upsert_bullet`, \
+             `patchloom_doc_get`, `patchloom_doc_has`, `patchloom_doc_keys`, \
+             `patchloom_doc_len`, `patchloom_doc_select`, `patchloom_doc_flatten`, \
+             `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, \
+             `patchloom_replace`, `patchloom_md_upsert_bullet`, \
              `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, \
              `patchloom_hygiene`, `patchloom_file_rename`, `patchloom_batch`.\n\n",
         );
