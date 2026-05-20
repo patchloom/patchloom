@@ -68,7 +68,7 @@ Protect only `main`. Outside contributors should work from forks and open pull r
 
 ## Self-Hosted Runner Recovery
 
-If `CI` or `Security` stays queued on maintainer PRs or pushes to `main`, check the Linux self-hosted runner before retrying workflows. Patchloom currently relies on one runner, `patchloom-1`, for trusted `CI` jobs.
+If `CI` stays queued on maintainer PRs or pushes to `main`, check the Linux self-hosted runner before retrying workflows. Patchloom currently relies on one runner, `patchloom-1`, for trusted `CI` jobs. The `Security` workflow runs on GitHub-hosted `ubuntu-latest`, so queued Security runs should be debugged via GitHub Actions capacity or workflow state, not the self-hosted runner.
 
 1. Check runner status in GitHub:
    ```bash
@@ -88,7 +88,7 @@ If `CI` or `Security` stays queued on maintainer PRs or pushes to `main`, check 
    systemctl is-active actions.runner.patchloom-patchloom.patchloom-1.service
    systemctl status actions.runner.patchloom-patchloom.patchloom-1.service --no-pager --lines=20
    ```
-4. Re-check the workflow. The queued jobs should move to `in_progress` once the runner is back online.
+4. Re-check the `CI` workflow. The queued self-hosted jobs should move to `in_progress` once the runner is back online.
 5. Before pushing another commit, confirm the previously queued run finishes green.
 
 This recovery path is intentionally lightweight. It does not replace a second runner or a GitHub-hosted fallback, but it keeps maintainer workflows unblocked when the single runner goes offline.

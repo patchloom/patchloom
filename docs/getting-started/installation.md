@@ -1,8 +1,11 @@
 # Installation
 
+Patchloom is not yet published to crates.io or Homebrew. Install from source
+for now. The sections below describe the planned post-launch channels.
+
 ## From source (current)
 
-Patchloom is not yet published to crates.io. Install from source:
+Install the core CLI from source:
 
 ```bash
 git clone https://github.com/patchloom/patchloom.git
@@ -10,10 +13,28 @@ cd patchloom
 cargo install --path .
 ```
 
+Install with MCP support:
+
+```bash
+git clone https://github.com/patchloom/patchloom.git
+cd patchloom
+cargo install --path . --features mcp
+```
+
+The `mcp-server` command is feature-gated. If you only run `cargo install --path .`, you get the core CLI without MCP.
+
 ## From crates.io (after public launch)
+
+Core CLI:
 
 ```bash
 cargo install patchloom
+```
+
+MCP-capable install:
+
+```bash
+cargo install patchloom --features mcp
 ```
 
 ## From GitHub releases (after public launch)
@@ -22,11 +43,17 @@ Pre-built binaries for Linux, macOS, and Windows will be available on the
 [Releases](https://github.com/patchloom/patchloom/releases) page. Download
 the archive for your platform, extract, and place `patchloom` on your PATH.
 
+The current planned release pipeline targets the core CLI build. If you need
+`mcp-server`, install from source with `--features mcp`.
+
 ## From Homebrew (after public launch)
 
 ```bash
 brew install patchloom/tap/patchloom
 ```
+
+The planned Homebrew formula also targets the core CLI build. If you need
+`mcp-server`, install from source with `--features mcp`.
 
 ## Shell completions
 

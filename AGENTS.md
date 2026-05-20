@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides sixteen commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `mcp-server`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, MCP server for structured tool calls, shell completion generation, and end-user agent rules generation. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. The default build provides fifteen core commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, shell completion generation, and end-user agent rules generation. Building with `--features mcp` adds the optional `mcp-server` command for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -10,9 +10,9 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides sixteen com
 |---------|-------------|
 | `make fmt` | Run `cargo fmt --all` |
 | `make fmt-check` | Check formatting without modifying files |
-| `make build` | Run `cargo build` |
-| `make test` | Run unit tests (`cargo test --lib`) |
-| `make integration-test` | Run integration tests (`cargo test --test integration`) |
+| `make build` | Run `cargo build --all-features` |
+| `make test` | Run unit tests (`cargo test --lib --all-features`) |
+| `make integration-test` | Run integration tests (`cargo test --test integration --all-features`) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
 | `make check` | Run all of the above in sequence plus `check-patchloom-md` |
 | `make update-readme` | Update README.md and CHANGELOG.md test counts from actual `cargo test` output |
@@ -20,7 +20,7 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides sixteen com
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
-| `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X` to switch LLM |
+| `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |
 
 Always run `make check` before committing. It is the full CI gate.
 
@@ -58,7 +58,7 @@ src/
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
-  agent_rules.md       End-user AGENTS.md template, embedded at compile time by agent-rules command
+  cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
@@ -69,7 +69,7 @@ src/
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
-                       22 operation types including all doc/md/replace/hygiene/file/patch ops
+                       23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops
 tests/
   integration.rs       Rust integration tests (cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom

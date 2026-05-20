@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-763%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-768%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -96,7 +96,7 @@ Agent: batch with
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
 | **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append --file README.md --heading "API" --row "\| new \| row \|" --apply` |
 | **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx --plan plan.json --apply` |
-| **MCP server** | Expose all operations as structured MCP tool calls (no shell syntax needed) | `patchloom mcp-server` |
+| **MCP server** | Expose all operations as structured MCP tool calls (requires `--features mcp`) | `patchloom mcp-server` |
 | **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
 
 ### When to use patchloom vs native tools
@@ -144,13 +144,22 @@ MCP mode is 17% faster than CLI mode because the agent discovers tools via proto
 ## Install
 
 ```bash
-# From source (requires Rust 1.81+)
+# Core CLI install (requires Rust 1.81+)
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
 
-# Coming soon: cargo install patchloom
+# Install with MCP support
+cargo install --path . --features mcp
 ```
+
+`cargo install --path .` gives you the core CLI commands. If you also want
+`patchloom mcp-server`, install with `--features mcp`.
+
+Other install channels are planned for public launch, including crates.io,
+GitHub Releases binaries, and Homebrew. See
+[Installation](./docs/getting-started/installation.md) for the current path and
+planned post-launch options.
 
 ## Quick start
 
@@ -204,10 +213,11 @@ patchloom tx --plan plan.json --apply
 ### 4. Or use MCP for structured tool calls (no shell syntax)
 
 ```bash
-# Build with MCP support
-cargo build --features mcp
+# Install or build with MCP support
+cargo install --path . --features mcp
+# or: cargo build --features mcp
 
-# Add to your agent's MCP config
+# Then add to your agent's MCP config
 patchloom mcp-server
 ```
 
@@ -236,7 +246,7 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
 | `hygiene` | Whitespace and newline normalization | CI checks for text hygiene |
-| `mcp-server` | MCP protocol server (structured tool calls) | MCP-capable agents (no shell syntax) |
+| `mcp-server` | MCP protocol server (requires `--features mcp`) | MCP-capable agents (no shell syntax) |
 
 ### General-purpose (also useful in scripts and CI)
 
@@ -324,7 +334,7 @@ Two integration modes, same capabilities:
 
 ## Status
 
-763 passing tests across 16 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+768 passing tests across 15 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 

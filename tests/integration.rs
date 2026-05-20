@@ -2956,6 +2956,39 @@ fn test_patch_check_exits_5_when_stale() {
 }
 
 #[test]
+fn test_patch_apply_check_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--check")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::is_empty());
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nold line\nline3\n"
+    );
+}
+
+#[test]
 fn test_create_check_exits_2() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("new.txt");
@@ -8392,6 +8425,25 @@ fn test_delete_default_dry_run_does_not_remove() {
 }
 
 #[test]
+fn test_delete_quiet_dry_run_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("quiet_delete.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    assert!(file.exists(), "quiet dry-run should not delete the file");
+}
+
+#[test]
 fn test_md_table_append_missing_file_includes_path_in_error() {
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -9459,6 +9511,23 @@ fn test_smoke_source_install_docs_use_cargo_install_path() {
 }
 
 #[test]
+fn test_smoke_installation_docs_cover_mcp_feature_paths() {
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains("cargo install --path . --features mcp"),
+        "installation guide should document MCP-capable source installs"
+    );
+    assert!(
+        content.contains("cargo install patchloom --features mcp"),
+        "installation guide should document MCP-capable crates.io installs after launch"
+    );
+    assert!(
+        content.contains("The `mcp-server` command is feature-gated."),
+        "installation guide should explain that MCP support is optional"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
@@ -9787,6 +9856,22 @@ fn test_reference_doc_requires_use_when_stanza() {
             .contains("reference section `patch-mode:file` must include a `Use when` stanza")),
         "expected missing `Use when` error, got:\n{}",
         errors.join("\n\n")
+    );
+}
+
+#[test]
+fn test_agents_doc_project_inventory_matches_repo_state() {
+    let agents = fs::read_to_string(repo_root().join("AGENTS.md")).unwrap();
+
+    assert!(
+        agents.contains("cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output"),
+        "AGENTS.md should describe the current agent-rules implementation location"
+    );
+    assert!(
+        agents.contains(
+            "23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops"
+        ),
+        "AGENTS.md should describe the current tx operation count"
     );
 }
 
