@@ -299,6 +299,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if !removed.is_empty() {
                 if global.json {
                     println!("{}", serde_json::to_string_pretty(&removed)?);
+                } else if global.jsonl {
+                    for h in &removed {
+                        println!("{}", serde_json::to_string(h)?);
+                    }
                 } else if !global.quiet {
                     for h in &removed {
                         eprintln!("md: removed duplicate: {h}");

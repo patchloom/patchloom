@@ -4240,6 +4240,31 @@ fn test_md_dedupe_headings_removes_duplicate() {
 }
 
 #[test]
+fn test_md_dedupe_headings_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg("--file")
+        .arg(&file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json.as_str().unwrap(), "## Dup");
+}
+
+#[test]
 fn test_md_dedupe_headings_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.md");
