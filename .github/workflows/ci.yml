@@ -76,6 +76,29 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  ci-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Unit tests (including MCP)
+        run: cargo test --lib --all-features
+
+      - name: Integration tests (including MCP)
+        run: cargo test --test integration --all-features
+
   msrv:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 10

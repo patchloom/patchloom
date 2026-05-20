@@ -4,6 +4,12 @@ pub mod parser;
 pub use eval::eval;
 pub use parser::{Segment, Selector, parse};
 
+/// Parse a selector string, mapping parse errors to `anyhow::Error` with
+/// a "selector error:" prefix for consistent error formatting.
+pub fn parse_anyhow(input: &str) -> anyhow::Result<Selector> {
+    parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
+}
+
 /// Check whether a JSON value matches a predicate string using string comparison.
 /// Numbers and booleans are compared via their string representation.
 pub fn value_matches_str(field: &serde_json::Value, pred_val: &str) -> bool {

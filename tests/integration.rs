@@ -11065,6 +11065,87 @@ fn test_status_staged_new_file_shows_as_created() {
 }
 
 // ---------------------------------------------------------------------------
+// status --quiet suppresses output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_status_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Modify the committed file to produce changes.
+    fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2)); // CHANGES_DETECTED
+    assert!(
+        output.stdout.is_empty(),
+        "--quiet should suppress stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// completions: PowerShell produces output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_completions_powershell() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["completions", "powershell"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+// ---------------------------------------------------------------------------
+// completions: invalid shell name fails
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_completions_invalid_shell_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["completions", "nonexistent"])
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
 // doc delete --check exits 2 when changes would be made
 // ---------------------------------------------------------------------------
 

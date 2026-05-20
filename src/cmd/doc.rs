@@ -438,11 +438,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            set_at_path(&mut root, &sel, parsed)?;
+            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -451,10 +450,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         DocAction::Delete { file, selector } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
-            if !delete_at_selector(&mut root, &sel)? {
+            if !delete_at_selector(&mut root, &sel).with_context(|| file.clone())? {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
 
@@ -469,10 +467,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
-            let removed = delete_where(&mut root, &sel, predicate)?;
+            let removed = delete_where(&mut root, &sel, predicate).with_context(|| file.clone())?;
 
             if removed == 0 {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -508,16 +505,15 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            let target = navigate_mut(&mut root, &sel, false)?;
+            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
                 Some(arr) => arr.push(parsed),
                 None => {
                     if !ctx.quiet {
-                        eprintln!("doc append: target at '{selector}' is not an array");
+                        eprintln!("doc append: target at '{selector}' is not an array in {file}");
                     }
                     return Ok((String::new(), exit::FAILURE));
                 }
@@ -534,16 +530,15 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            let target = navigate_mut(&mut root, &sel, false)?;
+            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
                 Some(arr) => arr.insert(0, parsed),
                 None => {
                     if !ctx.quiet {
-                        eprintln!("doc prepend: target at '{selector}' is not an array");
+                        eprintln!("doc prepend: target at '{selector}' is not an array in {file}");
                     }
                     return Ok((String::new(), exit::FAILURE));
                 }
@@ -560,8 +555,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
             let count = update_matching(&mut root, &sel, &parsed);
@@ -576,11 +570,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         DocAction::Move { file, from, to } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let from_sel =
-                selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-            let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let from_sel = selector::parse_anyhow(from)?;
+            let to_sel = selector::parse_anyhow(to)?;
 
-            move_at_path(&mut root, &from_sel, &to_sel)?;
+            move_at_path(&mut root, &from_sel, &to_sel).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -593,8 +586,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
             // If the path already exists, return immediately – no mutation.
             if !selector::eval(&root, &sel).is_empty() {
@@ -603,7 +595,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
 
             // Path does not exist – create it (same logic as set).
             let parsed = parse_value(value);
-            set_at_path(&mut root, &sel, parsed)?;
+            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -622,8 +614,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
     match action {
         DocAction::Get { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -633,8 +624,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Has { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             let found = !results.is_empty();
             let output = match output_mode {
@@ -647,8 +637,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Keys { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -676,8 +665,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Len { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -710,8 +698,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
         // Select is read-only: filter and return matching items.
         DocAction::Select { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));

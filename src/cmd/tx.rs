@@ -290,7 +290,7 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
 }
 
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
-    selector::parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
+    selector::parse_anyhow(input)
 }
 
 // ---------------------------------------------------------------------------
@@ -615,8 +615,8 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     }
 
     tx.tx_searches.push(TxSearchResult {
-        path: path.to_string(),
-        pattern: pattern.to_string(),
+        path: path.clone(),
+        pattern: pattern.clone(),
         match_count: matches.len(),
         matches,
     });
