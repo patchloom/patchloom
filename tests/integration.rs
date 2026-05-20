@@ -2272,11 +2272,13 @@ fn test_status_jsonl_output() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["total_changes"], 1);
-    assert!(json["created"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v == "new.txt"));
+    assert!(
+        json["created"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "new.txt")
+    );
 }
 
 #[test]
@@ -2324,11 +2326,13 @@ fn test_status_json_output() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["total_changes"], 1);
-    assert!(json["created"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v.as_str().unwrap() == "new.txt"));
+    assert!(
+        json["created"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap() == "new.txt")
+    );
 }
 
 #[test]
@@ -2377,11 +2381,13 @@ fn test_status_deleted_file() {
 
     assert_eq!(output.status.code().unwrap(), 2); // CHANGES_DETECTED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(json["deleted"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v.as_str().unwrap() == "doomed.txt"));
+    assert!(
+        json["deleted"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap() == "doomed.txt")
+    );
 }
 
 // ── create command ─────────────────────────────────────────────────
@@ -2962,15 +2968,21 @@ fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
 
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "changed" && v["path"] == "name"));
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "removed" && v["path"] == "removed"));
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "added" && v["path"] == "added"));
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "changed" && v["path"] == "name")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "removed" && v["path"] == "removed")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "added" && v["path"] == "added")
+    );
 }
 
 #[test]
@@ -3205,10 +3217,58 @@ fn test_patch_check_json_reports_directory_read_error() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["files"][0]["status"], "error");
-    assert!(json["files"][0]["error"]
-        .as_str()
+    assert!(
+        json["files"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("failed to read")
+    );
+}
+
+#[test]
+fn test_patch_check_jsonl_reports_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
-        .contains("failed to read"));
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
+        .collect();
+
+    assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
+    assert_eq!(lines[0]["path"], "test.txt");
+    assert_eq!(lines[0]["status"], "error");
+    assert!(
+        lines[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("failed to read")
+    );
 }
 
 #[test]
@@ -5798,12 +5858,16 @@ fn test_tx_glob_replace_only_matches_pattern() {
         .assert()
         .success();
 
-    assert!(fs::read_to_string(dir.path().join("a.txt"))
-        .unwrap()
-        .contains("bye"));
-    assert!(fs::read_to_string(dir.path().join("b.txt"))
-        .unwrap()
-        .contains("bye"));
+    assert!(
+        fs::read_to_string(dir.path().join("a.txt"))
+            .unwrap()
+            .contains("bye")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.txt"))
+            .unwrap()
+            .contains("bye")
+    );
     assert!(
         fs::read_to_string(dir.path().join("skip.rs"))
             .unwrap()
@@ -5987,12 +6051,16 @@ fn test_replace_directory_modifies_all_matching_files() {
         .assert()
         .success();
 
-    assert!(fs::read_to_string(dir.path().join("a.txt"))
-        .unwrap()
-        .contains("bye"));
-    assert!(fs::read_to_string(dir.path().join("b.txt"))
-        .unwrap()
-        .contains("bye"));
+    assert!(
+        fs::read_to_string(dir.path().join("a.txt"))
+            .unwrap()
+            .contains("bye")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.txt"))
+            .unwrap()
+            .contains("bye")
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("c.txt")).unwrap(),
         "no match here\n",
@@ -7818,10 +7886,12 @@ fn test_tx_read_operation_in_plan() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["reads"].as_array().unwrap().len(), 1);
-    assert!(json["reads"][0]["content"]
-        .as_str()
-        .unwrap()
-        .contains("line1"));
+    assert!(
+        json["reads"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("line1")
+    );
     assert_eq!(json["reads"][0]["total_lines"], 3);
 }
 
@@ -8330,10 +8400,12 @@ fn test_tx_json_output_on_operation_failure() {
     assert_eq!(output.status.code(), Some(7)); // ROLLBACK
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert!(json["error"]
-        .as_str()
-        .unwrap()
-        .contains("file already exists"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("file already exists")
+    );
 }
 
 #[test]
@@ -9595,6 +9667,10 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn ci_workflow_path() -> PathBuf {
+    repo_root().join(".github").join("workflows").join("ci.yml")
+}
+
 fn readme_path() -> PathBuf {
     repo_root().join("README.md")
 }
@@ -9770,11 +9846,13 @@ fn test_smoke_example_04_doc_mutations_plan() {
     assert_eq!(config["database"]["pool_size"], 10);
     assert_eq!(config["logging"]["level"], "info");
     assert_eq!(config["logging"]["format"], "json");
-    assert!(config["allowed_origins"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|item| item.as_str() == Some("https://example.com")));
+    assert!(
+        config["allowed_origins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.as_str() == Some("https://example.com"))
+    );
     assert!(config.get("deprecated_field").is_none());
 
     let yaml = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
@@ -9979,6 +10057,22 @@ fn test_batch_malformed_line_fails() {
 }
 
 #[test]
+fn test_batch_extra_args_fail() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("bad.txt");
+    fs::write(&ops, "file.delete old.txt extra\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("requires exactly 1 arguments"));
+}
+
+#[test]
 fn test_batch_nonexistent_target_file_rollback() {
     let dir = TempDir::new().unwrap();
     // Do NOT create missing.json.
@@ -10137,11 +10231,17 @@ fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
     assert!(quickstart.contains("patchloom search 'TODO' --count src/"));
-    assert!(quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/"));
-    assert!(quickstart
-        .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply"));
+    assert!(
+        quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/")
+    );
+    assert!(
+        quickstart
+            .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply")
+    );
     assert!(quickstart.contains("patchloom doc get package.json version"));
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
+    assert!(quickstart.contains("patchloom batch <<'EOF'"));
+    assert!(quickstart.contains("patchloom batch --apply <<'EOF'"));
 
     let dir = TempDir::new().unwrap();
     seed_docs_smoke_fixture(dir.path());
@@ -10174,9 +10274,11 @@ fn test_smoke_quickstart_command_flow() {
         .assert()
         .success()
         .stdout(predicate::str::contains("new_function"));
-    assert!(fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("old_function"));
+    assert!(
+        fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("old_function")
+    );
 
     patchloom_in(dir.path())
         .arg("replace")
@@ -10188,12 +10290,16 @@ fn test_smoke_quickstart_command_flow() {
         .arg("--apply")
         .assert()
         .success();
-    assert!(fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("new_function"));
-    assert!(!fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("old_function"));
+    assert!(
+        fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("new_function")
+    );
+    assert!(
+        !fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("old_function")
+    );
 
     patchloom_in(dir.path())
         .arg("doc")
@@ -10218,6 +10324,44 @@ fn test_smoke_quickstart_command_flow() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package["version"], "2.0.0");
+
+    let batch_preview = patchloom_in(dir.path())
+        .arg("batch")
+        .write_stdin(
+            "doc.set package.json version \"3.0.0\"\nreplace README.md \"v1.0.0\" \"v3.0.0\"\nmd.insert_after_heading CHANGELOG.md \"## Unreleased\" \"- Bumped to v3.0.0\"\n",
+        )
+        .output()
+        .unwrap();
+    assert!(batch_preview.status.success());
+    let batch_preview_stdout = String::from_utf8_lossy(&batch_preview.stdout);
+    assert!(batch_preview_stdout.contains("package.json"));
+    assert!(batch_preview_stdout.contains("README.md"));
+    assert!(batch_preview_stdout.contains("CHANGELOG.md"));
+
+    let batch_apply = patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin(
+            "doc.set package.json version \"3.0.0\"\nreplace README.md \"v1.0.0\" \"v3.0.0\"\nmd.insert_after_heading CHANGELOG.md \"## Unreleased\" \"- Bumped to v3.0.0\"\n",
+        )
+        .output()
+        .unwrap();
+    assert!(batch_apply.status.success());
+
+    let package_after_batch: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_after_batch["version"], "3.0.0");
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v3.0.0")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v3.0.0")
+    );
 }
 
 #[test]
@@ -10254,12 +10398,16 @@ fn test_smoke_quickstart_transaction_snippet() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package_before["version"], "1.0.0");
-    assert!(fs::read_to_string(dir.path().join("README.md"))
-        .unwrap()
-        .contains("v1.0.0"));
-    assert!(!fs::read_to_string(dir.path().join("CHANGELOG.md"))
-        .unwrap()
-        .contains("- Bumped to v2.0.0"));
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v1.0.0")
+    );
+    assert!(
+        !fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v2.0.0")
+    );
 
     let check_output = patchloom_in(dir.path())
         .arg("tx")
@@ -10286,12 +10434,16 @@ fn test_smoke_quickstart_transaction_snippet() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package_after["version"], "2.0.0");
-    assert!(fs::read_to_string(dir.path().join("README.md"))
-        .unwrap()
-        .contains("v2.0.0"));
-    assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
-        .unwrap()
-        .contains("- Bumped to v2.0.0"));
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v2.0.0")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v2.0.0")
+    );
 }
 
 #[test]
@@ -10334,6 +10486,49 @@ fn test_smoke_installation_docs_cover_mcp_feature_paths() {
     assert!(
         content.contains("The `mcp-server` command is feature-gated."),
         "installation guide should explain that MCP support is optional"
+    );
+}
+
+#[test]
+fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
+    let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
+    let rust_version_line = cargo
+        .lines()
+        .find(|line| line.starts_with("rust-version = "))
+        .expect("Cargo.toml should declare rust-version");
+    let rust_version = rust_version_line
+        .split('"')
+        .nth(1)
+        .expect("rust-version should be quoted");
+
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains(&format!("Rust {rust_version}+")),
+        "README should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let contributing = fs::read_to_string(repo_root().join("CONTRIBUTING.md")).unwrap();
+    assert!(
+        contributing.contains(&format!("Rust {rust_version}+")),
+        "CONTRIBUTING.md should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let changelog = fs::read_to_string(repo_root().join("CHANGELOG.md")).unwrap();
+    assert!(
+        changelog.contains(&format!("MSRV: Rust {rust_version}+")),
+        "CHANGELOG.md should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let installation = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        installation.contains(&format!("requires Rust {rust_version}+")),
+        "installation guide should advertise the same Rust minimum version as Cargo.toml"
+    );
+
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(
+        ci.contains(&format!("toolchain: \"{rust_version}\"")),
+        "ci.yml should pin the MSRV job to the same Rust version as Cargo.toml"
     );
 }
 
@@ -10508,6 +10703,16 @@ fn collect_serde_rename_values(path: &Path, anchor: &str) -> Vec<String> {
         .collect()
 }
 
+fn collect_batch_operation_names(path: &Path) -> Vec<String> {
+    let block = read_anchored_block(path, "match op");
+    let re = regex::Regex::new(r#"(?m)^\s*"([^"]+)"\s*=>"#).unwrap();
+    re.captures_iter(&block)
+        .map(|caps| caps[1].to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn collect_source_ref_markers(path: &Path) -> Vec<String> {
     let source = fs::read_to_string(path).unwrap();
     let re = regex::Regex::new(r"(?m)^\s*//\s*ref:([a-z0-9._:-]+)\s*$").unwrap();
@@ -10666,6 +10871,28 @@ fn test_reference_doc_requires_use_when_stanza() {
             .contains("reference section `patch-mode:file` must include a `Use when` stanza")),
         "expected missing `Use when` error, got:\n{}",
         errors.join("\n\n")
+    );
+}
+
+#[test]
+fn test_batch_reference_operation_count_matches_parser() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let markers = reference_markers(&reference);
+    let section = reference_section(&reference, &markers, "command:batch");
+    let listed = section
+        .split("covers ")
+        .nth(1)
+        .and_then(|rest| rest.split(" operations (").next())
+        .unwrap_or_else(|| panic!("batch reference section should contain an operation count"))
+        .parse::<usize>()
+        .unwrap();
+
+    let actual =
+        collect_batch_operation_names(&repo_root().join("src").join("cmd").join("batch.rs")).len();
+
+    assert_eq!(
+        listed, actual,
+        "batch reference doc should list the same number of operations the parser supports"
     );
 }
 
@@ -10838,6 +11065,87 @@ fn test_status_staged_new_file_shows_as_created() {
 }
 
 // ---------------------------------------------------------------------------
+// status --quiet suppresses output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_status_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    // Modify the committed file to produce changes.
+    fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2)); // CHANGES_DETECTED
+    assert!(
+        output.stdout.is_empty(),
+        "--quiet should suppress stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// completions: PowerShell produces output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_completions_powershell() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["completions", "powershell"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+// ---------------------------------------------------------------------------
+// completions: invalid shell name fails
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_completions_invalid_shell_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["completions", "nonexistent"])
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
 // doc delete --check exits 2 when changes would be made
 // ---------------------------------------------------------------------------
 
@@ -10976,8 +11284,8 @@ fn has_mcp_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-    use rmcp::transport::TokioChildProcess;
     use rmcp::ServiceExt;
+    use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);

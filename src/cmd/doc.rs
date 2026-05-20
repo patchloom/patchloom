@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
-    parse_doc, serialize_value_preserving, set_at_path, update_matching, FileFormat,
+    FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
+    navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::selector;
 use crate::write;
@@ -115,11 +115,11 @@ impl DocAction {
             | DocAction::Move { file, .. }
             | DocAction::Ensure { file, .. }
             | DocAction::Flatten { file } => {
-                *file = cwd.join(&*file).to_string_lossy().to_string();
+                *file = cwd.join(&*file).to_string_lossy().into_owned();
             }
             DocAction::Diff { file_a, file_b } => {
-                *file_a = cwd.join(&*file_a).to_string_lossy().to_string();
-                *file_b = cwd.join(&*file_b).to_string_lossy().to_string();
+                *file_a = cwd.join(&*file_a).to_string_lossy().into_owned();
+                *file_b = cwd.join(&*file_b).to_string_lossy().into_owned();
             }
         }
     }
@@ -136,30 +136,41 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
 // ---------------------------------------------------------------------------
 
 /// Recursively enumerate all leaf key paths in a JSON value.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
+/// The buffer is extended and truncated as the recursion descends and
+/// ascends, so only leaf paths produce a final `String::clone()`.
 fn flatten_value<'a>(
     value: &'a serde_json::Value,
-    prefix: String,
+    buf: &mut String,
     out: &mut Vec<(String, &'a serde_json::Value)>,
 ) {
     match value {
         serde_json::Value::Object(map) => {
             for (k, v) in map {
-                let path = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{prefix}.{k}")
-                };
-                flatten_value(v, path, out);
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
             }
         }
         serde_json::Value::Array(arr) => {
             for (i, v) in arr.iter().enumerate() {
-                let path = format!("{prefix}[{i}]");
-                flatten_value(v, path, out);
+                let restore = buf.len();
+                buf.push('[');
+                // write! on a String is infallible.
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
             }
         }
         _ => {
-            out.push((prefix, value));
+            out.push((buf.clone(), value));
         }
     }
 }
@@ -168,7 +179,7 @@ fn flatten_value<'a>(
 #[derive(Debug, Clone, Serialize)]
 struct DiffEntry {
     path: String,
-    kind: String, // "added", "removed", "changed"
+    kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     old_value: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,74 +187,83 @@ struct DiffEntry {
 }
 
 /// Compute structural differences between two JSON values.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
 fn diff_values(
     a: &serde_json::Value,
     b: &serde_json::Value,
-    prefix: &str,
+    buf: &mut String,
     out: &mut Vec<DiffEntry>,
 ) {
     match (a, b) {
         (serde_json::Value::Object(ma), serde_json::Value::Object(mb)) => {
             for (k, va) in ma {
-                let path = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{prefix}.{k}")
-                };
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
                 if let Some(vb) = mb.get(k) {
-                    diff_values(va, vb, &path, out);
+                    diff_values(va, vb, buf, out);
                 } else {
                     out.push(DiffEntry {
-                        path,
-                        kind: "removed".to_string(),
+                        path: buf.clone(),
+                        kind: "removed",
                         old_value: Some(va.clone()),
                         new_value: None,
                     });
                 }
+                buf.truncate(restore);
             }
             for (k, vb) in mb {
                 if !ma.contains_key(k) {
-                    let path = if prefix.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{prefix}.{k}")
-                    };
+                    let restore = buf.len();
+                    if !buf.is_empty() {
+                        buf.push('.');
+                    }
+                    buf.push_str(k);
                     out.push(DiffEntry {
-                        path,
-                        kind: "added".to_string(),
+                        path: buf.clone(),
+                        kind: "added",
                         old_value: None,
                         new_value: Some(vb.clone()),
                     });
+                    buf.truncate(restore);
                 }
             }
         }
         (serde_json::Value::Array(aa), serde_json::Value::Array(ab)) => {
             let max_len = aa.len().max(ab.len());
             for i in 0..max_len {
-                let path = format!("{prefix}[{i}]");
+                let restore = buf.len();
+                buf.push('[');
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
                 match (aa.get(i), ab.get(i)) {
-                    (Some(va), Some(vb)) => diff_values(va, vb, &path, out),
+                    (Some(va), Some(vb)) => diff_values(va, vb, buf, out),
                     (Some(va), None) => out.push(DiffEntry {
-                        path,
-                        kind: "removed".to_string(),
+                        path: buf.clone(),
+                        kind: "removed",
                         old_value: Some(va.clone()),
                         new_value: None,
                     }),
                     (None, Some(vb)) => out.push(DiffEntry {
-                        path,
-                        kind: "added".to_string(),
+                        path: buf.clone(),
+                        kind: "added",
                         old_value: None,
                         new_value: Some(vb.clone()),
                     }),
                     (None, None) => {}
                 }
+                buf.truncate(restore);
             }
         }
         _ => {
             if a != b {
                 out.push(DiffEntry {
-                    path: prefix.to_string(),
-                    kind: "changed".to_string(),
+                    path: buf.clone(),
+                    kind: "changed",
                     old_value: Some(a.clone()),
                     new_value: Some(b.clone()),
                 });
@@ -306,16 +326,17 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
 /// i64, f64, then fallback to bare string.
 pub(crate) fn parse_value(s: &str) -> serde_json::Value {
     // JSON-quoted string
-    if s.starts_with('"') && s.ends_with('"') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-            return v;
-        }
+    if s.starts_with('"')
+        && s.ends_with('"')
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
     }
     // JSON object or array
-    if s.starts_with('{') || s.starts_with('[') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-            return v;
-        }
+    if (s.starts_with('{') || s.starts_with('['))
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
     }
     // Booleans
     if s == "true" {
@@ -333,10 +354,10 @@ pub(crate) fn parse_value(s: &str) -> serde_json::Value {
         return serde_json::Value::Number(n.into());
     }
     // Float
-    if let Ok(n) = s.parse::<f64>() {
-        if let Some(num) = serde_json::Number::from_f64(n) {
-            return serde_json::Value::Number(num);
-        }
+    if let Ok(n) = s.parse::<f64>()
+        && let Some(num) = serde_json::Number::from_f64(n)
+    {
+        return serde_json::Value::Number(num);
     }
     // Bare string
     serde_json::Value::String(s.to_string())
@@ -417,11 +438,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            set_at_path(&mut root, &sel, parsed)?;
+            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -430,10 +450,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         DocAction::Delete { file, selector } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
-            if !delete_at_selector(&mut root, &sel)? {
+            if !delete_at_selector(&mut root, &sel).with_context(|| file.clone())? {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
 
@@ -448,10 +467,9 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
-            let removed = delete_where(&mut root, &sel, predicate)?;
+            let removed = delete_where(&mut root, &sel, predicate).with_context(|| file.clone())?;
 
             if removed == 0 {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -487,16 +505,15 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            let target = navigate_mut(&mut root, &sel, false)?;
+            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
                 Some(arr) => arr.push(parsed),
                 None => {
                     if !ctx.quiet {
-                        eprintln!("doc append: target at '{selector}' is not an array");
+                        eprintln!("doc append: target at '{selector}' is not an array in {file}");
                     }
                     return Ok((String::new(), exit::FAILURE));
                 }
@@ -513,16 +530,15 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
-            let target = navigate_mut(&mut root, &sel, false)?;
+            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
                 Some(arr) => arr.insert(0, parsed),
                 None => {
                     if !ctx.quiet {
-                        eprintln!("doc prepend: target at '{selector}' is not an array");
+                        eprintln!("doc prepend: target at '{selector}' is not an array in {file}");
                     }
                     return Ok((String::new(), exit::FAILURE));
                 }
@@ -539,8 +555,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let parsed = parse_value(value);
 
             let count = update_matching(&mut root, &sel, &parsed);
@@ -555,11 +570,10 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         DocAction::Move { file, from, to } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let from_sel =
-                selector::parse(from).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
-            let to_sel = selector::parse(to).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let from_sel = selector::parse_anyhow(from)?;
+            let to_sel = selector::parse_anyhow(to)?;
 
-            move_at_path(&mut root, &from_sel, &to_sel)?;
+            move_at_path(&mut root, &from_sel, &to_sel).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -572,8 +586,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
         } => {
             let (original, mut root, format) = load_file_with_content(file)?;
             let old_value = clone_for_preserve(&root, &format);
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
 
             // If the path already exists, return immediately – no mutation.
             if !selector::eval(&root, &sel).is_empty() {
@@ -582,7 +595,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
 
             // Path does not exist – create it (same logic as set).
             let parsed = parse_value(value);
-            set_at_path(&mut root, &sel, parsed)?;
+            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
             write_result(file, &original, &new_content, ctx)
@@ -601,8 +614,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
     match action {
         DocAction::Get { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -612,8 +624,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Has { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             let found = !results.is_empty();
             let output = match output_mode {
@@ -626,8 +637,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Keys { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -655,8 +665,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
 
         DocAction::Len { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -689,8 +698,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
         // Select is read-only: filter and return matching items.
         DocAction::Select { file, selector } => {
             let root = load_file(file)?;
-            let sel =
-                selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
+            let sel = selector::parse_anyhow(selector)?;
             let results = selector::eval(&root, &sel);
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
@@ -701,7 +709,8 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
         DocAction::Flatten { file } => {
             let root = load_file(file)?;
             let mut entries = Vec::new();
-            flatten_value(&root, String::new(), &mut entries);
+            let mut path_buf = String::new();
+            flatten_value(&root, &mut path_buf, &mut entries);
             if entries.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
@@ -738,7 +747,8 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
             let val_a = load_file(file_a)?;
             let val_b = load_file(file_b)?;
             let mut entries = Vec::new();
-            diff_values(&val_a, &val_b, "", &mut entries);
+            let mut diff_buf = String::new();
+            diff_values(&val_a, &val_b, &mut diff_buf, &mut entries);
             if entries.is_empty() {
                 return Ok(("identical\n".to_string(), exit::SUCCESS));
             }
@@ -753,37 +763,41 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
                     exit::SUCCESS,
                 )),
                 OutputMode::Text => {
+                    use std::fmt::Write;
                     let mut out = String::new();
                     for e in &entries {
-                        match e.kind.as_str() {
+                        match e.kind {
                             "added" => {
                                 if let Some(v) = e.new_value.as_ref() {
-                                    out.push_str(&format!(
-                                        "+ {} = {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "+ {} = {}",
                                         e.path,
                                         format_value(v, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             "removed" => {
                                 if let Some(v) = e.old_value.as_ref() {
-                                    out.push_str(&format!(
-                                        "- {} = {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "- {} = {}",
                                         e.path,
                                         format_value(v, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             "changed" => {
                                 if let (Some(old), Some(new)) =
                                     (e.old_value.as_ref(), e.new_value.as_ref())
                                 {
-                                    out.push_str(&format!(
-                                        "~ {} = {} -> {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "~ {} = {} -> {}",
                                         e.path,
                                         format_value(old, OutputMode::Text),
                                         format_value(new, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             _ => {}

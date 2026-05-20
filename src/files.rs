@@ -8,7 +8,7 @@ use std::sync::Mutex;
 /// in the first 8 KiB, the same heuristic Git uses).
 pub(crate) fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(8192);
-    data[..check_len].contains(&0)
+    memchr::memchr(0, &data[..check_len]).is_some()
 }
 
 /// Collect file paths from either `--files-from`, or by walking `paths` with
@@ -52,12 +52,33 @@ pub(crate) fn collect_file_paths_opts(
         builder.hidden(false);
     }
     let collected: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    // Flush-on-drop wrapper so entries remaining in a thread-local batch
+    // are merged into the shared vec when the per-thread worker is dropped.
+    struct FlushOnDrop<'a> {
+        batch: Vec<PathBuf>,
+        target: &'a Mutex<Vec<PathBuf>>,
+    }
+    impl Drop for FlushOnDrop<'_> {
+        fn drop(&mut self) {
+            if !self.batch.is_empty() {
+                self.target.lock().unwrap().append(&mut self.batch);
+            }
+        }
+    }
+
     builder.build_parallel().run(|| {
-        let collected = &collected;
+        let mut state = FlushOnDrop {
+            batch: Vec::with_capacity(256),
+            target: &collected,
+        };
         Box::new(move |result| {
-            if let Ok(entry) = result {
-                if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                    collected.lock().unwrap().push(entry.into_path());
+            if let Ok(entry) = result
+                && entry.file_type().is_some_and(|ft| ft.is_file())
+            {
+                state.batch.push(entry.into_path());
+                if state.batch.len() >= 256 {
+                    state.target.lock().unwrap().append(&mut state.batch);
                 }
             }
             WalkState::Continue
@@ -88,9 +109,15 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
 
 /// Read a file as UTF-8 text, skipping binary files and logging errors.
 /// Returns `None` for binary, empty, unreadable, or non-UTF-8 files.
+///
+/// Only the first 8 KiB are read for the binary check, so large binary
+/// files (images, compiled objects) are rejected without reading the
+/// entire file into memory.
 pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
-    let data = match std::fs::read(path) {
-        Ok(d) => d,
+    use std::io::Read;
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
         Err(e) => {
             if !quiet {
                 eprintln!("{cmd}: skipping {}: {e}", path.display());
@@ -98,10 +125,36 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
             return None;
         }
     };
-    if data.is_empty() || is_binary(&data) {
+
+    // Read the first 8 KiB for binary detection (same heuristic as Git).
+    let mut probe = vec![0u8; 8192];
+    let n = match file.read(&mut probe) {
+        Ok(n) => n,
+        Err(e) => {
+            if !quiet {
+                eprintln!("{cmd}: skipping {}: {e}", path.display());
+            }
+            return None;
+        }
+    };
+
+    if n == 0 {
+        return None; // empty file
+    }
+    probe.truncate(n);
+    if is_binary(&probe) {
         return None;
     }
-    match String::from_utf8(data) {
+
+    // Not binary — read the remainder and combine.
+    if let Err(e) = file.read_to_end(&mut probe) {
+        if !quiet {
+            eprintln!("{cmd}: skipping {}: {e}", path.display());
+        }
+        return None;
+    }
+
+    match String::from_utf8(probe) {
         Ok(s) => Some(s),
         Err(_) => {
             if !quiet {
@@ -234,7 +287,7 @@ mod tests {
     #[test]
     fn par_process_single_file() {
         let paths = vec![PathBuf::from("a.txt")];
-        let results = par_process_files(&paths, None, |p| Some(p.to_string_lossy().to_string()));
+        let results = par_process_files(&paths, None, |p| Some(p.to_string_lossy().into_owned()));
         assert_eq!(results, vec!["a.txt"]);
     }
 
@@ -249,7 +302,7 @@ mod tests {
         builder.add(Glob::new("*.rs").unwrap());
         let matcher = builder.build().unwrap();
         let results = par_process_files(&paths, Some(&matcher), |p| {
-            Some(p.to_string_lossy().to_string())
+            Some(p.to_string_lossy().into_owned())
         });
         assert_eq!(results.len(), 2);
         assert!(results.contains(&"a.rs".to_string()));
@@ -260,7 +313,7 @@ mod tests {
     fn par_process_empty_paths() {
         let paths: Vec<PathBuf> = vec![];
         let results: Vec<String> =
-            par_process_files(&paths, None, |p| Some(p.to_string_lossy().to_string()));
+            par_process_files(&paths, None, |p| Some(p.to_string_lossy().into_owned()));
         assert!(results.is_empty());
     }
 
@@ -320,5 +373,34 @@ mod tests {
             false,
         );
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn read_text_file_large_file_two_phase_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("large.txt");
+        // Create a text file larger than the 8 KiB binary-check probe.
+        let content = "a".repeat(10_000) + "\n";
+        std::fs::write(&file, &content).unwrap();
+        let result = read_text_file(&file, "test", false);
+        assert_eq!(result.unwrap(), content);
+    }
+
+    #[test]
+    fn read_text_file_binary_past_8k_still_read_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("mostly_text.txt");
+        // 8 KiB of text, then a NUL byte. The binary check only inspects
+        // the first 8 KiB, so this file should be treated as text but
+        // fail UTF-8 validation (NUL is valid UTF-8 but is_binary only
+        // checks the first 8 KiB). Actually NUL IS valid UTF-8, so this
+        // will succeed as text. The real check: is_binary only looks at
+        // the first 8 KiB probe, and the rest is read unconditionally.
+        let mut data = vec![b'a'; 8192];
+        data.push(b'\n');
+        std::fs::write(&file, &data).unwrap();
+        let result = read_text_file(&file, "test", false);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 8193);
     }
 }

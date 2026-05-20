@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::ops::patch::{apply_hunks, parse_patch};
 use crate::write::{atomic_write, policy_from_flags};
@@ -57,12 +57,7 @@ fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, Di
     if let Some(path) = file {
         std::fs::read_to_string(path).map_err(|e| DiffReadError::IoError(path.clone(), e))
     } else if stdin_flag {
-        use std::io::Read;
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .map_err(DiffReadError::StdinError)?;
-        Ok(buf)
+        std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
     } else {
         Err(DiffReadError::NoSource)
     }
@@ -73,7 +68,7 @@ fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, Di
 #[derive(Debug, Serialize)]
 struct PatchCheckResult {
     path: String,
-    status: String,
+    status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -132,7 +127,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let msg = format!("file not found: {}", file_path.display());
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "missing".to_string(),
+                            status: "missing",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -145,7 +140,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let msg = format!("failed to read {}: {}", file_path.display(), e);
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "error".to_string(),
+                            status: "error",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -159,7 +154,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Ok(_) => {
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "clean".to_string(),
+                            status: "clean",
                             error: None,
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -169,7 +164,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Err(msg) => {
                         results.push(PatchCheckResult {
                             path: pf.path.clone(),
-                            status: "stale".to_string(),
+                            status: "stale",
                             error: Some(msg.clone()),
                         });
                         if !global.json && !global.jsonl && !global.quiet {
@@ -282,7 +277,7 @@ mod tests {
     /// Helper: default `GlobalFlags` pointing at a directory.
     fn flags_for(dir: &std::path::Path) -> GlobalFlags {
         GlobalFlags {
-            cwd: Some(dir.to_string_lossy().to_string()),
+            cwd: Some(dir.to_string_lossy().into_owned()),
             ..GlobalFlags::default()
         }
     }
@@ -430,7 +425,7 @@ mod tests {
         let global = flags_for(tmp.path());
         let args = PatchArgs {
             action: PatchAction::Check {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -463,7 +458,7 @@ mod tests {
         let global = flags_for(tmp.path());
         let args = PatchArgs {
             action: PatchAction::Check {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -494,7 +489,7 @@ mod tests {
         let global = flags_for(tmp.path());
         let args = PatchArgs {
             action: PatchAction::Check {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -527,7 +522,7 @@ mod tests {
         global.check = true;
         let args = PatchArgs {
             action: PatchAction::Apply {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -559,7 +554,7 @@ mod tests {
         global.apply = true;
         let args = PatchArgs {
             action: PatchAction::Apply {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -594,7 +589,7 @@ mod tests {
         global.apply = true;
         let args = PatchArgs {
             action: PatchAction::Apply {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -631,7 +626,7 @@ mod tests {
         let global = flags_for(tmp.path());
         let args = PatchArgs {
             action: PatchAction::Apply {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),
@@ -658,7 +653,7 @@ mod tests {
         let global = flags_for(tmp.path());
         let args = PatchArgs {
             action: PatchAction::Check {
-                file: Some(diff_path.to_string_lossy().to_string()),
+                file: Some(diff_path.to_string_lossy().into_owned()),
                 stdin: false,
             },
             write: Default::default(),

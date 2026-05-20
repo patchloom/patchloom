@@ -119,6 +119,23 @@ impl GlobalFlags {
         }
     }
 
+    /// Emit a serializable value to stdout in structured format.
+    ///
+    /// If `--json` is set, pretty-prints. If `--jsonl` is set, prints compact.
+    /// Returns `true` if structured output was emitted, `false` if the caller
+    /// should handle text-mode output (respecting `--quiet`).
+    pub fn emit_json<T: serde::Serialize>(&self, value: &T) -> anyhow::Result<bool> {
+        if self.json {
+            println!("{}", serde_json::to_string_pretty(value)?);
+            Ok(true)
+        } else if self.jsonl {
+            println!("{}", serde_json::to_string(value)?);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
     pub fn read_files_from(&self) -> anyhow::Result<Option<Vec<String>>> {

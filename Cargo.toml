@@ -1,14 +1,26 @@
 [package]
 name = "patchloom"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.81"
+edition = "2024"
+rust-version = "1.95"
 description = "A Rust CLI for agent-grade repo operations"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/patchloom/patchloom"
 homepage = "https://github.com/patchloom/patchloom"
 readme = "README.md"
 keywords = ["cli", "agents", "patch", "markdown", "config"]
+categories = ["command-line-utilities", "development-tools", "config"]
+documentation = "https://docs.rs/patchloom"
+exclude = [
+  "benches/",
+  "tests/agent/",
+  "demo/",
+  "assets/",
+  "docs/",
+  ".github/",
+  "REPO-SETUP.md",
+  "MAINTAINERS.md",
+]
 
 [features]
 default = []
@@ -31,7 +43,7 @@ anyhow = "1"
 ec4rs = "1"
 clap_complete = "4.4.10"
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 schemars = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
@@ -45,6 +57,13 @@ tokio = { version = "1", features = ["full"] }
 
 [lints.rust]
 unsafe_code = "deny"
+
+[lints.clippy]
+manual_string_new = "warn"
+implicit_clone = "warn"
+cloned_instead_of_copied = "warn"
+redundant_else = "warn"
+semicolon_if_nothing_returned = "warn"
 
 # The profile that 'dist' will build with
 [profile.release]

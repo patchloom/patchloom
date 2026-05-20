@@ -34,7 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tx` plans support `format` and `validate` lifecycle arrays with configurable timeouts
 - `strict` mode reverts all writes on format/validate failure (exit code 7)
 - `read` and `search` operations in tx plans for inspect-then-edit workflows in a single call
-- `batch` provides simpler line-oriented syntax covering 21 operation types
+- `batch` provides simpler line-oriented syntax covering 20 operation types
 - Operation ordering is well-defined: last write wins, delete-then-create works, each op sees prior results
 
 ### Correctness fixes
@@ -58,14 +58,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing and benchmarks
 
-- 768 tests (413 unit + 355 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 821 tests (427 unit + 394 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - Agent integration tests: 19 scenarios with invocation-capture shim
 - CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
 - Agent A/B benchmarks measuring duration, tool calls, and success rate
 
 ### Infrastructure
 
-- MSRV: Rust 1.81+
+- MSRV: Rust 1.95+
 - License: MIT OR Apache-2.0
-- CI: fmt, clippy, tests, MSRV check, dependency audit
-- `make check` runs the full gate locally
+- CI: fmt, clippy, tests, MSRV check, dependency audit, doc freshness checks
+- `make check` runs the full gate locally, including generated doc freshness

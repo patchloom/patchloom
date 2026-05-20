@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-768%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-821%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -144,7 +144,7 @@ MCP mode is 17% faster than CLI mode because the agent discovers tools via proto
 ## Install
 
 ```bash
-# Core CLI install (requires Rust 1.81+)
+# Core CLI install (requires Rust 1.95+)
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
@@ -334,7 +334,7 @@ Two integration modes, same capabilities:
 
 ## Status
 
-768 passing tests across 15 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+821 passing tests across 15 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 

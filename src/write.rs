@@ -36,13 +36,17 @@ impl Default for WritePolicy {
 
 /// If `content` is non-empty and does not already end with `\n`, append one.
 /// Empty content is returned unchanged.
-pub fn ensure_final_newline(content: &str) -> String {
+///
+/// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
+pub fn ensure_final_newline(content: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
     if content.is_empty() || content.ends_with('\n') {
-        content.to_owned()
+        Cow::Borrowed(content)
     } else {
-        let mut s = content.to_owned();
+        let mut s = String::with_capacity(content.len() + 1);
+        s.push_str(content);
         s.push('\n');
-        s
+        Cow::Owned(s)
     }
 }
 
@@ -51,14 +55,46 @@ pub fn ensure_final_newline(content: &str) -> String {
 /// - `Keep`  – return content unchanged.
 /// - `Lf`    – replace every `\r\n` with `\n`.
 /// - `Crlf`  – replace every lone `\n` (not preceded by `\r`) with `\r\n`.
-pub fn normalize_eol(content: &str, mode: EolMode) -> String {
+///
+/// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
+/// CRLF mode uses a single-pass scan with `memchr` instead of two
+/// `.replace()` calls.
+pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
     match mode {
-        EolMode::Keep => content.to_owned(),
-        EolMode::Lf => content.replace("\r\n", "\n"),
+        EolMode::Keep => Cow::Borrowed(content),
+        EolMode::Lf => {
+            if memchr::memmem::find(content.as_bytes(), b"\r\n").is_none() {
+                Cow::Borrowed(content)
+            } else {
+                Cow::Owned(content.replace("\r\n", "\n"))
+            }
+        }
         EolMode::Crlf => {
-            // First normalise everything to LF, then expand to CRLF.
-            let lf_only = content.replace("\r\n", "\n");
-            lf_only.replace('\n', "\r\n")
+            let bytes = content.as_bytes();
+            let has_bare_lf =
+                memchr::memchr_iter(b'\n', bytes).any(|i| i == 0 || bytes[i - 1] != b'\r');
+            if !has_bare_lf {
+                Cow::Borrowed(content)
+            } else {
+                // Single-pass: copy slices between \n positions, inserting
+                // \r before bare \n characters.
+                let mut result = String::with_capacity(content.len() + content.len() / 10);
+                let mut last = 0;
+                for i in memchr::memchr_iter(b'\n', bytes) {
+                    if i == 0 || bytes[i - 1] != b'\r' {
+                        result.push_str(&content[last..i]);
+                        result.push_str("\r\n");
+                    } else {
+                        result.push_str(&content[last..=i]);
+                    }
+                    last = i + 1;
+                }
+                if last < content.len() {
+                    result.push_str(&content[last..]);
+                }
+                Cow::Owned(result)
+            }
         }
     }
 }
@@ -91,17 +127,31 @@ pub fn trim_trailing_whitespace(content: &str) -> String {
 }
 
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
-pub fn apply_policy(content: &str, policy: &WritePolicy) -> String {
-    let mut s = content.to_owned();
+///
+/// Returns `Cow::Borrowed` when the policy is a no-op, avoiding allocation.
+pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
 
-    if policy.trim_trailing_whitespace {
-        s = trim_trailing_whitespace(&s);
+    if policy.is_noop() {
+        return Cow::Borrowed(content);
     }
 
-    s = normalize_eol(&s, policy.normalize_eol);
+    let mut s = if policy.trim_trailing_whitespace {
+        Cow::Owned(trim_trailing_whitespace(content))
+    } else {
+        Cow::Borrowed(content)
+    };
 
-    if policy.ensure_final_newline {
-        s = ensure_final_newline(&s);
+    if !matches!(policy.normalize_eol, EolMode::Keep)
+        && let Cow::Owned(new) = normalize_eol(&s, policy.normalize_eol)
+    {
+        s = Cow::Owned(new);
+    }
+
+    if policy.ensure_final_newline
+        && let Cow::Owned(new) = ensure_final_newline(&s)
+    {
+        s = Cow::Owned(new);
     }
 
     s
@@ -125,38 +175,35 @@ pub fn policy_from_flags(
     });
     let mut ttw = global.trim_trailing_whitespace;
 
-    if global.respect_editorconfig {
-        if let Some(path) = file_path {
-            if let Ok(props) = ec4rs::properties_of(path) {
-                // insert_final_newline
-                if !global.ensure_final_newline {
-                    if let Ok(ec4rs::property::FinalNewline::Value(true)) =
-                        props.get::<ec4rs::property::FinalNewline>()
-                    {
-                        efn = true;
-                    }
-                }
+    if global.respect_editorconfig
+        && let Some(path) = file_path
+        && let Ok(props) = ec4rs::properties_of(path)
+    {
+        // insert_final_newline
+        if !global.ensure_final_newline
+            && let Ok(ec4rs::property::FinalNewline::Value(true)) =
+                props.get::<ec4rs::property::FinalNewline>()
+        {
+            efn = true;
+        }
 
-                // end_of_line
-                if global.normalize_eol.is_none() {
-                    if let Ok(val) = props.get::<ec4rs::property::EndOfLine>() {
-                        eol = Some(match val {
-                            ec4rs::property::EndOfLine::Lf => EolMode::Lf,
-                            ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
-                            ec4rs::property::EndOfLine::Cr => EolMode::Keep,
-                        });
-                    }
-                }
+        // end_of_line
+        if global.normalize_eol.is_none()
+            && let Ok(val) = props.get::<ec4rs::property::EndOfLine>()
+        {
+            eol = Some(match val {
+                ec4rs::property::EndOfLine::Lf => EolMode::Lf,
+                ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
+                ec4rs::property::EndOfLine::Cr => EolMode::Keep,
+            });
+        }
 
-                // trim_trailing_whitespace
-                if !global.trim_trailing_whitespace {
-                    if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
-                        props.get::<ec4rs::property::TrimTrailingWs>()
-                    {
-                        ttw = true;
-                    }
-                }
-            }
+        // trim_trailing_whitespace
+        if !global.trim_trailing_whitespace
+            && let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
+                props.get::<ec4rs::property::TrimTrailingWs>()
+        {
+            ttw = true;
         }
     }
 
@@ -254,6 +301,32 @@ mod tests {
     }
 
     #[test]
+    fn normalize_eol_crlf_bare_lf_at_position_zero() {
+        // Exercises the `i == 0` branch in the memchr single-pass scan.
+        assert_eq!(normalize_eol("\na\n", EolMode::Crlf), "\r\na\r\n");
+    }
+
+    #[test]
+    fn normalize_eol_crlf_mixed_content() {
+        // Some lines already CRLF, some bare LF — only bare LFs get \r.
+        assert_eq!(
+            normalize_eol("a\r\nb\nc\r\n", EolMode::Crlf),
+            "a\r\nb\r\nc\r\n"
+        );
+    }
+
+    #[test]
+    fn normalize_eol_crlf_already_correct_returns_borrowed() {
+        use std::borrow::Cow;
+        let content = "a\r\nb\r\n";
+        let result = normalize_eol(content, EolMode::Crlf);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "all-CRLF content should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
     fn normalize_eol_keep_unchanged() {
         let content = "a\r\nb\nc\n";
         assert_eq!(normalize_eol(content, EolMode::Keep), content);
@@ -265,6 +338,18 @@ mod tests {
             trim_trailing_whitespace("hello   \nworld\t\n"),
             "hello\nworld\n"
         );
+    }
+
+    #[test]
+    fn noop_policy_returns_borrowed() {
+        let policy = WritePolicy::default();
+        let input = "hello\nworld\n";
+        let result = apply_policy(input, &policy);
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "no-op policy should return Cow::Borrowed"
+        );
+        assert_eq!(&*result, input);
     }
 
     #[test]

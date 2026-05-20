@@ -1,12 +1,11 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
 use std::fs;
-use std::io::Read;
 
 #[derive(Debug, Args)]
 pub struct CreateArgs {
@@ -53,9 +52,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let content = if let Some(ref c) = args.content {
         c.clone()
     } else if args.stdin {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        buf
+        std::io::read_to_string(std::io::stdin())?
     } else {
         bail!("either --content or --stdin must be provided");
     };
@@ -75,23 +72,19 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --check mode: verify parent directory exists (unless --force will create
     // it), then report that file would be created.
     if global.check {
-        if !args.force {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    bail!("parent directory does not exist: {}", parent.display());
-                }
-            }
+        if !args.force
+            && let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            bail!("parent directory does not exist: {}", parent.display());
         }
         let output = CreateOutput {
             ok: true,
             path: args.file.clone(),
             diff: None,
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet {
             println!("would create {}", args.file);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -102,10 +95,10 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let policy = policy_from_flags(global, Some(&path));
 
         // Ensure parent directories exist.
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
         }
 
         if args.force {
@@ -122,32 +115,27 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let output = CreateOutput {
             ok: true,
             path: args.file.clone(),
-            diff: diff_text,
+            diff: diff_text.clone(),
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if global.diff {
-            print!("{}", make_diff_output(&args.file, &content));
-        } else if !global.quiet {
-            println!("created {}", args.file);
+        if !global.emit_json(&output)? {
+            if let Some(d) = diff_text {
+                print!("{d}");
+            } else if !global.quiet {
+                println!("created {}", args.file);
+            }
         }
         return Ok(exit::SUCCESS);
     }
 
     // Default / --diff mode: show unified diff of changes.
+    let diff_text = make_diff_output(&args.file, &content);
     let output = CreateOutput {
         ok: true,
         path: args.file.clone(),
-        diff: Some(make_diff_output(&args.file, &content)),
+        diff: Some(diff_text.clone()),
     };
-    if global.json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else if global.jsonl {
-        println!("{}", serde_json::to_string(&output)?);
-    } else {
-        print!("{}", make_diff_output(&args.file, &content));
+    if !global.emit_json(&output)? {
+        print!("{diff_text}");
     }
 
     Ok(exit::SUCCESS)

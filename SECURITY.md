@@ -4,9 +4,7 @@
 
 Please do not report security vulnerabilities in public GitHub issues or public GitHub discussions.
 
-While `patchloom/patchloom` remains private, GitHub private vulnerability reporting is not available yet. Until the repository becomes public, use the same private collaboration path already used to access the repository.
-
-Once the repository becomes public, maintainers should enable GitHub private vulnerability reporting and use it as the default intake path.
+Use [GitHub private vulnerability reporting](https://github.com/patchloom/patchloom/security/advisories/new) to submit security reports. This sends the report directly to the maintainers without public disclosure.
 
 ## What To Report Privately
 
@@ -40,6 +38,4 @@ Maintainers should:
 
 ## Private Contact Scope
 
-Once the repository is public, GitHub private vulnerability reporting should become the default private channel for security reports.
-
-It is not meant to become a general-purpose private contact method for product ideas, support, or partnership requests.
+GitHub private vulnerability reporting is the default private channel for security reports. It is not meant to become a general-purpose private contact method for product ideas, support, or partnership requests.

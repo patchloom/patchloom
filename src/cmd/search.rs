@@ -2,6 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use anyhow::bail;
 use clap::Args;
+use memchr::memchr_iter;
 use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
@@ -120,11 +121,9 @@ impl Matcher {
 fn build_matcher(args: &SearchArgs) -> anyhow::Result<Matcher> {
     // Use memchr for literal, case-sensitive, non-multiline searches.
     if args.literal && !args.case_insensitive && !args.multiline {
-        let owned = args.pattern.clone().into_bytes();
-        // SAFETY: we keep the owned bytes alive by leaking into a 'static ref.
-        // This is fine for a CLI tool; the process exits soon after.
-        let leaked: &'static [u8] = Box::leak(owned.into_boxed_slice());
-        return Ok(Matcher::Literal(Box::new(memmem::Finder::new(leaked))));
+        return Ok(Matcher::Literal(Box::new(
+            memmem::Finder::new(args.pattern.as_bytes()).into_owned(),
+        )));
     }
 
     let pattern = if args.literal {
@@ -150,6 +149,16 @@ struct FileResult {
     count: usize,
 }
 
+fn line_and_column_for_offset(newline_offsets: &[usize], start: usize) -> (usize, usize) {
+    let line_index = newline_offsets.partition_point(|&offset| offset < start);
+    let line_start = if line_index == 0 {
+        0
+    } else {
+        newline_offsets[line_index - 1] + 1
+    };
+    (line_index + 1, start - line_start + 1)
+}
+
 /// Search a single file and return matches/counts.
 fn search_one_file(
     path: &std::path::Path,
@@ -160,11 +169,12 @@ fn search_one_file(
     let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
-    let path_str = path.to_string_lossy().to_string();
+    let path_str = path.to_string_lossy().into_owned();
     let mut file_matches: Vec<SearchMatch> = Vec::new();
     let mut count = 0usize;
 
     if args.multiline {
+        let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
         for (start, end) in matcher.find_iter_positions(&content) {
             count += 1;
             if count_only {
@@ -173,16 +183,31 @@ fn search_one_file(
                 }
                 continue;
             }
-            let line_num = content[..start].matches('\n').count() + 1;
-            let col = start - content[..start].rfind('\n').map_or(0, |pos| pos + 1) + 1;
+            let (line, column) = line_and_column_for_offset(&newline_offsets, start);
             file_matches.push(SearchMatch {
                 path: path_str.clone(),
-                line: line_num,
-                column: col,
+                line,
+                column,
                 text: content[start..end].to_string(),
                 context_before: None,
                 context_after: None,
             });
+        }
+    } else if count_only {
+        // Fast path: no need to collect lines into a Vec for random access.
+        for line in content.lines() {
+            let found = matcher.find(line);
+            let is_match = if args.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+            if is_match {
+                count += 1;
+                if args.files_with_matches {
+                    break;
+                }
+            }
         }
     } else {
         let ctx_before = args.before_context.or(args.context).unwrap_or(0);
@@ -200,12 +225,6 @@ fn search_one_file(
                 continue;
             }
             count += 1;
-            if count_only {
-                if args.files_with_matches {
-                    break;
-                }
-                continue;
-            }
             let column = found.map_or(1, |(s, _)| s + 1);
             let (ctx_b, ctx_a) = if has_ctx {
                 let start = i.saturating_sub(ctx_before);
@@ -253,7 +272,8 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         });
 
     // Merge parallel results.
-    let mut all_matches: Vec<SearchMatch> = Vec::new();
+    let total_matches: usize = file_results.iter().map(|fr| fr.matches.len()).sum();
+    let mut all_matches: Vec<SearchMatch> = Vec::with_capacity(total_matches);
     let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
     for fr in file_results {
         file_match_counts.insert(fr.path_str, fr.count);
@@ -261,7 +281,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     }
 
     if !count_only {
-        all_matches.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
+        all_matches.sort_unstable_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
     }
 
     Ok(SearchResults {
@@ -271,10 +291,11 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
 }
 
 fn format_results(
-    results: &SearchResults,
+    results: SearchResults,
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<String> {
+    use std::fmt::Write;
     let mut out = String::new();
 
     if global.json {
@@ -282,7 +303,7 @@ fn format_results(
             ok: true,
             match_count: results.file_match_counts.values().sum(),
             file_count: results.file_match_counts.len(),
-            matches: results.matches.clone(),
+            matches: results.matches,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -313,7 +334,7 @@ fn format_results(
         }
     } else if args.count {
         for (path, count) in &results.file_match_counts {
-            out.push_str(&format!("{path}:{count}\n"));
+            let _ = writeln!(out, "{path}:{count}");
         }
     } else {
         let has_ctx =
@@ -327,14 +348,14 @@ fn format_results(
             if let Some(ref before) = m.context_before {
                 for (j, ctx) in before.iter().enumerate() {
                     let ln = m.line - before.len() + j;
-                    out.push_str(&format!("{}-{ln}-{ctx}\n", m.path));
+                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
                 }
             }
-            out.push_str(&format!("{}:{}:{}:{}\n", m.path, m.line, m.column, m.text));
+            let _ = writeln!(out, "{}:{}:{}:{}", m.path, m.line, m.column, m.text);
             if let Some(ref after) = m.context_after {
                 for (j, ctx) in after.iter().enumerate() {
                     let ln = m.line + 1 + j;
-                    out.push_str(&format!("{}-{ln}-{ctx}\n", m.path));
+                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
                 }
             }
         }
@@ -375,7 +396,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if !global.quiet {
-        let output = format_results(&results, &args, global)?;
+        let output = format_results(results, &args, global)?;
         print!("{output}");
     }
 
@@ -464,7 +485,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
         let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(&results, &args, &default_global()).unwrap();
+        let output = format_results(results, &args, &default_global()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
@@ -482,11 +503,20 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
         let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(&results, &args, &default_global()).unwrap();
+        let output = format_results(results, &args, &default_global()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
         assert!(lines[0].contains("hello.txt:"));
+    }
+
+    #[test]
+    fn line_and_column_for_offset_maps_multiline_positions() {
+        let newline_offsets = vec![2, 5];
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 0), (1, 1));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 2), (1, 3));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 3), (2, 1));
+        assert_eq!(line_and_column_for_offset(&newline_offsets, 6), (3, 1));
     }
 
     #[test]
@@ -575,6 +605,7 @@ mod tests {
             m.text
         );
         assert_eq!(m.line, 1, "match starts on line 1");
+        assert_eq!(m.column, 1, "match starts at column 1");
     }
 
     #[test]
@@ -624,7 +655,7 @@ mod tests {
         let mut global = default_global();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(&results, &args, &global).unwrap();
+        let output = format_results(results, &args, &global).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // "Hello" appears in two lines of hello.txt, one file.

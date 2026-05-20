@@ -1,8 +1,8 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::ops::replace::{
-    replace_content, replacement_text, validate_replace_mode, ReplaceModeError,
+    ReplaceModeError, replace_content, replacement_text, validate_replace_mode,
 };
 use crate::write::{atomic_write, policy_from_flags};
 use clap::Args;
@@ -127,7 +127,7 @@ fn collect_replacements(
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
             if count > 0 {
                 Some(FileReplacement {
-                    path: path.to_string_lossy().to_string(),
+                    path: path.to_string_lossy().into_owned(),
                     original: content,
                     replaced,
                     match_count: count,
@@ -137,7 +137,7 @@ fn collect_replacements(
             }
         });
 
-    replacements.sort_by(|a, b| a.path.cmp(&b.path));
+    replacements.sort_unstable_by(|a, b| a.path.cmp(&b.path));
     Ok(replacements)
 }
 

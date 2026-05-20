@@ -71,10 +71,10 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             None => continue,
         };
 
-        if let Some(ref matcher) = glob_matcher {
-            if !crate::matches_glob(std::path::Path::new(&file), Some(matcher)) {
-                continue;
-            }
+        if let Some(ref matcher) = glob_matcher
+            && !crate::matches_glob(std::path::Path::new(&file), Some(matcher))
+        {
+            continue;
         }
 
         match category {
@@ -88,27 +88,23 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let out = StatusOutput {
         ok: true,
-        modified: modified.clone(),
-        created: created.clone(),
-        deleted: deleted.clone(),
+        modified,
+        created,
+        deleted,
         total_changes,
     };
-    if global.json {
-        println!("{}", serde_json::to_string_pretty(&out)?);
-    } else if global.jsonl {
-        println!("{}", serde_json::to_string(&out)?);
-    } else if !global.quiet {
-        for f in &modified {
+    if !global.emit_json(&out)? && !global.quiet {
+        for f in &out.modified {
             println!("M  {f}");
         }
-        for f in &created {
+        for f in &out.created {
             println!("A  {f}");
         }
-        for f in &deleted {
+        for f in &out.deleted {
             println!("D  {f}");
         }
-        if total_changes > 0 {
-            println!("{total_changes} file(s) changed");
+        if out.total_changes > 0 {
+            println!("{} file(s) changed", out.total_changes);
         }
     }
 

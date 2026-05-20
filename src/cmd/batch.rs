@@ -2,7 +2,6 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 use clap::Args;
-use std::io::Read;
 
 /// Maximum number of operations in a single batch. Prevents unbounded
 /// memory allocation from accidentally or maliciously large inputs.
@@ -230,11 +229,11 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     }
 }
 
-/// Check that the right number of arguments were provided.
+/// Check that the exact number of arguments were provided.
 fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {
-    if args.len() < expected {
+    if args.len() != expected {
         anyhow::bail!(
-            "line {line_num}: '{op}' requires {expected} arguments, got {}",
+            "line {line_num}: '{op}' requires exactly {expected} arguments, got {}",
             args.len()
         );
     }
@@ -299,9 +298,7 @@ fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
 pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Read input.
     let input = if args.input == "-" {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        buf
+        std::io::read_to_string(std::io::stdin())?
     } else {
         std::fs::read_to_string(&args.input)
             .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", args.input))?
@@ -624,7 +621,13 @@ mod tests {
     #[test]
     fn parse_line_too_few_args() {
         let err = parse_line("doc.set config.json", 1).unwrap_err();
-        assert!(err.to_string().contains("requires 3 arguments"));
+        assert!(err.to_string().contains("requires exactly 3 arguments"));
+    }
+
+    #[test]
+    fn parse_line_extra_args_rejected() {
+        let err = parse_line(r#"file.delete old.txt extra"#, 1).unwrap_err();
+        assert!(err.to_string().contains("requires exactly 1 arguments"));
     }
 
     #[test]

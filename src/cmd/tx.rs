@@ -1,9 +1,9 @@
 use crate::cli::global::{EolMode, GlobalFlags};
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
-    parse_doc, serialize_value_preserving, set_at_path, update_matching, FileFormat,
+    FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
+    navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
@@ -11,11 +11,11 @@ use crate::ops::md::{
 };
 use crate::ops::patch::apply_patch_with_loader;
 use crate::ops::replace::{
-    replace_content, replacement_text, validate_replace_mode, ReplaceModeError,
+    ReplaceModeError, replace_content, replacement_text, validate_replace_mode,
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
-use crate::write::{apply_policy, atomic_create_new, atomic_write, WritePolicy};
+use crate::write::{WritePolicy, apply_policy, atomic_create_new, atomic_write};
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -23,7 +23,7 @@ use regex::RegexBuilder;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -290,7 +290,7 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
 }
 
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
-    selector::parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
+    selector::parse_anyhow(input)
 }
 
 // ---------------------------------------------------------------------------
@@ -615,8 +615,8 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     }
 
     tx.tx_searches.push(TxSearchResult {
-        path: path.to_string(),
-        pattern: pattern.to_string(),
+        path: path.clone(),
+        pattern: pattern.clone(),
         match_count: matches.len(),
         matches,
     });
@@ -826,19 +826,20 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             normalize_eol,
         } => {
             let file_path = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
-            let mut new = content.to_string();
-            if trim_trailing_whitespace.unwrap_or(false) {
-                new = crate::write::trim_trailing_whitespace(&new);
+            let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_owned();
+            let policy = WritePolicy {
+                ensure_final_newline: ensure_final_newline.unwrap_or(true),
+                trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
+                normalize_eol: if let Some(eol) = normalize_eol {
+                    plan_normalize_eol(eol)?
+                } else {
+                    EolMode::Keep
+                },
+            };
+            let new = crate::write::apply_policy(&content, &policy);
+            if content != *new {
+                update_file_content(tx.pending, tx.deletions, &file_path, new.into_owned());
             }
-            if let Some(eol) = normalize_eol {
-                let mode = plan_normalize_eol(eol)?;
-                new = crate::write::normalize_eol(&new, mode);
-            }
-            if ensure_final_newline.unwrap_or(true) {
-                new = crate::write::ensure_final_newline(&new);
-            }
-            update_file_content(tx.pending, tx.deletions, &file_path, new);
         }
 
         Operation::FileCreate {
@@ -1222,15 +1223,14 @@ fn rollback_strict(
         }
     }
     for path in deletions {
-        if let Some((orig, _)) = pending.get(path) {
-            if existed_before.contains(path) {
-                if let Err(e) = atomic_write(path, orig, &noop_policy) {
-                    eprintln!(
-                        "tx: rollback: failed to restore deleted {}: {e}",
-                        path.display()
-                    );
-                }
-            }
+        if let Some((orig, _)) = pending.get(path)
+            && existed_before.contains(path)
+            && let Err(e) = atomic_write(path, orig, &noop_policy)
+        {
+            eprintln!(
+                "tx: rollback: failed to restore deleted {}: {e}",
+                path.display()
+            );
         }
     }
 }
@@ -1245,9 +1245,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // 1. Read plan from file or stdin.
     let plan_text = if args.plan == "-" {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        buf
+        std::io::read_to_string(std::io::stdin())?
     } else {
         std::fs::read_to_string(&args.plan)
             .map_err(|e| anyhow::anyhow!("failed to read plan file '{}': {e}", args.plan))?
@@ -1271,19 +1269,19 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    if let Some(ref v) = plan.version {
-        if v != crate::plan::SCHEMA_VERSION {
-            let msg = format!(
-                "unsupported plan version '{v}' (this build supports version {})",
-                crate::plan::SCHEMA_VERSION
-            );
-            if structured {
-                emit_error_json("parse_error", &msg, compact);
-            } else {
-                eprintln!("tx: {msg}");
-            }
-            return Ok(exit::PARSE_ERROR);
+    if let Some(ref v) = plan.version
+        && v != crate::plan::SCHEMA_VERSION
+    {
+        let msg = format!(
+            "unsupported plan version '{v}' (this build supports version {})",
+            crate::plan::SCHEMA_VERSION
+        );
+        if structured {
+            emit_error_json("parse_error", &msg, compact);
+        } else {
+            eprintln!("tx: {msg}");
         }
+        return Ok(exit::PARSE_ERROR);
     }
 
     if let Err(e) = validate_plan_operations(&plan) {
@@ -1312,10 +1310,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
 
     for (i, op) in plan.operations.iter().enumerate() {
-        if let Operation::Replace { if_exists, .. } = op {
-            if !if_exists {
-                has_non_idempotent_replace = true;
-            }
+        if let Operation::Replace { if_exists, .. } = op
+            && !if_exists
+        {
+            has_non_idempotent_replace = true;
         }
         // Flush the doc cache before non-doc operations that work on raw
         // text, so they see the latest serialized content.
@@ -1361,8 +1359,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     for (path, (original, current)) in &pending {
         let write_policy = build_write_policy(&plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
-        if *original != final_content {
-            changes.push((path.clone(), original.clone(), final_content));
+        if *original != *final_content {
+            changes.push((path.clone(), original.clone(), final_content.into_owned()));
         }
     }
     changes.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1418,10 +1416,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::remove_file(path)?;
             } else {
                 // Ensure parent directories exist (needed for file.create).
-                if let Some(parent) = path.parent() {
-                    if !parent.as_os_str().is_empty() && !parent.exists() {
-                        std::fs::create_dir_all(parent)?;
-                    }
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    std::fs::create_dir_all(parent)?;
                 }
                 if !existed_before.contains(path) {
                     // New file: use atomic_create_new for TOCTOU safety.

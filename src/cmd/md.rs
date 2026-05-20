@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
@@ -9,8 +9,9 @@ use crate::write::{atomic_write, policy_from_flags};
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashSet;
-use std::io::Read;
+
 use std::path::Path;
 
 #[derive(Debug, Args)]
@@ -98,9 +99,7 @@ pub enum MdAction {
 
 fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<String> {
     if use_stdin {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        Ok(buf)
+        Ok(std::io::read_to_string(std::io::stdin())?)
     } else if let Some(c) = content {
         Ok(c.clone())
     } else {
@@ -149,7 +148,10 @@ fn apply_mutation(
 /// Remove backtick-delimited inline code spans from a line, returning
 /// the remaining prose.  This lets lint checks ignore content inside
 /// backticks (e.g. ``Never use `git add .` ``).
-fn strip_inline_code(line: &str) -> String {
+fn strip_inline_code(line: &str) -> Cow<'_, str> {
+    if !line.contains('`') {
+        return Cow::Borrowed(line);
+    }
     let mut result = String::with_capacity(line.len());
     let mut rest = line;
     while let Some(open) = rest.find('`') {
@@ -164,12 +166,12 @@ fn strip_inline_code(line: &str) -> String {
         }
     }
     result.push_str(rest);
-    result
+    Cow::Owned(result)
 }
 
 #[derive(Debug, Serialize)]
 struct LintIssue {
-    issue: String,
+    issue: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,14 +186,12 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     let mut seen: HashSet<(usize, String)> = HashSet::new();
     for h in &headings {
         let key = (h.level, h.text.trim().to_string());
-        if seen.contains(&key) {
+        if !seen.insert(key) {
             issues.push(LintIssue {
-                issue: "duplicate heading".to_string(),
+                issue: "duplicate heading",
                 line: Some(h.line_start + 1), // 1-based
                 heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
             });
-        } else {
-            seen.insert(key);
         }
     }
 
@@ -209,7 +209,7 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
         let stripped = strip_inline_code(line);
         if stripped.contains("git add .") || stripped.contains("git add -A") {
             issues.push(LintIssue {
-                issue: "dangerous command".to_string(),
+                issue: "dangerous command",
                 line: Some(idx + 1),
                 heading: None,
             });
@@ -219,7 +219,7 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     // 3. Missing final newline.
     if !content.is_empty() && !content.ends_with('\n') {
         issues.push(LintIssue {
-            issue: "missing final newline".to_string(),
+            issue: "missing final newline",
             line: None,
             heading: None,
         });

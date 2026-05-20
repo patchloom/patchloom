@@ -36,11 +36,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             path: args.file.clone(),
             applied: false,
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet {
             println!("would delete {}", args.file);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -53,11 +49,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             path: args.file.clone(),
             applied: true,
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet {
             println!("deleted {}", args.file);
         }
         return Ok(exit::SUCCESS);
@@ -69,11 +61,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         path: args.file.clone(),
         applied: false,
     };
-    if global.json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else if global.jsonl {
-        println!("{}", serde_json::to_string(&output)?);
-    } else if !global.quiet {
+    if !global.emit_json(&output)? && !global.quiet {
         println!("would delete {}", args.file);
     }
     Ok(exit::SUCCESS)
@@ -143,10 +131,12 @@ mod tests {
             &GlobalFlags::default(),
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("target is not a file"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("target is not a file")
+        );
     }
 
     #[test]

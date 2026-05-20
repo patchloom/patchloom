@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::Context;
@@ -61,11 +61,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             to: args.to.clone(),
             diff: None,
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet {
             println!("source and destination are the same: {}", args.from);
         }
         return Ok(exit::SUCCESS);
@@ -79,11 +75,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             to: args.to.clone(),
             diff: None,
         };
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            println!("{}", serde_json::to_string(&output)?);
-        } else if !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet {
             println!("would rename {} -> {}", args.from, args.to);
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -94,10 +86,11 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --apply mode: perform the rename.
     if global.apply {
         // Ensure parent directories exist for the destination.
-        if let Some(parent) = dst.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = dst.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)?;
         }
 
         // Fast path: when no write-policy transforms are active, use
@@ -130,14 +123,12 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 to: args.to.clone(),
                 diff: if global.diff { diff_text.clone() } else { None },
             };
-            if global.json {
-                println!("{}", serde_json::to_string_pretty(&output)?);
-            } else if global.jsonl {
-                println!("{}", serde_json::to_string(&output)?);
-            } else if let Some(d) = diff_text {
-                print!("{d}");
-            } else if !global.quiet {
-                println!("renamed {} -> {} (binary)", args.from, args.to);
+            if !global.emit_json(&output)? {
+                if let Some(d) = diff_text {
+                    print!("{d}");
+                } else if !global.quiet {
+                    println!("renamed {} -> {} (binary)", args.from, args.to);
+                }
             }
         } else if !global.quiet {
             println!("renamed {} -> {}", args.from, args.to);
@@ -153,14 +144,12 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         to: args.to.clone(),
         diff: diff_text.clone(),
     };
-    if global.json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else if global.jsonl {
-        println!("{}", serde_json::to_string(&output)?);
-    } else if let Some(d) = diff_text {
-        print!("{d}");
-    } else if !global.quiet {
-        println!("would rename {} -> {} (binary)", args.from, args.to);
+    if !global.emit_json(&output)? {
+        if let Some(d) = diff_text {
+            print!("{d}");
+        } else if !global.quiet {
+            println!("would rename {} -> {} (binary)", args.from, args.to);
+        }
     }
 
     Ok(exit::SUCCESS)

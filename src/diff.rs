@@ -48,11 +48,11 @@ pub fn unified_diff(path: &str, old: &str, new: &str) -> FileDiff {
 /// `--- a/<path>` / `+++ b/<path>` header pair to each file's hunks.
 /// Returns an empty string if no files changed.
 pub fn format_diff_result(result: &DiffResult) -> String {
+    use std::fmt::Write;
     let mut output = String::new();
     for diff in &result.diffs {
         if diff.has_changes {
-            output.push_str(&format!("--- a/{}\n", diff.path));
-            output.push_str(&format!("+++ b/{}\n", diff.path));
+            let _ = write!(output, "--- a/{}\n+++ b/{}\n", diff.path, diff.path);
             for hunk in &diff.hunks {
                 output.push_str(hunk);
             }

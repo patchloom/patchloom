@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check update-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
 
 .DEFAULT_GOAL := help
 
@@ -23,11 +23,13 @@ integration-test: ## Run integration tests
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check build test integration-test clippy check-patchloom-md ## Run all checks (full CI gate)
+check: fmt-check clippy test integration-test check-patchloom-md check-readme ## Run all checks (full CI gate)
+
+check-fast: fmt-check clippy test integration-test ## Fast check (skips doc verification)
 
 update-readme: ## Update README.md and CHANGELOG.md test counts
-	@unit=$$(cargo test --lib --all-features 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
-	integ=$$(cargo test --test integration --all-features 2>&1 | grep '^test result:.*passed' | tail -1 | sed 's/.*ok\. \([0-9]*\) passed.*/\1/'); \
+	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l); \
+	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	total=$$((unit + integ)); \
 	core_cmds=$$(cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
@@ -37,6 +39,23 @@ update-readme: ## Update README.md and CHANGELOG.md test counts
 	sed -i "s/[0-9]* passing tests across [0-9]* commands/$$total passing tests across $$all_cmds commands/" README.md; \
 	sed -i "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
 	echo "README.md and CHANGELOG.md updated: $$all_cmds total commands ($$core_cmds core), $$total tests ($$unit unit + $$integ integration)"
+
+check-readme: ## Verify README.md and CHANGELOG.md test counts are fresh
+	@tmp_readme=$$(mktemp); \
+	tmp_changelog=$$(mktemp); \
+	cp README.md "$$tmp_readme"; \
+	cp CHANGELOG.md "$$tmp_changelog"; \
+	trap 'mv "$$tmp_readme" README.md; mv "$$tmp_changelog" CHANGELOG.md' EXIT; \
+	$(MAKE) update-readme >/dev/null; \
+	if cmp -s "$$tmp_readme" README.md && cmp -s "$$tmp_changelog" CHANGELOG.md; then \
+		rm -f "$$tmp_readme" "$$tmp_changelog"; \
+		trap - EXIT; \
+	else \
+		diff -u "$$tmp_readme" README.md || true; \
+		diff -u "$$tmp_changelog" CHANGELOG.md || true; \
+		echo "ERROR: README.md or CHANGELOG.md is stale. Run 'make update-readme' to refresh counts."; \
+		exit 1; \
+	fi
 
 sync-patchloom-md: ## Regenerate PATCHLOOM.md from patchloom agent-rules
 	cargo run --quiet -- agent-rules > PATCHLOOM.md

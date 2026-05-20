@@ -1,7 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff::unified_diff;
 use crate::exit;
-use crate::write::{apply_policy, atomic_write, policy_from_flags, WritePolicy};
+use crate::write::{WritePolicy, apply_policy, atomic_write, policy_from_flags};
 use clap::Args;
 use serde::Serialize;
 use std::path::Path;
@@ -26,7 +26,7 @@ pub enum HygieneAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct HygieneIssue {
     pub path: String,
-    pub issue: String,
+    pub issue: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
 }
@@ -41,29 +41,26 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
         return Ok(Vec::new());
     }
 
-    let path_str = path.to_string_lossy().to_string();
+    let path_str = path.to_string_lossy().into_owned();
     let mut issues = Vec::new();
 
     // Check missing final newline.
     if !data.ends_with(b"\n") {
         issues.push(HygieneIssue {
             path: path_str.clone(),
-            issue: "missing final newline".to_string(),
+            issue: "missing final newline",
             line: None,
         });
     }
 
     // Check mixed line endings: file has both \r\n and bare \n.
-    let has_crlf = data.windows(2).any(|w| w == b"\r\n");
+    let has_crlf = memchr::memmem::find(&data, b"\r\n").is_some();
     // A bare \n is any \n not preceded by \r.
-    let has_bare_lf = data
-        .iter()
-        .enumerate()
-        .any(|(i, &b)| b == b'\n' && (i == 0 || data[i - 1] != b'\r'));
+    let has_bare_lf = memchr::memchr_iter(b'\n', &data).any(|i| i == 0 || data[i - 1] != b'\r');
     if has_crlf && has_bare_lf {
         issues.push(HygieneIssue {
             path: path_str.clone(),
-            issue: "mixed line endings".to_string(),
+            issue: "mixed line endings",
             line: None,
         });
     }
@@ -72,11 +69,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
     // We split on \n so each "line" may still contain a trailing \r from CRLF.
     for (line_idx, raw_line) in data.split(|&b| b == b'\n').enumerate() {
         // Strip trailing \r if present (from CRLF).
-        let content = if raw_line.last() == Some(&b'\r') {
-            &raw_line[..raw_line.len() - 1]
-        } else {
-            raw_line
-        };
+        let content = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
         // Skip completely empty lines and the phantom empty element after a
         // trailing newline.
         if content.is_empty() {
@@ -85,7 +78,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
         if matches!(content.last(), Some(b' ' | b'\t')) {
             issues.push(HygieneIssue {
                 path: path_str.clone(),
-                issue: "trailing whitespace".to_string(),
+                issue: "trailing whitespace",
                 line: Some(line_idx + 1), // 1-based
             });
         }
@@ -166,48 +159,58 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let root = global.resolve_cwd()?;
             let glob_matcher = crate::build_glob_matcher(global)?;
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
-            let mut any_changed = false;
 
-            for path_buf in &fix_file_paths {
-                let file_path = path_buf.as_path();
+            // Parallel read+compute phase: each file is read, checked for
+            // binary content, and has the write policy applied concurrently.
+            struct FixResult {
+                path: std::path::PathBuf,
+                rel_path: String,
+                original: String,
+                fixed: String,
+            }
 
-                if !crate::matches_glob(file_path, glob_matcher.as_ref()) {
-                    continue;
-                }
+            let results: Vec<FixResult> =
+                crate::par_process_files(&fix_file_paths, glob_matcher.as_ref(), |file_path| {
+                    let data = std::fs::read(file_path).ok()?;
+                    if data.is_empty() || is_binary(&data) {
+                        return None;
+                    }
+                    let original = String::from_utf8_lossy(&data);
+                    let policy = policy_from_flags(global, Some(file_path));
+                    let fixed = apply_policy(&original, &policy);
+                    if fixed == *original {
+                        return None;
+                    }
+                    let rel_path = file_path
+                        .strip_prefix(&root)
+                        .unwrap_or(file_path)
+                        .to_string_lossy()
+                        .to_string();
+                    // Consume fixed before original (fixed borrows original via Cow).
+                    let fixed = fixed.into_owned();
+                    Some(FixResult {
+                        path: file_path.to_owned(),
+                        rel_path,
+                        original: original.into_owned(),
+                        fixed,
+                    })
+                });
 
-                let data = std::fs::read(file_path)?;
-                if data.is_empty() || is_binary(&data) {
-                    continue;
-                }
-
-                let original = String::from_utf8_lossy(&data);
-                let policy = policy_from_flags(global, Some(file_path));
-                let fixed = apply_policy(&original, &policy);
-
-                if fixed == *original {
-                    continue;
-                }
-
-                any_changed = true;
-
-                let rel_path = file_path
-                    .strip_prefix(&root)
-                    .unwrap_or(file_path)
-                    .to_string_lossy()
-                    .to_string();
-
+            // Serial output/write phase for ordered, crash-safe writes.
+            let any_changed = !results.is_empty();
+            for r in &results {
                 if global.check {
                     if !global.quiet {
-                        println!("{rel_path}");
+                        println!("{}", r.rel_path);
                     }
                 } else if global.apply {
                     let noop = WritePolicy::default();
-                    atomic_write(file_path, &fixed, &noop)?;
+                    atomic_write(&r.path, &r.fixed, &noop)?;
                 } else if !global.quiet {
-                    let diff = unified_diff(&rel_path, &original, &fixed);
+                    let diff = unified_diff(&r.rel_path, &r.original, &r.fixed);
                     if diff.has_changes {
-                        println!("--- a/{rel_path}");
-                        println!("+++ b/{rel_path}");
+                        println!("--- a/{}", r.rel_path);
+                        println!("+++ b/{}", r.rel_path);
                         for hunk in &diff.hunks {
                             print!("{hunk}");
                         }
@@ -216,7 +219,6 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
 
             if global.apply {
-                // After --apply, success regardless of changes.
                 Ok(exit::SUCCESS)
             } else if any_changed {
                 Ok(exit::CHANGES_DETECTED)
@@ -236,7 +238,7 @@ mod tests {
     /// Helper: default `GlobalFlags` pointing at the given dir.
     fn flags_for(dir: &Path) -> GlobalFlags {
         GlobalFlags {
-            cwd: Some(dir.to_string_lossy().to_string()),
+            cwd: Some(dir.to_string_lossy().into_owned()),
             ..GlobalFlags::default()
         }
     }
@@ -311,7 +313,7 @@ mod tests {
         std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
         let issues = check_file(&file).unwrap();
-        let issue_types: Vec<&str> = issues.iter().map(|i| i.issue.as_str()).collect();
+        let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
         assert!(
             issue_types.contains(&"missing final newline"),
             "missing final newline not found in {issue_types:?}"

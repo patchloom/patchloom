@@ -32,10 +32,10 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 } => {
                     if let Some(arr) = val.as_array() {
                         for item in arr {
-                            if let Some(field) = item.get(key.as_str()) {
-                                if crate::selector::value_matches_str(field, pred_val) {
-                                    next.push(item);
-                                }
+                            if let Some(field) = item.get(key.as_str())
+                                && crate::selector::value_matches_str(field, pred_val)
+                            {
+                                next.push(item);
                             }
                         }
                     }

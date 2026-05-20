@@ -26,6 +26,12 @@ struct ReadOutput {
 
 pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
     if let Some((start_str, end_str)) = spec.split_once(':') {
+        if start_str.is_empty() {
+            anyhow::bail!("missing start line in range '{spec}' (expected START:END)");
+        }
+        if end_str.is_empty() {
+            anyhow::bail!("missing end line in range '{spec}' (expected START:END)");
+        }
         let start: usize = start_str
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid start line: {start_str}"))?;
@@ -178,6 +184,24 @@ mod tests {
     #[test]
     fn parse_range_end_before_start_fails() {
         assert!(parse_line_range("10:5").is_err());
+    }
+
+    #[test]
+    fn parse_range_missing_start_fails() {
+        let err = parse_line_range(":10").unwrap_err();
+        assert!(
+            err.to_string().contains("missing start line"),
+            "expected 'missing start line', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_range_missing_end_fails() {
+        let err = parse_line_range("5:").unwrap_err();
+        assert!(
+            err.to_string().contains("missing end line"),
+            "expected 'missing end line', got: {err}"
+        );
     }
 
     #[test]
