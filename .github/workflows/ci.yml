@@ -163,6 +163,46 @@ jobs:
           name: coverage-report
           path: lcov.info
 
+  bench:
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install hyperfine
+        uses: taiki-e/install-action@v2
+        with:
+          tool: hyperfine
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create test fixtures
+        run: |
+          echo '{"name": "test", "version": "1.0.0"}' > /tmp/bench.json
+          echo "hello world" > /tmp/bench.txt
+
+      - name: Benchmark search (must be under 50ms)
+        run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom search "hello" /tmp/bench.txt' --max-runs 100
+
+      - name: Benchmark doc get (must be under 50ms)
+        run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom --json doc get /tmp/bench.json name' --max-runs 100
+
+      - name: Benchmark replace dry-run (must be under 50ms)
+        run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom replace --from hello --to world /tmp/bench.txt' --max-runs 100
+
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 5
