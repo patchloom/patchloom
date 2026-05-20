@@ -129,6 +129,75 @@ fn test_search_no_matches_exit_3() {
         .code(3);
 }
 
+#[test]
+fn test_search_jsonl_output_has_path_field() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert!(parsed["path"].is_string(), "path field must be a string");
+    assert!(
+        parsed["path"].as_str().unwrap().contains("hello.txt"),
+        "path should contain filename"
+    );
+    assert!(parsed["line"].is_number(), "line field must be a number");
+}
+
+#[test]
+fn test_search_jsonl_count_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "aaa\naaa\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--count")
+        .arg("aaa")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert!(parsed["path"].is_string(), "path must be a string");
+    assert_eq!(parsed["count"], 2, "should find 2 matches");
+}
+
+#[test]
+fn test_search_jsonl_files_with_matches_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("match.txt"), "needle\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--files-with-matches")
+        .arg("needle")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert!(parsed["path"].is_string(), "path must be a string");
+    assert!(
+        parsed["path"].as_str().unwrap().contains("match.txt"),
+        "should contain filename"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // completions
 // ---------------------------------------------------------------------------
