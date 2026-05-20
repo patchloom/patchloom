@@ -11543,3 +11543,30 @@ async fn test_mcp_search_rejects_absolute_path() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_batch_rejects_oversized_payload() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.json"), r#"{"k":"v"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Build a payload exceeding MAX_BATCH_OPERATIONS (10_000).
+    let ops: Vec<String> = (0..10_001)
+        .map(|i| format!("doc.set f.json key{i} \"v\""))
+        .collect();
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_batch",
+        serde_json::json!({"operations": ops}),
+    )
+    .await;
+    assert!(is_error, "oversized batch should be rejected: {text}");
+    assert!(
+        text.contains("Too many operations"),
+        "error should mention operation count: {text}"
+    );
+    client.cancel().await.unwrap();
+}
