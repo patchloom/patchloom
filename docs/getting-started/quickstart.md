@@ -105,7 +105,9 @@ Apply all changes atomically:
 patchloom tx --plan bump.json --apply
 ```
 
-If any operation fails, nothing is written.
+If an operation fails, nothing is written. Format and validate lifecycle steps run
+after writes, so use `"strict": true` in the plan if you want those failures to
+roll back all changes too.
 
 ## Step 6: Use in CI
 
