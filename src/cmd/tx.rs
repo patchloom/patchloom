@@ -902,6 +902,10 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
 
+            if dst_path.exists() && !dst_path.is_file() {
+                anyhow::bail!("destination is not a file: {to}");
+            }
+
             // If source and destination are the same path, no-op.
             if src_path == dst_path {
                 return Ok(0);

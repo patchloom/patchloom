@@ -5254,6 +5254,95 @@ fn test_tx_file_rename_force_overwrites() {
 }
 
 #[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
+}
+
+#[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
+}
+
+#[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
+}
+
+#[test]
 fn test_tx_file_rename_same_path_is_noop() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("same.txt"), "keep me\n").unwrap();
