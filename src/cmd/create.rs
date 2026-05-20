@@ -62,6 +62,10 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let path = cwd.join(&args.file);
 
+    if path.exists() && !path.is_file() {
+        bail!("target is not a file: {}", args.file);
+    }
+
     // For non-write modes, an early exists check is fine (no TOCTOU concern).
     // The --apply path below uses File::create_new for race-free creation.
     if !global.apply && !args.force && path.exists() {
@@ -226,6 +230,24 @@ mod tests {
 
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "overwritten\n");
+    }
+
+    #[test]
+    fn create_rejects_directory_target_even_with_force() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("folder");
+        fs::create_dir(&target).unwrap();
+
+        let args = CreateArgs {
+            file: target.to_string_lossy().into_owned(),
+            content: Some("hello\n".to_string()),
+            stdin: false,
+            force: true,
+            write: Default::default(),
+        };
+
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(err.to_string().contains("target is not a file"));
     }
 
     #[test]

@@ -4357,6 +4357,71 @@ fn test_search_literal_flag() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_create_force_directory_target_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_create_force_directory_target_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_create_force_directory_target_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
 fn test_create_force_overwrites_existing() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("existing.txt");
