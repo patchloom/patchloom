@@ -121,11 +121,9 @@ impl Matcher {
 fn build_matcher(args: &SearchArgs) -> anyhow::Result<Matcher> {
     // Use memchr for literal, case-sensitive, non-multiline searches.
     if args.literal && !args.case_insensitive && !args.multiline {
-        let owned = args.pattern.clone().into_bytes();
-        // SAFETY: we keep the owned bytes alive by leaking into a 'static ref.
-        // This is fine for a CLI tool; the process exits soon after.
-        let leaked: &'static [u8] = Box::leak(owned.into_boxed_slice());
-        return Ok(Matcher::Literal(Box::new(memmem::Finder::new(leaked))));
+        return Ok(Matcher::Literal(Box::new(
+            memmem::Finder::new(args.pattern.as_bytes()).into_owned(),
+        )));
     }
 
     let pattern = if args.literal {
@@ -171,7 +169,7 @@ fn search_one_file(
     let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
-    let path_str = path.to_string_lossy().to_string();
+    let path_str = path.to_string_lossy().into_owned();
     let mut file_matches: Vec<SearchMatch> = Vec::new();
     let mut count = 0usize;
 
@@ -195,6 +193,22 @@ fn search_one_file(
                 context_after: None,
             });
         }
+    } else if count_only {
+        // Fast path: no need to collect lines into a Vec for random access.
+        for line in content.lines() {
+            let found = matcher.find(line);
+            let is_match = if args.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+            if is_match {
+                count += 1;
+                if args.files_with_matches {
+                    break;
+                }
+            }
+        }
     } else {
         let ctx_before = args.before_context.or(args.context).unwrap_or(0);
         let ctx_after = args.after_context.or(args.context).unwrap_or(0);
@@ -211,12 +225,6 @@ fn search_one_file(
                 continue;
             }
             count += 1;
-            if count_only {
-                if args.files_with_matches {
-                    break;
-                }
-                continue;
-            }
             let column = found.map_or(1, |(s, _)| s + 1);
             let (ctx_b, ctx_a) = if has_ctx {
                 let start = i.saturating_sub(ctx_before);
@@ -264,7 +272,8 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
         });
 
     // Merge parallel results.
-    let mut all_matches: Vec<SearchMatch> = Vec::new();
+    let total_matches: usize = file_results.iter().map(|fr| fr.matches.len()).sum();
+    let mut all_matches: Vec<SearchMatch> = Vec::with_capacity(total_matches);
     let mut file_match_counts: BTreeMap<String, usize> = BTreeMap::new();
     for fr in file_results {
         file_match_counts.insert(fr.path_str, fr.count);
@@ -272,7 +281,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     }
 
     if !count_only {
-        all_matches.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
+        all_matches.sort_unstable_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
     }
 
     Ok(SearchResults {
@@ -286,6 +295,7 @@ fn format_results(
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<String> {
+    use std::fmt::Write;
     let mut out = String::new();
 
     if global.json {
@@ -324,7 +334,7 @@ fn format_results(
         }
     } else if args.count {
         for (path, count) in &results.file_match_counts {
-            out.push_str(&format!("{path}:{count}\n"));
+            let _ = writeln!(out, "{path}:{count}");
         }
     } else {
         let has_ctx =
@@ -338,14 +348,14 @@ fn format_results(
             if let Some(ref before) = m.context_before {
                 for (j, ctx) in before.iter().enumerate() {
                     let ln = m.line - before.len() + j;
-                    out.push_str(&format!("{}-{ln}-{ctx}\n", m.path));
+                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
                 }
             }
-            out.push_str(&format!("{}:{}:{}:{}\n", m.path, m.line, m.column, m.text));
+            let _ = writeln!(out, "{}:{}:{}:{}", m.path, m.line, m.column, m.text);
             if let Some(ref after) = m.context_after {
                 for (j, ctx) in after.iter().enumerate() {
                     let ln = m.line + 1 + j;
-                    out.push_str(&format!("{}-{ln}-{ctx}\n", m.path));
+                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
                 }
             }
         }

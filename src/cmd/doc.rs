@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    deep_merge, delete_at_selector, delete_where, detect_format, move_at_path, navigate_mut,
-    parse_doc, serialize_value_preserving, set_at_path, update_matching, FileFormat,
+    FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
+    navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::selector;
 use crate::write;
@@ -115,11 +115,11 @@ impl DocAction {
             | DocAction::Move { file, .. }
             | DocAction::Ensure { file, .. }
             | DocAction::Flatten { file } => {
-                *file = cwd.join(&*file).to_string_lossy().to_string();
+                *file = cwd.join(&*file).to_string_lossy().into_owned();
             }
             DocAction::Diff { file_a, file_b } => {
-                *file_a = cwd.join(&*file_a).to_string_lossy().to_string();
-                *file_b = cwd.join(&*file_b).to_string_lossy().to_string();
+                *file_a = cwd.join(&*file_a).to_string_lossy().into_owned();
+                *file_b = cwd.join(&*file_b).to_string_lossy().into_owned();
             }
         }
     }
@@ -306,16 +306,17 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
 /// i64, f64, then fallback to bare string.
 pub(crate) fn parse_value(s: &str) -> serde_json::Value {
     // JSON-quoted string
-    if s.starts_with('"') && s.ends_with('"') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-            return v;
-        }
+    if s.starts_with('"')
+        && s.ends_with('"')
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
     }
     // JSON object or array
-    if s.starts_with('{') || s.starts_with('[') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-            return v;
-        }
+    if (s.starts_with('{') || s.starts_with('['))
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
     }
     // Booleans
     if s == "true" {
@@ -333,10 +334,10 @@ pub(crate) fn parse_value(s: &str) -> serde_json::Value {
         return serde_json::Value::Number(n.into());
     }
     // Float
-    if let Ok(n) = s.parse::<f64>() {
-        if let Some(num) = serde_json::Number::from_f64(n) {
-            return serde_json::Value::Number(num);
-        }
+    if let Ok(n) = s.parse::<f64>()
+        && let Some(num) = serde_json::Number::from_f64(n)
+    {
+        return serde_json::Value::Number(num);
     }
     // Bare string
     serde_json::Value::String(s.to_string())

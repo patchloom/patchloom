@@ -2,7 +2,7 @@ pub mod eval;
 pub mod parser;
 
 pub use eval::eval;
-pub use parser::{parse, Segment, Selector};
+pub use parser::{Segment, Selector, parse};
 
 /// Check whether a JSON value matches a predicate string using string comparison.
 /// Numbers and booleans are compared via their string representation.

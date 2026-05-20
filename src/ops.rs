@@ -102,35 +102,33 @@ pub(crate) mod doc {
                                 }
                             }
                         }
-                    } else if let Some(seq) = doc.as_sequence() {
-                        if let (Some(old_arr), Some(new_arr)) =
+                    } else if let Some(seq) = doc.as_sequence()
+                        && let (Some(old_arr), Some(new_arr)) =
                             (old_value.as_array(), new_value.as_array())
+                    {
+                        let applied = if old_arr.len() == new_arr.len() {
+                            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+                            true
+                        } else if new_arr.len() < old_arr.len() {
+                            try_remove_subsequence(&seq, old_arr, new_arr)
+                        } else {
+                            false // Growth: handled by text-level splice below.
+                        };
+                        if applied {
+                            let result = file.to_string();
+                            if serde_yaml_ng::from_str::<serde_json::Value>(&result)
+                                .is_ok_and(|v| v.is_array())
+                            {
+                                return Ok(result);
+                            }
+                        }
+                        // Growth or CST validation failure: splice into
+                        // the original text to preserve comments.
+                        if new_arr.len() > old_arr.len()
+                            && let Some(spliced) =
+                                splice_yaml_root_sequence(original_content, old_arr, new_arr)?
                         {
-                            let applied = if old_arr.len() == new_arr.len() {
-                                apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
-                                true
-                            } else if new_arr.len() < old_arr.len() {
-                                try_remove_subsequence(&seq, old_arr, new_arr)
-                            } else {
-                                false // Growth: handled by text-level splice below.
-                            };
-                            if applied {
-                                let result = file.to_string();
-                                if serde_yaml_ng::from_str::<serde_json::Value>(&result)
-                                    .is_ok_and(|v| v.is_array())
-                                {
-                                    return Ok(result);
-                                }
-                            }
-                            // Growth or CST validation failure: splice into
-                            // the original text to preserve comments.
-                            if new_arr.len() > old_arr.len() {
-                                if let Some(spliced) =
-                                    splice_yaml_root_sequence(original_content, old_arr, new_arr)?
-                                {
-                                    return Ok(spliced);
-                                }
-                            }
+                            return Ok(spliced);
                         }
                     }
                 }
@@ -191,10 +189,10 @@ pub(crate) mod doc {
                 // Add new keys or recurse into changed values.
                 for (key, new_val) in new_map {
                     if let Some(old_val) = old_map.get(key) {
-                        if old_val != new_val {
-                            if let Some(child) = table.get_mut(key) {
-                                apply_value_diff(child, old_val, new_val);
-                            }
+                        if old_val != new_val
+                            && let Some(child) = table.get_mut(key)
+                        {
+                            apply_value_diff(child, old_val, new_val);
                         }
                     } else {
                         table.insert(key, json_to_toml_item(new_val));
@@ -208,21 +206,21 @@ pub(crate) mod doc {
                 // Same-length arrays: recurse element by element.
                 if let Some(arr) = item.as_array_mut() {
                     for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
-                        if o != n {
-                            if let Some(v) = arr.get_mut(i) {
-                                *v = json_to_toml_value(n);
-                            }
+                        if o != n
+                            && let Some(v) = arr.get_mut(i)
+                        {
+                            *v = json_to_toml_value(n);
                         }
                     }
                 } else if let Some(aot) = item.as_array_of_tables_mut() {
                     for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
-                        if o != n {
-                            if let Some(table_item) = aot.get_mut(i) {
-                                let mut tbl_item = toml_edit::Item::Table(table_item.clone());
-                                apply_value_diff(&mut tbl_item, o, n);
-                                if let toml_edit::Item::Table(t) = tbl_item {
-                                    *table_item = t;
-                                }
+                        if o != n
+                            && let Some(table_item) = aot.get_mut(i)
+                        {
+                            let mut tbl_item = toml_edit::Item::Table(table_item.clone());
+                            apply_value_diff(&mut tbl_item, o, n);
+                            if let toml_edit::Item::Table(t) = tbl_item {
+                                *table_item = t;
                             }
                         }
                     }
@@ -397,11 +395,11 @@ pub(crate) mod doc {
             }
             match (o, n) {
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
-                    if let Some(node) = seq.get(i) {
-                        if let Some(child_mapping) = node.as_mapping() {
-                            apply_yaml_mapping_diff(child_mapping, o, n)?;
-                            continue;
-                        }
+                    if let Some(node) = seq.get(i)
+                        && let Some(child_mapping) = node.as_mapping()
+                    {
+                        apply_yaml_mapping_diff(child_mapping, o, n)?;
+                        continue;
                     }
                     seq.set(i, json_to_yaml_node(n)?);
                 }
@@ -474,10 +472,10 @@ pub(crate) mod doc {
         match (old, new) {
             (serde_json::Value::Object(old_map), serde_json::Value::Object(new_map)) => {
                 for (key, new_val) in new_map {
-                    if let Some(old_val) = old_map.get(key) {
-                        if has_array_growth_diffs(old_val, new_val) {
-                            return true;
-                        }
+                    if let Some(old_val) = old_map.get(key)
+                        && has_array_growth_diffs(old_val, new_val)
+                    {
+                        return true;
                     }
                 }
                 false
@@ -1335,12 +1333,27 @@ pub(crate) mod replace {
                 (replaced, count)
             }
             (None, None) => {
-                let count = content.matches(from).count();
+                // Single-pass using SIMD-accelerated memchr::memmem::Finder.
+                if from.is_empty() {
+                    return (content.to_owned(), 0);
+                }
+                let finder = memchr::memmem::Finder::new(from.as_bytes());
+                let bytes = content.as_bytes();
+                let mut result = String::with_capacity(content.len());
+                let mut count = 0usize;
+                let mut last = 0;
+                while let Some(pos) = finder.find(&bytes[last..]) {
+                    let abs = last + pos;
+                    result.push_str(&content[last..abs]);
+                    result.push_str(to);
+                    last = abs + from.len();
+                    count += 1;
+                }
                 if count == 0 {
                     return (content.to_owned(), 0);
                 }
-                let replaced = content.replace(from, to);
-                (replaced, count)
+                result.push_str(&content[last..]);
+                (result, count)
             }
         }
     }
@@ -1540,7 +1553,7 @@ pub(crate) mod md {
 
         for h in &headings {
             let key = (h.level, h.text.trim().to_string());
-            if seen.contains(&key) {
+            if !seen.insert(key) {
                 let start = offsets[h.line_start];
                 let end = if h.line_end < offsets.len() {
                     offsets[h.line_end]
@@ -1549,8 +1562,6 @@ pub(crate) mod md {
                 };
                 ranges.push((start, end));
                 removed.push(format!("{} {}", "#".repeat(h.level), h.text));
-            } else {
-                seen.insert(key);
             }
         }
 
@@ -1798,24 +1809,23 @@ pub(crate) mod patch {
                 hunk.old_start as isize - 1 + offset
             };
 
-            let old_lines: Vec<String> = hunk
+            // Collect &str refs directly, avoiding N string clones per hunk.
+            let old_refs: Vec<&str> = hunk
                 .lines
                 .iter()
                 .filter_map(|pl| match pl {
-                    PatchLine::Context(s) => Some(s.clone()),
-                    PatchLine::Remove(s) => Some(s.clone()),
+                    PatchLine::Context(s) | PatchLine::Remove(s) => Some(s.as_str()),
                     _ => None,
                 })
                 .collect();
 
             let src_refs: Vec<&str> = src_lines.iter().map(std::string::String::as_str).collect();
-            let old_refs: Vec<&str> = old_lines.iter().map(std::string::String::as_str).collect();
 
             let pos = find_match(&src_refs, &old_refs, expected, FUZZ_RANGE).ok_or_else(|| {
-                let snippet = old_lines
+                let snippet = old_refs
                     .iter()
                     .take(3)
-                    .cloned()
+                    .copied()
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
@@ -1836,7 +1846,7 @@ pub(crate) mod patch {
                 })
                 .collect();
 
-            let old_len = old_lines.len();
+            let old_len = old_refs.len();
             let new_len = new_lines.len();
             src_lines.splice(pos..pos + old_len, new_lines);
             offset += new_len as isize - old_len as isize;

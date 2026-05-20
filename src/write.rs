@@ -91,17 +91,28 @@ pub fn trim_trailing_whitespace(content: &str) -> String {
 }
 
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
-pub fn apply_policy(content: &str, policy: &WritePolicy) -> String {
-    let mut s = content.to_owned();
+///
+/// Returns `Cow::Borrowed` when the policy is a no-op, avoiding allocation.
+pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
 
-    if policy.trim_trailing_whitespace {
-        s = trim_trailing_whitespace(&s);
+    if policy.is_noop() {
+        return Cow::Borrowed(content);
     }
 
-    s = normalize_eol(&s, policy.normalize_eol);
+    let mut s = if policy.trim_trailing_whitespace {
+        Cow::Owned(trim_trailing_whitespace(content))
+    } else {
+        Cow::Borrowed(content)
+    };
+
+    match policy.normalize_eol {
+        EolMode::Keep => {}
+        _ => s = Cow::Owned(normalize_eol(&s, policy.normalize_eol)),
+    }
 
     if policy.ensure_final_newline {
-        s = ensure_final_newline(&s);
+        s = Cow::Owned(ensure_final_newline(&s));
     }
 
     s
@@ -125,38 +136,35 @@ pub fn policy_from_flags(
     });
     let mut ttw = global.trim_trailing_whitespace;
 
-    if global.respect_editorconfig {
-        if let Some(path) = file_path {
-            if let Ok(props) = ec4rs::properties_of(path) {
-                // insert_final_newline
-                if !global.ensure_final_newline {
-                    if let Ok(ec4rs::property::FinalNewline::Value(true)) =
-                        props.get::<ec4rs::property::FinalNewline>()
-                    {
-                        efn = true;
-                    }
-                }
+    if global.respect_editorconfig
+        && let Some(path) = file_path
+        && let Ok(props) = ec4rs::properties_of(path)
+    {
+        // insert_final_newline
+        if !global.ensure_final_newline
+            && let Ok(ec4rs::property::FinalNewline::Value(true)) =
+                props.get::<ec4rs::property::FinalNewline>()
+        {
+            efn = true;
+        }
 
-                // end_of_line
-                if global.normalize_eol.is_none() {
-                    if let Ok(val) = props.get::<ec4rs::property::EndOfLine>() {
-                        eol = Some(match val {
-                            ec4rs::property::EndOfLine::Lf => EolMode::Lf,
-                            ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
-                            ec4rs::property::EndOfLine::Cr => EolMode::Keep,
-                        });
-                    }
-                }
+        // end_of_line
+        if global.normalize_eol.is_none()
+            && let Ok(val) = props.get::<ec4rs::property::EndOfLine>()
+        {
+            eol = Some(match val {
+                ec4rs::property::EndOfLine::Lf => EolMode::Lf,
+                ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
+                ec4rs::property::EndOfLine::Cr => EolMode::Keep,
+            });
+        }
 
-                // trim_trailing_whitespace
-                if !global.trim_trailing_whitespace {
-                    if let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
-                        props.get::<ec4rs::property::TrimTrailingWs>()
-                    {
-                        ttw = true;
-                    }
-                }
-            }
+        // trim_trailing_whitespace
+        if !global.trim_trailing_whitespace
+            && let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
+                props.get::<ec4rs::property::TrimTrailingWs>()
+        {
+            ttw = true;
         }
     }
 

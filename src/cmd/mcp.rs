@@ -8,7 +8,7 @@
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ErrorData as McpError, ServerCapabilities, ServerInfo};
-use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
+use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -329,7 +329,7 @@ fn validate_operation_paths(
 
 #[derive(Debug, Clone)]
 pub struct PatchloomService {
-    #[allow(dead_code)] // Used by tool_router macro-generated code.
+    #[expect(dead_code)] // Used by tool_router macro-generated code.
     tool_router: ToolRouter<Self>,
     cwd: PathBuf,
 }

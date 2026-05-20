@@ -2,7 +2,6 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 use clap::Args;
-use std::io::Read;
 
 /// Maximum number of operations in a single batch. Prevents unbounded
 /// memory allocation from accidentally or maliciously large inputs.
@@ -299,9 +298,7 @@ fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
 pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Read input.
     let input = if args.input == "-" {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        buf
+        std::io::read_to_string(std::io::stdin())?
     } else {
         std::fs::read_to_string(&args.input)
             .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", args.input))?

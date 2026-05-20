@@ -71,10 +71,10 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             None => continue,
         };
 
-        if let Some(ref matcher) = glob_matcher {
-            if !crate::matches_glob(std::path::Path::new(&file), Some(matcher)) {
-                continue;
-            }
+        if let Some(ref matcher) = glob_matcher
+            && !crate::matches_glob(std::path::Path::new(&file), Some(matcher))
+        {
+            continue;
         }
 
         match category {

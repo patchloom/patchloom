@@ -143,10 +143,12 @@ mod tests {
             &GlobalFlags::default(),
         );
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("target is not a file"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("target is not a file")
+        );
     }
 
     #[test]

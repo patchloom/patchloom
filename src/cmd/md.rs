@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{format_diff_result, unified_diff, DiffResult};
+use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
@@ -10,7 +10,7 @@ use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::io::Read;
+
 use std::path::Path;
 
 #[derive(Debug, Args)]
@@ -98,9 +98,7 @@ pub enum MdAction {
 
 fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<String> {
     if use_stdin {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf)?;
-        Ok(buf)
+        Ok(std::io::read_to_string(std::io::stdin())?)
     } else if let Some(c) = content {
         Ok(c.clone())
     } else {
@@ -184,14 +182,12 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     let mut seen: HashSet<(usize, String)> = HashSet::new();
     for h in &headings {
         let key = (h.level, h.text.trim().to_string());
-        if seen.contains(&key) {
+        if !seen.insert(key) {
             issues.push(LintIssue {
                 issue: "duplicate heading".to_string(),
                 line: Some(h.line_start + 1), // 1-based
                 heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
             });
-        } else {
-            seen.insert(key);
         }
     }
 

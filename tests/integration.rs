@@ -2272,11 +2272,13 @@ fn test_status_jsonl_output() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["total_changes"], 1);
-    assert!(json["created"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v == "new.txt"));
+    assert!(
+        json["created"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "new.txt")
+    );
 }
 
 #[test]
@@ -2324,11 +2326,13 @@ fn test_status_json_output() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["total_changes"], 1);
-    assert!(json["created"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v.as_str().unwrap() == "new.txt"));
+    assert!(
+        json["created"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap() == "new.txt")
+    );
 }
 
 #[test]
@@ -2377,11 +2381,13 @@ fn test_status_deleted_file() {
 
     assert_eq!(output.status.code().unwrap(), 2); // CHANGES_DETECTED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(json["deleted"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|v| v.as_str().unwrap() == "doomed.txt"));
+    assert!(
+        json["deleted"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v.as_str().unwrap() == "doomed.txt")
+    );
 }
 
 // ── create command ─────────────────────────────────────────────────
@@ -2962,15 +2968,21 @@ fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
 
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "changed" && v["path"] == "name"));
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "removed" && v["path"] == "removed"));
-    assert!(lines
-        .iter()
-        .any(|v| v["kind"] == "added" && v["path"] == "added"));
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "changed" && v["path"] == "name")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "removed" && v["path"] == "removed")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "added" && v["path"] == "added")
+    );
 }
 
 #[test]
@@ -3205,10 +3217,12 @@ fn test_patch_check_json_reports_directory_read_error() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["files"][0]["status"], "error");
-    assert!(json["files"][0]["error"]
-        .as_str()
-        .unwrap()
-        .contains("failed to read"));
+    assert!(
+        json["files"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("failed to read")
+    );
 }
 
 #[test]
@@ -3249,10 +3263,12 @@ fn test_patch_check_jsonl_reports_directory_read_error() {
     assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
     assert_eq!(lines[0]["path"], "test.txt");
     assert_eq!(lines[0]["status"], "error");
-    assert!(lines[0]["error"]
-        .as_str()
-        .unwrap()
-        .contains("failed to read"));
+    assert!(
+        lines[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("failed to read")
+    );
 }
 
 #[test]
@@ -5842,12 +5858,16 @@ fn test_tx_glob_replace_only_matches_pattern() {
         .assert()
         .success();
 
-    assert!(fs::read_to_string(dir.path().join("a.txt"))
-        .unwrap()
-        .contains("bye"));
-    assert!(fs::read_to_string(dir.path().join("b.txt"))
-        .unwrap()
-        .contains("bye"));
+    assert!(
+        fs::read_to_string(dir.path().join("a.txt"))
+            .unwrap()
+            .contains("bye")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.txt"))
+            .unwrap()
+            .contains("bye")
+    );
     assert!(
         fs::read_to_string(dir.path().join("skip.rs"))
             .unwrap()
@@ -6031,12 +6051,16 @@ fn test_replace_directory_modifies_all_matching_files() {
         .assert()
         .success();
 
-    assert!(fs::read_to_string(dir.path().join("a.txt"))
-        .unwrap()
-        .contains("bye"));
-    assert!(fs::read_to_string(dir.path().join("b.txt"))
-        .unwrap()
-        .contains("bye"));
+    assert!(
+        fs::read_to_string(dir.path().join("a.txt"))
+            .unwrap()
+            .contains("bye")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.txt"))
+            .unwrap()
+            .contains("bye")
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("c.txt")).unwrap(),
         "no match here\n",
@@ -7862,10 +7886,12 @@ fn test_tx_read_operation_in_plan() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["reads"].as_array().unwrap().len(), 1);
-    assert!(json["reads"][0]["content"]
-        .as_str()
-        .unwrap()
-        .contains("line1"));
+    assert!(
+        json["reads"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("line1")
+    );
     assert_eq!(json["reads"][0]["total_lines"], 3);
 }
 
@@ -8374,10 +8400,12 @@ fn test_tx_json_output_on_operation_failure() {
     assert_eq!(output.status.code(), Some(7)); // ROLLBACK
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert!(json["error"]
-        .as_str()
-        .unwrap()
-        .contains("file already exists"));
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("file already exists")
+    );
 }
 
 #[test]
@@ -9818,11 +9846,13 @@ fn test_smoke_example_04_doc_mutations_plan() {
     assert_eq!(config["database"]["pool_size"], 10);
     assert_eq!(config["logging"]["level"], "info");
     assert_eq!(config["logging"]["format"], "json");
-    assert!(config["allowed_origins"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|item| item.as_str() == Some("https://example.com")));
+    assert!(
+        config["allowed_origins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.as_str() == Some("https://example.com"))
+    );
     assert!(config.get("deprecated_field").is_none());
 
     let yaml = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
@@ -10201,9 +10231,13 @@ fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
     assert!(quickstart.contains("patchloom search 'TODO' --count src/"));
-    assert!(quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/"));
-    assert!(quickstart
-        .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply"));
+    assert!(
+        quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/")
+    );
+    assert!(
+        quickstart
+            .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply")
+    );
     assert!(quickstart.contains("patchloom doc get package.json version"));
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
     assert!(quickstart.contains("patchloom batch <<'EOF'"));
@@ -10240,9 +10274,11 @@ fn test_smoke_quickstart_command_flow() {
         .assert()
         .success()
         .stdout(predicate::str::contains("new_function"));
-    assert!(fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("old_function"));
+    assert!(
+        fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("old_function")
+    );
 
     patchloom_in(dir.path())
         .arg("replace")
@@ -10254,12 +10290,16 @@ fn test_smoke_quickstart_command_flow() {
         .arg("--apply")
         .assert()
         .success();
-    assert!(fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("new_function"));
-    assert!(!fs::read_to_string(&lib_path)
-        .unwrap()
-        .contains("old_function"));
+    assert!(
+        fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("new_function")
+    );
+    assert!(
+        !fs::read_to_string(&lib_path)
+            .unwrap()
+            .contains("old_function")
+    );
 
     patchloom_in(dir.path())
         .arg("doc")
@@ -10312,12 +10352,16 @@ fn test_smoke_quickstart_command_flow() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package_after_batch["version"], "3.0.0");
-    assert!(fs::read_to_string(dir.path().join("README.md"))
-        .unwrap()
-        .contains("v3.0.0"));
-    assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
-        .unwrap()
-        .contains("- Bumped to v3.0.0"));
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v3.0.0")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v3.0.0")
+    );
 }
 
 #[test]
@@ -10354,12 +10398,16 @@ fn test_smoke_quickstart_transaction_snippet() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package_before["version"], "1.0.0");
-    assert!(fs::read_to_string(dir.path().join("README.md"))
-        .unwrap()
-        .contains("v1.0.0"));
-    assert!(!fs::read_to_string(dir.path().join("CHANGELOG.md"))
-        .unwrap()
-        .contains("- Bumped to v2.0.0"));
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v1.0.0")
+    );
+    assert!(
+        !fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v2.0.0")
+    );
 
     let check_output = patchloom_in(dir.path())
         .arg("tx")
@@ -10386,12 +10434,16 @@ fn test_smoke_quickstart_transaction_snippet() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
             .unwrap();
     assert_eq!(package_after["version"], "2.0.0");
-    assert!(fs::read_to_string(dir.path().join("README.md"))
-        .unwrap()
-        .contains("v2.0.0"));
-    assert!(fs::read_to_string(dir.path().join("CHANGELOG.md"))
-        .unwrap()
-        .contains("- Bumped to v2.0.0"));
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v2.0.0")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v2.0.0")
+    );
 }
 
 #[test]
@@ -11151,8 +11203,8 @@ fn has_mcp_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-    use rmcp::transport::TokioChildProcess;
     use rmcp::ServiceExt;
+    use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);
