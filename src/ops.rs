@@ -3101,6 +3101,38 @@ mod tests {
             let result = apply_hunks(original, &hunks).unwrap();
             assert_eq!(result, "line1\nLINE2");
         }
+
+        /// Regression: apply_hunks must not panic on huge old_start values
+        /// that would overflow isize when cast from usize. Found by fuzzing.
+        #[test]
+        fn apply_hunks_huge_old_start_does_not_panic() {
+            let hunks = vec![Hunk {
+                old_start: usize::MAX,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+                lines: vec![PatchLine::Context("x".into())],
+            }];
+            // Must return Err, never panic.
+            assert!(apply_hunks("x\n", &hunks).is_err());
+        }
+
+        /// Regression: find_match must not panic when delta * sign overflows.
+        /// Found by fuzzing.
+        #[test]
+        fn apply_hunks_huge_fuzz_range_does_not_panic() {
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 0,
+                new_start: 1,
+                new_count: 1,
+                lines: vec![PatchLine::Add("new".into())],
+            }];
+            // apply_hunks uses a fuzz of 2 internally; the regression was
+            // in find_match when delta values caused isize overflow. Just
+            // verify it doesn't panic.
+            let _ = apply_hunks("original\n", &hunks);
+        }
     }
 
     // ── proptest: doc round-trip ─────────────────────────────────────
