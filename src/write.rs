@@ -301,6 +301,32 @@ mod tests {
     }
 
     #[test]
+    fn normalize_eol_crlf_bare_lf_at_position_zero() {
+        // Exercises the `i == 0` branch in the memchr single-pass scan.
+        assert_eq!(normalize_eol("\na\n", EolMode::Crlf), "\r\na\r\n");
+    }
+
+    #[test]
+    fn normalize_eol_crlf_mixed_content() {
+        // Some lines already CRLF, some bare LF — only bare LFs get \r.
+        assert_eq!(
+            normalize_eol("a\r\nb\nc\r\n", EolMode::Crlf),
+            "a\r\nb\r\nc\r\n"
+        );
+    }
+
+    #[test]
+    fn normalize_eol_crlf_already_correct_returns_borrowed() {
+        use std::borrow::Cow;
+        let content = "a\r\nb\r\n";
+        let result = normalize_eol(content, EolMode::Crlf);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "all-CRLF content should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
     fn normalize_eol_keep_unchanged() {
         let content = "a\r\nb\nc\n";
         assert_eq!(normalize_eol(content, EolMode::Keep), content);
