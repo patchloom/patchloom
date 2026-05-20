@@ -10847,6 +10847,28 @@ fn test_json_error_envelope_on_doc_get_nonexistent_file() {
 }
 
 #[test]
+fn test_jsonl_error_envelope_on_delete_nonexistent_file() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("delete")
+        .arg("--file")
+        .arg(nonexistent_path("jsonl-error-del.txt"))
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL error should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|_| panic!("expected JSON line, got: {}", lines[0]));
+    assert_eq!(json["ok"], false);
+    assert!(json["error"].as_str().unwrap().contains("file not found"));
+}
+
+#[test]
 fn test_json_error_envelope_on_delete_nonexistent_file() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
