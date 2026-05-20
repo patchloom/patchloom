@@ -3102,4 +3102,127 @@ mod tests {
             assert_eq!(result, "line1\nLINE2");
         }
     }
+
+    // ── proptest: doc round-trip ─────────────────────────────────────
+    mod proptest_doc {
+        use crate::ops::doc::*;
+        use crate::selector;
+        use proptest::prelude::*;
+        use serde_json::json;
+
+        /// Generate an arbitrary JSON value (limited depth to keep tests fast).
+        fn arb_json_value() -> impl Strategy<Value = serde_json::Value> {
+            let leaf = prop_oneof![
+                Just(json!(null)),
+                any::<bool>().prop_map(|b| json!(b)),
+                any::<i64>().prop_map(|n| json!(n)),
+                "[a-zA-Z0-9_]{0,20}".prop_map(|s| json!(s)),
+            ];
+            leaf.prop_recursive(3, 32, 5, |inner| {
+                prop_oneof![
+                    prop::collection::vec(inner.clone(), 0..5).prop_map(serde_json::Value::Array),
+                    prop::collection::vec(("[a-zA-Z_][a-zA-Z0-9_]{0,10}", inner), 0..5).prop_map(
+                        |entries| {
+                            let map: serde_json::Map<String, serde_json::Value> =
+                                entries.into_iter().collect();
+                            serde_json::Value::Object(map)
+                        }
+                    ),
+                ]
+            })
+        }
+
+        proptest! {
+            /// JSON round-trip: serialize then reparse must produce the same value.
+            #[test]
+            fn json_round_trip(value in arb_json_value()) {
+                let serialized = serialize_value(&value, &FileFormat::Json).unwrap();
+                let reparsed = parse_doc(&serialized, &FileFormat::Json).unwrap();
+                prop_assert_eq!(&value, &reparsed);
+            }
+
+            /// TOML round-trip for object values (TOML root must be a table).
+            #[test]
+            fn toml_round_trip(entries in prop::collection::vec(
+                ("[a-zA-Z_][a-zA-Z0-9_]{0,10}", prop_oneof![
+                    any::<bool>().prop_map(|b| json!(b)),
+                    any::<i64>().prop_map(|n| json!(n)),
+                    "[a-zA-Z0-9_]{0,20}".prop_map(|s| json!(s)),
+                ]),
+                0..8
+            )) {
+                let map: serde_json::Map<String, serde_json::Value> =
+                    entries.into_iter().collect();
+                let value = serde_json::Value::Object(map);
+                let serialized = serialize_value(&value, &FileFormat::Toml).unwrap();
+                let reparsed = parse_doc(&serialized, &FileFormat::Toml).unwrap();
+                prop_assert_eq!(&value, &reparsed);
+            }
+
+            /// YAML round-trip: serialize then reparse must produce the same value.
+            #[test]
+            fn yaml_round_trip(value in arb_json_value()) {
+                let serialized = serialize_value(&value, &FileFormat::Yaml).unwrap();
+                let reparsed = parse_doc(&serialized, &FileFormat::Yaml).unwrap();
+                prop_assert_eq!(&value, &reparsed);
+            }
+
+            /// JSON set-then-get: setting a key and retrieving it must return the set value.
+            #[test]
+            fn json_set_then_get(
+                key in "[a-zA-Z_][a-zA-Z0-9_]{0,10}",
+                set_value in prop_oneof![
+                    any::<bool>().prop_map(|b| json!(b)),
+                    any::<i64>().prop_map(|n| json!(n)),
+                    "[a-zA-Z0-9_]{0,20}".prop_map(|s| json!(s)),
+                ],
+            ) {
+                let mut root = json!({});
+                let sel = selector::parse(&key).unwrap();
+                set_at_path(&mut root, &sel, set_value.clone()).unwrap();
+                let results = selector::eval(&root, &sel);
+                prop_assert_eq!(results.len(), 1);
+                prop_assert_eq!(results[0], &set_value);
+            }
+
+            /// JSON delete-then-has: deleting a key means it no longer exists.
+            #[test]
+            fn json_delete_then_has(
+                key in "[a-zA-Z_][a-zA-Z0-9_]{0,10}",
+            ) {
+                let mut root = json!({ &key: "value" });
+                let sel = selector::parse(&key).unwrap();
+                let deleted = delete_at_selector(&mut root, &sel).unwrap();
+                prop_assert!(deleted);
+                let results = selector::eval(&root, &sel);
+                prop_assert!(results.is_empty());
+            }
+
+            /// JSON preserving round-trip: set a key, serialize preserving, reparse.
+            #[test]
+            fn json_preserving_set_round_trip(
+                key in "[a-zA-Z_][a-zA-Z0-9_]{0,10}",
+                set_value in prop_oneof![
+                    any::<bool>().prop_map(|b| json!(b)),
+                    any::<i64>().prop_map(|n| json!(n)),
+                    "[a-zA-Z0-9_]{0,20}".prop_map(|s| json!(s)),
+                ],
+            ) {
+                let original_content = "{\"existing\": 1}";
+                let original_value = parse_doc(original_content, &FileFormat::Json).unwrap();
+                let mut new_value = original_value.clone();
+                let sel = selector::parse(&key).unwrap();
+                set_at_path(&mut new_value, &sel, set_value.clone()).unwrap();
+
+                let serialized = serialize_value_preserving(
+                    original_content,
+                    &original_value,
+                    &new_value,
+                    &FileFormat::Json,
+                ).unwrap();
+                let reparsed = parse_doc(&serialized, &FileFormat::Json).unwrap();
+                prop_assert_eq!(&new_value, &reparsed);
+            }
+        }
+    }
 }
