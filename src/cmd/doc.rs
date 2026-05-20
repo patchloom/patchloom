@@ -776,37 +776,41 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
                     exit::SUCCESS,
                 )),
                 OutputMode::Text => {
+                    use std::fmt::Write;
                     let mut out = String::new();
                     for e in &entries {
                         match e.kind {
                             "added" => {
                                 if let Some(v) = e.new_value.as_ref() {
-                                    out.push_str(&format!(
-                                        "+ {} = {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "+ {} = {}",
                                         e.path,
                                         format_value(v, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             "removed" => {
                                 if let Some(v) = e.old_value.as_ref() {
-                                    out.push_str(&format!(
-                                        "- {} = {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "- {} = {}",
                                         e.path,
                                         format_value(v, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             "changed" => {
                                 if let (Some(old), Some(new)) =
                                     (e.old_value.as_ref(), e.new_value.as_ref())
                                 {
-                                    out.push_str(&format!(
-                                        "~ {} = {} -> {}\n",
+                                    let _ = writeln!(
+                                        out,
+                                        "~ {} = {} -> {}",
                                         e.path,
                                         format_value(old, OutputMode::Text),
                                         format_value(new, OutputMode::Text)
-                                    ));
+                                    );
                                 }
                             }
                             _ => {}

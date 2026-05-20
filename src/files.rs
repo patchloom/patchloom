@@ -8,7 +8,7 @@ use std::sync::Mutex;
 /// in the first 8 KiB, the same heuristic Git uses).
 pub(crate) fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(8192);
-    data[..check_len].contains(&0)
+    memchr::memchr(0, &data[..check_len]).is_some()
 }
 
 /// Collect file paths from either `--files-from`, or by walking `paths` with

@@ -26,7 +26,7 @@ pub enum HygieneAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct HygieneIssue {
     pub path: String,
-    pub issue: String,
+    pub issue: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
 }
@@ -48,7 +48,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
     if !data.ends_with(b"\n") {
         issues.push(HygieneIssue {
             path: path_str.clone(),
-            issue: "missing final newline".to_string(),
+            issue: "missing final newline",
             line: None,
         });
     }
@@ -60,7 +60,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
     if has_crlf && has_bare_lf {
         issues.push(HygieneIssue {
             path: path_str.clone(),
-            issue: "mixed line endings".to_string(),
+            issue: "mixed line endings",
             line: None,
         });
     }
@@ -78,7 +78,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
         if matches!(content.last(), Some(b' ' | b'\t')) {
             issues.push(HygieneIssue {
                 path: path_str.clone(),
-                issue: "trailing whitespace".to_string(),
+                issue: "trailing whitespace",
                 line: Some(line_idx + 1), // 1-based
             });
         }
@@ -313,7 +313,7 @@ mod tests {
         std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
         let issues = check_file(&file).unwrap();
-        let issue_types: Vec<&str> = issues.iter().map(|i| i.issue.as_str()).collect();
+        let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
         assert!(
             issue_types.contains(&"missing final newline"),
             "missing final newline not found in {issue_types:?}"
