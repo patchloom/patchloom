@@ -96,6 +96,30 @@ fn shell_test_exists(path: &Path) -> String {
     }
 }
 
+fn git_ok(dir: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:{}\nstderr:{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_git_repo_with_committed_file(dir: &Path, file: &str, content: &str) {
+    git_ok(dir, &["init"]);
+    git_ok(dir, &["config", "user.email", "test@test.com"]);
+    git_ok(dir, &["config", "user.name", "Test"]);
+    fs::write(dir.join(file), content).unwrap();
+    git_ok(dir, &["add", file]);
+    git_ok(dir, &["commit", "-m", "init"]);
+}
+
 // ---------------------------------------------------------------------------
 // search
 // ---------------------------------------------------------------------------
@@ -2217,33 +2241,7 @@ fn test_read_multiple_files_with_lines() {
 #[test]
 fn test_status_clean_repo() {
     let dir = TempDir::new().unwrap();
-    // Initialize a git repo with one committed file.
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -2257,32 +2255,7 @@ fn test_status_clean_repo() {
 #[test]
 fn test_status_modified_file() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     // Modify the committed file.
     fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
@@ -2299,32 +2272,7 @@ fn test_status_modified_file() {
 #[test]
 fn test_status_jsonl_output() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     fs::write(dir.path().join("new.txt"), "new\n").unwrap();
 
@@ -2353,32 +2301,7 @@ fn test_status_jsonl_output() {
 #[test]
 fn test_status_json_output() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     // Create untracked file.
     fs::write(dir.path().join("new.txt"), "new\n").unwrap();
@@ -2407,37 +2330,8 @@ fn test_status_json_output() {
 #[test]
 fn test_status_deleted_file() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("doomed.txt"), "bye\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "doomed.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["rm", "doomed.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "doomed.txt", "bye\n");
+    git_ok(dir.path(), &["rm", "doomed.txt"]);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -2462,32 +2356,7 @@ fn test_status_deleted_file() {
 #[test]
 fn test_status_glob_matches_filename_with_spaces() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     fs::write(dir.path().join("file name.txt"), "new\n").unwrap();
 
@@ -11131,41 +11000,11 @@ fn test_hygiene_skips_binary_files() {
 #[test]
 fn test_status_staged_new_file_shows_as_created() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    // Create initial commit so HEAD exists.
-    fs::write(dir.path().join("init.txt"), "init\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "init.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "init.txt", "init\n");
 
     // Stage a new file without committing (porcelain code "A ").
     fs::write(dir.path().join("new.txt"), "new content\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "new.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    git_ok(dir.path(), &["add", "new.txt"]);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -11192,32 +11031,7 @@ fn test_status_staged_new_file_shows_as_created() {
 #[test]
 fn test_status_quiet_suppresses_output() {
     let dir = TempDir::new().unwrap();
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@test.com"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    std::process::Command::new("git")
-        .args(["add", "a.txt"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    std::process::Command::new("git")
-        .args(["commit", "-m", "init"])
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
 
     // Modify the committed file to produce changes.
     fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
