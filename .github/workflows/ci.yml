@@ -156,7 +156,12 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
+        run: |
+          if [[ -x /home/linuxbrew/.linuxbrew/bin/llvm-profdata && -x /home/linuxbrew/.linuxbrew/bin/llvm-cov ]]; then
+            export LLVM_PROFDATA=/home/linuxbrew/.linuxbrew/bin/llvm-profdata
+            export LLVM_COV=/home/linuxbrew/.linuxbrew/bin/llvm-cov
+          fi
+          cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
