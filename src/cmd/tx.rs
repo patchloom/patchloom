@@ -532,17 +532,28 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
     read_file_content(tx.pending, &file_path, tx.cwd)?;
     // Re-borrow immutably to avoid cloning the entire file content.
     let content = &tx.pending[&file_path].1;
+    // Fast path: no line range requested, preserve raw content exactly and avoid
+    // rebuilding lines. This matches the standalone `read` command contract.
+    if lines.is_none() {
+        let total_lines = content.lines().count();
+        let start_line = if total_lines == 0 { 0 } else { 1 };
+        tx.tx_reads.push(TxReadResult {
+            path: path.to_string(),
+            content: content.clone(),
+            start_line,
+            end_line: total_lines,
+            total_lines,
+        });
+        return Ok(());
+    }
+
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
-
-    let (start, end) = if let Some(spec) = lines {
+    let (start, end) = {
+        let spec = lines.as_ref().unwrap();
         let (s, e) = crate::cmd::read::parse_line_range(spec)?;
         let end = e.unwrap_or(total_lines).min(total_lines);
         (s, end)
-    } else if total_lines == 0 {
-        (0, 0)
-    } else {
-        (1, total_lines)
     };
 
     let selected = if total_lines == 0 {
