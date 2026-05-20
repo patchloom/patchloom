@@ -10,7 +10,7 @@
     { "op": "md.insert_after_heading", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Added new_module" }
   ],
   "format": [
-    { "cmd": "cargo fmt --all", "timeout": 30 }
+    { "cmd": "cargo fmt --all" }
   ],
   "validate": [
     { "cmd": "cargo build", "required": true, "timeout": 120 },
