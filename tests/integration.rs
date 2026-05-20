@@ -7915,6 +7915,35 @@ fn test_tx_read_empty_file_without_lines_matches_read_contract() {
 }
 
 #[test]
+fn test_tx_read_without_lines_preserves_crlf_content() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("crlf.txt");
+    fs::write(&file, "a\r\nb\r\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{"op": "read", "path": file.to_str().unwrap()}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["reads"][0]["content"].as_str().unwrap(), "a\r\nb\r\n");
+    assert_eq!(json["reads"][0]["start_line"], 1);
+    assert_eq!(json["reads"][0]["end_line"], 2);
+    assert_eq!(json["reads"][0]["total_lines"], 2);
+}
+
+#[test]
 fn test_tx_read_with_lines_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");
