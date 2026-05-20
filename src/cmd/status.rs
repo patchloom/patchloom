@@ -26,13 +26,13 @@ enum FileCategory {
     Modified,
 }
 
-/// Parse one line of `git status --porcelain=v1` into a category and file path.
-fn parse_porcelain_line(line: &str) -> Option<(FileCategory, String)> {
-    if line.len() < 4 {
+/// Parse one NUL-delimited `git status --porcelain=v1 -z` record.
+fn parse_porcelain_record(record: &[u8]) -> Option<(FileCategory, String)> {
+    if record.len() < 4 {
         return None;
     }
-    let xy = &line[..2];
-    let file = line[3..].to_string();
+    let xy = std::str::from_utf8(&record[..2]).ok()?;
+    let file = String::from_utf8_lossy(&record[3..]).into_owned();
     let category = match xy.trim() {
         "??" | "A" | "AM" => FileCategory::Created,
         "D" => FileCategory::Deleted,
@@ -48,7 +48,8 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     cmd.current_dir(&cwd)
         .arg("status")
         .arg("--porcelain=v1")
-        .arg("--no-renames");
+        .arg("--no-renames")
+        .arg("-z");
     for path in &args.paths {
         cmd.arg("--").arg(path);
     }
@@ -58,15 +59,18 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("git status failed: {stderr}");
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let glob_matcher = crate::build_glob_matcher(global)?;
 
     let mut modified = Vec::new();
     let mut created = Vec::new();
     let mut deleted = Vec::new();
 
-    for line in stdout.lines() {
-        let (category, file) = match parse_porcelain_line(line) {
+    for record in output
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|record| !record.is_empty())
+    {
+        let (category, file) = match parse_porcelain_record(record) {
             Some(v) => v,
             None => continue,
         };
@@ -121,43 +125,50 @@ mod tests {
 
     #[test]
     fn parse_untracked_file() {
-        let (cat, file) = parse_porcelain_line("?? new.txt").unwrap();
+        let (cat, file) = parse_porcelain_record(b"?? new.txt").unwrap();
         assert_eq!(cat, FileCategory::Created);
         assert_eq!(file, "new.txt");
     }
 
     #[test]
     fn parse_staged_new_file() {
-        let (cat, file) = parse_porcelain_line("A  staged.txt").unwrap();
+        let (cat, file) = parse_porcelain_record(b"A  staged.txt").unwrap();
         assert_eq!(cat, FileCategory::Created);
         assert_eq!(file, "staged.txt");
     }
 
     #[test]
     fn parse_staged_and_modified() {
-        let (cat, file) = parse_porcelain_line("AM both.txt").unwrap();
+        let (cat, file) = parse_porcelain_record(b"AM both.txt").unwrap();
         assert_eq!(cat, FileCategory::Created);
         assert_eq!(file, "both.txt");
     }
 
     #[test]
     fn parse_deleted_file() {
-        let (cat, file) = parse_porcelain_line("D  gone.txt").unwrap();
+        let (cat, file) = parse_porcelain_record(b"D  gone.txt").unwrap();
         assert_eq!(cat, FileCategory::Deleted);
         assert_eq!(file, "gone.txt");
     }
 
     #[test]
     fn parse_modified_file() {
-        let (cat, file) = parse_porcelain_line(" M changed.txt").unwrap();
+        let (cat, file) = parse_porcelain_record(b" M changed.txt").unwrap();
         assert_eq!(cat, FileCategory::Modified);
         assert_eq!(file, "changed.txt");
     }
 
     #[test]
     fn parse_short_line_returns_none() {
-        assert!(parse_porcelain_line("??").is_none());
-        assert!(parse_porcelain_line("A").is_none());
-        assert!(parse_porcelain_line("").is_none());
+        assert!(parse_porcelain_record(b"??").is_none());
+        assert!(parse_porcelain_record(b"A").is_none());
+        assert!(parse_porcelain_record(b"").is_none());
+    }
+
+    #[test]
+    fn parse_filename_with_spaces() {
+        let (cat, file) = parse_porcelain_record(b"?? file name.txt").unwrap();
+        assert_eq!(cat, FileCategory::Created);
+        assert_eq!(file, "file name.txt");
     }
 }

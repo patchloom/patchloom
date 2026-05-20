@@ -2459,6 +2459,58 @@ fn test_status_deleted_file() {
     );
 }
 
+#[test]
+fn test_status_glob_matches_filename_with_spaces() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    fs::write(dir.path().join("file name.txt"), "new\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--glob")
+        .arg("*.txt")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let created = json["created"].as_array().unwrap();
+    assert!(
+        created.iter().any(|v| v.as_str() == Some("file name.txt")),
+        "glob-filtered status should report the unquoted filename, got: {json}"
+    );
+}
+
 // ── create command ─────────────────────────────────────────────────
 
 #[test]
