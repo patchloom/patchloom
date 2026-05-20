@@ -1650,30 +1650,30 @@ pub(crate) mod md {
     }
 }
 
-pub(crate) mod patch {
+pub mod patch {
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) enum PatchLine {
+    pub enum PatchLine {
         Context(String),
         Remove(String),
         Add(String),
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) struct Hunk {
-        pub(crate) old_start: usize,
-        pub(crate) old_count: usize,
-        pub(crate) new_start: usize,
-        pub(crate) new_count: usize,
-        pub(crate) lines: Vec<PatchLine>,
+    pub struct Hunk {
+        pub old_start: usize,
+        pub old_count: usize,
+        pub new_start: usize,
+        pub new_count: usize,
+        pub lines: Vec<PatchLine>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) struct PatchFile {
-        pub(crate) path: String,
-        pub(crate) hunks: Vec<Hunk>,
+    pub struct PatchFile {
+        pub path: String,
+        pub hunks: Vec<Hunk>,
     }
 
-    pub(crate) fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
+    pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         let lines: Vec<&str> = input.lines().collect();
         let mut files: Vec<PatchFile> = Vec::new();
         let mut i = 0;
@@ -1800,7 +1800,7 @@ pub(crate) mod patch {
 
     const FUZZ_RANGE: usize = 3;
 
-    pub(crate) fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
+    pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
         let mut src_lines: Vec<String> = original.lines().map(String::from).collect();
         let had_final_newline = original.ends_with('\n') || original.is_empty();
         let mut offset: isize = 0;
@@ -1809,7 +1809,18 @@ pub(crate) mod patch {
             let expected: isize = if hunk.old_start == 0 {
                 0
             } else {
-                hunk.old_start as isize - 1 + offset
+                let Some(base) = isize::try_from(hunk.old_start)
+                    .ok()
+                    .and_then(|s| s.checked_sub(1))
+                    .and_then(|s| s.checked_add(offset))
+                else {
+                    return Err(format!(
+                        "hunk {} failed: line number {} out of range",
+                        hunk_idx + 1,
+                        hunk.old_start,
+                    ));
+                };
+                base
             };
 
             // Collect &str refs directly, avoiding N string clones per hunk.
@@ -1852,7 +1863,9 @@ pub(crate) mod patch {
             let old_len = old_refs.len();
             let new_len = new_lines.len();
             src_lines.splice(pos..pos + old_len, new_lines);
-            offset += new_len as isize - old_len as isize;
+            let delta = isize::try_from(new_len).unwrap_or(isize::MAX)
+                - isize::try_from(old_len).unwrap_or(isize::MAX);
+            offset = offset.saturating_add(delta);
         }
 
         Ok(join_lines(&src_lines, had_final_newline))
@@ -1882,7 +1895,15 @@ pub(crate) mod patch {
 
         for delta in 0..=fuzz {
             for &sign in &[1isize, -1isize] {
-                let candidate = expected + (delta as isize) * sign;
+                let Some(offset) = isize::try_from(delta).ok() else {
+                    continue;
+                };
+                let Some(candidate) = offset
+                    .checked_mul(sign)
+                    .and_then(|o| expected.checked_add(o))
+                else {
+                    continue;
+                };
                 if candidate < 0 {
                     continue;
                 }

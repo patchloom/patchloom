@@ -21,6 +21,7 @@ Patchloom is a Rust CLI for agent-grade repo operations. The default build provi
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
+| `make fuzz` | Run fuzz tests for selector parser and patch applier (requires nightly, not part of `check`). Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |
 

@@ -1,0 +1,30 @@
+[package]
+name = "patchloom-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.patchloom]
+path = ".."
+
+[[bin]]
+name = "fuzz_selector_parse"
+path = "fuzz_targets/fuzz_selector_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_patch_parse"
+path = "fuzz_targets/fuzz_patch_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_patch_apply"
+path = "fuzz_targets/fuzz_patch_apply.rs"
+doc = false

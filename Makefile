@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent fuzz
 
 .DEFAULT_GOAL := help
 
@@ -79,3 +79,13 @@ bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
 		.venv/bin/pytest test_bench.py -v -s --timeout 1200 $(if $(MODEL),--model $(MODEL),) $(if $(RUNS),--runs $(RUNS),)
+
+FUZZ_TIME ?= 60
+
+fuzz: ## Run fuzz tests (requires nightly). Use FUZZ_TIME=N for seconds per target.
+	@NIGHTLY_BIN=$$(rustup run nightly rustc --print sysroot)/bin; \
+	for target in fuzz_selector_parse fuzz_patch_parse fuzz_patch_apply; do \
+		echo "==> Fuzzing $$target for $(FUZZ_TIME)s..."; \
+		PATH="$$NIGHTLY_BIN:$$PATH" cargo fuzz run $$target -- -max_total_time=$(FUZZ_TIME) || exit 1; \
+	done; \
+	echo "All fuzz targets passed."
