@@ -96,6 +96,24 @@ fn shell_test_exists(path: &Path) -> String {
     }
 }
 
+fn assert_patch_apply_error_object(
+    output: &std::process::Output,
+    expected_exit_code: i32,
+    expected_error_substring: &str,
+) {
+    assert_eq!(output.status.code(), Some(expected_exit_code));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains(expected_error_substring)
+    );
+}
+
 fn git_ok(dir: &Path, args: &[&str]) {
     let output = std::process::Command::new("git")
         .args(args)
@@ -3069,6 +3087,54 @@ fn test_hygiene_check_exits_0_when_clean() {
 }
 
 #[test]
+fn test_patch_apply_json_parse_error_returns_error_object() {
+    let dir = TempDir::new().unwrap();
+    let patch_file = dir.path().join("bad.patch");
+    fs::write(&patch_file, "not a patch\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+
+    assert_patch_apply_error_object(&output, 4, "patch: parse error:");
+}
+
+#[test]
+fn test_patch_apply_json_stale_error_returns_error_object() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1 +1 @@\n-old\n+new\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_patch_apply_error_object(&output, 5, "patch apply: test.txt -- STALE:");
+}
+
+#[test]
 fn test_patch_check_exits_0_when_clean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -3124,6 +3190,25 @@ fn test_patch_check_json_output_clean() {
     assert_eq!(json["ok"], true);
     assert!(json["files"].is_array());
     assert_eq!(json["files"][0]["status"], "clean");
+}
+
+#[test]
+fn test_patch_apply_jsonl_parse_error_returns_error_object() {
+    let dir = TempDir::new().unwrap();
+    let patch_file = dir.path().join("bad.patch");
+    fs::write(&patch_file, "not a patch\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("patch")
+        .arg("apply")
+        .arg("--file")
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+
+    assert_patch_apply_error_object(&output, 4, "patch: parse error:");
 }
 
 #[test]

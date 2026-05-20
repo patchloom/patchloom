@@ -79,6 +79,18 @@ struct PatchCheckOutput {
     files: Vec<PatchCheckResult>,
 }
 
+fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
+    if global.emit_json(&serde_json::json!({
+        "ok": false,
+        "error": error,
+    }))? {
+        return Ok(());
+    }
+
+    eprintln!("{error}");
+    Ok(())
+}
+
 // ── Public entry point ──────────────────────────────────────────────
 
 pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -91,15 +103,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let diff_text = match read_diff_input(&file, stdin_flag) {
         Ok(text) => text,
         Err(DiffReadError::NoSource) => {
-            eprintln!("patch: must specify --file <path> or --stdin");
+            emit_error(global, "patch: must specify --file <path> or --stdin")?;
             return Ok(exit::PARSE_ERROR);
         }
         Err(DiffReadError::IoError(path, e)) => {
-            eprintln!("patch: failed to read '{}': {}", path, e);
+            let msg = format!("patch: failed to read '{path}': {e}");
+            emit_error(global, &msg)?;
             return Ok(exit::PARSE_ERROR);
         }
         Err(DiffReadError::StdinError(e)) => {
-            eprintln!("patch: failed to read stdin: {}", e);
+            let msg = format!("patch: failed to read stdin: {e}");
+            emit_error(global, &msg)?;
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -108,7 +122,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
-            eprintln!("patch: parse error: {msg}");
+            let msg = format!("patch: parse error: {msg}");
+            emit_error(global, &msg)?;
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -201,19 +216,21 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Ok(s) => s,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
                     Err(e) => {
-                        eprintln!(
+                        let msg = format!(
                             "patch apply: {} -- READ ERROR: failed to read {}: {}",
                             pf.path,
                             file_path.display(),
                             e
                         );
+                        emit_error(global, &msg)?;
                         return Ok(exit::AMBIGUOUS);
                     }
                 };
                 let patched = match apply_hunks(&original, &pf.hunks) {
                     Ok(p) => p,
                     Err(msg) => {
-                        eprintln!("patch apply: {} -- STALE: {}", pf.path, msg);
+                        let msg = format!("patch apply: {} -- STALE: {}", pf.path, msg);
+                        emit_error(global, &msg)?;
                         return Ok(exit::AMBIGUOUS);
                     }
                 };
