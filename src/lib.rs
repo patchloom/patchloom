@@ -18,18 +18,21 @@ use cli::Cli;
 /// Run the patchloom CLI. Returns the exit code as a u8.
 pub fn run() -> anyhow::Result<u8> {
     let cli = Cli::parse();
-    let json_mode = cli.global.json;
+    let structured = cli.global.json || cli.global.jsonl;
+    let compact = cli.global.jsonl;
     match cmd::dispatch(cli) {
         Ok(code) => Ok(code),
-        Err(e) if json_mode => {
+        Err(e) if structured => {
             let output = serde_json::json!({
                 "ok": false,
                 "error": format!("{e:#}")
             });
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&output).unwrap_or_default()
-            );
+            let serialized = if compact {
+                serde_json::to_string(&output)
+            } else {
+                serde_json::to_string_pretty(&output)
+            };
+            println!("{}", serialized.unwrap_or_default());
             Ok(exit::FAILURE)
         }
         Err(e) => Err(e),

@@ -847,6 +847,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             force,
         } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
                     let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
@@ -881,6 +884,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::FileDelete { path } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
@@ -901,6 +907,13 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::FileRename { from, to, force } => {
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
+
+            if src_path.exists() && !src_path.is_file() {
+                anyhow::bail!("source is not a file: {from}");
+            }
+            if dst_path.exists() && !dst_path.is_file() {
+                anyhow::bail!("destination is not a file: {to}");
+            }
 
             // If source and destination are the same path, no-op.
             if src_path == dst_path {
@@ -1053,10 +1066,22 @@ fn build_tx_output(
     }
 }
 
+fn emit_output_json(output: &TxOutput, compact: bool) {
+    let result = if compact {
+        serde_json::to_string(output)
+    } else {
+        serde_json::to_string_pretty(output)
+    };
+    if let Ok(json) = result {
+        println!("{json}");
+    }
+}
+
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
     error: &str,
+    compact: bool,
 ) {
     let output = TxOutput {
         ok: false,
@@ -1070,19 +1095,16 @@ fn emit_error_json_with_prefix(
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
     };
-    // Best-effort: if serialization fails, we can't do much.
-    if let Ok(json) = serde_json::to_string_pretty(&output) {
-        println!("{json}");
-    }
+    emit_output_json(&output, compact);
 }
 
-fn emit_error_json(error_kind: &'static str, error: &str) {
+fn emit_error_json(error_kind: &'static str, error: &str, compact: bool) {
     let legacy_error_prefix = if error_kind == "format_failed" {
         "validation_failed"
     } else {
         error_kind
     };
-    emit_error_json_with_prefix(error_kind, legacy_error_prefix, error);
+    emit_error_json_with_prefix(error_kind, legacy_error_prefix, error, compact);
 }
 
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
@@ -1218,6 +1240,9 @@ fn rollback_strict(
 // ---------------------------------------------------------------------------
 
 pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let structured = global.json || global.jsonl;
+    let compact = global.jsonl;
+
     // 1. Read plan from file or stdin.
     let plan_text = if args.plan == "-" {
         let mut buf = String::new();
@@ -1237,8 +1262,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let plan = match plan::parse_plan_auto(&plan_text, plan_path, args.plan_format.as_deref()) {
         Ok(p) => p,
         Err(e) => {
-            if global.json {
-                emit_error_json("parse_error", &e.to_string());
+            if structured {
+                emit_error_json("parse_error", &e.to_string(), compact);
             } else {
                 eprintln!("tx: plan parse error: {e}");
             }
@@ -1252,8 +1277,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 "unsupported plan version '{v}' (this build supports version {})",
                 crate::plan::SCHEMA_VERSION
             );
-            if global.json {
-                emit_error_json("parse_error", &msg);
+            if structured {
+                emit_error_json("parse_error", &msg, compact);
             } else {
                 eprintln!("tx: {msg}");
             }
@@ -1262,8 +1287,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if let Err(e) = validate_plan_operations(&plan) {
-        if global.json {
-            emit_error_json("parse_error", &e.to_string());
+        if structured {
+            emit_error_json("parse_error", &e.to_string(), compact);
         } else {
             eprintln!("tx: plan parse error: {e}");
         }
@@ -1312,8 +1337,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
             Err(e) => {
                 let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
-                if global.json {
-                    emit_error_json("rollback", &msg);
+                if structured {
+                    emit_error_json("rollback", &msg, compact);
                 } else {
                     eprintln!("tx: {msg}");
                 }
@@ -1358,16 +1383,16 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if replace_no_matches {
                 return Ok(exit::NO_MATCHES);
             }
-            if global.json {
+            if structured {
                 let mut output =
                     build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
                 output.reads = std::mem::take(&mut tx_reads);
                 output.searches = std::mem::take(&mut tx_searches);
-                println!("{}", serde_json::to_string_pretty(&output)?);
+                emit_output_json(&output, compact);
             }
             return Ok(exit::SUCCESS);
         }
-        if global.json {
+        if structured {
             let mut output = build_tx_output(
                 "changes_detected",
                 true,
@@ -1378,7 +1403,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             );
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            emit_output_json(&output, compact);
         } else if !global.quiet {
             println!("{} file(s) would change", changes.len() + pending_deletions);
         }
@@ -1437,15 +1462,15 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if plan.strict {
                 rollback_strict(&changes, &pending, &deletions, &existed_before);
                 let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
-                if global.json {
-                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg);
+                if structured {
+                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, compact);
                 } else {
                     eprintln!("tx: {rollback_msg}");
                 }
                 return Ok(exit::ROLLBACK);
             }
-            if global.json {
-                emit_error_json(err.kind, &err.message);
+            if structured {
+                emit_error_json(err.kind, &err.message, compact);
             }
             return Ok(exit::VALIDATION_FAILED);
         }
@@ -1453,12 +1478,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if replace_no_matches {
             return Ok(exit::NO_MATCHES);
         }
-        if global.json {
+        if structured {
             let mut output =
                 build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            emit_output_json(&output, compact);
         }
         return Ok(exit::SUCCESS);
     }
@@ -1468,12 +1493,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diffs.
-    if global.json {
+    if structured {
         let mut output =
             build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
         output.reads = std::mem::take(&mut tx_reads);
         output.searches = std::mem::take(&mut tx_searches);
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        emit_output_json(&output, compact);
     } else if !changes.is_empty() {
         print_diffs(&changes, &cwd);
     }

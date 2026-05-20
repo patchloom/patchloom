@@ -252,18 +252,47 @@ fn diff_values(
     }
 }
 
-fn format_value(value: &serde_json::Value, json_mode: bool) -> String {
-    if json_mode {
-        serde_json::to_string_pretty(value).unwrap_or_default()
-    } else {
-        match value {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputMode {
+    Text,
+    Json,
+    Jsonl,
+}
+
+fn format_value(value: &serde_json::Value, mode: OutputMode) -> String {
+    match mode {
+        OutputMode::Json => serde_json::to_string_pretty(value).unwrap_or_default(),
+        OutputMode::Jsonl => serde_json::to_string(value).unwrap_or_default(),
+        OutputMode::Text => match value {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::Bool(b) => b.to_string(),
             serde_json::Value::Null => "null".to_string(),
             // Compound values (arrays, objects) always render as JSON.
             _ => serde_json::to_string_pretty(value).unwrap_or_default(),
+        },
+    }
+}
+
+fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Result<String> {
+    match mode {
+        OutputMode::Text => Ok(values
+            .iter()
+            .map(|value| format_value(value, mode))
+            .collect::<Vec<_>>()
+            .join("\n")),
+        OutputMode::Json => {
+            if values.len() == 1 {
+                Ok(serde_json::to_string_pretty(values[0])?)
+            } else {
+                Ok(serde_json::to_string_pretty(values)?)
+            }
         }
+        OutputMode::Jsonl => Ok(values
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()?
+            .join("\n")),
     }
 }
 
@@ -559,7 +588,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             write_result(file, &original, &new_content, ctx)
         }
 
-        // Read-only actions are handled by execute().
+        // Read-only actions are handled by execute_with_mode().
         _ => anyhow::bail!("not a write action"),
     }
 }
@@ -568,7 +597,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
 // Core execution (returns output text + exit code for testability)
 // ---------------------------------------------------------------------------
 
-fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> {
+fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Result<(String, u8)> {
     match action {
         DocAction::Get { file, selector } => {
             let root = load_file(file)?;
@@ -578,8 +607,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
-            let lines: Vec<String> = results.iter().map(|v| format_value(v, json_mode)).collect();
-            Ok((lines.join("\n"), exit::SUCCESS))
+            Ok((format_values(&results, output_mode)?, exit::SUCCESS))
         }
 
         DocAction::Has { file, selector } => {
@@ -588,7 +616,12 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
                 selector::parse(selector).map_err(|e| anyhow::anyhow!("selector error: {e}"))?;
             let results = selector::eval(&root, &sel);
             let found = !results.is_empty();
-            Ok((found.to_string(), exit::SUCCESS))
+            let output = match output_mode {
+                OutputMode::Text => found.to_string(),
+                OutputMode::Json => serde_json::to_string_pretty(&found)?,
+                OutputMode::Jsonl => serde_json::to_string(&found)?,
+            };
+            Ok((output, exit::SUCCESS))
         }
 
         DocAction::Keys { file, selector } => {
@@ -602,7 +635,16 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             match results[0].as_object() {
                 Some(obj) => {
                     let keys: Vec<&str> = obj.keys().map(std::string::String::as_str).collect();
-                    Ok((keys.join("\n"), exit::SUCCESS))
+                    let output = match output_mode {
+                        OutputMode::Text => keys.join("\n"),
+                        OutputMode::Json => serde_json::to_string_pretty(&keys)?,
+                        OutputMode::Jsonl => keys
+                            .iter()
+                            .map(serde_json::to_string)
+                            .collect::<Result<Vec<_>, _>>()?
+                            .join("\n"),
+                    };
+                    Ok((output, exit::SUCCESS))
                 }
                 None => Ok((
                     format!("doc keys: target at '{selector}' is not an object"),
@@ -621,9 +663,21 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             }
             let target = results[0];
             if let Some(arr) = target.as_array() {
-                Ok((arr.len().to_string(), exit::SUCCESS))
+                let len = arr.len();
+                let output = match output_mode {
+                    OutputMode::Text => len.to_string(),
+                    OutputMode::Json => serde_json::to_string_pretty(&len)?,
+                    OutputMode::Jsonl => serde_json::to_string(&len)?,
+                };
+                Ok((output, exit::SUCCESS))
             } else if let Some(obj) = target.as_object() {
-                Ok((obj.len().to_string(), exit::SUCCESS))
+                let len = obj.len();
+                let output = match output_mode {
+                    OutputMode::Text => len.to_string(),
+                    OutputMode::Json => serde_json::to_string_pretty(&len)?,
+                    OutputMode::Jsonl => serde_json::to_string(&len)?,
+                };
+                Ok((output, exit::SUCCESS))
             } else {
                 Ok((
                     format!("doc len: target at '{selector}' is not an array or object"),
@@ -641,8 +695,7 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             if results.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
-            let lines: Vec<String> = results.iter().map(|v| format_value(v, json_mode)).collect();
-            Ok((lines.join("\n"), exit::SUCCESS))
+            Ok((format_values(&results, output_mode)?, exit::SUCCESS))
         }
 
         DocAction::Flatten { file } => {
@@ -652,16 +705,32 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             if entries.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
-            if json_mode {
-                let obj: serde_json::Map<String, serde_json::Value> =
-                    entries.into_iter().map(|(k, v)| (k, v.clone())).collect();
-                Ok((serde_json::to_string_pretty(&obj)?, exit::SUCCESS))
-            } else {
-                let lines: Vec<String> = entries
-                    .iter()
-                    .map(|(k, v)| format!("{k} = {}", format_value(v, false)))
-                    .collect();
-                Ok((lines.join("\n"), exit::SUCCESS))
+            match output_mode {
+                OutputMode::Json => {
+                    let obj: serde_json::Map<String, serde_json::Value> =
+                        entries.into_iter().map(|(k, v)| (k, v.clone())).collect();
+                    Ok((serde_json::to_string_pretty(&obj)?, exit::SUCCESS))
+                }
+                OutputMode::Jsonl => {
+                    let lines = entries
+                        .iter()
+                        .map(|(k, v)| {
+                            serde_json::to_string(&serde_json::json!({
+                                "path": k,
+                                "value": v,
+                            }))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join("\n");
+                    Ok((lines, exit::SUCCESS))
+                }
+                OutputMode::Text => {
+                    let lines: Vec<String> = entries
+                        .iter()
+                        .map(|(k, v)| format!("{k} = {}", format_value(v, OutputMode::Text)))
+                        .collect();
+                    Ok((lines.join("\n"), exit::SUCCESS))
+                }
             }
         }
 
@@ -673,46 +742,55 @@ fn execute(action: &DocAction, json_mode: bool) -> anyhow::Result<(String, u8)> 
             if entries.is_empty() {
                 return Ok(("identical\n".to_string(), exit::SUCCESS));
             }
-            if json_mode {
-                Ok((serde_json::to_string_pretty(&entries)?, exit::SUCCESS))
-            } else {
-                let mut out = String::new();
-                for e in &entries {
-                    match e.kind.as_str() {
-                        "added" => {
-                            if let Some(v) = e.new_value.as_ref() {
-                                out.push_str(&format!(
-                                    "+ {} = {}\n",
-                                    e.path,
-                                    format_value(v, false)
-                                ));
+            match output_mode {
+                OutputMode::Json => Ok((serde_json::to_string_pretty(&entries)?, exit::SUCCESS)),
+                OutputMode::Jsonl => Ok((
+                    entries
+                        .iter()
+                        .map(serde_json::to_string)
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join("\n"),
+                    exit::SUCCESS,
+                )),
+                OutputMode::Text => {
+                    let mut out = String::new();
+                    for e in &entries {
+                        match e.kind.as_str() {
+                            "added" => {
+                                if let Some(v) = e.new_value.as_ref() {
+                                    out.push_str(&format!(
+                                        "+ {} = {}\n",
+                                        e.path,
+                                        format_value(v, OutputMode::Text)
+                                    ));
+                                }
                             }
-                        }
-                        "removed" => {
-                            if let Some(v) = e.old_value.as_ref() {
-                                out.push_str(&format!(
-                                    "- {} = {}\n",
-                                    e.path,
-                                    format_value(v, false)
-                                ));
+                            "removed" => {
+                                if let Some(v) = e.old_value.as_ref() {
+                                    out.push_str(&format!(
+                                        "- {} = {}\n",
+                                        e.path,
+                                        format_value(v, OutputMode::Text)
+                                    ));
+                                }
                             }
-                        }
-                        "changed" => {
-                            if let (Some(old), Some(new)) =
-                                (e.old_value.as_ref(), e.new_value.as_ref())
-                            {
-                                out.push_str(&format!(
-                                    "~ {} = {} -> {}\n",
-                                    e.path,
-                                    format_value(old, false),
-                                    format_value(new, false)
-                                ));
+                            "changed" => {
+                                if let (Some(old), Some(new)) =
+                                    (e.old_value.as_ref(), e.new_value.as_ref())
+                                {
+                                    out.push_str(&format!(
+                                        "~ {} = {} -> {}\n",
+                                        e.path,
+                                        format_value(old, OutputMode::Text),
+                                        format_value(new, OutputMode::Text)
+                                    ));
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
+                    Ok((out, exit::SUCCESS))
                 }
-                Ok((out, exit::SUCCESS))
             }
         }
 
@@ -779,8 +857,16 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(code);
     }
 
-    let (output, code) = execute(&args.action, global.json)?;
-    if !output.is_empty() {
+    let output_mode = if global.json {
+        OutputMode::Json
+    } else if global.jsonl {
+        OutputMode::Jsonl
+    } else {
+        OutputMode::Text
+    };
+
+    let (output, code) = execute_with_mode(&args.action, output_mode)?;
+    if !output.is_empty() && (global.json || global.jsonl || !global.quiet) {
         println!("{output}");
     }
     Ok(code)
@@ -813,7 +899,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "hello");
     }
@@ -826,7 +912,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "hello");
     }
@@ -839,7 +925,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "hello");
     }
@@ -854,7 +940,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "true");
     }
@@ -867,7 +953,7 @@ mod tests {
             file: path,
             selector: "missing".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "false");
     }
@@ -886,7 +972,7 @@ mod tests {
             file: path,
             selector: "scripts".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let keys: Vec<&str> = output.split('\n').collect();
         assert_eq!(keys.len(), 3);
@@ -905,7 +991,7 @@ mod tests {
             file: path,
             selector: "items".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "5");
     }
@@ -920,7 +1006,7 @@ mod tests {
             file: path,
             selector: "nonexistent".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
         assert!(output.is_empty());
     }
@@ -1309,7 +1395,7 @@ mod tests {
             file_a: a,
             file_b: b,
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("~ name"), "should show changed: {output}");
         assert!(
@@ -1332,7 +1418,7 @@ mod tests {
             file_a: a,
             file_b: b,
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "identical\n");
     }
@@ -1347,7 +1433,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::FAILURE);
         assert!(output.contains("not an object"));
     }
@@ -1360,7 +1446,7 @@ mod tests {
             file: path,
             selector: "name".into(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::FAILURE);
         assert!(output.contains("not an array or object"));
     }
@@ -1373,7 +1459,7 @@ mod tests {
             file: path,
             selector: String::new(),
         };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(output, "3");
     }
@@ -1403,7 +1489,7 @@ mod tests {
             r#"{"a":1,"b":{"c":2,"d":3},"e":[10,20]}"#,
         );
         let action = DocAction::Flatten { file: path };
-        let (output, code) = execute(&action, false).unwrap();
+        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("a = 1"), "missing a: {output}");
         assert!(output.contains("b.c = 2"), "missing b.c: {output}");

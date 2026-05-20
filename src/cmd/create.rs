@@ -62,6 +62,10 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let path = cwd.join(&args.file);
 
+    if path.exists() && !path.is_file() {
+        bail!("target is not a file: {}", args.file);
+    }
+
     // For non-write modes, an early exists check is fine (no TOCTOU concern).
     // The --apply path below uses File::create_new for race-free creation.
     if !global.apply && !args.force && path.exists() {
@@ -78,13 +82,15 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
         }
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: None,
+        };
         if global.json {
-            let output = CreateOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: None,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("would create {}", args.file);
         }
@@ -108,18 +114,20 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             atomic_create_new(&path, &content, &policy)?;
         }
 
+        let diff_text = if global.diff {
+            Some(make_diff_output(&args.file, &content))
+        } else {
+            None
+        };
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: diff_text,
+        };
         if global.json {
-            let diff_text = if global.diff {
-                Some(make_diff_output(&args.file, &content))
-            } else {
-                None
-            };
-            let output = CreateOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: diff_text,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if global.diff {
             print!("{}", make_diff_output(&args.file, &content));
         } else if !global.quiet {
@@ -129,13 +137,15 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diff of changes.
+    let output = CreateOutput {
+        ok: true,
+        path: args.file.clone(),
+        diff: Some(make_diff_output(&args.file, &content)),
+    };
     if global.json {
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: Some(make_diff_output(&args.file, &content)),
-        };
         println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if global.jsonl {
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         print!("{}", make_diff_output(&args.file, &content));
     }
@@ -220,6 +230,24 @@ mod tests {
 
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "overwritten\n");
+    }
+
+    #[test]
+    fn create_rejects_directory_target_even_with_force() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("folder");
+        fs::create_dir(&target).unwrap();
+
+        let args = CreateArgs {
+            file: target.to_string_lossy().into_owned(),
+            content: Some("hello\n".to_string()),
+            stdin: false,
+            force: true,
+            write: Default::default(),
+        };
+
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(err.to_string().contains("target is not a file"));
     }
 
     #[test]

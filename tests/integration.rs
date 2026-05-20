@@ -800,6 +800,54 @@ fn test_replace_multiline_regex() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_doc_get_jsonl_compound_value_is_single_line_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"obj":{"name":"patchloom","version":1}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("obj")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["name"], "patchloom");
+    assert_eq!(json["version"], 1);
+}
+
+#[test]
+fn test_doc_get_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet should suppress doc get output"
+    );
+}
+
+#[test]
 fn test_doc_get_json() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
@@ -847,6 +895,34 @@ fn test_doc_has_missing_key() {
         .assert()
         .success()
         .stdout(predicate::str::contains("false"));
+}
+
+#[test]
+fn test_doc_keys_jsonl_outputs_one_key_per_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"scripts":{"build":"tsc","lint":"eslint"}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("scripts")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().any(|v| v == "build"));
+    assert!(lines.iter().any(|v| v == "lint"));
 }
 
 #[test]
@@ -2152,6 +2228,58 @@ fn test_status_modified_file() {
 }
 
 #[test]
+fn test_status_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "a.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    fs::write(dir.path().join("new.txt"), "new\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["total_changes"], 1);
+    assert!(json["created"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "new.txt"));
+}
+
+#[test]
 fn test_status_json_output() {
     let dir = TempDir::new().unwrap();
     std::process::Command::new("git")
@@ -2782,6 +2910,70 @@ fn test_hygiene_check_json_output() {
 }
 
 #[test]
+fn test_doc_flatten_jsonl_outputs_path_value_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1,"b":{"c":2}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(lines.iter().any(|v| v["path"] == "a" && v["value"] == 1));
+    assert!(lines.iter().any(|v| v["path"] == "b.c" && v["value"] == 2));
+}
+
+#[test]
+fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"name":"old","removed":true}"#).unwrap();
+    fs::write(&b, r#"{"name":"new","added":"yes"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "changed" && v["path"] == "name"));
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "removed" && v["path"] == "removed"));
+    assert!(lines
+        .iter()
+        .any(|v| v["kind"] == "added" && v["path"] == "added"));
+}
+
+#[test]
 fn test_hygiene_check_jsonl_output() {
     let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.txt");
@@ -2956,6 +3148,70 @@ fn test_patch_check_exits_5_when_stale() {
 }
 
 #[test]
+fn test_patch_check_exits_5_on_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .assert()
+        .code(5)
+        .stderr(predicate::str::contains(
+            "patch check: test.txt -- READ ERROR: failed to read",
+        ));
+}
+
+#[test]
+fn test_patch_check_json_reports_directory_read_error() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("test.txt");
+    fs::create_dir(&target).unwrap();
+
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg("--file")
+        .arg(&patch_file)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(5));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["files"][0]["status"], "error");
+    assert!(json["files"][0]["error"]
+        .as_str()
+        .unwrap()
+        .contains("failed to read"));
+}
+
+#[test]
 fn test_patch_apply_check_quiet_suppresses_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -3005,6 +3261,31 @@ fn test_create_check_exits_2() {
         .code(2);
 
     assert!(!file.exists(), "file should not be created in --check mode");
+}
+
+#[test]
+fn test_create_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--check")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    assert!(json["diff"].is_null());
 }
 
 #[test]
@@ -3155,6 +3436,126 @@ fn test_rename_missing_source_fails() {
 }
 
 #[test]
+fn test_rename_check_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
+}
+
+#[test]
+fn test_rename_force_directory_destination_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
+fn test_rename_force_directory_destination_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
+fn test_rename_force_directory_destination_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("folder");
+    fs::write(&src, "hello\n").unwrap();
+    fs::create_dir(&dst).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(src.is_file(), "source file should remain in place");
+    assert!(dst.is_dir(), "destination directory should remain in place");
+}
+
+#[test]
+fn test_rename_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(&dst)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
+}
+
+#[test]
 fn test_rename_binary_file() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("image.bin");
@@ -3175,6 +3576,32 @@ fn test_rename_binary_file() {
 
     assert!(!src.exists());
     assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
+}
+
+#[test]
+fn test_rename_check_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("rename")
+        .arg("--from")
+        .arg(&src)
+        .arg("--to")
+        .arg(dir.path().join("new.txt"))
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dir.path().join("new.txt").to_str().unwrap());
+    assert!(json["diff"].is_null());
 }
 
 #[test]
@@ -3836,6 +4263,31 @@ fn test_md_dedupe_headings_removes_duplicate() {
 }
 
 #[test]
+fn test_md_dedupe_headings_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg("--file")
+        .arg(&file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json.as_str().unwrap(), "## Dup");
+}
+
+#[test]
 fn test_md_dedupe_headings_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.md");
@@ -3857,6 +4309,29 @@ fn test_md_dedupe_headings_json_output() {
     let arr = parsed.as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0].as_str().unwrap(), "## Dup");
+}
+
+#[test]
+fn test_md_lint_agents_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# T\n\nUse git add .\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("md")
+        .arg("lint-agents")
+        .arg("--file")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet should suppress lint-agents output"
+    );
 }
 
 #[test]
@@ -4144,6 +4619,71 @@ fn test_search_literal_flag() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_create_force_directory_target_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_create_force_directory_target_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_create_force_directory_target_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("--file")
+        .arg(&target)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--force")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
 fn test_create_force_overwrites_existing() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("existing.txt");
@@ -4300,6 +4840,34 @@ fn test_tx_json_output_create_then_delete_is_noop() {
     assert_eq!(json["files_deleted"], 0);
     assert_eq!(json["files_changed"], 0);
     assert_eq!(json["changes"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_tx_file_delete_directory_target_fails() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.delete", "path": "folder"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
 }
 
 #[test]
@@ -4800,6 +5368,36 @@ fn test_tx_file_delete_empty_file() {
 }
 
 #[test]
+fn test_tx_file_rename_directory_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("new-name");
+    fs::create_dir(&src).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "folder", "to": "new-name"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("source is not a file"));
+
+    assert!(src.is_dir(), "source directory should remain in place");
+    assert!(!dst.exists(), "destination should not be created");
+}
+
+#[test]
 fn test_tx_file_rename_moves_file() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");
@@ -4899,6 +5497,95 @@ fn test_tx_file_rename_force_overwrites() {
         fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
         "new content\n"
     );
+}
+
+#[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
+}
+
+#[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
+}
+
+#[test]
+fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+    fs::create_dir(dir.path().join("folder")).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("destination is not a file"));
+
+    assert!(dir.path().join("old.txt").is_file());
+    assert!(dir.path().join("folder").is_dir());
 }
 
 #[test]
@@ -5827,6 +6514,29 @@ fn test_delete_removes_file() {
 }
 
 #[test]
+fn test_delete_jsonl_check_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "keep\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("delete")
+        .arg("--file")
+        .arg(file.to_str().unwrap())
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], false);
+    assert!(json["path"].as_str().unwrap().contains("safe.txt"));
+}
+
+#[test]
 fn test_delete_json_apply_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doomed.txt");
@@ -5892,6 +6602,43 @@ fn test_delete_check_mode_does_not_remove() {
         .code(2);
 
     assert!(file.exists());
+}
+
+#[test]
+fn test_delete_directory_target_fails_in_dry_run() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(target.to_str().unwrap())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
+}
+
+#[test]
+fn test_delete_directory_target_fails_in_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("--file")
+        .arg(target.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
 }
 
 #[test]
@@ -5966,6 +6713,35 @@ fn test_tx_file_create_new_file_writes_content() {
         "created via tx\n",
         "file.create via tx should write correct content through File::create_new"
     );
+}
+
+#[test]
+fn test_tx_file_create_force_directory_target_fails() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("folder");
+    fs::create_dir(&target).unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "file.create",
+            "path": target.to_str().unwrap(),
+            "content": "hello\n",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .assert()
+        .code(7)
+        .stderr(predicate::str::contains("target is not a file"));
+
+    assert!(target.is_dir(), "directory should remain in place");
 }
 
 #[test]
@@ -7422,6 +8198,40 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified_in_check_mode() {
     assert_eq!(json["files_changed"], 1);
     assert_eq!(json["files_created"], 0);
     assert_eq!(json["changes"][0]["action"], "modified");
+}
+
+#[test]
+fn test_tx_jsonl_output_on_check() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "world"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert_eq!(json["files_changed"], 1);
 }
 
 #[test]
@@ -10105,6 +10915,28 @@ fn test_json_error_envelope_on_doc_get_nonexistent_file() {
         .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
     assert_eq!(json["ok"], false);
     assert!(!json["error"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn test_jsonl_error_envelope_on_delete_nonexistent_file() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("delete")
+        .arg("--file")
+        .arg(nonexistent_path("jsonl-error-del.txt"))
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL error should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|_| panic!("expected JSON line, got: {}", lines[0]));
+    assert_eq!(json["ok"], false);
+    assert!(json["error"].as_str().unwrap().contains("file not found"));
 }
 
 #[test]

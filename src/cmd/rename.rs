@@ -36,9 +36,16 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    // Validate source exists.
+    // Validate source exists and is a file.
     if !src.exists() {
         anyhow::bail!("source file not found: {}", args.from);
+    }
+    if !src.is_file() {
+        anyhow::bail!("source is not a file: {}", args.from);
+    }
+
+    if dst.exists() && !dst.is_file() {
+        anyhow::bail!("destination is not a file: {}", args.to);
     }
 
     // Validate destination does not exist (unless --force).
@@ -48,14 +55,16 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // If source and destination resolve to the same path, it's a no-op.
     if src == dst {
+        let output = RenameOutput {
+            ok: true,
+            from: args.from.clone(),
+            to: args.to.clone(),
+            diff: None,
+        };
         if global.json {
-            let output = RenameOutput {
-                ok: true,
-                from: args.from.clone(),
-                to: args.to.clone(),
-                diff: None,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("source and destination are the same: {}", args.from);
         }
@@ -64,14 +73,16 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --check mode: report that rename would happen (no file read needed).
     if global.check {
+        let output = RenameOutput {
+            ok: true,
+            from: args.from.clone(),
+            to: args.to.clone(),
+            diff: None,
+        };
         if global.json {
-            let output = RenameOutput {
-                ok: true,
-                from: args.from.clone(),
-                to: args.to.clone(),
-                diff: None,
-            };
             println!("{}", serde_json::to_string_pretty(&output)?);
+        } else if global.jsonl {
+            println!("{}", serde_json::to_string(&output)?);
         } else if !global.quiet {
             println!("would rename {} -> {}", args.from, args.to);
         }
@@ -110,17 +121,19 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             fs::remove_file(&src)?;
         }
 
-        if global.json || global.diff {
+        if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.
             let diff_text = try_diff(&dst, &args.from, &args.to);
+            let output = RenameOutput {
+                ok: true,
+                from: args.from.clone(),
+                to: args.to.clone(),
+                diff: if global.diff { diff_text.clone() } else { None },
+            };
             if global.json {
-                let output = RenameOutput {
-                    ok: true,
-                    from: args.from.clone(),
-                    to: args.to.clone(),
-                    diff: if global.diff { diff_text } else { None },
-                };
                 println!("{}", serde_json::to_string_pretty(&output)?);
+            } else if global.jsonl {
+                println!("{}", serde_json::to_string(&output)?);
             } else if let Some(d) = diff_text {
                 print!("{d}");
             } else if !global.quiet {
@@ -134,14 +147,16 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show what would happen (source still exists).
     let diff_text = try_diff(&src, &args.from, &args.to);
+    let output = RenameOutput {
+        ok: true,
+        from: args.from.clone(),
+        to: args.to.clone(),
+        diff: diff_text.clone(),
+    };
     if global.json {
-        let output = RenameOutput {
-            ok: true,
-            from: args.from.clone(),
-            to: args.to.clone(),
-            diff: diff_text,
-        };
         println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if global.jsonl {
+        println!("{}", serde_json::to_string(&output)?);
     } else if let Some(d) = diff_text {
         print!("{d}");
     } else if !global.quiet {
@@ -259,6 +274,25 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn rename_force_rejects_directory_destination() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("old.txt");
+        let dst = dir.path().join("folder");
+        fs::write(&src, "hello\n").unwrap();
+        fs::create_dir(&dst).unwrap();
+
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: true,
+            write: Default::default(),
+        };
+
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(err.to_string().contains("destination is not a file"));
     }
 
     #[test]

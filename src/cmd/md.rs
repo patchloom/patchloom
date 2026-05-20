@@ -299,6 +299,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if !removed.is_empty() {
                 if global.json {
                     println!("{}", serde_json::to_string_pretty(&removed)?);
+                } else if global.jsonl {
+                    for h in &removed {
+                        println!("{}", serde_json::to_string(h)?);
+                    }
                 } else if !global.quiet {
                     for h in &removed {
                         eprintln!("md: removed duplicate: {h}");
@@ -319,7 +323,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 for issue in &issues {
                     println!("{}", serde_json::to_string(issue)?);
                 }
-            } else {
+            } else if !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
