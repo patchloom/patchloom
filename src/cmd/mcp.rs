@@ -186,6 +186,51 @@ pub struct BatchParams {
     pub operations: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchParams {
+    /// Pattern to search for.
+    pub pattern: String,
+    /// Paths to search in (defaults to current directory).
+    #[serde(default)]
+    pub paths: Vec<String>,
+    /// Treat pattern as a literal string instead of regex.
+    #[serde(default)]
+    pub literal: bool,
+    /// Case-insensitive matching.
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// Lines of context around matches.
+    pub context: Option<usize>,
+    /// Only return file paths with matches (not match details).
+    #[serde(default)]
+    pub files_with_matches: bool,
+    /// Only return match counts per file.
+    #[serde(default)]
+    pub count: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocSelectorParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    /// Key/selector to query (e.g., "version", "db.pool", "items[*]").
+    pub key: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocFileParams {
+    /// File path (relative to working directory).
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DocDiffParams {
+    /// First file path.
+    pub file_a: String,
+    /// Second file path.
+    pub file_b: String,
+}
+
 // ---------------------------------------------------------------------------
 // Path containment
 // ---------------------------------------------------------------------------
@@ -412,6 +457,41 @@ fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, Mcp
     }
 }
 
+/// Run a read-only patchloom subcommand and return its output as a tool result.
+fn run_readonly_command(args: &[&str], cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
+    let exe = std::env::current_exe()
+        .map_err(|e| McpError::internal_error(format!("failed to get current exe: {e}"), None))?;
+    let output = std::process::Command::new(&exe)
+        .args(args)
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if output.status.success() {
+        let msg = if stdout.trim().is_empty() {
+            "No results.".to_string()
+        } else {
+            stdout.trim().to_string()
+        };
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = if !stderr.trim().is_empty() {
+            stderr.trim().to_string()
+        } else if !stdout.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            format!(
+                "Command failed with exit code {}.",
+                output.status.code().unwrap_or(1)
+            )
+        };
+        Ok(CallToolResult::error(vec![Content::text(msg)]))
+    }
+}
+
 fn make_plan(operations: Vec<Operation>) -> Plan {
     Plan {
         version: None,
@@ -579,37 +659,150 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
-        // doc get is a read-only command, not a tx operation. Run it directly.
-        let exe = std::env::current_exe().map_err(|e| {
-            McpError::internal_error(format!("failed to get current exe: {e}"), None)
-        })?;
-        let output = std::process::Command::new(&exe)
-            .args(["--json", "doc", "get"])
-            .arg(self.cwd.join(&p.path))
-            .arg(&p.key)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if output.status.success() {
-            let msg = if stdout.trim().is_empty() {
-                "null".to_string()
-            } else {
-                stdout.trim().to_string()
-            };
-            Ok(CallToolResult::success(vec![Content::text(msg)]))
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = if !stderr.trim().is_empty() {
-                stderr.trim().to_string()
-            } else if !stdout.trim().is_empty() {
-                stdout.trim().to_string()
-            } else {
-                "Key not found.".to_string()
-            };
-            Ok(CallToolResult::error(vec![Content::text(msg)]))
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "get", &abs.to_string_lossy(), &p.key],
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "Check whether a key path exists in a JSON, YAML, or TOML file.")]
+    async fn patchloom_doc_has(
+        &self,
+        Parameters(p): Parameters<DocSelectorParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "has", &abs.to_string_lossy(), &p.key],
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "List object keys at a path in a JSON, YAML, or TOML file.")]
+    async fn patchloom_doc_keys(
+        &self,
+        Parameters(p): Parameters<DocSelectorParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "keys", &abs.to_string_lossy(), &p.key],
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file."
+    )]
+    async fn patchloom_doc_len(
+        &self,
+        Parameters(p): Parameters<DocSelectorParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "len", &abs.to_string_lossy(), &p.key],
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "Filter array items by selector in a JSON, YAML, or TOML file.")]
+    async fn patchloom_doc_select(
+        &self,
+        Parameters(p): Parameters<DocSelectorParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "select", &abs.to_string_lossy(), &p.key],
+            &self.cwd,
+        )
+    }
+
+    #[tool(description = "List all leaf key paths and values in a JSON, YAML, or TOML file.")]
+    async fn patchloom_doc_flatten(
+        &self,
+        Parameters(p): Parameters<DocFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        let abs = self.cwd.join(&p.path);
+        run_readonly_command(
+            &["--json", "doc", "flatten", &abs.to_string_lossy()],
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Compare two structured files (JSON, YAML, or TOML) and show differences."
+    )]
+    async fn patchloom_doc_diff(
+        &self,
+        Parameters(p): Parameters<DocDiffParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.file_a)?;
+        validate_path_contained(&p.file_b)?;
+        validate_path_resolved(&p.file_a, &self.cwd)?;
+        validate_path_resolved(&p.file_b, &self.cwd)?;
+        let abs_a = self.cwd.join(&p.file_a);
+        let abs_b = self.cwd.join(&p.file_b);
+        run_readonly_command(
+            &[
+                "--json",
+                "doc",
+                "diff",
+                &abs_a.to_string_lossy(),
+                &abs_b.to_string_lossy(),
+            ],
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Search files for a pattern. Returns matches with line numbers and context."
+    )]
+    async fn patchloom_search(
+        &self,
+        Parameters(p): Parameters<SearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut args: Vec<String> = vec!["--json".into(), "search".into()];
+        if p.literal {
+            args.push("--literal".into());
         }
+        if p.case_insensitive {
+            args.push("-i".into());
+        }
+        if p.files_with_matches {
+            args.push("--files-with-matches".into());
+        }
+        if p.count {
+            args.push("--count".into());
+        }
+        if let Some(ctx) = p.context {
+            args.push("-C".into());
+            args.push(ctx.to_string());
+        }
+        args.push(p.pattern);
+        if p.paths.is_empty() {
+            args.push(".".into());
+        } else {
+            args.extend(p.paths);
+        }
+        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        run_readonly_command(&arg_refs, &self.cwd)
+    }
+
+    #[tool(description = "Show uncommitted file changes vs git HEAD.")]
+    async fn patchloom_status(
+        &self,
+        #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
+    ) -> Result<CallToolResult, McpError> {
+        run_readonly_command(&["--json", "status"], &self.cwd)
     }
 
     #[tool(description = "Read file contents with optional line range.")]
@@ -819,12 +1012,14 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Patchloom provides structured file editing tools for JSON, YAML, TOML, \
-                     and Markdown files. Use patchloom_doc_* for config file edits, \
+                "Patchloom provides structured file editing and introspection tools for JSON, \
+                     YAML, TOML, and Markdown files. Use patchloom_doc_set/delete/merge/append/\
+                     prepend/update/move/ensure/delete_where for config file edits, \
+                     patchloom_doc_get/has/keys/len/select/flatten/diff for read-only queries, \
                      patchloom_md_* for markdown edits, patchloom_replace for text replacement, \
-                     patchloom_file_rename for moving/renaming files (binary-safe), \
-                     patchloom_read for reading files, patchloom_hygiene for whitespace fixes, \
-                     and patchloom_batch for multi-file atomic edits.",
+                     patchloom_search for file content search, patchloom_read for reading files, \
+                     patchloom_status for git status, patchloom_file_rename for renaming files, \
+                     patchloom_hygiene for whitespace fixes, and patchloom_batch for atomic edits.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -880,7 +1075,27 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert!(names.contains(&"patchloom_doc_set"), "missing doc_set tool");
         assert!(names.contains(&"patchloom_doc_get"), "missing doc_get tool");
+        assert!(names.contains(&"patchloom_doc_has"), "missing doc_has tool");
+        assert!(
+            names.contains(&"patchloom_doc_keys"),
+            "missing doc_keys tool"
+        );
+        assert!(names.contains(&"patchloom_doc_len"), "missing doc_len tool");
+        assert!(
+            names.contains(&"patchloom_doc_select"),
+            "missing doc_select tool"
+        );
+        assert!(
+            names.contains(&"patchloom_doc_flatten"),
+            "missing doc_flatten tool"
+        );
+        assert!(
+            names.contains(&"patchloom_doc_diff"),
+            "missing doc_diff tool"
+        );
         assert!(names.contains(&"patchloom_read"), "missing read tool");
+        assert!(names.contains(&"patchloom_search"), "missing search tool");
+        assert!(names.contains(&"patchloom_status"), "missing status tool");
         assert!(names.contains(&"patchloom_replace"), "missing replace tool");
         assert!(names.contains(&"patchloom_batch"), "missing batch tool");
         assert!(names.contains(&"patchloom_hygiene"), "missing hygiene tool");

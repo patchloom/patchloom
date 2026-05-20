@@ -86,36 +86,25 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let total_changes = modified.len() + created.len() + deleted.len();
 
-    if global.json {
-        let out = StatusOutput {
-            ok: true,
-            modified,
-            created,
-            deleted,
-            total_changes,
-        };
-        println!("{}", serde_json::to_string_pretty(&out)?);
-    } else if global.jsonl {
-        let out = StatusOutput {
-            ok: true,
-            modified,
-            created,
-            deleted,
-            total_changes,
-        };
-        println!("{}", serde_json::to_string(&out)?);
-    } else if !global.quiet {
-        for f in &modified {
+    let out = StatusOutput {
+        ok: true,
+        modified,
+        created,
+        deleted,
+        total_changes,
+    };
+    if !global.emit_json(&out)? && !global.quiet {
+        for f in &out.modified {
             println!("M  {f}");
         }
-        for f in &created {
+        for f in &out.created {
             println!("A  {f}");
         }
-        for f in &deleted {
+        for f in &out.deleted {
             println!("D  {f}");
         }
-        if total_changes > 0 {
-            println!("{total_changes} file(s) changed");
+        if out.total_changes > 0 {
+            println!("{} file(s) changed", out.total_changes);
         }
     }
 
