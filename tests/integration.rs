@@ -8130,6 +8130,40 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified_in_check_mode() {
 }
 
 #[test]
+fn test_tx_jsonl_output_on_check() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "world"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert_eq!(json["files_changed"], 1);
+}
+
+#[test]
 fn test_tx_json_output_on_check() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
