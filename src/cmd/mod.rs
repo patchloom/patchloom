@@ -228,6 +228,54 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
+    // Workflow examples (CLI only)
+    if show_cli {
+        out.push_str("## Workflow examples\n\n");
+
+        out.push_str("### Rename a function across a codebase\n\n\
+             ```bash\n\
+             # Find all occurrences first\n\
+             patchloom search --count \"old_function_name\" src/\n\n\
+             # Replace in all matching files\n\
+             patchloom replace --from \"old_function_name\" --to \"new_function_name\" src/ --apply\n\
+             ```\n\n");
+
+        out.push_str(
+            "### Edit a CI workflow\n\n\
+             ```bash\n\
+             # Set a key in a YAML workflow (preserves comments and formatting)\n\
+             patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply\n\
+             ```\n\n",
+        );
+
+        if show_linux {
+            out.push_str(
+                "### Bump a version across config files\n\n\
+                 ```bash\n\
+                 patchloom batch --apply <<'EOF'\n\
+                 doc.set package.json version \"2.0.0\"\n\
+                 doc.set Cargo.toml package.version \"2.0.0\"\n\
+                 replace README.md \"1.0.0\" \"2.0.0\"\n\
+                 md.upsert_bullet CHANGELOG.md \"## [2.0.0]\" \"- Initial 2.0 release\"\n\
+                 EOF\n\
+                 ```\n\n",
+            );
+
+            out.push_str("### Multi-file refactoring with a transaction\n\n\
+                 ```bash\n\
+                 patchloom tx --plan - --apply <<'EOF'\n\
+                 {\"operations\": [\n\
+                   {\"type\": \"replace\", \"path\": \"src/config.rs\", \"from\": \"old_default\", \"to\": \"new_default\"},\n\
+                   {\"type\": \"doc.set\", \"path\": \"config.toml\", \"key\": \"default_value\", \"value\": \"new_default\"},\n\
+                   {\"type\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\
+                    \"content\": \"The default value is now `new_default`.\\n\"}\n\
+                 ]}\n\
+                 EOF\n\
+                 ```\n\n\
+                 All operations succeed atomically or roll back together.\n\n");
+        }
+    }
+
     // Exit codes (always shown)
     out.push_str(
         "## Exit codes\n\n\

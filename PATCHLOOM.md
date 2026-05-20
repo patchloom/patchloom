@@ -72,6 +72,51 @@ patchloom md table-append --file README.md --heading "## API" --row "| new | row
 
 Add `--apply` to all write commands. Without it, patchloom previews changes without writing.
 
+## Workflow examples
+
+### Rename a function across a codebase
+
+```bash
+# Find all occurrences first
+patchloom search --count "old_function_name" src/
+
+# Replace in all matching files
+patchloom replace --from "old_function_name" --to "new_function_name" src/ --apply
+```
+
+### Edit a CI workflow
+
+```bash
+# Set a key in a YAML workflow (preserves comments and formatting)
+patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply
+```
+
+### Bump a version across config files
+
+```bash
+patchloom batch --apply <<'EOF'
+doc.set package.json version "2.0.0"
+doc.set Cargo.toml package.version "2.0.0"
+replace README.md "1.0.0" "2.0.0"
+md.upsert_bullet CHANGELOG.md "## [2.0.0]" "- Initial 2.0 release"
+EOF
+```
+
+### Multi-file refactoring with a transaction
+
+```bash
+patchloom tx --plan - --apply <<'EOF'
+{"operations": [
+{"type": "replace", "path": "src/config.rs", "from": "old_default", "to": "new_default"},
+{"type": "doc.set", "path": "config.toml", "key": "default_value", "value": "new_default"},
+{"type": "md.replace_section", "path": "docs/config.md", "heading": "## Defaults",
+"content": "The default value is now `new_default`.\n"}
+]}
+EOF
+```
+
+All operations succeed atomically or roll back together.
+
 ## Exit codes
 
 | Code | Meaning |
