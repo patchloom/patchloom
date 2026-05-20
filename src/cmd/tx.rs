@@ -826,19 +826,20 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             normalize_eol,
         } => {
             let file_path = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
-            let mut new = content.to_string();
-            if trim_trailing_whitespace.unwrap_or(false) {
-                new = crate::write::trim_trailing_whitespace(&new);
+            let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_owned();
+            let policy = WritePolicy {
+                ensure_final_newline: ensure_final_newline.unwrap_or(true),
+                trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
+                normalize_eol: if let Some(eol) = normalize_eol {
+                    plan_normalize_eol(eol)?
+                } else {
+                    EolMode::Keep
+                },
+            };
+            let new = crate::write::apply_policy(&content, &policy);
+            if content != *new {
+                update_file_content(tx.pending, tx.deletions, &file_path, new.into_owned());
             }
-            if let Some(eol) = normalize_eol {
-                let mode = plan_normalize_eol(eol)?;
-                new = crate::write::normalize_eol(&new, mode);
-            }
-            if ensure_final_newline.unwrap_or(true) {
-                new = crate::write::ensure_final_newline(&new);
-            }
-            update_file_content(tx.pending, tx.deletions, &file_path, new);
         }
 
         Operation::FileCreate {

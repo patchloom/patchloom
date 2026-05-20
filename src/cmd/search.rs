@@ -291,7 +291,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
 }
 
 fn format_results(
-    results: &SearchResults,
+    results: SearchResults,
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<String> {
@@ -303,7 +303,7 @@ fn format_results(
             ok: true,
             match_count: results.file_match_counts.values().sum(),
             file_count: results.file_match_counts.len(),
-            matches: results.matches.clone(),
+            matches: results.matches,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -396,7 +396,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if !global.quiet {
-        let output = format_results(&results, &args, global)?;
+        let output = format_results(results, &args, global)?;
         print!("{output}");
     }
 
@@ -485,7 +485,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
         let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(&results, &args, &default_global()).unwrap();
+        let output = format_results(results, &args, &default_global()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
@@ -503,7 +503,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
         let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(&results, &args, &default_global()).unwrap();
+        let output = format_results(results, &args, &default_global()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
@@ -655,7 +655,7 @@ mod tests {
         let mut global = default_global();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(&results, &args, &global).unwrap();
+        let output = format_results(results, &args, &global).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // "Hello" appears in two lines of hello.txt, one file.

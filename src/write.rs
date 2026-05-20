@@ -36,13 +36,17 @@ impl Default for WritePolicy {
 
 /// If `content` is non-empty and does not already end with `\n`, append one.
 /// Empty content is returned unchanged.
-pub fn ensure_final_newline(content: &str) -> String {
+///
+/// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
+pub fn ensure_final_newline(content: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
     if content.is_empty() || content.ends_with('\n') {
-        content.to_owned()
+        Cow::Borrowed(content)
     } else {
-        let mut s = content.to_owned();
+        let mut s = String::with_capacity(content.len() + 1);
+        s.push_str(content);
         s.push('\n');
-        s
+        Cow::Owned(s)
     }
 }
 
@@ -51,14 +55,46 @@ pub fn ensure_final_newline(content: &str) -> String {
 /// - `Keep`  – return content unchanged.
 /// - `Lf`    – replace every `\r\n` with `\n`.
 /// - `Crlf`  – replace every lone `\n` (not preceded by `\r`) with `\r\n`.
-pub fn normalize_eol(content: &str, mode: EolMode) -> String {
+///
+/// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
+/// CRLF mode uses a single-pass scan with `memchr` instead of two
+/// `.replace()` calls.
+pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
     match mode {
-        EolMode::Keep => content.to_owned(),
-        EolMode::Lf => content.replace("\r\n", "\n"),
+        EolMode::Keep => Cow::Borrowed(content),
+        EolMode::Lf => {
+            if memchr::memmem::find(content.as_bytes(), b"\r\n").is_none() {
+                Cow::Borrowed(content)
+            } else {
+                Cow::Owned(content.replace("\r\n", "\n"))
+            }
+        }
         EolMode::Crlf => {
-            // First normalise everything to LF, then expand to CRLF.
-            let lf_only = content.replace("\r\n", "\n");
-            lf_only.replace('\n', "\r\n")
+            let bytes = content.as_bytes();
+            let has_bare_lf =
+                memchr::memchr_iter(b'\n', bytes).any(|i| i == 0 || bytes[i - 1] != b'\r');
+            if !has_bare_lf {
+                Cow::Borrowed(content)
+            } else {
+                // Single-pass: copy slices between \n positions, inserting
+                // \r before bare \n characters.
+                let mut result = String::with_capacity(content.len() + content.len() / 10);
+                let mut last = 0;
+                for i in memchr::memchr_iter(b'\n', bytes) {
+                    if i == 0 || bytes[i - 1] != b'\r' {
+                        result.push_str(&content[last..i]);
+                        result.push_str("\r\n");
+                    } else {
+                        result.push_str(&content[last..=i]);
+                    }
+                    last = i + 1;
+                }
+                if last < content.len() {
+                    result.push_str(&content[last..]);
+                }
+                Cow::Owned(result)
+            }
         }
     }
 }
@@ -106,13 +142,16 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
         Cow::Borrowed(content)
     };
 
-    match policy.normalize_eol {
-        EolMode::Keep => {}
-        _ => s = Cow::Owned(normalize_eol(&s, policy.normalize_eol)),
+    if !matches!(policy.normalize_eol, EolMode::Keep)
+        && let Cow::Owned(new) = normalize_eol(&s, policy.normalize_eol)
+    {
+        s = Cow::Owned(new);
     }
 
-    if policy.ensure_final_newline {
-        s = Cow::Owned(ensure_final_newline(&s));
+    if policy.ensure_final_newline
+        && let Cow::Owned(new) = ensure_final_newline(&s)
+    {
+        s = Cow::Owned(new);
     }
 
     s

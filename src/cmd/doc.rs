@@ -136,30 +136,41 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
 // ---------------------------------------------------------------------------
 
 /// Recursively enumerate all leaf key paths in a JSON value.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
+/// The buffer is extended and truncated as the recursion descends and
+/// ascends, so only leaf paths produce a final `String::clone()`.
 fn flatten_value<'a>(
     value: &'a serde_json::Value,
-    prefix: String,
+    buf: &mut String,
     out: &mut Vec<(String, &'a serde_json::Value)>,
 ) {
     match value {
         serde_json::Value::Object(map) => {
             for (k, v) in map {
-                let path = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{prefix}.{k}")
-                };
-                flatten_value(v, path, out);
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
             }
         }
         serde_json::Value::Array(arr) => {
             for (i, v) in arr.iter().enumerate() {
-                let path = format!("{prefix}[{i}]");
-                flatten_value(v, path, out);
+                let restore = buf.len();
+                buf.push('[');
+                // write! on a String is infallible.
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
             }
         }
         _ => {
-            out.push((prefix, value));
+            out.push((buf.clone(), value));
         }
     }
 }
@@ -168,7 +179,7 @@ fn flatten_value<'a>(
 #[derive(Debug, Clone, Serialize)]
 struct DiffEntry {
     path: String,
-    kind: String, // "added", "removed", "changed"
+    kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     old_value: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,74 +187,83 @@ struct DiffEntry {
 }
 
 /// Compute structural differences between two JSON values.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
 fn diff_values(
     a: &serde_json::Value,
     b: &serde_json::Value,
-    prefix: &str,
+    buf: &mut String,
     out: &mut Vec<DiffEntry>,
 ) {
     match (a, b) {
         (serde_json::Value::Object(ma), serde_json::Value::Object(mb)) => {
             for (k, va) in ma {
-                let path = if prefix.is_empty() {
-                    k.clone()
-                } else {
-                    format!("{prefix}.{k}")
-                };
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
                 if let Some(vb) = mb.get(k) {
-                    diff_values(va, vb, &path, out);
+                    diff_values(va, vb, buf, out);
                 } else {
                     out.push(DiffEntry {
-                        path,
-                        kind: "removed".to_string(),
+                        path: buf.clone(),
+                        kind: "removed",
                         old_value: Some(va.clone()),
                         new_value: None,
                     });
                 }
+                buf.truncate(restore);
             }
             for (k, vb) in mb {
                 if !ma.contains_key(k) {
-                    let path = if prefix.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{prefix}.{k}")
-                    };
+                    let restore = buf.len();
+                    if !buf.is_empty() {
+                        buf.push('.');
+                    }
+                    buf.push_str(k);
                     out.push(DiffEntry {
-                        path,
-                        kind: "added".to_string(),
+                        path: buf.clone(),
+                        kind: "added",
                         old_value: None,
                         new_value: Some(vb.clone()),
                     });
+                    buf.truncate(restore);
                 }
             }
         }
         (serde_json::Value::Array(aa), serde_json::Value::Array(ab)) => {
             let max_len = aa.len().max(ab.len());
             for i in 0..max_len {
-                let path = format!("{prefix}[{i}]");
+                let restore = buf.len();
+                buf.push('[');
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
                 match (aa.get(i), ab.get(i)) {
-                    (Some(va), Some(vb)) => diff_values(va, vb, &path, out),
+                    (Some(va), Some(vb)) => diff_values(va, vb, buf, out),
                     (Some(va), None) => out.push(DiffEntry {
-                        path,
-                        kind: "removed".to_string(),
+                        path: buf.clone(),
+                        kind: "removed",
                         old_value: Some(va.clone()),
                         new_value: None,
                     }),
                     (None, Some(vb)) => out.push(DiffEntry {
-                        path,
-                        kind: "added".to_string(),
+                        path: buf.clone(),
+                        kind: "added",
                         old_value: None,
                         new_value: Some(vb.clone()),
                     }),
                     (None, None) => {}
                 }
+                buf.truncate(restore);
             }
         }
         _ => {
             if a != b {
                 out.push(DiffEntry {
-                    path: prefix.to_string(),
-                    kind: "changed".to_string(),
+                    path: buf.clone(),
+                    kind: "changed",
                     old_value: Some(a.clone()),
                     new_value: Some(b.clone()),
                 });
@@ -702,7 +722,8 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
         DocAction::Flatten { file } => {
             let root = load_file(file)?;
             let mut entries = Vec::new();
-            flatten_value(&root, String::new(), &mut entries);
+            let mut path_buf = String::new();
+            flatten_value(&root, &mut path_buf, &mut entries);
             if entries.is_empty() {
                 return Ok((String::new(), exit::NO_MATCHES));
             }
@@ -739,7 +760,8 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
             let val_a = load_file(file_a)?;
             let val_b = load_file(file_b)?;
             let mut entries = Vec::new();
-            diff_values(&val_a, &val_b, "", &mut entries);
+            let mut diff_buf = String::new();
+            diff_values(&val_a, &val_b, &mut diff_buf, &mut entries);
             if entries.is_empty() {
                 return Ok(("identical\n".to_string(), exit::SUCCESS));
             }
@@ -756,7 +778,7 @@ fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Res
                 OutputMode::Text => {
                     let mut out = String::new();
                     for e in &entries {
-                        match e.kind.as_str() {
+                        match e.kind {
                             "added" => {
                                 if let Some(v) = e.new_value.as_ref() {
                                     out.push_str(&format!(
