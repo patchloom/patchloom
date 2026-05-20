@@ -658,6 +658,8 @@ Use these when newline and whitespace correctness is the main concern.
 
 - **What it does:** Applies newline, EOL, and whitespace normalization across all pending writes in the plan.
 - **Use when:** Every write in the transaction should share the same normalization policy.
+- **Fields:** Supports `ensure_final_newline` (bool), `normalize_eol` (`keep`, `lf`, or `crlf`), and `trim_trailing_whitespace` (bool).
+- **Precedence:** Patchloom starts from the invocation's per-file write policy, including CLI flags and any `--respect-editorconfig` values, then overrides only the keys set here.
 - **Prefer instead:** Use CLI write flags when one invocation needs defaults, but the plan itself should stay generic.
 
 <!-- ref:tx-field:strict -->
