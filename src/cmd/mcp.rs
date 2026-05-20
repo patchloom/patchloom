@@ -507,7 +507,7 @@ fn make_plan(operations: Vec<Operation>) -> Plan {
 #[tool_router]
 impl PatchloomService {
     #[tool(
-        description = "Set a key in a JSON, YAML, or TOML file. Parser-backed, preserves comments."
+        description = "Set a key in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested keys (e.g. key='server.port', value='8080')."
     )]
     async fn patchloom_doc_set(
         &self,
@@ -524,7 +524,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Delete a key from a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Delete a key from a JSON, YAML, or TOML file. Use dot notation for nested keys (e.g. key='scripts.test')."
+    )]
     async fn patchloom_doc_delete(
         &self,
         Parameters(p): Parameters<DocDeleteParams>,
@@ -539,7 +541,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Deep-merge an object into a JSON, YAML, or TOML document.")]
+    #[tool(
+        description = "Deep-merge an object into a JSON, YAML, or TOML document. The value is a JSON object that gets recursively merged (e.g. value='{\"server\": {\"port\": 8080}}')."
+    )]
     async fn patchloom_doc_merge(
         &self,
         Parameters(p): Parameters<DocMergeParams>,
@@ -554,7 +558,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Append a value to an array in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Append a value to an array in a JSON, YAML, or TOML file. Specify the array path with key (e.g. key='dependencies', value='\"new-pkg\"')."
+    )]
     async fn patchloom_doc_append(
         &self,
         Parameters(p): Parameters<DocArrayParams>,
@@ -570,7 +576,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Prepend a value to an array in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0."
+    )]
     async fn patchloom_doc_prepend(
         &self,
         Parameters(p): Parameters<DocArrayParams>,
@@ -586,7 +594,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Set a key in JSON/YAML/TOML only if it does not already exist.")]
+    #[tool(
+        description = "Set a key in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if key is present."
+    )]
     async fn patchloom_doc_ensure(
         &self,
         Parameters(p): Parameters<DocEnsureParams>,
@@ -602,7 +612,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Remove array items matching a predicate from JSON/YAML/TOML.")]
+    #[tool(
+        description = "Remove array items matching a predicate from JSON/YAML/TOML. Use key for the array path and predicate as 'field=value' (e.g. key='users', predicate='role=admin')."
+    )]
     async fn patchloom_doc_delete_where(
         &self,
         Parameters(p): Parameters<DocDeleteWhereParams>,
@@ -619,7 +631,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file."
+        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Use [*] for wildcards (e.g. key='servers[*].port', value='8080')."
     )]
     async fn patchloom_doc_update(
         &self,
@@ -636,7 +648,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Move/rename a key in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Move/rename a key in a JSON, YAML, or TOML file. Moves the value from one path to another (e.g. from='old_name', to='new_name')."
+    )]
     async fn patchloom_doc_move(
         &self,
         Parameters(p): Parameters<DocMoveParams>,
@@ -652,7 +666,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Read a value from a JSON, YAML, or TOML file by key path.")]
+    #[tool(
+        description = "Read a value from a JSON, YAML, or TOML file by key path. Use dot notation for nesting, brackets for arrays (e.g. key='servers[0].host')."
+    )]
     async fn patchloom_doc_get(
         &self,
         Parameters(p): Parameters<DocGetParams>,
@@ -666,7 +682,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Check whether a key path exists in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Check whether a key path exists in a JSON, YAML, or TOML file. Returns true/false."
+    )]
     async fn patchloom_doc_has(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
@@ -680,7 +698,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "List object keys at a path in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "List object keys at a path in a JSON, YAML, or TOML file. Returns an array of key names."
+    )]
     async fn patchloom_doc_keys(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
@@ -695,7 +715,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file."
+        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file. Returns an integer."
     )]
     async fn patchloom_doc_len(
         &self,
@@ -710,7 +730,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Filter array items by selector in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "Filter array items by selector in a JSON, YAML, or TOML file. Use predicate selectors (e.g. key='users[role=admin]')."
+    )]
     async fn patchloom_doc_select(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
@@ -724,7 +746,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "List all leaf key paths and values in a JSON, YAML, or TOML file.")]
+    #[tool(
+        description = "List all leaf key paths and values in a JSON, YAML, or TOML file. Returns every path=value pair for exploring unknown file structure."
+    )]
     async fn patchloom_doc_flatten(
         &self,
         Parameters(p): Parameters<DocFileParams>,
@@ -739,7 +763,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Compare two structured files (JSON, YAML, or TOML) and show differences."
+        description = "Compare two structured files (JSON, YAML, or TOML) and show differences. Reports added, removed, and changed keys."
     )]
     async fn patchloom_doc_diff(
         &self,
@@ -764,7 +788,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search files for a pattern. Returns matches with line numbers and context."
+        description = "Search files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts."
     )]
     async fn patchloom_search(
         &self,
@@ -801,7 +825,9 @@ impl PatchloomService {
         run_readonly_command(&arg_refs, &self.cwd)
     }
 
-    #[tool(description = "Show uncommitted file changes vs git HEAD.")]
+    #[tool(
+        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files."
+    )]
     async fn patchloom_status(
         &self,
         #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
@@ -809,7 +835,9 @@ impl PatchloomService {
         run_readonly_command(&["--json", "status"], &self.cwd)
     }
 
-    #[tool(description = "Read file contents with optional line range.")]
+    #[tool(
+        description = "Read file contents with optional line range. Use lines='50:120' to read a specific range (1-based inclusive)."
+    )]
     async fn patchloom_read(
         &self,
         Parameters(p): Parameters<ReadFileParams>,
@@ -826,7 +854,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Supports literal and regex modes, plus insert_before/insert_after."
+        description = "Replace text in a file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches."
     )]
     async fn patchloom_replace(
         &self,
@@ -856,7 +884,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Add a bullet under a markdown heading. Skipped if already present.")]
+    #[tool(
+        description = "Add a bullet under a markdown heading. Idempotent: skipped if the bullet text already exists under that heading."
+    )]
     async fn patchloom_md_upsert_bullet(
         &self,
         Parameters(p): Parameters<MdUpsertBulletParams>,
@@ -872,7 +902,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Append a row to a markdown table under a heading.")]
+    #[tool(
+        description = "Append a row to a markdown table under a heading. The row is a pipe-separated string (e.g. row='| name | value |')."
+    )]
     async fn patchloom_md_table_append(
         &self,
         Parameters(p): Parameters<MdTableAppendParams>,
@@ -888,7 +920,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Replace the body of a heading section in a markdown file.")]
+    #[tool(
+        description = "Replace the body of a heading section in a markdown file. Content replaces everything between this heading and the next heading of equal or higher level."
+    )]
     async fn patchloom_md_replace_section(
         &self,
         Parameters(p): Parameters<MdReplaceSectionParams>,
@@ -904,7 +938,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(description = "Fix whitespace: ensure final newline, trim trailing spaces.")]
+    #[tool(
+        description = "Fix whitespace: ensures file ends with a newline and trims trailing spaces from all lines."
+    )]
     async fn patchloom_hygiene(
         &self,
         Parameters(p): Parameters<HygieneParams>,
