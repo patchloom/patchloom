@@ -2255,6 +2255,29 @@ fn test_read_multiple_files_json() {
 }
 
 #[test]
+fn test_read_multiple_files_json_partial_failure_keeps_array() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("exists.txt");
+    fs::write(&existing, "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(existing.to_str().unwrap())
+        .arg(nonexistent_path("no-such-file-json-array-shape"))
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json.is_array());
+    assert_eq!(json.as_array().unwrap().len(), 1);
+    assert_eq!(json[0]["path"], existing.to_str().unwrap());
+    assert_eq!(json[0]["content"], "hello\n");
+}
+
+#[test]
 fn test_read_multiple_files_jsonl() {
     let dir = TempDir::new().unwrap();
     let f1 = dir.path().join("p.txt");

@@ -186,7 +186,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.json {
-        if outputs.len() == 1 {
+        if !multi && outputs.len() == 1 {
             println!("{}", serde_json::to_string_pretty(&outputs[0])?);
         } else {
             println!("{}", serde_json::to_string_pretty(&outputs)?);
