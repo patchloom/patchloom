@@ -64,7 +64,15 @@ def create_driver(agent_name: str, model: str) -> AgentDriver:
         from .grok import GrokDriver
 
         return GrokDriver(model=model)
-    raise ValueError(f"Unknown agent: {agent_name!r}. Available: grok")
+    if agent_name == "claude":
+        from .claude import ClaudeDriver
+
+        return ClaudeDriver(model=model)
+    if agent_name == "aider":
+        from .aider import AiderDriver
+
+        return AiderDriver(model=model)
+    raise ValueError(f"Unknown agent: {agent_name!r}. Available: grok, claude, aider")
 
 
 # ---------------------------------------------------------------------------

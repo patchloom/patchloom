@@ -46,6 +46,25 @@ pytest -v --model gpt-5
 4. Assert with `assert_patchloom_used(result, "command")`
 5. Verify file state
 
+## Supported agents
+
+| Agent | Driver | Default model | CLI | API key env var |
+|-------|--------|---------------|-----|-----------------|
+| `grok` | `drivers/grok.py` | `grok-build` | `grok` | `GROK_CODE_XAI_API_KEY` |
+| `claude` | `drivers/claude.py` | `claude-sonnet-4-20250514` | `claude` | `ANTHROPIC_API_KEY` |
+| `aider` | `drivers/aider.py` | `sonnet` | `aider` | `ANTHROPIC_API_KEY` (or model-specific) |
+
+```bash
+# Test with Claude Code
+pytest -v --agent claude --model claude-sonnet-4-20250514
+
+# Test with Aider
+pytest -v --agent aider --model sonnet
+
+# Test with Grok (default)
+pytest -v --agent grok --model sxs-claude-opus-4-6
+```
+
 ## Adding a new agent driver
 
 1. Create `drivers/myagent.py` implementing `AgentDriver`
@@ -59,3 +78,4 @@ pytest -v --model gpt-5
 | `AGENT_TEST_AGENT` | Agent name (default: `grok`) |
 | `AGENT_TEST_MODEL` | Model name (default: `grok-build`) |
 | `GROK_CODE_XAI_API_KEY` | API key for Grok Build CLI |
+| `ANTHROPIC_API_KEY` | API key for Claude Code CLI and Aider |
