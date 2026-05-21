@@ -281,6 +281,54 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 
 The key difference: patchloom is designed for AI agent workflows. One `batch` or `tx` call replaces N sequential tool calls, cutting round-trips and eliminating partial-failure states.
 
+### vs agent-native editing tools
+
+The table above compares patchloom to human CLI tools. But agents already have built-in editing: Claude Code's `edit_file`, Cursor's apply, Grok Build's `search_replace`, Aider's `/code` blocks. Why add patchloom on top?
+
+**Agent-native tools use text matching.** They find a block of text and replace it. This works for source code but fails on structured config files:
+
+<table>
+<tr>
+<td width="50%">
+
+**Agent uses `search_replace` on YAML**
+
+```yaml
+database:
+  # Production settings
+  host: db.prod.internal
+  port: 5432  # PostgreSQL default
+  pool_size: 10
+```
+
+The agent replaces `port: 5432` with `port: 5433`. Result depends on implementation. Many agents lose the inline comment, break indentation, or fail to match because of surrounding context changes.
+
+</td>
+<td width="50%">
+
+**Agent uses `patchloom doc set`**
+
+```bash
+patchloom doc set config.yaml \
+  database.port 5433 --apply
+```
+
+The YAML parser changes the value at the selector path. Comments, indentation, key ordering, and all other formatting are preserved. The output is always valid YAML.
+
+</td>
+</tr>
+</table>
+
+| Limitation of agent-native tools | How patchloom addresses it |
+|---|---|
+| **Comment destruction** | CST-level YAML/TOML editing preserves all comments |
+| **One file per tool call** | `batch`/`tx` edit N files in 1 call (6.7x faster in benchmarks) |
+| **No rollback** | `tx` with `strict: true` reverts all files if validation fails |
+| **Platform-dependent** | Same binary and syntax on Linux, macOS, Windows |
+| **Stale context risk** | `patch apply` uses fuzz matching to handle context drift |
+
+**When to keep using native tools:** Single-file reads, simple text search, single-file text replacement where comments don't matter. Patchloom's agent-rules tell agents exactly when to use each approach.
+
 ## Full command reference
 
 Every command, flag, transaction operation, and exit code is documented in the **[Command Reference](docs/reference/README.md)**.

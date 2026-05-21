@@ -1,0 +1,15 @@
+{
+  "version": "1",
+  "operations": [
+    {
+      "op": "patch.apply",
+      "diff": "--- a/src/config.rs\n+++ b/src/config.rs\n@@ -10,7 +10,7 @@\n pub struct Config {\n     pub host: String,\n     pub port: u16,\n-    pub timeout: u64,\n+    pub timeout_secs: u64,\n     pub retries: u32,\n }\n \n@@ -20,6 +20,6 @@\n         Config {\n             host: \"localhost\".to_string(),\n             port: 8080,\n-            timeout: 30,\n+            timeout_secs: 30,\n             retries: 3,\n         }\n"
+    },
+    {
+      "op": "replace",
+      "glob": "*.rs",
+      "from": ".timeout",
+      "to": ".timeout_secs"
+    }
+  ]
+}

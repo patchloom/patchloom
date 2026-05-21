@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "MCP tool call examples — these show the JSON-RPC messages an MCP client sends.",
+    "You don't construct these manually; your agent's MCP client handles the protocol.",
+    "These examples illustrate what happens under the hood when an agent calls patchloom tools."
+  ],
+  "examples": [
+    {
+      "description": "Set a config value (preserves YAML comments)",
+      "tool": "patchloom_doc_set",
+      "arguments": {
+        "path": "config.yaml",
+        "selector": "database.port",
+        "value": 5433
+      }
+    },
+    {
+      "description": "Search for a pattern across the repo",
+      "tool": "patchloom_search",
+      "arguments": {
+        "path": "src",
+        "pattern": "TODO|FIXME",
+        "regex": true
+      }
+    },
+    {
+      "description": "Batch multiple edits in one call",
+      "tool": "patchloom_batch",
+      "arguments": {
+        "input": "doc.set config.json version \"2.0\"\nreplace README.md \"v1\" \"v2\"\nmd.upsert_bullet CHANGELOG.md \"Unreleased\" \"- Version bump\""
+      }
+    },
+    {
+      "description": "Atomic transaction with rollback",
+      "tool": "patchloom_tx",
+      "arguments": {
+        "plan": "{\"version\":\"1\",\"strict\":true,\"operations\":[{\"op\":\"doc.set\",\"path\":\"package.json\",\"selector\":\"version\",\"value\":\"2.0.0\"},{\"op\":\"replace\",\"path\":\"README.md\",\"from\":\"1.0.0\",\"to\":\"2.0.0\"}],\"validate\":[{\"cmd\":\"npm test\",\"required\":true}]}"
+      }
+    },
+    {
+      "description": "Rename a file",
+      "tool": "patchloom_rename",
+      "arguments": {
+        "from": "old_config.json",
+        "to": "config.json"
+      }
+    },
+    {
+      "description": "Append a row to a markdown table",
+      "tool": "patchloom_md_table_append",
+      "arguments": {
+        "path": "README.md",
+        "heading": "## API Endpoints",
+        "row": "| `/api/v2/users` | List users (paginated) |"
+      }
+    }
+  ]
+}

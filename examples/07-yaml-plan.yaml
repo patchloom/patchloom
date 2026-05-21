@@ -1,0 +1,38 @@
+# YAML transaction plan — identical semantics to JSON plans, but easier to
+# read and write by hand.  Run with:
+#   patchloom tx examples/07-yaml-plan.yaml --diff
+#   patchloom tx examples/07-yaml-plan.yaml --apply
+
+version: "1"
+write_policy:
+  ensure_final_newline: true
+  trim_trailing_whitespace: true
+
+operations:
+  - op: doc.set
+    path: config.yaml
+    selector: app.version
+    value: "2.0.0"
+
+  - op: doc.ensure
+    path: config.yaml
+    selector: app.debug
+    value: false
+
+  - op: md.upsert_bullet
+    path: CHANGELOG.md
+    heading: "## Unreleased"
+    bullet: "- Bumped app version to 2.0.0"
+
+  - op: replace
+    path: README.md
+    from: "v1.0.0"
+    to: "v2.0.0"
+
+format:
+  - cmd: "prettier --write config.yaml"
+    timeout: 30
+
+validate:
+  - cmd: "yamllint config.yaml"
+    timeout: 10
