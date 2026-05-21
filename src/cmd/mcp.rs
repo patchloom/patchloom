@@ -133,6 +133,12 @@ pub struct ReadFileParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MdLintAgentsParams {
+    /// Markdown file path (typically AGENTS.md).
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct MdUpsertBulletParams {
     /// Markdown file path.
     pub path: String,
@@ -1010,6 +1016,18 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Lint an AGENTS.md (or similar markdown rules file) for common problems: duplicate headings, dangerous git commands outside code fences, and missing final newline. Returns a JSON array of issues found (empty array means clean)."
+    )]
+    async fn patchloom_md_lint_agents(
+        &self,
+        Parameters(p): Parameters<MdLintAgentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+        run_readonly_command(&["--json", "md", "lint-agents", &p.path], &self.cwd)
+    }
+
+    #[tool(
         description = "Execute a full transaction plan. Accepts a JSON/YAML/TOML plan string with operations, optional format/validate lifecycle steps, strict mode, and write_policy. This is the most powerful tool: use it when you need atomic multi-file edits with post-write formatting (cargo fmt, prettier), validation (tests, lints), and rollback on failure."
     )]
     async fn patchloom_tx(
@@ -1367,7 +1385,7 @@ mod tests {
             "missing md_insert_before_heading tool"
         );
         assert!(names.contains(&"patchloom_tx"), "missing tx tool");
-        assert_eq!(names.len(), 32, "expected 32 tools, got {}", names.len());
+        assert_eq!(names.len(), 33, "expected 33 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 

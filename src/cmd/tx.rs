@@ -604,6 +604,9 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
 }
 
 /// Execute a search operation within a transaction.
+///
+/// If `path` is a directory, walks it (respecting `.gitignore`) and searches
+/// each non-binary file, mirroring the standalone `search` command behavior.
 fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let Operation::Search {
         path,
@@ -617,11 +620,6 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     else {
         unreachable!()
     };
-    let file_path = tx.cwd.join(path);
-    // Ensure file is loaded into pending (mutable borrow), then release it.
-    read_file_content(tx.pending, &file_path, tx.cwd)?;
-    // Re-borrow immutably to avoid cloning the entire file content.
-    let content = &tx.pending[&file_path].1;
 
     let re = if *regex {
         let mut builder = RegexBuilder::new(pattern);
@@ -640,28 +638,65 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
 
     let ctx_before = before_context.or(*context).unwrap_or(0);
     let ctx_after = after_context.or(*context).unwrap_or(0);
-    let lines: Vec<&str> = content.lines().collect();
-    let mut matches = Vec::new();
 
-    for (i, line) in lines.iter().enumerate() {
-        if let Some(m) = re.find(line) {
-            let start = i.saturating_sub(ctx_before);
-            let end = (i + 1 + ctx_after).min(lines.len());
-            matches.push(TxSearchMatch {
-                line: i + 1,
-                column: m.start() + 1,
-                text: line.to_string(),
-                context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
-                context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
-            });
+    let resolved = tx.cwd.join(path);
+    let file_paths: Vec<PathBuf> = if resolved.is_dir() {
+        let mut paths = Vec::new();
+        for entry in WalkBuilder::new(&resolved).build() {
+            let entry = entry?;
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                paths.push(entry.into_path());
+            }
+        }
+        paths.sort();
+        paths
+    } else {
+        vec![resolved]
+    };
+
+    let mut all_matches = Vec::new();
+
+    for file_path in &file_paths {
+        // Skip binary files when walking directories.
+        if file_paths.len() > 1 {
+            let probe = std::fs::read(file_path)
+                .map(|d| d[..d.len().min(8192)].to_vec())
+                .unwrap_or_default();
+            if crate::files::is_binary(&probe) {
+                continue;
+            }
+        }
+
+        read_file_content(tx.pending, file_path, tx.cwd)?;
+        let content = &tx.pending[file_path].1;
+        let lines: Vec<&str> = content.lines().collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            if let Some(m) = re.find(line) {
+                let start = i.saturating_sub(ctx_before);
+                let end = (i + 1 + ctx_after).min(lines.len());
+                // Use the path relative to cwd for display.
+                let display_path = file_path
+                    .strip_prefix(tx.cwd)
+                    .unwrap_or(file_path)
+                    .to_string_lossy()
+                    .to_string();
+                all_matches.push(TxSearchMatch {
+                    line: i + 1,
+                    column: m.start() + 1,
+                    text: format!("{display_path}:{}", line),
+                    context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
+                    context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+                });
+            }
         }
     }
 
     tx.tx_searches.push(TxSearchResult {
         path: path.clone(),
         pattern: pattern.clone(),
-        match_count: matches.len(),
-        matches,
+        match_count: all_matches.len(),
+        matches: all_matches,
     });
     Ok(())
 }

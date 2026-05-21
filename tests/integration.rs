@@ -8496,6 +8496,42 @@ fn test_tx_search_then_replace_in_plan() {
 }
 
 #[test]
+fn test_tx_search_directory_path() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("src");
+    fs::create_dir_all(&sub).unwrap();
+    fs::write(sub.join("main.rs"), "fn main() { hello(); }\n").unwrap();
+    fs::write(sub.join("lib.rs"), "pub fn hello() {}\npub fn world() {}\n").unwrap();
+    fs::write(dir.path().join("README.md"), "No match here\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{"op": "search", "path": portable_path_str(&sub), "pattern": "hello"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let searches = json["searches"].as_array().unwrap();
+    assert_eq!(searches.len(), 1);
+    // Should find "hello" in both main.rs and lib.rs (2 matches total)
+    assert_eq!(searches[0]["match_count"], 2);
+}
+
+#[test]
 fn test_tx_strict_mode_reverts_on_format_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -10540,6 +10576,37 @@ fn test_smoke_example_10_inspect_and_edit() {
         db.contains("DB_PORT: u16 = 5433"),
         "db.rs not updated: {db}"
     );
+}
+
+#[test]
+fn test_smoke_example_08_mcp_tool_names_valid() {
+    // Parse example 08 and verify every tool name exists in the MCP tool list
+    // produced by `patchloom agent-rules --mode mcp`.
+    let example = fs::read_to_string(example_plan_path("08-mcp-tool-call.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&example).unwrap();
+    let tool_names: Vec<&str> = doc["examples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["tool"].as_str().unwrap())
+        .collect();
+    assert!(!tool_names.is_empty(), "example 08 has no tool examples");
+
+    // Get the authoritative tool list from agent-rules --mode mcp.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--mode", "mcp"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let rules = String::from_utf8(output.stdout).unwrap();
+
+    for name in &tool_names {
+        assert!(
+            rules.contains(name),
+            "example 08 references tool '{name}' which is not in agent-rules --mode mcp output"
+        );
+    }
 }
 
 // ── Batch integration tests ───────────────────────────────────────────

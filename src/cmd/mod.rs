@@ -145,7 +145,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `patchloom_replace`, `patchloom_md_upsert_bullet`, \
              `patchloom_md_table_append`, `patchloom_md_replace_section`, \
              `patchloom_md_insert_after_heading`, `patchloom_md_insert_before_heading`, \
-             `patchloom_read`, \
+             `patchloom_md_lint_agents`, `patchloom_read`, \
              `patchloom_create`, `patchloom_delete`, `patchloom_rename`, \
              `patchloom_patch`, `patchloom_tidy`, `patchloom_batch`, `patchloom_tx`.\n\n",
         );
