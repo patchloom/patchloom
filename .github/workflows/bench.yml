@@ -10,6 +10,10 @@ on:
         default: "small medium"
         type: string
 
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write  # upload release assets
 
@@ -41,7 +45,7 @@ jobs:
           bash run.sh ${{ inputs.scales || 'small medium' }}
 
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cli-bench-results
           path: benches/cli/results/*.md
