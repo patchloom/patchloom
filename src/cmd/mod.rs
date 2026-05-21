@@ -74,7 +74,7 @@ pub enum AgentPlatform {
     All,
     /// Linux/macOS only: heredocs, single-quote shell syntax.
     Linux,
-    /// Windows only: --input files, double-quote escaping.
+    /// Windows only: file arguments, double-quote escaping.
     Windows,
 }
 
@@ -177,7 +177,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             }
             out.push_str(
                 "```bash\n\
-                 patchloom batch --input ops.txt --apply\n\
+                 patchloom batch ops.txt --apply\n\
                  ```\n\n",
             );
             if !show_linux {
@@ -374,7 +374,7 @@ mod tests {
         assert!(out.contains("## Structured edits"));
         assert!(out.contains("## Exit codes"));
         assert!(out.contains("<<'EOF'"));
-        assert!(out.contains("--input ops.txt"));
+        assert!(out.contains("batch ops.txt"));
     }
 
     #[test]
@@ -397,7 +397,7 @@ mod tests {
     fn platform_linux_omits_windows() {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Linux));
         assert!(out.contains("<<'EOF'"));
-        assert!(!out.contains("--input ops.txt"));
+        assert!(!out.contains("batch ops.txt"));
         // Single-quote syntax present, double-quote escaping absent
         assert!(out.contains("'\"2.0.0\"'"));
         assert!(!out.contains("\\\"2.0.0\\\""));
@@ -407,7 +407,7 @@ mod tests {
     fn platform_windows_omits_heredoc() {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Windows));
         assert!(!out.contains("<<'EOF'"));
-        assert!(out.contains("--input ops.txt"));
+        assert!(out.contains("batch ops.txt"));
         // Double-quote escaping present, single-quote syntax absent
         assert!(out.contains("\\\"2.0.0\\\""));
         assert!(!out.contains("'\"2.0.0\"'"));
@@ -442,7 +442,7 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::Windows));
         assert!(out.contains("## MCP mode"));
         assert!(!out.contains("## Batching"));
-        assert!(!out.contains("--input ops.txt"));
+        assert!(!out.contains("batch ops.txt"));
         assert!(!out.contains("<<'EOF'"));
     }
 }

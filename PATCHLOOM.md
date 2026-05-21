@@ -42,7 +42,7 @@ One line per operation. Double-quote values with spaces.
 On Windows (where heredocs are not available), write operations to a file and pass it:
 
 ```bash
-patchloom batch --input ops.txt --apply
+patchloom batch ops.txt --apply
 ```
 
 For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:

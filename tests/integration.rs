@@ -323,7 +323,7 @@ fn test_agent_rules_platform_linux_omits_windows() {
         .assert()
         .success()
         .stdout(predicates::str::contains("<<'EOF'"))
-        .stdout(predicates::str::contains("--input ops.txt").not());
+        .stdout(predicates::str::contains("batch ops.txt").not());
 }
 
 #[test]
@@ -333,7 +333,7 @@ fn test_agent_rules_platform_windows_omits_heredoc() {
         .args(["agent-rules", "--platform", "windows"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("--input ops.txt"))
+        .stdout(predicates::str::contains("batch ops.txt"))
         .stdout(predicates::str::contains("<<'EOF'").not());
 }
 
@@ -347,7 +347,7 @@ fn test_agent_rules_mode_and_platform_compose() {
         .success()
         .stdout(predicates::str::contains("## MCP mode"))
         .stdout(predicates::str::contains("## Batching").not())
-        .stdout(predicates::str::contains("--input ops.txt").not());
+        .stdout(predicates::str::contains("batch ops.txt").not());
 }
 
 // ---------------------------------------------------------------------------
