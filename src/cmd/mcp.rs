@@ -60,7 +60,7 @@ pub struct DocEnsureParams {
     pub path: String,
     /// Selector for the value to ensure exists.
     pub selector: String,
-    /// Value to set only if the key is missing.
+    /// Value to set only if the selector path is missing.
     pub value: serde_json::Value,
 }
 
@@ -78,9 +78,9 @@ pub struct DocUpdateParams {
 pub struct DocMoveParams {
     /// File path.
     pub path: String,
-    /// Selector of the key to move.
+    /// Source selector path to move from.
     pub from: String,
-    /// New selector path for the key.
+    /// Destination selector path to move to.
     pub to: String,
 }
 
@@ -536,7 +536,7 @@ fn make_plan(operations: Vec<Operation>) -> Plan {
 #[tool_router]
 impl PatchloomService {
     #[tool(
-        description = "Set a key in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested keys (e.g. key='server.port', value='8080')."
+        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths (e.g. selector='server.port', value='8080')."
     )]
     async fn patchloom_doc_set(
         &self,
@@ -554,7 +554,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Delete a key from a JSON, YAML, or TOML file. Use dot notation for nested keys (e.g. key='scripts.test')."
+        description = "Delete a value from a JSON, YAML, or TOML file. Use dot notation for nested paths (e.g. selector='scripts.test')."
     )]
     async fn patchloom_doc_delete(
         &self,
@@ -588,7 +588,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Append a value to an array in a JSON, YAML, or TOML file. Specify the array path with key (e.g. key='dependencies', value='\"new-pkg\"')."
+        description = "Append a value to an array in a JSON, YAML, or TOML file. Specify the array path with selector (e.g. selector='dependencies', value='\"new-pkg\"')."
     )]
     async fn patchloom_doc_append(
         &self,
@@ -624,7 +624,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Set a key in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if key is present."
+        description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if the selector path is present."
     )]
     async fn patchloom_doc_ensure(
         &self,
@@ -642,7 +642,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Remove array items matching a predicate from JSON/YAML/TOML. Use key for the array path and predicate as 'field=value' (e.g. key='users', predicate='role=admin')."
+        description = "Remove array items matching a predicate from JSON/YAML/TOML. Use selector for the array path and predicate as 'field=value' (e.g. selector='users', predicate='role=admin')."
     )]
     async fn patchloom_doc_delete_where(
         &self,
@@ -660,7 +660,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Use [*] for wildcards (e.g. key='servers[*].port', value='8080')."
+        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Use [*] for wildcards (e.g. selector='servers[*].port', value='8080')."
     )]
     async fn patchloom_doc_update(
         &self,
@@ -678,7 +678,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move/rename a key in a JSON, YAML, or TOML file. Moves the value from one path to another (e.g. from='old_name', to='new_name')."
+        description = "Move/rename a path in a JSON, YAML, or TOML file. Moves the value from one selector to another (e.g. from='old_name', to='new_name')."
     )]
     async fn patchloom_doc_move(
         &self,
@@ -696,7 +696,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Read a value from a JSON, YAML, or TOML file by key path. Use dot notation for nesting, brackets for arrays (e.g. key='servers[0].host')."
+        description = "Read a value from a JSON, YAML, or TOML file by selector path. Use dot notation for nesting, brackets for arrays (e.g. selector='servers[0].host')."
     )]
     async fn patchloom_doc_get(
         &self,
@@ -712,7 +712,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Check whether a key path exists in a JSON, YAML, or TOML file. Returns true/false."
+        description = "Check whether a selector path exists in a JSON, YAML, or TOML file. Returns true/false."
     )]
     async fn patchloom_doc_has(
         &self,
@@ -728,7 +728,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "List object keys at a path in a JSON, YAML, or TOML file. Returns an array of key names."
+        description = "List object keys at a selector path in a JSON, YAML, or TOML file. Returns an array of key names."
     )]
     async fn patchloom_doc_keys(
         &self,
@@ -760,7 +760,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Filter array items by selector in a JSON, YAML, or TOML file. Use predicate selectors (e.g. key='users[role=admin]')."
+        description = "Filter array items by selector in a JSON, YAML, or TOML file. Use predicate selectors (e.g. selector='users[role=admin]')."
     )]
     async fn patchloom_doc_select(
         &self,
@@ -782,7 +782,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "List all leaf key paths and values in a JSON, YAML, or TOML file. Returns every path=value pair for exploring unknown file structure."
+        description = "List all leaf selector paths and values in a JSON, YAML, or TOML file. Returns every path=value pair for exploring unknown file structure."
     )]
     async fn patchloom_doc_flatten(
         &self,

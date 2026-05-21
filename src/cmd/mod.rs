@@ -203,7 +203,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         if show_linux {
             out.push_str(
                 "```bash\n\
-                 # Edit a key in JSON/YAML/TOML (parser-backed, preserves comments)\n\
+                 # Edit a value in JSON/YAML/TOML by selector (parser-backed, preserves comments)\n\
                  patchloom doc set config.json version '\"2.0.0\"' --apply\n\
                  patchloom doc merge config.yaml --value '{\"db\":{\"pool\":10}}' --apply\n\
                  \n\
@@ -248,7 +248,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "### Edit a CI workflow\n\n\
              ```bash\n\
-             # Set a key in a YAML workflow (preserves comments and formatting)\n\
+             # Set a value in a YAML workflow by selector (preserves comments and formatting)\n\
              patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply\n\
              ```\n\n",
         );

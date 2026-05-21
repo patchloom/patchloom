@@ -435,23 +435,23 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:get -->
 ### `doc get`
 
-- **What it does:** Reads the value at a selector from a JSON, YAML, or TOML file.
+- **What it does:** Reads the value at a selector path from a JSON, YAML, or TOML file.
 - **Use when:** You need one precise value without mutating the document.
 - **Prefer instead:** Use `doc flatten` when you are exploring an unfamiliar file and need a broader map of its contents.
 
 <!-- ref:doc-action:has -->
 ### `doc has`
 
-- **What it does:** Checks whether a selector exists.
+- **What it does:** Checks whether a selector path exists.
 - **Use when:** A script or workflow needs a presence check before choosing a later action.
 - **Prefer instead:** Use `doc ensure` when the real goal is to create the value if it is missing.
 
 <!-- ref:doc-action:keys -->
 ### `doc keys`
 
-- **What it does:** Lists the keys of an object at a selector.
+- **What it does:** Lists the keys of an object at a selector path.
 - **Use when:** You want to inspect the shape of a structured object before choosing an edit.
-- **Prefer instead:** Use `doc get` when you already know the exact key you want.
+- **Prefer instead:** Use `doc get` when you already know the exact selector you want.
 
 <!-- ref:doc-action:len -->
 ### `doc len`
@@ -463,15 +463,15 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:set -->
 ### `doc set`
 
-- **What it does:** Sets or creates a value at a selector.
-- **Use when:** One exact key path should be updated deterministically.
+- **What it does:** Sets or creates a value at a selector path.
+- **Use when:** One exact selector path should be updated deterministically.
 - **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved.
 
 <!-- ref:doc-action:delete -->
 ### `doc delete`
 
-- **What it does:** Removes the value at a selector.
-- **Use when:** A key or node is obsolete and should disappear cleanly.
+- **What it does:** Removes the value at a selector path.
+- **Use when:** A selector path or node is obsolete and should disappear cleanly.
 - **Prefer instead:** Use `doc delete-where` when the target is a subset of array items instead of one direct selector.
 
 <!-- ref:doc-action:delete-where -->
@@ -519,8 +519,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:move -->
 ### `doc move`
 
-- **What it does:** Moves or renames a key path.
-- **Use when:** Schema cleanup or key migration should preserve the value while changing the path.
+- **What it does:** Moves or renames a selector path.
+- **Use when:** Schema cleanup or path migration should preserve the value while changing the selector.
 - **Prefer instead:** Use `doc set` plus `doc delete` only when the move semantics are not a clean fit.
 
 <!-- ref:doc-action:ensure -->
@@ -528,12 +528,12 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Creates a value only if it is currently missing.
 - **Use when:** You need idempotent config bootstrapping and must not overwrite existing values.
-- **Prefer instead:** Use `doc set` when the desired value should win even if the key already exists.
+- **Prefer instead:** Use `doc set` when the desired value should win even if the selector path already exists.
 
 <!-- ref:doc-action:flatten -->
 ### `doc flatten`
 
-- **What it does:** Lists leaf paths and their values.
+- **What it does:** Lists leaf selector paths and their values.
 - **Use when:** You are discovering the shape of an unfamiliar structured file.
 - **Prefer instead:** Use `doc get` for one targeted read, or `doc keys` when only the object shape matters.
 
@@ -541,7 +541,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 ### `doc diff`
 
 - **What it does:** Compares two structured files by their semantic content.
-- **Use when:** You care about key and value changes more than raw formatting differences.
+- **Use when:** You care about structural value changes more than raw formatting differences.
 - **Prefer instead:** Use `patch` or ordinary diff tooling when the exact textual patch matters.
 
 ## `md` actions
@@ -713,7 +713,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Runs a targeted structured set inside a transaction.
 - **Use when:** A precise config update must be bundled atomically with other repo changes.
-- **Field naming:** Use `selector` for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
+- **Field naming:** Use `selector` (not `key`) for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
 - **Related:** top level `doc set`
 
 <!-- ref:tx-op:doc.delete -->
@@ -754,7 +754,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:doc.move -->
 ### `doc.move`
 
-- **What it does:** Moves or renames a structured key path inside a transaction.
+- **What it does:** Moves or renames a structured selector path inside a transaction.
 - **Use when:** Schema migration must stay atomic with related code or docs edits.
 - **Related:** top level `doc move`
 

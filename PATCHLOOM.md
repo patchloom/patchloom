@@ -54,7 +54,7 @@ patchloom tx plan.json --apply
 ## Structured edits
 
 ```bash
-# Edit a key in JSON/YAML/TOML (parser-backed, preserves comments)
+# Edit a value in JSON/YAML/TOML by selector (parser-backed, preserves comments)
 patchloom doc set config.json version '"2.0.0"' --apply
 patchloom doc merge config.yaml --value '{"db":{"pool":10}}' --apply
 
@@ -87,7 +87,7 @@ patchloom replace "old_function_name" --to "new_function_name" src/ --apply
 ### Edit a CI workflow
 
 ```bash
-# Set a key in a YAML workflow (preserves comments and formatting)
+# Set a value in a YAML workflow by selector (preserves comments and formatting)
 patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply
 ```
 

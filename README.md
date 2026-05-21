@@ -11,12 +11,12 @@
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
-Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by key (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
+Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by selector (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
 
 ![Patchloom demo: batch edit 4 files, preview diff, apply, verify YAML comments preserved](demo/demo.gif)
 
 ```bash
-# Edit a YAML key without breaking comments or formatting
+# Edit a YAML value by selector without breaking comments or formatting
 patchloom doc set config.yaml database.port 5432 --apply
 
 # Batch 6 file edits into a single tool call
@@ -46,7 +46,7 @@ AI agents edit files through tool calls. Each call is a round-trip back to the L
 
 | Problem | How patchloom solves it |
 |---|---|
-| **Syntax corruption** | `doc` commands parse the file, change the value by key path, and write valid output. Comments and formatting are preserved. No regex needed. |
+| **Syntax corruption** | `doc` commands parse the file, change the value by selector path, and write valid output. Comments and formatting are preserved. No regex needed. |
 | **Round-trip tax** | `batch` and `tx` combine N operations into 1 tool call. Six file edits become one command with atomic rollback on failure. |
 | **Platform fragmentation** | Single static binary with zero dependencies. Same commands, same flags, same behavior on Linux, macOS, and Windows. |
 
@@ -91,7 +91,7 @@ Agent: batch with
 
 | Capability | What it does | Example |
 |---|---|---|
-| **Parser-backed edits** | Edit JSON/YAML/TOML by key, preserving comments and formatting | `doc set config.yaml db.port 5432 --apply` |
+| **Parser-backed edits** | Edit JSON/YAML/TOML by selector, preserving comments and formatting | `doc set config.yaml db.port 5432 --apply` |
 | **Batch N files in 1 call** | `batch` and `tx` combine operations into one tool call with rollback | `batch --apply < ops.txt` |
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
 | **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append README.md --heading "API" --row "\| new \| row \|" --apply` |
@@ -105,7 +105,7 @@ Patchloom is not a replacement for all file operations. Its instructions tell ag
 
 | Task | Use patchloom? | Why |
 |---|---|---|
-| Edit a JSON/YAML/TOML value by key | **Yes** | Parser guarantees valid output, preserves comments |
+| Edit a JSON/YAML/TOML value by selector | **Yes** | Parser guarantees valid output, preserves comments |
 | Edit 3+ files in one task | **Yes** | `batch`/`tx` eliminates round-trips |
 | Append a row to a markdown table | **Yes** | Heading-aware, no line number guessing |
 | Read a single file | No | Native `read_file` is faster |
@@ -114,7 +114,7 @@ Patchloom is not a replacement for all file operations. Its instructions tell ag
 
 ### Correctness over speed
 
-Patchloom is not faster than native tools for simple, single-file edits. Use native tools for those. But native text replacement cannot safely edit structured files: a `sed` on YAML can corrupt indentation, strip comments, or produce invalid syntax. `doc set` parses the file, changes the value by key, and writes valid output. That guarantee is the point.
+Patchloom is not faster than native tools for simple, single-file edits. Use native tools for those. But native text replacement cannot safely edit structured files: a `sed` on YAML can corrupt indentation, strip comments, or produce invalid syntax. `doc set` parses the file, changes the value by selector, and writes valid output. That guarantee is the point.
 
 Where patchloom *is* faster is multi-file batching. Six file edits via native tools means six round-trips to the LLM. One `batch` call does the same work in a single round-trip.
 

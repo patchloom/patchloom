@@ -23,21 +23,21 @@ pub struct DocArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum DocAction {
-    /// Read a value at a key path.
+    /// Read a value at a selector path.
     Get { file: String, selector: String },
-    /// Check whether a key path exists.
+    /// Check whether a selector path exists.
     Has { file: String, selector: String },
     /// List object keys at a path.
     Keys { file: String, selector: String },
     /// Count items in an array or object.
     Len { file: String, selector: String },
-    /// Set or create a value at a key path.
+    /// Set or create a value at a selector path.
     Set {
         file: String,
         selector: String,
         value: String,
     },
-    /// Remove a key path.
+    /// Remove a value at a selector path.
     Delete { file: String, selector: String },
     /// Delete array items matching a predicate.
     DeleteWhere {
@@ -77,7 +77,7 @@ pub enum DocAction {
         selector: String,
         value: String,
     },
-    /// Move or rename a key path.
+    /// Move or rename a selector path.
     Move {
         file: String,
         from: String,
@@ -89,7 +89,7 @@ pub enum DocAction {
         selector: String,
         value: String,
     },
-    /// List all leaf key paths and their values.
+    /// List all leaf selector paths and their values.
     Flatten { file: String },
     /// Compare two structured files and show differences.
     Diff { file_a: String, file_b: String },
@@ -135,7 +135,7 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
 // Output formatting
 // ---------------------------------------------------------------------------
 
-/// Recursively enumerate all leaf key paths in a JSON value.
+/// Recursively enumerate all leaf selector paths in a JSON value.
 ///
 /// Uses a mutable `String` buffer for the path prefix to avoid
 /// allocating a new `String` via `format!()` at every recursion level.

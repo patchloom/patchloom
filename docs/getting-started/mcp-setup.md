@@ -66,21 +66,21 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 | Tool | Description |
 |------|-------------|
-| `patchloom_doc_set` | Set a key in a JSON, YAML, or TOML file |
-| `patchloom_doc_delete` | Delete a key from a structured file |
+| `patchloom_doc_set` | Set a value by selector in a JSON, YAML, or TOML file |
+| `patchloom_doc_delete` | Delete a value by selector from a structured file |
 | `patchloom_doc_merge` | Deep-merge an object into a document |
 | `patchloom_doc_append` | Append a value to an array |
 | `patchloom_doc_prepend` | Prepend a value to an array |
-| `patchloom_doc_ensure` | Set a key only if it does not exist |
+| `patchloom_doc_ensure` | Set a value only if the selector path does not exist |
 | `patchloom_doc_delete_where` | Delete array elements matching a predicate |
 | `patchloom_doc_update` | Update array elements matching a predicate |
-| `patchloom_doc_move` | Move a value from one key to another |
-| `patchloom_doc_get` | Read a value by key (read-only) |
-| `patchloom_doc_has` | Check whether a key path exists (read-only) |
-| `patchloom_doc_keys` | List object keys at a path (read-only) |
+| `patchloom_doc_move` | Move a value from one selector path to another |
+| `patchloom_doc_get` | Read a value by selector (read-only) |
+| `patchloom_doc_has` | Check whether a selector path exists (read-only) |
+| `patchloom_doc_keys` | List object keys at a selector path (read-only) |
 | `patchloom_doc_len` | Count items in an array or object (read-only) |
 | `patchloom_doc_select` | Filter array items by selector (read-only) |
-| `patchloom_doc_flatten` | List all leaf key paths and values (read-only) |
+| `patchloom_doc_flatten` | List all leaf selector paths and values (read-only) |
 | `patchloom_doc_diff` | Compare two structured files (read-only) |
 | `patchloom_search` | Search files for a pattern with context (read-only) |
 | `patchloom_status` | Show uncommitted file changes vs git HEAD (read-only) |
