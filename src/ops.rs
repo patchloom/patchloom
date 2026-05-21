@@ -108,8 +108,7 @@ pub(crate) mod doc {
                             (old_value.as_array(), new_value.as_array())
                     {
                         let applied = if old_arr.len() == new_arr.len() {
-                            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
-                            true
+                            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?
                         } else if new_arr.len() < old_arr.len() {
                             try_remove_subsequence(&seq, old_arr, new_arr)
                         } else {
@@ -361,7 +360,9 @@ pub(crate) mod doc {
                     (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) => {
                         if let Some(seq) = mapping.get_sequence(key.as_str()) {
                             if old_arr.len() == new_arr.len() {
-                                apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+                                if !apply_yaml_sequence_diff(&seq, old_arr, new_arr)? {
+                                    all_applied = false;
+                                }
                             } else if !apply_yaml_sequence_resize(
                                 &seq,
                                 old_arr,
@@ -390,11 +391,13 @@ pub(crate) mod doc {
     }
 
     /// Element-by-element diff for same-length YAML sequences.
+    /// Returns `Ok(true)` if all CST changes were fully applied.
     fn apply_yaml_sequence_diff(
         seq: &yaml_edit::Sequence,
         old_arr: &[serde_json::Value],
         new_arr: &[serde_json::Value],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
+        let mut all_applied = true;
         for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
             if o == n {
                 continue;
@@ -404,7 +407,9 @@ pub(crate) mod doc {
                     if let Some(node) = seq.get(i)
                         && let Some(child_mapping) = node.as_mapping()
                     {
-                        apply_yaml_mapping_diff(child_mapping, o, n)?;
+                        if !apply_yaml_mapping_diff(child_mapping, o, n)? {
+                            all_applied = false;
+                        }
                         continue;
                     }
                     seq.set(i, json_to_yaml_node(n)?);
@@ -414,7 +419,7 @@ pub(crate) mod doc {
                 }
             }
         }
-        Ok(())
+        Ok(all_applied)
     }
 
     /// Handle different-length array diffs while preserving comments.
@@ -2246,6 +2251,24 @@ mod tests {
             assert_eq!(
                 parsed, new,
                 "serialized YAML must match target value: {result}"
+            );
+        }
+
+        #[test]
+        fn yaml_nested_complex_shrinkage_in_same_length_outer() {
+            // Regression: same-length outer array with complex inner array
+            // shrinkage (not a subsequence). apply_yaml_sequence_diff must
+            // propagate the failure flag from the nested mapping diff.
+            let yaml =
+                "# Comment\nitems:\n  - name: a\n    tags:\n      - x\n      - y\n  - name: b\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let new = json!({"items": [{"name": "a", "tags": ["MODIFIED"]}, {"name": "b"}]});
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let parsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(
+                parsed, new,
+                "nested complex shrinkage must not be silently dropped: {result}"
             );
         }
 
