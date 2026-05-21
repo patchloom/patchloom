@@ -135,12 +135,13 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
 
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
+    let structured = global.json || global.jsonl;
 
     let parsed_lines = if let Some(spec) = &args.lines {
         match parse_line_range(spec) {
             Ok(range) => Some(range),
             Err(err) => {
-                if global.json || global.jsonl {
+                if structured {
                     anyhow::bail!("invalid --lines value '{spec}': {err}");
                 }
                 if !global.quiet {
@@ -177,12 +178,19 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
             Err(e) => {
-                if !global.quiet {
+                if !structured && !global.quiet {
                     eprintln!("read: {e}");
                 }
                 errors.push(e);
             }
         }
+    }
+
+    if errors.len() == args.files.len() {
+        if structured {
+            anyhow::bail!(errors.join("\n"));
+        }
+        return Ok(exit::FAILURE);
     }
 
     if global.json {
@@ -193,11 +201,13 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
-    if errors.len() == args.files.len() {
-        Ok(exit::FAILURE)
-    } else {
-        Ok(exit::SUCCESS)
+    if structured && !global.quiet {
+        for error in &errors {
+            eprintln!("read: {error}");
+        }
     }
+
+    Ok(exit::SUCCESS)
 }
 
 #[cfg(test)]

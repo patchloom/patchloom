@@ -2335,6 +2335,52 @@ fn test_read_all_fail_returns_failure() {
 }
 
 #[test]
+fn test_read_json_all_fail_returns_error_object() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(nonexistent_path("no-1-json-read-fail"))
+        .arg(nonexistent_path("no-2-json-read-fail"))
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("no-1-json-read-fail"));
+    assert!(error.contains("no-2-json-read-fail"));
+}
+
+#[test]
+fn test_read_jsonl_all_fail_returns_error_object() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("read")
+        .arg(nonexistent_path("no-1-jsonl-read-fail"))
+        .arg(nonexistent_path("no-2-jsonl-read-fail"))
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL error should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|_| panic!("expected JSON line, got: {}", lines[0]));
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("no-1-jsonl-read-fail"));
+    assert!(error.contains("no-2-jsonl-read-fail"));
+}
+
+#[test]
 fn test_read_multiple_files_with_lines() {
     let dir = TempDir::new().unwrap();
     let f1 = dir.path().join("long.txt");
