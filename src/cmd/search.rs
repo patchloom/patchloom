@@ -81,6 +81,20 @@ struct SearchOutput {
     file_count: usize,
 }
 
+#[derive(Debug, Serialize)]
+struct SearchAssertCount {
+    expected: usize,
+    actual: usize,
+    matched: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchAssertCountOutput {
+    ok: bool,
+    status: &'static str,
+    assert_count: SearchAssertCount,
+}
+
 struct SearchResults {
     matches: Vec<SearchMatch>,
     file_match_counts: BTreeMap<Arc<str>, usize>,
@@ -383,16 +397,36 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --assert-count mode: succeed only if total count equals N.
     if let Some(expected) = args.assert_count {
         let actual: usize = results.file_match_counts.values().sum();
-        if actual == expected {
-            if !global.quiet {
-                eprintln!("assert-count: {actual} matches (expected {expected})");
-            }
-            return Ok(exit::SUCCESS);
+        let matches = actual == expected;
+        let status = if matches {
+            "success"
+        } else {
+            "changes_detected"
+        };
+        let code = if matches {
+            exit::SUCCESS
+        } else {
+            exit::CHANGES_DETECTED
+        };
+        if global.emit_json(&SearchAssertCountOutput {
+            ok: true,
+            status,
+            assert_count: SearchAssertCount {
+                expected,
+                actual,
+                matched: matches,
+            },
+        })? {
+            return Ok(code);
         }
         if !global.quiet {
-            eprintln!("assert-count: expected {expected} matches, found {actual}");
+            if matches {
+                eprintln!("assert-count: {actual} matches (expected {expected})");
+            } else {
+                eprintln!("assert-count: expected {expected} matches, found {actual}");
+            }
         }
-        return Ok(exit::CHANGES_DETECTED);
+        return Ok(code);
     }
 
     let has_matches = if args.count || args.files_with_matches {
