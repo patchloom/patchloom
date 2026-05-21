@@ -481,7 +481,14 @@ pub(crate) mod doc {
                 false
             }
             (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) => {
-                new_arr.len() > old_arr.len()
+                if new_arr.len() > old_arr.len() {
+                    return true;
+                }
+                // Recurse into same-length elements to detect nested growth.
+                old_arr
+                    .iter()
+                    .zip(new_arr.iter())
+                    .any(|(o, n)| has_array_growth_diffs(o, n))
             }
             _ => false,
         }
@@ -2215,6 +2222,31 @@ mod tests {
             assert!(result.contains("# Section C"), "section C comment missing");
             assert!(result.contains("99"), "new value missing");
             assert!(!result.contains("b: 2"), "old value still present");
+        }
+
+        #[test]
+        fn yaml_nested_array_growth_detected() {
+            // Regression: has_array_growth_diffs must recurse into same-length
+            // array elements to detect nested growth (e.g., adding a port to
+            // the first server's ports array while the outer array stays the
+            // same length).
+            let yaml = "# config comment\nservers:\n  - name: web\n    ports:\n      - 80\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            new["servers"][0]["ports"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!(443));
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            assert!(
+                result.contains("443"),
+                "nested array growth should not be silently dropped: {result}"
+            );
+            assert!(
+                result.contains("# config comment"),
+                "comments should be preserved: {result}"
+            );
         }
 
         #[test]
