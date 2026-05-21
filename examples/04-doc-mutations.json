@@ -1,10 +1,10 @@
 {
   "operations": [
-    { "op": "doc.set", "path": "config.json", "key": "database.port", "value": 5432 },
-    { "op": "doc.ensure", "path": "config.json", "key": "database.pool_size", "value": 10 },
+    { "op": "doc.set", "path": "config.json", "selector": "database.port", "value": 5432 },
+    { "op": "doc.ensure", "path": "config.json", "selector": "database.pool_size", "value": 10 },
     { "op": "doc.merge", "path": "config.json", "value": { "logging": { "level": "info", "format": "json" } } },
-    { "op": "doc.append", "path": "config.json", "key": "allowed_origins", "value": "https://example.com" },
-    { "op": "doc.delete", "path": "config.json", "key": "deprecated_field" },
-    { "op": "doc.delete_where", "path": "config.yaml", "key": "users", "predicate": "active=false" }
+    { "op": "doc.append", "path": "config.json", "selector": "allowed_origins", "value": "https://example.com" },
+    { "op": "doc.delete", "path": "config.json", "selector": "deprecated_field" },
+    { "op": "doc.delete_where", "path": "config.yaml", "selector": "users", "predicate": "active=false" }
   ]
 }

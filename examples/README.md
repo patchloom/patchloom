@@ -8,13 +8,13 @@ commands in each file first, then adapt them to your project before applying.
 
 ```
 # Transaction plans (JSON)
-patchloom tx --plan examples/01-basic-replace.json --diff     # preview
-patchloom tx --plan examples/01-basic-replace.json --apply    # apply after adapting paths
-patchloom --json tx --plan examples/01-basic-replace.json --apply  # JSON output
+patchloom tx examples/01-basic-replace.json --diff     # preview
+patchloom tx examples/01-basic-replace.json --apply    # apply after adapting paths
+patchloom --json tx examples/01-basic-replace.json --apply  # JSON output
 
 # Batch format (line-oriented)
-patchloom batch --input examples/06-batch-version-bump.txt --diff   # preview
-patchloom batch --input examples/06-batch-version-bump.txt --apply  # apply
+patchloom batch examples/06-batch-version-bump.txt --diff   # preview
+patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 ```
 
 ## Plans

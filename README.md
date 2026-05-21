@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-870%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-876%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -94,8 +94,8 @@ Agent: batch with
 | **Parser-backed edits** | Edit JSON/YAML/TOML by key, preserving comments and formatting | `doc set config.yaml db.port 5432 --apply` |
 | **Batch N files in 1 call** | `batch` and `tx` combine operations into one tool call with rollback | `batch --apply < ops.txt` |
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
-| **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append --file README.md --heading "API" --row "\| new \| row \|" --apply` |
-| **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx --plan plan.json --apply` |
+| **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append README.md --heading "API" --row "\| new \| row \|" --apply` |
+| **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx plan.json --apply` |
 | **MCP server** | Expose all operations as structured MCP tool calls (requires `--features mcp`) | `patchloom mcp-server` |
 | **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
 
@@ -207,7 +207,7 @@ Or use a JSON plan with format and validate lifecycle:
 ```
 
 ```bash
-patchloom tx --plan plan.json --apply
+patchloom tx plan.json --apply
 ```
 
 `tx` plans are trusted input. `format` and `validate` run their `cmd` fields through the host shell (`sh -c` on Unix, `cmd /C` on Windows), so only run plans you trust.
@@ -338,7 +338,7 @@ Two integration modes, same capabilities:
 
 ## Status
 
-870 passing tests across 15 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+876 passing tests across 15 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 
