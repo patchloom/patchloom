@@ -185,13 +185,21 @@ fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     }
 
     // 2. Dangerous git add commands (skip fenced code blocks and inline code).
-    let mut in_fence = false;
+    let mut fence_marker: Option<&str> = None;
     for (idx, line) in content.lines().enumerate() {
-        if line.starts_with("```") || line.starts_with("~~~") {
-            in_fence = !in_fence;
+        if fence_marker.is_none() {
+            if line.starts_with("```") {
+                fence_marker = Some("```");
+                continue;
+            } else if line.starts_with("~~~") {
+                fence_marker = Some("~~~");
+                continue;
+            }
+        } else if line.starts_with(fence_marker.unwrap()) {
+            fence_marker = None;
             continue;
         }
-        if in_fence {
+        if fence_marker.is_some() {
             continue;
         }
         // Skip lines where the command only appears inside backtick spans.

@@ -1373,15 +1373,23 @@ pub(crate) mod md {
     pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
         let mut headings = Vec::new();
         let mut total_lines = 0usize;
-        let mut in_fence = false;
+        let mut fence_marker: Option<&str> = None;
 
         for (idx, line) in content.lines().enumerate() {
             total_lines = idx + 1;
-            if line.starts_with("```") || line.starts_with("~~~") {
-                in_fence = !in_fence;
+            if fence_marker.is_none() {
+                if line.starts_with("```") {
+                    fence_marker = Some("```");
+                    continue;
+                } else if line.starts_with("~~~") {
+                    fence_marker = Some("~~~");
+                    continue;
+                }
+            } else if line.starts_with(fence_marker.unwrap()) {
+                fence_marker = None;
                 continue;
             }
-            if in_fence || !line.starts_with('#') {
+            if fence_marker.is_some() || !line.starts_with('#') {
                 continue;
             }
             let hashes = line.bytes().take_while(|&b| b == b'#').count();
@@ -1709,6 +1717,7 @@ pub mod patch {
                     while i < lines.len()
                         && !lines[i].starts_with("@@ ")
                         && !lines[i].starts_with("--- ")
+                        && !lines[i].starts_with("diff ")
                     {
                         let line = lines[i];
                         if let Some(rest) = line.strip_prefix('+') {
@@ -2731,6 +2740,16 @@ mod tests {
             assert_eq!(headings.len(), 2);
             assert_eq!(headings[0].text, "Real");
             assert_eq!(headings[1].text, "Also Real");
+        }
+
+        #[test]
+        fn parse_headings_mixed_fence_markers() {
+            // ~~~ inside a ``` block is content, not a closer
+            let content = "# Top\n```\n~~~\n# Not Real\n~~~\n```\n# Bottom\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Top");
+            assert_eq!(headings[1].text, "Bottom");
         }
 
         #[test]
