@@ -1305,11 +1305,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    if let Some(ref v) = plan.version
-        && v != crate::plan::SCHEMA_VERSION
-    {
+    if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
-            "unsupported plan version '{v}' (this build supports version {})",
+            "unsupported plan version '{}' (this build supports version {})",
+            plan.version,
             crate::plan::SCHEMA_VERSION
         );
         if structured {
@@ -1642,6 +1641,7 @@ mod tests {
 
         // Build plan with replace + doc.set + tidy.fix.
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [
                 {
                     "op": "replace",
@@ -1694,6 +1694,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let new_file = dir.path().join("new.txt");
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [
                 {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "hello"},
                 {"op": "file.delete", "path": new_file.to_str().unwrap()}
@@ -1725,6 +1726,7 @@ mod tests {
         let nonexistent = dir.path().join("nonexistent.json");
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [
                 {
                     "op": "replace",
@@ -1764,6 +1766,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [],
             "validate": [
                 {"cmd": shell_true(), "required": true}
@@ -1790,6 +1793,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [],
             "validate": [
                 {"cmd": shell_false(), "required": true}
@@ -1816,6 +1820,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [],
             "validate": [
                 {"cmd": shell_stderr_spam(), "required": true, "timeout": 10}
@@ -1839,8 +1844,7 @@ mod tests {
 
     #[test]
     fn parse_plan_json_string() {
-        let plan_json =
-            r#"{"operations": [{"op": "replace", "path": "test.txt", "from": "a", "to": "b"}]}"#;
+        let plan_json = r#"{"version": "1", "operations": [{"op": "replace", "path": "test.txt", "from": "a", "to": "b"}]}"#;
         let plan = plan::parse_plan(plan_json).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
@@ -1866,6 +1870,7 @@ mod tests {
     #[test]
     fn replace_requires_replacement_mode() {
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
@@ -1885,6 +1890,7 @@ mod tests {
     #[test]
     fn replace_conflicting_insert_fields_return_parse_error() {
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
@@ -1920,6 +1926,7 @@ mod tests {
     #[test]
     fn replace_to_with_insert_returns_parse_error() {
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
@@ -1945,6 +1952,7 @@ mod tests {
         let new_file = dir.path().join("created.txt");
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [
                 {
                     "op": "file.create",
@@ -1981,6 +1989,7 @@ mod tests {
         fs::write(&existing, "original content\n").unwrap();
 
         let plan_json = serde_json::json!({
+            "version": "1",
             "operations": [
                 {
                     "op": "file.create",

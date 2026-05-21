@@ -962,6 +962,7 @@ fn test_tx_replace_empty_from_rejected() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -1500,7 +1501,7 @@ fn test_tx_yaml_doc_set_preserves_comments() {
     fs::write(
         &plan,
         format!(
-            "operations:\n  - op: doc.set\n    path: {}\n    selector: server.port\n    value: \"9090\"\n",
+            "version: \"1\"\noperations:\n  - op: doc.set\n    path: {}\n    selector: server.port\n    value: \"9090\"\n",
             file.display()
         ),
     )
@@ -2736,6 +2737,7 @@ fn test_tx_multi_op_plan() {
     fs::write(&json_file, r#"{"name":"old"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -2785,6 +2787,7 @@ fn test_tx_rollback_on_failure() {
     let nonexistent = dir.path().join("nonexistent.json");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -2831,6 +2834,7 @@ fn test_tx_rollback_preserves_original_content() {
     // b.json does not exist, so doc.set on it will fail.
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.set", "path": "a.json", "selector": "key", "value": "changed"},
             {"op": "doc.set", "path": "b.json", "selector": "missing", "value": "fail"}
@@ -2864,6 +2868,7 @@ fn test_tx_success_applies_all() {
     fs::write(&file, r#"{"name": "old", "version": 1}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.set", "path": "config.json", "selector": "name", "value": "new"},
             {"op": "doc.set", "path": "config.json", "selector": "version", "value": 2}
@@ -2895,6 +2900,7 @@ fn test_tx_check_mode_reports_changes_without_writing() {
     fs::write(&file, r#"{"key": "old"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.set", "path": "data.json", "selector": "key", "value": "new"}
         ]
@@ -5147,6 +5153,7 @@ fn test_search_invert_match_normal() {
 fn test_tx_file_create_and_delete() {
     let dir = TempDir::new().unwrap();
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.create", "path": "new.txt", "content": "hello"},
             {"op": "file.delete", "path": "new.txt"}
@@ -5176,6 +5183,7 @@ fn test_tx_file_create_and_delete() {
 fn test_tx_check_create_then_delete_is_noop() {
     let dir = TempDir::new().unwrap();
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.create", "path": "new.txt", "content": "hello"},
             {"op": "file.delete", "path": "new.txt"}
@@ -5204,6 +5212,7 @@ fn test_tx_check_create_then_delete_is_noop() {
 fn test_tx_json_output_create_then_delete_is_noop() {
     let dir = TempDir::new().unwrap();
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.create", "path": "new.txt", "content": "hello"},
             {"op": "file.delete", "path": "new.txt"}
@@ -5239,6 +5248,7 @@ fn test_tx_file_delete_directory_target_fails() {
     fs::create_dir(&target).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.delete", "path": "folder"}
         ]
@@ -5266,6 +5276,7 @@ fn test_tx_file_delete_existing() {
     fs::write(&file, "goodbye\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.delete", "path": "doomed.txt"}
         ]
@@ -5293,6 +5304,7 @@ fn test_tx_cli_ensure_final_newline_flag() {
     fs::write(&file, "no newline").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
         ]
@@ -5329,6 +5341,7 @@ fn test_tx_plan_write_policy_overrides_cli_flag() {
     fs::write(&file, "no newline").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "write_policy": {
             "ensure_final_newline": false
         },
@@ -5368,6 +5381,7 @@ fn test_tx_write_policy_ensure_final_newline() {
     fs::write(&file, "no newline").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "write_policy": {
             "ensure_final_newline": true
         },
@@ -5550,6 +5564,7 @@ fn test_tx_validate_required_failure_exits_6() {
     fs::write(&file, "old\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
         ],
@@ -5578,6 +5593,7 @@ fn test_tx_doc_delete_in_plan() {
     fs::write(&file, r#"{"keep":1,"remove":2}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.delete", "path": "config.json", "selector": "remove"}
         ]
@@ -5728,6 +5744,7 @@ fn test_tx_file_delete_empty_file() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.delete", "path": "empty.txt"}
         ]
@@ -5756,6 +5773,7 @@ fn test_tx_file_rename_directory_source_fails() {
     fs::create_dir(&src).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "folder", "to": "new-name"}
         ]
@@ -5784,6 +5802,7 @@ fn test_tx_file_rename_moves_file() {
     fs::write(&src, "content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
         ]
@@ -5815,6 +5834,7 @@ fn test_tx_file_rename_fails_if_dst_exists() {
     fs::write(dir.path().join("new.txt"), "existing\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
         ]
@@ -5852,6 +5872,7 @@ fn test_tx_file_rename_force_overwrites() {
     fs::write(dir.path().join("existing.txt"), "old content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "existing.txt", "force": true}
         ]
@@ -5883,6 +5904,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
     fs::create_dir(dir.path().join("folder")).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
         ]
@@ -5911,6 +5933,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
     fs::create_dir(dir.path().join("folder")).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
         ]
@@ -5940,6 +5963,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
     fs::create_dir(dir.path().join("folder")).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
         ]
@@ -5968,6 +5992,7 @@ fn test_tx_file_rename_same_path_is_noop() {
     fs::write(dir.path().join("same.txt"), "keep me\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.rename", "from": "same.txt", "to": "same.txt"}
         ]
@@ -6020,6 +6045,7 @@ fn test_tx_optional_validation_failure_ignored() {
     fs::write(&file, "old\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
         ],
@@ -6150,6 +6176,7 @@ fn test_tx_glob_replace_only_matches_pattern() {
     fs::write(dir.path().join("skip.rs"), "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "glob": "*.txt", "from": "hello", "to": "bye"}
         ]
@@ -6190,6 +6217,7 @@ fn test_tx_glob_replace_matches_file_created_earlier_in_transaction() {
     let dir = TempDir::new().unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "file.create", "path": "new.txt", "content": "hello\n"},
             {"op": "replace", "glob": "*.txt", "from": "hello", "to": "bye"}
@@ -6222,6 +6250,7 @@ fn test_tx_glob_replace_matches_nested_relative_pattern() {
     fs::write(dir.path().join("other.txt"), "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "glob": "sub/*.txt", "from": "hello", "to": "bye"}
         ]
@@ -6264,6 +6293,7 @@ fn test_tx_md_replace_section_in_plan() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "md.replace_section",
@@ -6721,6 +6751,7 @@ fn test_tx_replace_insert_before_in_plan() {
     fs::write(&file, "    /// Old doc.\n    pub val: i32,\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "cwd": dir.path().to_str().unwrap(),
         "operations": [
             {
@@ -6755,6 +6786,7 @@ fn test_tx_replace_insert_before_with_regex_in_plan() {
     fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -6784,6 +6816,7 @@ fn test_tx_replace_insert_after_with_regex_in_plan() {
     fs::write(&file, "aaa\nbbb\nccc\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -6813,6 +6846,7 @@ fn test_tx_replace_rejects_both_insert_before_and_after() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -6844,6 +6878,7 @@ fn test_tx_replace_rejects_to_with_insert() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -7101,6 +7136,7 @@ fn test_tx_file_create_new_file_writes_content() {
     let file = dir.path().join("brand_new.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -7132,6 +7168,7 @@ fn test_tx_file_create_force_directory_target_fails() {
     fs::create_dir(&target).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": target.to_str().unwrap(),
@@ -7160,6 +7197,7 @@ fn test_tx_file_create_force_overwrites() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -7188,6 +7226,7 @@ fn test_tx_file_create_without_force_fails_on_existing() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -7217,6 +7256,7 @@ fn test_tx_format_step_runs_between_write_and_validate() {
     // The format step creates a marker file to prove it ran.
     let marker = dir.path().join("format_ran");
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7248,6 +7288,7 @@ fn test_tx_doc_prepend_in_plan() {
     fs::write(&file, r#"{"items": [1, 2, 3]}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
@@ -7278,6 +7319,7 @@ fn test_tx_doc_set_selector_in_plan() {
     fs::write(&file, r#"{"nested": {"name": "old"}}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.set",
             "path": file.to_str().unwrap(),
@@ -7307,6 +7349,7 @@ fn test_tx_doc_ensure_selector_in_plan() {
     fs::write(&file, r#"{"name": "test"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
             {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
@@ -7335,6 +7378,7 @@ fn test_tx_doc_ensure_in_plan() {
     fs::write(&file, r#"{"name": "test"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
             {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
@@ -7363,6 +7407,7 @@ fn test_tx_doc_move_in_plan() {
     fs::write(&file, r#"{"old_key": "value"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.move",
             "path": file.to_str().unwrap(),
@@ -7397,6 +7442,7 @@ fn test_tx_doc_delete_where_in_plan() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.delete_where",
             "path": file.to_str().unwrap(),
@@ -7433,6 +7479,7 @@ fn test_tx_doc_update_in_plan() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
@@ -7463,6 +7510,7 @@ fn test_tx_md_insert_before_heading_in_plan() {
     fs::write(&file, "# Title\n\n## Section\n\nContent.\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "md.insert_before_heading",
             "path": file.to_str().unwrap(),
@@ -7492,6 +7540,7 @@ fn test_tx_md_upsert_bullet_in_plan() {
     fs::write(&file, "# Rules\n\n- existing rule\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "md.upsert_bullet",
             "path": file.to_str().unwrap(),
@@ -7526,6 +7575,7 @@ fn test_tx_md_table_append_in_plan() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "md.table_append",
             "path": file.to_str().unwrap(),
@@ -7559,6 +7609,7 @@ fn test_tx_md_dedupe_headings_in_plan() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "md.dedupe_headings",
             "path": file.to_str().unwrap()
@@ -7587,6 +7638,7 @@ fn test_tx_md_insert_after_heading_in_plan() {
     fs::write(&file, "# Title\nExisting content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "md.insert_after_heading",
             "path": file.to_str().unwrap(),
@@ -7617,6 +7669,7 @@ fn test_tx_tidy_fix_in_plan() {
     fs::write(&file, "line1\nline2").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "tidy.fix",
             "path": file.to_str().unwrap(),
@@ -7645,6 +7698,7 @@ fn test_tx_tidy_fix_trim_trailing_whitespace() {
     fs::write(&file, "hello   \nworld\t\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "tidy.fix",
             "path": file.to_str().unwrap(),
@@ -7674,6 +7728,7 @@ fn test_tx_tidy_fix_normalize_eol() {
     fs::write(&file, "line1\r\nline2\r\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "tidy.fix",
             "path": file.to_str().unwrap(),
@@ -7703,6 +7758,7 @@ fn test_tx_doc_append_in_plan() {
     fs::write(&file, r#"{"items": [1, 2]}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.append",
             "path": file.to_str().unwrap(),
@@ -7733,6 +7789,7 @@ fn test_tx_doc_merge_in_plan() {
     fs::write(&file, r#"{"a": 1, "b": {"c": 2}}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.merge",
             "path": file.to_str().unwrap(),
@@ -7765,6 +7822,7 @@ fn test_tx_replace_case_insensitive_in_plan() {
     fs::write(&file, "Hello HELLO hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7794,6 +7852,7 @@ fn test_tx_replace_multiline_regex_in_plan() {
     fs::write(&file, "start\nmiddle\nend\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7824,6 +7883,7 @@ fn test_tx_replace_nth_in_plan() {
     fs::write(&file, "aaa bbb aaa ccc aaa\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7853,6 +7913,7 @@ fn test_tx_replace_apply_no_match_exits_3() {
     fs::write(&file, "foo bar\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7881,6 +7942,7 @@ fn test_tx_replace_check_no_match_exits_3() {
     fs::write(&file, "foo bar\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7907,6 +7969,7 @@ fn test_tx_json_check_replace_no_match_exits_3_without_success_payload() {
     fs::write(&file, "foo bar\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7937,6 +8000,7 @@ fn test_tx_replace_if_exists_no_match_succeeds() {
     fs::write(&file, "foo bar\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7966,6 +8030,7 @@ fn test_tx_replace_if_exists_still_replaces_when_found() {
     fs::write(&file, "foo bar\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -7997,6 +8062,7 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
     fs::write(&config, r#"{"name":"test"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -8040,6 +8106,7 @@ fn test_tx_patch_apply_in_plan() {
     );
 
     let plan = serde_json::json!({
+            "version": "1",
         "cwd": dir.path().to_str().unwrap(),
         "operations": [{
             "op": "patch.apply",
@@ -8075,6 +8142,7 @@ fn test_tx_patch_apply_uses_pending_file_state() {
     );
 
     let plan = serde_json::json!({
+            "version": "1",
         "cwd": dir.path().to_str().unwrap(),
         "operations": [
             {
@@ -8113,6 +8181,7 @@ fn test_tx_validate_timeout_kills_hanging_command() {
     fs::write(&file, "content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8145,6 +8214,7 @@ fn test_tx_format_timeout_kills_hanging_command() {
     fs::write(&file, "content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8176,6 +8246,7 @@ fn test_tx_read_operation_in_plan() {
     fs::write(&file, "line1\nline2\nline3\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "read", "path": file.to_str().unwrap()}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8209,6 +8280,7 @@ fn test_tx_read_empty_file_without_lines_matches_read_contract() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "read", "path": file.to_str().unwrap()}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8237,6 +8309,7 @@ fn test_tx_read_without_lines_preserves_crlf_content() {
     fs::write(&file, "a\r\nb\r\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "read", "path": file.to_str().unwrap()}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8265,6 +8338,7 @@ fn test_tx_read_with_lines_in_plan() {
     fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "read", "path": file.to_str().unwrap(), "lines": "2:4"}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8297,6 +8371,7 @@ fn test_tx_read_lines_start_past_eof_clamps_metadata() {
     fs::write(&file, "a\nb\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "read", "path": file.to_str().unwrap(), "lines": "5:9"}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8325,6 +8400,7 @@ fn test_tx_read_sees_in_plan_state() {
     fs::write(&file, "hello world\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "read", "path": file.to_str().unwrap()},
             {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "goodbye"},
@@ -8359,6 +8435,7 @@ fn test_tx_search_operation_in_plan() {
     fs::write(&file, "alpha\nbeta\ngamma\nalpha two\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{"op": "search", "path": file.to_str().unwrap(), "pattern": "alpha"}]
     });
     let plan_file = dir.path().join("plan.json");
@@ -8387,6 +8464,7 @@ fn test_tx_search_then_replace_in_plan() {
     fs::write(&file, "hello world\nfoo bar\nhello again\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "search", "path": file.to_str().unwrap(), "pattern": "hello"},
             {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "goodbye"}
@@ -8424,6 +8502,7 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "replace",
@@ -8457,6 +8536,7 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "replace",
@@ -8490,6 +8570,7 @@ fn test_tx_strict_mode_restores_modified_empty_file_on_failure() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "file.create",
@@ -8523,6 +8604,7 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
     let new_file = dir.path().join("new.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "file.create",
@@ -8556,6 +8638,7 @@ fn test_tx_json_output_on_apply() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8590,6 +8673,7 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -8623,6 +8707,7 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified_in_check_mode() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -8657,6 +8742,7 @@ fn test_tx_jsonl_output_on_check() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": file.to_str().unwrap(), "from": "hello", "to": "world"}
         ]
@@ -8690,6 +8776,7 @@ fn test_tx_json_output_on_check() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8724,6 +8811,7 @@ fn test_tx_json_output_with_create_and_delete() {
     let new_file = dir.path().join("new.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             { "op": "file.create", "path": new_file.to_str().unwrap(), "content": "new" },
             { "op": "file.delete", "path": existing.to_str().unwrap() }
@@ -8755,6 +8843,7 @@ fn test_tx_json_output_on_operation_failure() {
     fs::write(&file, "content\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "file.create",
             "path": file.to_str().unwrap(),
@@ -8791,6 +8880,7 @@ fn test_tx_json_output_on_diff() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8850,6 +8940,7 @@ fn test_tx_replace_requires_replacement_mode() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "replace",
@@ -8879,6 +8970,7 @@ fn test_tx_json_output_on_replace_missing_mode_parse_error() {
     fs::write(
         &plan_file,
         serde_json::to_string(&serde_json::json!({
+            "version": "1",
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
@@ -8914,6 +9006,7 @@ fn test_tx_json_output_on_replace_conflict_parse_error() {
     fs::write(
         &plan_file,
         serde_json::to_string(&serde_json::json!({
+            "version": "1",
             "operations": [{
                 "op": "replace",
                 "path": "data.txt",
@@ -8953,6 +9046,7 @@ fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
 
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -8990,6 +9084,7 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
 
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9031,6 +9126,7 @@ fn test_tx_json_output_on_validation_failure() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9072,6 +9168,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "replace",
@@ -9115,6 +9212,7 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
     fs::write(&file, "").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "file.delete",
@@ -9147,6 +9245,7 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
     fs::write(&file, "keep me\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "file.delete",
@@ -9179,6 +9278,7 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9212,6 +9312,7 @@ fn test_tx_format_failure_redacts_shell_command_in_stderr() {
 
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9248,6 +9349,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
 
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9288,6 +9390,7 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
     fs::write(&file, "original\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "strict": true,
         "operations": [{
             "op": "replace",
@@ -9335,6 +9438,7 @@ fn test_tx_respect_editorconfig_flag() {
     fs::write(&file, "no newline").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": "test.txt", "from": "no", "to": "has"}
         ]
@@ -9370,6 +9474,7 @@ fn test_tx_write_policy_ensure_final_newline_on_file_create() {
     let file = dir.path().join("newfile.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "write_policy": { "ensure_final_newline": true },
         "operations": [{
             "op": "file.create",
@@ -9399,7 +9504,7 @@ fn test_tx_yaml_plan() {
     fs::write(&file, "old value\n").unwrap();
 
     let yaml_plan = format!(
-        "operations:\n  - op: replace\n    path: \"{}\"\n    from: old\n    to: new\n",
+        "version: \"1\"\noperations:\n  - op: replace\n    path: \"{}\"\n    from: old\n    to: new\n",
         portable_path_str(&file)
     );
     let plan_file = dir.path().join("plan.yaml");
@@ -9423,7 +9528,7 @@ fn test_tx_toml_plan() {
     fs::write(&file, "hello world\n").unwrap();
 
     let toml_plan = format!(
-        "[[operations]]\nop = \"replace\"\npath = \"{}\"\nfrom = \"hello\"\nto = \"goodbye\"\n",
+        "version = \"1\"\n\n[[operations]]\nop = \"replace\"\npath = \"{}\"\nfrom = \"hello\"\nto = \"goodbye\"\n",
         portable_path_str(&file)
     );
     let plan_file = dir.path().join("plan.toml");
@@ -9447,7 +9552,7 @@ fn test_tx_yaml_plan_from_stdin() {
     fs::write(&file, "aaa\n").unwrap();
 
     let yaml_plan = format!(
-        "operations:\n  - op: replace\n    path: \"{}\"\n    from: aaa\n    to: bbb\n",
+        "version: \"1\"\noperations:\n  - op: replace\n    path: \"{}\"\n    from: aaa\n    to: bbb\n",
         portable_path_str(&file)
     );
 
@@ -9486,6 +9591,7 @@ fn test_tx_plan_from_stdin() {
     fs::write(&file, "hello\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9515,6 +9621,7 @@ fn test_tx_create_after_delete_unmarks_deletion() {
     // Delete the file, then recreate it. The create should "win"
     // because it is the last operation on that file.
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             { "op": "file.delete", "path": file.to_str().unwrap() },
             { "op": "file.create", "path": file.to_str().unwrap(), "content": "new content", "force": true }
@@ -9548,6 +9655,7 @@ fn test_tx_format_and_validate_success_path() {
     let marker = dir.path().join("format_ran.marker");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9613,6 +9721,7 @@ fn test_tx_replace_nth_regex_with_capture_groups_in_plan() {
     fs::write(&file, "version = \"1.2.3\"\nversion = \"4.5.6\"\n").unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -9757,6 +9866,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
     fs::write(&file, r#"{"name": "not_an_array"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
@@ -9789,6 +9899,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
     fs::write(&file, r#"{"items": []}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
@@ -9833,6 +9944,7 @@ fn test_tx_multi_op_batch_all_new_ops() {
     let new_file = dir.path().join("new.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "replace", "path": txt.to_str().unwrap(), "from": "foo", "to": "XXX", "nth": 1},
             {"op": "doc.set", "path": json_file.to_str().unwrap(), "selector": "name", "value": "new"},
@@ -9877,6 +9989,7 @@ fn test_tx_create_then_replace_on_same_file() {
     let new_file = dir.path().join("created.txt");
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {
                 "op": "file.create",
@@ -9916,6 +10029,7 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
     .unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.set", "path": portable_path_str(&file), "selector": "version", "value": "2.0"},
             {"op": "doc.set", "path": portable_path_str(&file), "selector": "port", "value": 9090},
@@ -9958,6 +10072,7 @@ fn test_tx_doc_set_then_replace_on_same_file_flushes_cache() {
     fs::write(&file, r#"{"name": "old", "version": "1.0"}"#).unwrap();
 
     let plan = serde_json::json!({
+            "version": "1",
         "operations": [
             {"op": "doc.set", "path": file.to_str().unwrap(), "selector": "name", "value": "new"},
             {"op": "replace", "path": file.to_str().unwrap(), "from": "1.0", "to": "2.0"}
@@ -11786,6 +11901,7 @@ async fn test_mcp_batch_round_trip() {
         &client,
         "patchloom_batch",
         serde_json::json!({
+            "version": "1",
             "operations": ["doc.set a.json version \"2.0.0\"", "replace b.txt \"old\" \"new\""]
         }),
     )
@@ -11934,7 +12050,7 @@ async fn test_mcp_batch_rejects_oversized_payload() {
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_batch",
-        serde_json::json!({"operations": ops}),
+        serde_json::json!({ "version": "1", "operations": ops}),
     )
     .await;
     assert!(is_error, "oversized batch should be rejected: {text}");
@@ -11956,7 +12072,7 @@ async fn test_mcp_file_rename_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_file_rename",
+        "patchloom_rename",
         serde_json::json!({"from": "old_name.txt", "to": "new_name.txt"}),
     )
     .await;
@@ -11972,6 +12088,107 @@ async fn test_mcp_file_rename_round_trip() {
     assert_eq!(
         fs::read_to_string(dir.path().join("new_name.txt")).unwrap(),
         "content\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_create_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_create",
+        serde_json::json!({"path": "new_file.txt", "content": "hello world\n"}),
+    )
+    .await;
+    assert!(!is_error, "create should succeed: {text}");
+    assert!(
+        dir.path().join("new_file.txt").exists(),
+        "file should exist after create"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new_file.txt")).unwrap(),
+        "hello world\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_create_existing_fails_without_force() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("existing.txt"), "original\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "patchloom_create",
+        serde_json::json!({"path": "existing.txt", "content": "new content\n"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "create should fail for existing file without force"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+        "original\n",
+        "original content should be preserved"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_delete_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doomed.txt"), "bye\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_delete",
+        serde_json::json!({"path": "doomed.txt"}),
+    )
+    .await;
+    assert!(!is_error, "delete should succeed: {text}");
+    assert!(
+        !dir.path().join("doomed.txt").exists(),
+        "file should not exist after delete"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_patch_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old line\n").unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1 +1 @@\n-old line\n+new line\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_patch",
+        serde_json::json!({"diff": diff}),
+    )
+    .await;
+    assert!(!is_error, "patch should succeed: {text}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "new line\n"
     );
     client.cancel().await.unwrap();
 }

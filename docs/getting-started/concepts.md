@@ -47,6 +47,7 @@ In tx plans, set these at the plan level:
 
 ```json
 {
+  "version": "1",
   "write_policy": { "ensure_final_newline": true },
   "operations": [...]
 }

@@ -180,6 +180,29 @@ pub struct FileRenameParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateFileParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    /// Content to write to the new file.
+    pub content: String,
+    /// If true, overwrite an existing file instead of failing.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteFileParams {
+    /// File path (relative to working directory).
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PatchParams {
+    /// Unified diff text to apply.
+    pub diff: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct BatchParams {
     /// List of operations, one per string, in line-oriented batch format.
     /// Example: ["doc.set config.json version \"2.0.0\"", "replace README.md \"old\" \"new\""]
@@ -480,7 +503,7 @@ fn run_readonly_command(args: &[&str], cwd: &std::path::Path) -> Result<CallTool
 
 fn make_plan(operations: Vec<Operation>) -> Plan {
     Plan {
-        version: None,
+        version: crate::plan::SCHEMA_VERSION.to_string(),
         cwd: None,
         write_policy: None,
         strict: false,
@@ -952,7 +975,7 @@ impl PatchloomService {
     #[tool(
         description = "Rename (move) a file. Handles binary files. Use force to overwrite an existing destination."
     )]
-    async fn patchloom_file_rename(
+    async fn patchloom_rename(
         &self,
         Parameters(p): Parameters<FileRenameParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -982,6 +1005,101 @@ impl PatchloomService {
             .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
 
         output_to_tool_result(&output, &format!("Renamed {} -> {}", p.from, p.to))
+    }
+
+    #[tool(
+        description = "Create a new file with the given content. Fails if the file already exists unless force=true."
+    )]
+    async fn patchloom_create(
+        &self,
+        Parameters(p): Parameters<CreateFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+
+        let exe = std::env::current_exe().map_err(|e| {
+            McpError::internal_error(format!("failed to get current exe: {e}"), None)
+        })?;
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["--json", "create"])
+            .arg(&p.path)
+            .args(["--content", &p.content])
+            .arg("--apply");
+        if p.force {
+            cmd.arg("--force");
+        }
+        let output = cmd
+            .current_dir(&self.cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+
+        output_to_tool_result(&output, &format!("Created {}", p.path))
+    }
+
+    #[tool(description = "Delete a file. Fails if the file does not exist.")]
+    async fn patchloom_delete(
+        &self,
+        Parameters(p): Parameters<DeleteFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
+
+        let exe = std::env::current_exe().map_err(|e| {
+            McpError::internal_error(format!("failed to get current exe: {e}"), None)
+        })?;
+        let output = std::process::Command::new(&exe)
+            .args(["--json", "delete"])
+            .arg(&p.path)
+            .arg("--apply")
+            .current_dir(&self.cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+
+        output_to_tool_result(&output, &format!("Deleted {}", p.path))
+    }
+
+    #[tool(
+        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs."
+    )]
+    async fn patchloom_patch(
+        &self,
+        Parameters(p): Parameters<PatchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate paths embedded in the diff.
+        let patch_files = crate::ops::patch::parse_patch(&p.diff)
+            .map_err(|e| McpError::invalid_params(format!("failed to parse diff: {e}"), None))?;
+        for pf in &patch_files {
+            validate_path_contained(&pf.path)?;
+            validate_path_resolved(&pf.path, &self.cwd)?;
+        }
+
+        let exe = std::env::current_exe().map_err(|e| {
+            McpError::internal_error(format!("failed to get current exe: {e}"), None)
+        })?;
+
+        // Write diff to a temp file and pass it to patch apply.
+        let tmp = tempfile::NamedTempFile::new().map_err(|e| {
+            McpError::internal_error(format!("failed to create temp file: {e}"), None)
+        })?;
+        std::fs::write(tmp.path(), &p.diff).map_err(|e| {
+            McpError::internal_error(format!("failed to write temp file: {e}"), None)
+        })?;
+
+        let output = std::process::Command::new(&exe)
+            .args(["--json", "patch", "apply"])
+            .arg(tmp.path())
+            .arg("--apply")
+            .current_dir(&self.cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
+
+        output_to_tool_result(&output, "Patch applied successfully.")
     }
 
     #[tool(
@@ -1036,7 +1154,9 @@ impl ServerHandler for PatchloomService {
                      patchloom_doc_get/has/keys/len/select/flatten/diff for read-only queries, \
                      patchloom_md_* for markdown edits, patchloom_replace for text replacement, \
                      patchloom_search for file content search, patchloom_read for reading files, \
-                     patchloom_status for git status, patchloom_file_rename for renaming files, \
+                     patchloom_status for git status, patchloom_rename for renaming files, \
+                     patchloom_create for creating files, patchloom_delete for deleting files, \
+                     patchloom_patch for applying unified diffs, \
                      patchloom_tidy for whitespace fixes, and patchloom_batch for atomic edits.",
             );
         info.server_info.name = "patchloom".into();
@@ -1117,10 +1237,10 @@ mod tests {
         assert!(names.contains(&"patchloom_replace"), "missing replace tool");
         assert!(names.contains(&"patchloom_batch"), "missing batch tool");
         assert!(names.contains(&"patchloom_tidy"), "missing tidy tool");
-        assert!(
-            names.contains(&"patchloom_file_rename"),
-            "missing file_rename tool"
-        );
+        assert!(names.contains(&"patchloom_rename"), "missing rename tool");
+        assert!(names.contains(&"patchloom_create"), "missing create tool");
+        assert!(names.contains(&"patchloom_delete"), "missing delete tool");
+        assert!(names.contains(&"patchloom_patch"), "missing patch tool");
         client.cancel().await.unwrap();
     }
 

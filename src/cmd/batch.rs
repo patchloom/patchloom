@@ -340,7 +340,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Build a plan and delegate to tx.
     let plan_json = {
         let plan = Plan {
-            version: None,
+            version: crate::plan::SCHEMA_VERSION.to_string(),
             cwd: None,
             write_policy: None,
             strict: false,

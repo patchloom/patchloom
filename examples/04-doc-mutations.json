@@ -1,4 +1,5 @@
 {
+  "version": "1",
   "operations": [
     { "op": "doc.set", "path": "config.json", "selector": "database.port", "value": 5432 },
     { "op": "doc.ensure", "path": "config.json", "selector": "database.pool_size", "value": 10 },

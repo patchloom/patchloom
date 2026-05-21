@@ -90,7 +90,10 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `patchloom_md_table_append` | Append a row to a markdown table |
 | `patchloom_md_replace_section` | Replace a markdown section by heading |
 | `patchloom_tidy` | Fix whitespace and line endings |
-| `patchloom_file_rename` | Move or rename a file (binary-safe) |
+| `patchloom_create` | Create a new file with content |
+| `patchloom_delete` | Delete a file |
+| `patchloom_rename` | Move or rename a file (binary-safe) |
+| `patchloom_patch` | Apply a unified diff |
 | `patchloom_batch` | Run multiple operations in one call |
 
 ## How MCP mode differs from CLI mode

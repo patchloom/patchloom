@@ -144,7 +144,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, \
              `patchloom_replace`, `patchloom_md_upsert_bullet`, \
              `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, \
-             `patchloom_tidy`, `patchloom_file_rename`, `patchloom_batch`.\n\n",
+             `patchloom_create`, `patchloom_delete`, `patchloom_rename`, \
+             `patchloom_patch`, `patchloom_tidy`, `patchloom_batch`.\n\n",
         );
     }
 
@@ -266,7 +267,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             out.push_str("### Multi-file refactoring with a transaction\n\n\
                  ```bash\n\
                  patchloom tx - --apply <<'EOF'\n\
-                 {\"operations\": [\n\
+                 {\"version\": \"1\", \"operations\": [\n\
                    {\"op\": \"replace\", \"path\": \"src/config.rs\", \"from\": \"old_default\", \"to\": \"new_default\"},\n\
                    {\"op\": \"doc.set\", \"path\": \"config.toml\", \"selector\": \"default_value\", \"value\": \"new_default\"},\n\
                    {\"op\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\

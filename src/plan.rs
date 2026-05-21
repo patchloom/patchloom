@@ -8,11 +8,8 @@ pub const SCHEMA_VERSION: &str = "1";
 /// A transaction plan containing multiple operations to execute atomically.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
-    /// Optional schema version string. When present, validated against
-    /// the supported version. When absent, the plan is accepted as-is
-    /// for backward compatibility with all existing plans.
-    #[serde(default)]
-    pub version: Option<String>,
+    /// Schema version string. Validated against the supported version.
+    pub version: String,
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
     #[serde(default)]
@@ -245,12 +242,12 @@ mod tests {
 
     #[test]
     fn parse_minimal_plan() {
-        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(plan.cwd.is_none());
         assert!(plan.write_policy.is_none());
         assert!(plan.validate.is_none());
-        assert!(plan.version.is_none());
+        assert_eq!(plan.version, "1");
         assert_eq!(plan.operations.len(), 1);
     }
 
@@ -258,19 +255,19 @@ mod tests {
     fn parse_plan_version_field_accepted() {
         let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.version.as_deref(), Some("1"));
+        assert_eq!(plan.version, "1");
     }
 
     #[test]
-    fn parse_plan_without_version_defaults_to_none() {
+    fn parse_plan_without_version_fails() {
         let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
-        let plan = parse_plan(json).unwrap();
-        assert!(plan.version.is_none());
+        assert!(parse_plan(json).is_err());
     }
 
     #[test]
     fn parse_plan_with_all_fields() {
         let json = r#"{
+            "version": "1",
             "cwd": "/tmp",
             "write_policy": {"ensure_final_newline": true, "normalize_eol": "lf"},
             "operations": [{"op": "file.create", "path": "f.txt", "content": "hi"}],
@@ -286,19 +283,19 @@ mod tests {
 
     #[test]
     fn parse_plan_unknown_op_fails() {
-        let json = r#"{"operations": [{"op": "unknown", "x": 1}]}"#;
+        let json = r#"{"version": "1", "operations": [{"op": "unknown", "x": 1}]}"#;
         assert!(parse_plan(json).is_err());
     }
 
     #[test]
     fn parse_plan_missing_operations_fails() {
-        let json = r#"{"cwd": "/tmp"}"#;
+        let json = r#"{"version": "1", "cwd": "/tmp"}"#;
         assert!(parse_plan(json).is_err());
     }
 
     #[test]
     fn parse_all_operation_variants() {
-        let json = r#"{"operations": [
+        let json = r#"{"version": "1", "operations": [
             {"op": "replace", "from": "a", "to": "b"},
             {"op": "replace", "from": "a", "to": "b", "nth": 2},
             {"op": "doc.set", "path": "f.json", "selector": "k", "value": 1},
@@ -336,6 +333,7 @@ mod tests {
     #[test]
     fn parse_plan_with_format_steps() {
         let json = r#"{
+            "version": "1",
             "operations": [],
             "format": [{"cmd": "cargo fmt"}],
             "validate": [{"cmd": "make check"}]
@@ -350,7 +348,7 @@ mod tests {
 
     #[test]
     fn parse_plan_yaml_basic() {
-        let yaml = "operations:\n  - op: replace\n    from: old\n    to: new\n";
+        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: old\n    to: new\n";
         let plan = parse_plan_yaml(yaml).unwrap();
         assert_eq!(plan.operations.len(), 1);
         assert!(matches!(
@@ -361,7 +359,8 @@ mod tests {
 
     #[test]
     fn parse_plan_toml_basic() {
-        let toml = "[[operations]]\nop = \"replace\"\nfrom = \"old\"\nto = \"new\"\n";
+        let toml =
+            "version = \"1\"\n\n[[operations]]\nop = \"replace\"\nfrom = \"old\"\nto = \"new\"\n";
         let plan = parse_plan_toml(toml).unwrap();
         assert_eq!(plan.operations.len(), 1);
         assert!(matches!(
@@ -372,14 +371,14 @@ mod tests {
 
     #[test]
     fn parse_plan_auto_detects_yaml() {
-        let yaml = "operations:\n  - op: replace\n    from: a\n    to: b\n";
+        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: a\n    to: b\n";
         let plan = parse_plan_auto(yaml, Some("plan.yaml"), None).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
 
     #[test]
     fn parse_plan_auto_format_hint_overrides_extension() {
-        let yaml = "operations:\n  - op: replace\n    from: a\n    to: b\n";
+        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: a\n    to: b\n";
         // Extension says .json but hint says yaml.
         let plan = parse_plan_auto(yaml, Some("plan.json"), Some("yaml")).unwrap();
         assert_eq!(plan.operations.len(), 1);
@@ -387,7 +386,7 @@ mod tests {
 
     #[test]
     fn parse_plan_auto_defaults_to_json() {
-        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
         let plan = parse_plan_auto(json, Some("plan.txt"), None).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
@@ -395,6 +394,7 @@ mod tests {
     #[test]
     fn parse_plan_strict_and_all_policy_fields() {
         let json = r#"{
+            "version": "1",
             "strict": true,
             "write_policy": {
                 "ensure_final_newline": true,

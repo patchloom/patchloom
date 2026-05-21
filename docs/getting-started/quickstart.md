@@ -90,6 +90,7 @@ Create a plan file called `bump.json`:
 
 ```json
 {
+  "version": "1",
   "write_policy": { "ensure_final_newline": true },
   "operations": [
     { "op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0" },

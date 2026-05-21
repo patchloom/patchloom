@@ -642,9 +642,9 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:version -->
 ### `version`
 
-- **What it does:** Declares the plan schema version. Patchloom rejects plans whose version exceeds the highest version it supports.
-- **Use when:** You want forward-compatibility safety so an old patchloom build does not silently misinterpret a plan written for a newer schema.
-- **Default:** When omitted, the plan is accepted without version checking for backward compatibility.
+- **What it does:** Declares the plan schema version. Patchloom rejects plans whose version does not match the version it supports.
+- **Use when:** Every plan must include this field. It ensures forward-compatibility safety so an old patchloom build does not silently misinterpret a plan written for a newer schema.
+- **Required:** Yes. Plans without a version field are rejected.
 
 <!-- ref:tx-field:cwd -->
 ### `cwd`
