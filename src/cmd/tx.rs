@@ -671,20 +671,24 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         let content = &tx.pending[file_path].1;
         let lines: Vec<&str> = content.lines().collect();
 
+        let is_multi_file = file_paths.len() > 1;
         for (i, line) in lines.iter().enumerate() {
             if let Some(m) = re.find(line) {
                 let start = i.saturating_sub(ctx_before);
                 let end = (i + 1 + ctx_after).min(lines.len());
-                // Use the path relative to cwd for display.
-                let display_path = file_path
-                    .strip_prefix(tx.cwd)
-                    .unwrap_or(file_path)
-                    .to_string_lossy()
-                    .to_string();
+                let text = if is_multi_file {
+                    let display_path = file_path
+                        .strip_prefix(tx.cwd)
+                        .unwrap_or(file_path)
+                        .to_string_lossy();
+                    format!("{display_path}:{}", line)
+                } else {
+                    line.to_string()
+                };
                 all_matches.push(TxSearchMatch {
                     line: i + 1,
                     column: m.start() + 1,
-                    text: format!("{display_path}:{}", line),
+                    text,
                     context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
                     context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
                 });

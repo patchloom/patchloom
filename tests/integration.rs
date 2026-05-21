@@ -8529,6 +8529,21 @@ fn test_tx_search_directory_path() {
     assert_eq!(searches.len(), 1);
     // Should find "hello" in both main.rs and lib.rs (2 matches total)
     assert_eq!(searches[0]["match_count"], 2);
+    // Multi-file text includes the file path prefix.
+    let texts: Vec<&str> = searches[0]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["text"].as_str().unwrap())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t.contains("lib.rs:")),
+        "expected path prefix in multi-file text: {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("main.rs:")),
+        "expected path prefix in multi-file text: {texts:?}"
+    );
 }
 
 #[test]
