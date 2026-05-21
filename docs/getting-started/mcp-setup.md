@@ -134,3 +134,19 @@ An MCP-capable agent sends:
 ```
 
 Patchloom parses the YAML, changes `database.port` to `5432`, preserves all comments and formatting, and writes the file. The agent receives a success response with no further action needed.
+
+For multi-file edits with post-write formatting and validation, use `patchloom_tx`:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "patchloom_tx",
+    "arguments": {
+      "plan": "{\"version\":\"1\",\"operations\":[{\"op\":\"replace\",\"path\":\"src/main.rs\",\"from\":\"v1\",\"to\":\"v2\"},{\"op\":\"doc.set\",\"path\":\"Cargo.toml\",\"selector\":\"package.version\",\"value\":\"2.0.0\"}],\"format\":[{\"cmd\":\"cargo fmt\"}],\"validate\":[{\"cmd\":\"cargo test\",\"required\":true}]}"
+    }
+  }
+}
+```
+
+This replaces text in `src/main.rs`, updates the version in `Cargo.toml`, runs `cargo fmt`, and verifies with `cargo test`. If any step fails, the transaction reports the error. With `"strict": true`, writes are rolled back on format or validate failure.
