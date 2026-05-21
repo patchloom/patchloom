@@ -117,6 +117,25 @@ EOF
 
 All operations succeed atomically or roll back together.
 
+## Selector syntax
+
+All `doc` operations use selectors to address values inside JSON, YAML, and TOML files.
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `key` | Object key | `database.host` |
+| `[N]` | Array index (zero-based) | `servers[0].port` |
+| `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |
+| `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |
+
+Segments are separated by `.` or adjacent brackets. Examples:
+
+```text
+scripts.test                    # simple key path
+jobs[0].steps[*].name           # index + wildcard
+dependencies[name=react].version # predicate filter
+```
+
 ## Exit codes
 
 | Code | Meaning |

@@ -281,6 +281,24 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         }
     }
 
+    // Selector syntax (always shown — used by all doc.* operations)
+    out.push_str(
+        "## Selector syntax\n\n\
+         All `doc` operations use selectors to address values inside JSON, YAML, and TOML files.\n\n\
+         | Syntax | Meaning | Example |\n\
+         |--------|---------|---------|\n\
+         | `key` | Object key | `database.host` |\n\
+         | `[N]` | Array index (zero-based) | `servers[0].port` |\n\
+         | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |\n\
+         | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |\n\n\
+         Segments are separated by `.` or adjacent brackets. Examples:\n\n\
+         ```text\n\
+         scripts.test                    # simple key path\n\
+         jobs[0].steps[*].name           # index + wildcard\n\
+         dependencies[name=react].version # predicate filter\n\
+         ```\n\n",
+    );
+
     // Exit codes (always shown)
     out.push_str(
         "## Exit codes\n\n\
