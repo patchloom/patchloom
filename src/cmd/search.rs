@@ -198,7 +198,7 @@ fn search_one_file(
         for (start, end) in matcher.find_iter_positions(&content) {
             count += 1;
             if count_only {
-                if args.files_with_matches {
+                if args.files_with_matches && args.assert_count.is_none() {
                     break;
                 }
                 continue;
@@ -224,7 +224,7 @@ fn search_one_file(
             };
             if is_match {
                 count += 1;
-                if args.files_with_matches {
+                if args.files_with_matches && args.assert_count.is_none() {
                     break;
                 }
             }

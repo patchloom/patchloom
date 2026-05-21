@@ -85,6 +85,9 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
     }
 
     let (start, end) = lines;
+    if start == 0 {
+        return SelectedLines::empty(total_lines);
+    }
     let start_idx = (start - 1).min(total_lines);
     let end_idx = end.unwrap_or(total_lines).min(total_lines);
     if start_idx == end_idx {
