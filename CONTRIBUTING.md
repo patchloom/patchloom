@@ -1,87 +1,97 @@
 # Contributing to Patchloom
 
-Thanks for your interest in Patchloom.
+Thank you for considering contributing to Patchloom! This document covers the
+practical steps for getting a change merged. For detailed architecture,
+conventions, and command structure, see [AGENTS.md](AGENTS.md).
 
-Patchloom aims to be a low-friction, high-trust open-source CLI. Keep contributions small, reviewable, and well-explained.
-
-## Getting Started
+## Quick start
 
 ```bash
-# Requires Rust 1.95+ (install or update via https://rustup.rs)
-rustup update stable
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
-make check   # runs fmt, build, test, clippy, and doc freshness checks
-               # builds with --all-features (includes MCP server)
+cargo build --all-features
+make check          # must pass before every commit
 ```
 
-## Before You Open a Pull Request
+**Requirements:** Rust 1.95+ (the project MSRV). Install via [rustup](https://rustup.rs/).
 
-- Check whether an issue or discussion already covers the work.
-- Prefer one logical change per pull request.
-- If the change affects CLI behavior, commands, subcommands, tx operations, flags, output, or docs examples, update the relevant docs in the same pull request, including `docs/reference/README.md` when the feature surface changes.
-- Run the relevant tests, lint, and formatting steps for the files you changed.
+## Development workflow
 
-## Issues and Proposal Workflow
+1. Fork the repo and create a feature branch from `main`.
+2. Make your changes. Run `make check-fast` during development for rapid feedback.
+3. Run `make check` before committing. This is the full CI gate: formatting,
+   clippy, unit tests, integration tests, and doc verification.
+4. Commit with a [DCO sign-off](#dco-sign-off).
+5. Open a pull request against `main`.
 
-- Anyone can open an issue.
-- Small docs fixes, typo fixes, and narrow bug fixes may be opened as pull requests directly.
-- For non-trivial features, CLI surface changes, or design changes, open an issue or discussion first and wait for maintainer alignment before writing a large pull request.
-- Maintainers may close or redirect proposals that do not fit the current scope.
+### Useful make targets
 
-## Development Expectations
+| Target | Purpose |
+|--------|---------|
+| `make check` | Full CI gate (run before every commit) |
+| `make check-fast` | Skip doc verification for faster iteration |
+| `make fmt` | Auto-format with `cargo fmt` |
+| `make test` | Unit tests only |
+| `make integration-test` | Integration tests only |
+| `make clippy` | Lint check |
 
-- Keep pull requests focused.
-- Add or update tests when behavior changes.
-- Call out breaking changes clearly.
-- Include enough context in the PR description for a reviewer to understand the change quickly.
-- Run `make check` before requesting review.
-- Use `make help` to see the available local development commands.
+## Writing tests
 
-## Commit Sign-off Requirement (DCO)
+- Unit tests go in `#[cfg(test)] mod tests` blocks at the bottom of each source file.
+- Integration tests go in `tests/integration.rs`.
+- Use `tempfile::TempDir` for filesystem fixtures.
+- Test both success paths and error/edge-case exit codes.
+- See [AGENTS.md](AGENTS.md#testing) for test conventions.
 
-Patchloom uses the [Developer Certificate of Origin 1.1](https://developercertificate.org/).
+## Coding standards
 
-Every commit must include a `Signed-off-by:` trailer that matches the commit author identity.
+- `cargo fmt` and `cargo clippy --all-targets --all-features -- -D warnings` must be clean.
+- No `unwrap()` in non-test code. Use `anyhow::Context` or `expect()` with a message.
+- No unsafe Rust (`unsafe_code = "deny"` in Cargo.toml).
+- Prefer returning exit codes from `src/exit.rs` over panicking.
+- Keep `main.rs` thin; all logic lives in `lib.rs` and submodules.
 
-Use this for new commits:
+See [AGENTS.md](AGENTS.md#coding-conventions) for the full list.
+
+## Adding a new command
+
+See [AGENTS.md](AGENTS.md#adding-a-new-command) for the step-by-step guide to
+adding a CLI command, and [AGENTS.md](AGENTS.md#adding-a-new-mcp-tool) for MCP tools.
+
+## DCO sign-off
+
+All commits must include a `Signed-off-by` line (Developer Certificate of
+Origin). Use `git commit -s` to add it automatically:
 
 ```bash
-git commit -s -m "<message>"
+git commit -s -m "feat: add frobnicate command"
 ```
 
-Use this to fix the most recent commit:
+This certifies that you wrote (or have the right to submit) the code under the
+project's license terms. See [developercertificate.org](https://developercertificate.org/)
+for details.
 
-```bash
-git commit --amend -s
-```
+## Pull request guidelines
 
-If you use a GUI or another tool, make sure the final commit message still contains a valid sign-off line.
+- One logical change per PR. Separate refactoring from feature work.
+- Include tests for new functionality and bug fixes.
+- Update documentation if your change affects user-facing behavior (README,
+  command help text, reference docs).
+- CI must pass. If it fails, fix it before requesting review.
+- Squash merge is the default merge strategy.
 
-## Security Reporting
+## Reporting issues
 
-Do not post sensitive security details in public channels.
+Use [GitHub Issues](https://github.com/patchloom/patchloom/issues). Include:
 
-While the repository is private, follow [SECURITY.md](./SECURITY.md) for the temporary reporting policy. After the repository is public, maintainers should enable GitHub private vulnerability reporting.
+- The patchloom version (`patchloom --version`).
+- The command you ran and the full output.
+- What you expected to happen vs. what actually happened.
 
-## Licensing
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
-By contributing to Patchloom, you agree that your contributions are licensed under the repository license: `MIT OR Apache-2.0`.
+## License
 
-## Pull Request Checklist
-
-Before requesting review, make sure that:
-
-- all commits in the pull request are signed off
-- relevant tests, lint, and formatting checks were run
-- docs and examples were updated when behavior changed, including `docs/reference/README.md` for meaningful CLI surface changes
-- the pull request description explains what changed, why, and how it was verified
-
-## Review and Merge Policy
-
-- External contributors should open pull requests from a fork. The target policy is to protect `main` and merge changes through pull requests. While the repo remains private on GitHub Free, maintainers should follow that policy by convention because GitHub cannot enforce private branch protection there.
-- DCO and required status checks should pass before merge.
-- At least one maintainer approval is required before merge.
-- Unresolved review comments should be addressed before merge.
-- Maintainers may ask for a smaller or more focused pull request if the scope is too broad.
-- Squash merge is the default unless a maintainer asks for a different history shape.
+By contributing, you agree that your contributions will be licensed under the
+same terms as the project: [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE),
+at your option.
