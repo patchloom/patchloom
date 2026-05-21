@@ -1113,7 +1113,8 @@ fn test_doc_has_existing_key() {
         .arg(&file)
         .arg("name")
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("true"));
 }
 
 #[test]
