@@ -1144,16 +1144,6 @@ fn emit_error_json(error_kind: &'static str, error: &str, compact: bool) {
     emit_error_json_with_prefix(error_kind, legacy_error_prefix, error, compact);
 }
 
-/// First line of a command string, capped at 60 characters for error messages.
-fn truncate_cmd(cmd: &str) -> String {
-    let first_line = cmd.lines().next().unwrap_or(cmd);
-    if first_line.len() <= 60 {
-        first_line.to_string()
-    } else {
-        format!("{}...", &first_line[..60])
-    }
-}
-
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
     match status.code() {
         Some(code) => format!("exit code {code}"),
@@ -1193,9 +1183,8 @@ fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), Lifecy
         match result {
             Ok(status) if !status.success() => {
                 let msg = format!(
-                    "format step failed (step {} `{}`, {})",
+                    "format step failed (step {}, {})",
                     index + 1,
-                    truncate_cmd(&step.cmd),
                     describe_exit_status(status)
                 );
                 eprintln!("tx: {msg}");
@@ -1205,11 +1194,7 @@ fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), Lifecy
                 });
             }
             Err(e) => {
-                let msg = format!(
-                    "format step error (step {} `{}`): {e}",
-                    index + 1,
-                    truncate_cmd(&step.cmd)
-                );
+                let msg = format!("format step error (step {}): {e}", index + 1);
                 eprintln!("tx: {msg}");
                 return Err(LifecycleError {
                     message: msg,
@@ -1230,9 +1215,8 @@ fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), 
             Ok(status) if status.success() => {}
             Ok(status) => {
                 let msg = format!(
-                    "required validation failed (step {} `{}`, {})",
+                    "required validation failed (step {}, {})",
                     index + 1,
-                    truncate_cmd(&step.cmd),
                     describe_exit_status(status)
                 );
                 eprintln!("tx: {msg}");
@@ -1244,11 +1228,7 @@ fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), 
                 }
             }
             Err(e) => {
-                let msg = format!(
-                    "validation error (step {} `{}`): {e}",
-                    index + 1,
-                    truncate_cmd(&step.cmd)
-                );
+                let msg = format!("validation error (step {}): {e}", index + 1);
                 eprintln!("tx: {msg}");
                 if step.required.unwrap_or(false) {
                     return Err(LifecycleError {
