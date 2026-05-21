@@ -1,0 +1,563 @@
+{
+  "timestamp": "20260521_115845",
+  "model": "sxs-gpt-5-4",
+  "n_runs": 1,
+  "patchloom": {
+    "aggregate": {
+      "n_runs": 1,
+      "median_total": 735.3,
+      "min_total": 735.3,
+      "max_total": 735.3,
+      "tasks": {
+        "search": {
+          "median": 31.3,
+          "min": 31.3,
+          "max": 31.3,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "replace": {
+          "median": 120.9,
+          "min": 120.9,
+          "max": 120.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "doc_set": {
+          "median": 35.6,
+          "min": 35.6,
+          "max": 35.6,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "md_table": {
+          "median": 35.9,
+          "min": 35.9,
+          "max": 35.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "tx_multi_file": {
+          "median": 102.1,
+          "min": 102.1,
+          "max": 102.1,
+          "pl_calls_median": 3,
+          "pl_exec_median": 9,
+          "success_rate": 1.0
+        },
+        "batch_6_files": {
+          "median": 119.4,
+          "min": 119.4,
+          "max": 119.4,
+          "pl_calls_median": 1,
+          "pl_exec_median": 3,
+          "success_rate": 1.0
+        },
+        "batch_mixed_ops": {
+          "median": 74.9,
+          "min": 74.9,
+          "max": 74.9,
+          "pl_calls_median": 1,
+          "pl_exec_median": 2,
+          "success_rate": 1.0
+        },
+        "yaml_comment_preserve": {
+          "median": 44.3,
+          "min": 44.3,
+          "max": 44.3,
+          "pl_calls_median": 1,
+          "pl_exec_median": 2,
+          "success_rate": 1.0
+        },
+        "md_insert": {
+          "median": 40.1,
+          "min": 40.1,
+          "max": 40.1,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "file_ops": {
+          "median": 44.4,
+          "min": 44.4,
+          "max": 44.4,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 0.0
+        },
+        "tidy": {
+          "median": 86.5,
+          "min": 86.5,
+          "max": 86.5,
+          "pl_calls_median": 4,
+          "pl_exec_median": 16,
+          "success_rate": 1.0
+        }
+      }
+    },
+    "runs": [
+      {
+        "mode": "patchloom",
+        "model": "sxs-gpt-5-4",
+        "total_secs": 735.3,
+        "first_task_secs": 31.3,
+        "subsequent_avg_secs": 70.4,
+        "tasks": [
+          {
+            "name": "search",
+            "duration_secs": 31.3,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "replace",
+            "duration_secs": 120.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "doc_set",
+            "duration_secs": 35.6,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "md_table",
+            "duration_secs": 35.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "tx_multi_file",
+            "duration_secs": 102.1,
+            "patchloom_calls": 3,
+            "patchloom_duration_ms": 9,
+            "success": true
+          },
+          {
+            "name": "batch_6_files",
+            "duration_secs": 119.4,
+            "patchloom_calls": 1,
+            "patchloom_duration_ms": 3,
+            "success": true
+          },
+          {
+            "name": "batch_mixed_ops",
+            "duration_secs": 74.9,
+            "patchloom_calls": 1,
+            "patchloom_duration_ms": 2,
+            "success": true
+          },
+          {
+            "name": "yaml_comment_preserve",
+            "duration_secs": 44.3,
+            "patchloom_calls": 1,
+            "patchloom_duration_ms": 2,
+            "success": true
+          },
+          {
+            "name": "md_insert",
+            "duration_secs": 40.1,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "file_ops",
+            "duration_secs": 44.4,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": false
+          },
+          {
+            "name": "tidy",
+            "duration_secs": 86.5,
+            "patchloom_calls": 4,
+            "patchloom_duration_ms": 16,
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "mcp": {
+    "aggregate": {
+      "n_runs": 1,
+      "median_total": 806.9,
+      "min_total": 806.9,
+      "max_total": 806.9,
+      "tasks": {
+        "search": {
+          "median": 16.7,
+          "min": 16.7,
+          "max": 16.7,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "replace": {
+          "median": 104.2,
+          "min": 104.2,
+          "max": 104.2,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "doc_set": {
+          "median": 44.6,
+          "min": 44.6,
+          "max": 44.6,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "md_table": {
+          "median": 32.8,
+          "min": 32.8,
+          "max": 32.8,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "tx_multi_file": {
+          "median": 99.0,
+          "min": 99.0,
+          "max": 99.0,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "batch_6_files": {
+          "median": 103.9,
+          "min": 103.9,
+          "max": 103.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "batch_mixed_ops": {
+          "median": 53.2,
+          "min": 53.2,
+          "max": 53.2,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "yaml_comment_preserve": {
+          "median": 28.2,
+          "min": 28.2,
+          "max": 28.2,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "md_insert": {
+          "median": 29.6,
+          "min": 29.6,
+          "max": 29.6,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "file_ops": {
+          "median": 65.8,
+          "min": 65.8,
+          "max": 65.8,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 0.0
+        },
+        "tidy": {
+          "median": 228.9,
+          "min": 228.9,
+          "max": 228.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        }
+      }
+    },
+    "runs": [
+      {
+        "mode": "mcp",
+        "model": "sxs-gpt-5-4",
+        "total_secs": 806.9,
+        "first_task_secs": 16.7,
+        "subsequent_avg_secs": 79.0,
+        "tasks": [
+          {
+            "name": "search",
+            "duration_secs": 16.7,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "replace",
+            "duration_secs": 104.2,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "doc_set",
+            "duration_secs": 44.6,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "md_table",
+            "duration_secs": 32.8,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "tx_multi_file",
+            "duration_secs": 99.0,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "batch_6_files",
+            "duration_secs": 103.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "batch_mixed_ops",
+            "duration_secs": 53.2,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "yaml_comment_preserve",
+            "duration_secs": 28.2,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "md_insert",
+            "duration_secs": 29.6,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "file_ops",
+            "duration_secs": 65.8,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": false
+          },
+          {
+            "name": "tidy",
+            "duration_secs": 228.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          }
+        ]
+      }
+    ]
+  },
+  "native": {
+    "aggregate": {
+      "n_runs": 1,
+      "median_total": 681.9,
+      "min_total": 681.9,
+      "max_total": 681.9,
+      "tasks": {
+        "search": {
+          "median": 33.7,
+          "min": 33.7,
+          "max": 33.7,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "replace": {
+          "median": 38.3,
+          "min": 38.3,
+          "max": 38.3,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "doc_set": {
+          "median": 26.7,
+          "min": 26.7,
+          "max": 26.7,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "md_table": {
+          "median": 32.0,
+          "min": 32.0,
+          "max": 32.0,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "tx_multi_file": {
+          "median": 72.3,
+          "min": 72.3,
+          "max": 72.3,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "batch_6_files": {
+          "median": 63.9,
+          "min": 63.9,
+          "max": 63.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "batch_mixed_ops": {
+          "median": 127.3,
+          "min": 127.3,
+          "max": 127.3,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "yaml_comment_preserve": {
+          "median": 30.7,
+          "min": 30.7,
+          "max": 30.7,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "md_insert": {
+          "median": 29.6,
+          "min": 29.6,
+          "max": 29.6,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        },
+        "file_ops": {
+          "median": 77.4,
+          "min": 77.4,
+          "max": 77.4,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 0.0
+        },
+        "tidy": {
+          "median": 149.9,
+          "min": 149.9,
+          "max": 149.9,
+          "pl_calls_median": 0,
+          "pl_exec_median": 0,
+          "success_rate": 1.0
+        }
+      }
+    },
+    "runs": [
+      {
+        "mode": "native",
+        "model": "sxs-gpt-5-4",
+        "total_secs": 681.9,
+        "first_task_secs": 33.7,
+        "subsequent_avg_secs": 64.8,
+        "tasks": [
+          {
+            "name": "search",
+            "duration_secs": 33.7,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "replace",
+            "duration_secs": 38.3,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "doc_set",
+            "duration_secs": 26.7,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "md_table",
+            "duration_secs": 32.0,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "tx_multi_file",
+            "duration_secs": 72.3,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "batch_6_files",
+            "duration_secs": 63.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "batch_mixed_ops",
+            "duration_secs": 127.3,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "yaml_comment_preserve",
+            "duration_secs": 30.7,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "md_insert",
+            "duration_secs": 29.6,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          },
+          {
+            "name": "file_ops",
+            "duration_secs": 77.4,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": false
+          },
+          {
+            "name": "tidy",
+            "duration_secs": 149.9,
+            "patchloom_calls": 0,
+            "patchloom_duration_ms": 0,
+            "success": true
+          }
+        ]
+      }
+    ]
+  }
+}
