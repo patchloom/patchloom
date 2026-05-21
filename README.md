@@ -296,6 +296,8 @@ at your option.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
+For local verification before opening a pull request, run `make check`. It matches the main Linux CI gate: formatting, clippy, unit tests, integration tests, and generated-doc freshness checks. While iterating locally, `make check-fast` runs the Rust formatting, lint, and test path without the generated-doc freshness checks.
+
 All commits must be signed off with `git commit -s`.
 
 ### Agent integration tests
