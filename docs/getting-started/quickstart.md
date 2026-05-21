@@ -32,13 +32,13 @@ patchloom search 'TODO' src/ --glob 'sub/*.rs'
 Preview a rename (no files changed yet):
 
 ```bash
-patchloom replace --from 'old_function' --to 'new_function' src/
+patchloom replace 'old_function' --to 'new_function' src/
 ```
 
 The output shows a unified diff. When it looks correct, apply:
 
 ```bash
-patchloom replace --from 'old_function' --to 'new_function' src/ --apply
+patchloom replace 'old_function' --to 'new_function' src/ --apply
 ```
 
 ## Step 3: Edit structured config
@@ -102,13 +102,13 @@ Create a plan file called `bump.json`:
 Preview:
 
 ```bash
-patchloom tx --plan bump.json --diff
+patchloom tx bump.json --diff
 ```
 
 Apply all changes atomically:
 
 ```bash
-patchloom tx --plan bump.json --apply
+patchloom tx bump.json --apply
 ```
 
 If an operation fails, nothing is written. Format and validate lifecycle steps run
@@ -120,14 +120,14 @@ roll back all changes too.
 Check whether a plan would produce changes (exit code 2 = changes pending):
 
 ```bash
-patchloom tx --plan bump.json --check
+patchloom tx bump.json --check
 echo $?  # 0 = clean, 2 = changes detected
 ```
 
 Get machine-readable output:
 
 ```bash
-patchloom --json tx --plan bump.json --apply
+patchloom --json tx bump.json --apply
 ```
 
 Returns:

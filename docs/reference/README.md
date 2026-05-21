@@ -317,7 +317,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:regex -->
 ### `replace --regex`
 
-- **What it does:** Treats `--from` as a regex instead of a literal string.
+- **What it does:** Treats the pattern as a regex instead of a literal string.
 - **Use when:** The change is pattern-based, or capture groups should shape the replacement.
 - **Prefer instead:** Use literal replace for fixed text because it is simpler and less error-prone.
 
@@ -378,18 +378,18 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Prefer instead:** Use default create behavior when accidental overwrite would be dangerous.
 
 <!-- ref:patch-mode:file -->
-### `patch --file`
+### `patch FILE`
 
-- **What it does:** Reads the unified diff from a file path.
+- **What it does:** Reads the unified diff from a file path (positional argument).
 - **Use when:** The patch already exists as a saved artifact that should be reviewed, reused, or passed around directly.
 - **Prefer instead:** Use `patch --stdin` when another tool is piping the patch text dynamically.
 
 <!-- ref:patch-mode:stdin -->
 ### `patch --stdin`
 
-- **What it does:** Reads the unified diff from stdin instead of `--file`.
+- **What it does:** Reads the unified diff from stdin instead of a file argument.
 - **Use when:** Another tool is generating or piping the patch text directly.
-- **Prefer instead:** Use `patch --file` when the diff should be stored as a tangible artifact.
+- **Prefer instead:** Use `patch FILE` when the diff should be stored as a tangible artifact.
 
 <!-- ref:doc-mode:predicate -->
 ### `doc --predicate`
@@ -413,11 +413,11 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Prefer instead:** Use `--content` when the inserted text is small and should stay visible in the command.
 
 <!-- ref:tx-mode:plan-stdin -->
-### `tx --plan -`
+### `tx -`
 
 - **What it does:** Reads the transaction plan from stdin instead of a plan file. Defaults to JSON; use `--plan-format` for YAML or TOML.
 - **Use when:** The plan is generated on the fly or piped from another tool.
-- **Prefer instead:** Use `--plan <file>` when the plan should be stored, reviewed, or reused.
+- **Prefer instead:** Use `tx FILE` when the plan should be stored, reviewed, or reused.
 
 <!-- ref:tx-mode:plan-yaml -->
 ### `tx --plan-format yaml`

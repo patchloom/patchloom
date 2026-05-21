@@ -89,7 +89,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `patchloom_md_upsert_bullet` | Add a bullet under a markdown heading |
 | `patchloom_md_table_append` | Append a row to a markdown table |
 | `patchloom_md_replace_section` | Replace a markdown section by heading |
-| `patchloom_hygiene` | Fix whitespace and line endings |
+| `patchloom_tidy` | Fix whitespace and line endings |
 | `patchloom_file_rename` | Move or rename a file (binary-safe) |
 | `patchloom_batch` | Run multiple operations in one call |
 

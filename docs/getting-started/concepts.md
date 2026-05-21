@@ -8,7 +8,7 @@ Patchloom has 15 core commands. Building with `--features mcp` adds a 16th, `mcp
 - **patch** -- apply unified diffs
 - **md** -- markdown-aware editing (sections, bullets, tables, headings)
 - **doc** -- parser-backed JSON, YAML, and TOML mutations
-- **hygiene** -- whitespace and line-ending normalization
+- **tidy** -- whitespace and line-ending normalization
 - **create** / **delete** / **rename** -- file lifecycle
 - **read** -- file content inspection with optional line range (supports multiple files)
 - **status** -- uncommitted change summary from git
@@ -86,7 +86,7 @@ These codes let CI pipelines and agent frameworks branch on outcomes without par
 Most commands accept `--glob <pattern>` (repeatable) to restrict which files are processed:
 
 ```bash
-patchloom replace --from "old" --to "new" --glob "*.rs" --glob "*.toml" --apply
+patchloom replace "old" --to "new" --glob "*.rs" --glob "*.toml" --apply
 ```
 
 Glob patterns match either the basename or the path relative to the input root. For example, if you search `src/`, then `--glob 'sub/*.txt'` matches `src/sub/file.txt`.

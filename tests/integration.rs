@@ -10637,12 +10637,9 @@ fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
     assert!(quickstart.contains("patchloom search 'TODO' --count src/"));
+    assert!(quickstart.contains("patchloom replace 'old_function' --to 'new_function' src/"));
     assert!(
-        quickstart.contains("patchloom replace --from 'old_function' --to 'new_function' src/")
-    );
-    assert!(
-        quickstart
-            .contains("patchloom replace --from 'old_function' --to 'new_function' src/ --apply")
+        quickstart.contains("patchloom replace 'old_function' --to 'new_function' src/ --apply")
     );
     assert!(quickstart.contains("patchloom doc get package.json version"));
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
