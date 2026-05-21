@@ -44,6 +44,9 @@ jobs:
         run: make check
 
   ci-windows:
+    # GitHub-hosted Windows runners are unavailable while this repo stays
+    # private and hosted-runner billing is blocked.
+    if: ${{ !github.event.repository.private }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -77,6 +80,9 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   ci-macos:
+    # GitHub-hosted macOS runners are unavailable while this repo stays
+    # private and hosted-runner billing is blocked.
+    if: ${{ !github.event.repository.private }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
