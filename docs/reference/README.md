@@ -234,7 +234,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **Use when:** You are setting up a project where agents should use patchloom for file operations and need an AGENTS.md or SKILL.md that describes patchloom's interface.
 - **Notable flags:**
   - `--mode cli|mcp|all` (default: `all`): `cli` omits MCP section, `mcp` omits CLI shell examples, `all` includes everything.
-  - `--platform linux|windows|all` (default: `all`): `linux` uses heredocs and single-quote syntax, `windows` uses `--input` files and double-quote escaping, `all` shows both.
+  - `--platform linux|windows|all` (default: `all`): `linux` uses heredocs and single-quote syntax, `windows` uses file arguments and double-quote escaping, `all` shows both.
 - **Prefer instead:** Nothing; this is the only way to generate the end-user agent documentation.
 - **Related:** `completions`, `mcp-server`
 
@@ -713,7 +713,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Runs a targeted structured set inside a transaction.
 - **Use when:** A precise config update must be bundled atomically with other repo changes.
-- **Field naming:** Use `key` in new plans. For backward compatibility, existing plans that still use legacy `selector` are also accepted for `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
+- **Field naming:** Use `selector` in new plans. For backward compatibility, existing plans that still use legacy `key` are also accepted for `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
 - **Related:** top level `doc set`
 
 <!-- ref:tx-op:doc.delete -->
