@@ -961,9 +961,8 @@ impl PatchloomService {
             McpError::internal_error(format!("failed to get current exe: {e}"), None)
         })?;
         let mut cmd = std::process::Command::new(&exe);
-        cmd.args(["--json", "rename", "--from"])
+        cmd.args(["--json", "rename"])
             .arg(&p.from)
-            .arg("--to")
             .arg(&p.to)
             .arg("--apply");
         if p.force {
