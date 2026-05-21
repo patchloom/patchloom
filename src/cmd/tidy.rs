@@ -7,24 +7,24 @@ use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Args)]
-pub struct HygieneArgs {
+pub struct TidyArgs {
     #[command(subcommand)]
-    pub action: HygieneAction,
+    pub action: TidyAction,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
 
 #[derive(Debug, clap::Subcommand)]
-pub enum HygieneAction {
+pub enum TidyAction {
     /// Report newline, EOL, and whitespace issues.
     Check { paths: Vec<String> },
     /// Apply normalization fixes.
     Fix { paths: Vec<String> },
 }
 
-/// A single hygiene issue found in a file.
+/// A single tidy issue found in a file.
 #[derive(Debug, Clone, Serialize)]
-pub struct HygieneIssue {
+pub struct TidyIssue {
     pub path: String,
     pub issue: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,8 +33,8 @@ pub struct HygieneIssue {
 
 use crate::is_binary;
 
-/// Check a single file for hygiene issues.
-fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
+/// Check a single file for tidy issues.
+fn check_file(path: &Path) -> anyhow::Result<Vec<TidyIssue>> {
     let data = std::fs::read(path)?;
 
     if data.is_empty() || is_binary(&data) {
@@ -46,7 +46,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
 
     // Check missing final newline.
     if !data.ends_with(b"\n") {
-        issues.push(HygieneIssue {
+        issues.push(TidyIssue {
             path: path_str.clone(),
             issue: "missing final newline",
             line: None,
@@ -58,7 +58,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
     // A bare \n is any \n not preceded by \r.
     let has_bare_lf = memchr::memchr_iter(b'\n', &data).any(|i| i == 0 || data[i - 1] != b'\r');
     if has_crlf && has_bare_lf {
-        issues.push(HygieneIssue {
+        issues.push(TidyIssue {
             path: path_str.clone(),
             issue: "mixed line endings",
             line: None,
@@ -76,7 +76,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
             continue;
         }
         if matches!(content.last(), Some(b' ' | b'\t')) {
-            issues.push(HygieneIssue {
+            issues.push(TidyIssue {
                 path: path_str.clone(),
                 issue: "trailing whitespace",
                 line: Some(line_idx + 1), // 1-based
@@ -90,13 +90,13 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<HygieneIssue>> {
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
-fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<HygieneIssue>> {
+fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<TidyIssue>> {
     let root = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
     let glob_roots = crate::collect_glob_roots(paths, global, Some(&root))?;
 
-    let file_issues: Vec<Vec<HygieneIssue>> =
+    let file_issues: Vec<Vec<TidyIssue>> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             match check_file(path) {
                 Ok(issues) if !issues.is_empty() => Some(issues),
@@ -107,18 +107,18 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     Ok(file_issues.into_iter().flatten().collect())
 }
 
-/// JSON wrapper for hygiene check output.
+/// JSON wrapper for tidy check output.
 #[derive(Debug, Serialize)]
-struct HygieneCheckOutput {
+struct TidyCheckOutput {
     ok: bool,
     issue_count: usize,
-    issues: Vec<HygieneIssue>,
+    issues: Vec<TidyIssue>,
 }
 
 /// Render issues to stdout.
-fn render_issues(issues: &[HygieneIssue], global: &GlobalFlags) {
+fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
     if global.json {
-        let output = HygieneCheckOutput {
+        let output = TidyCheckOutput {
             ok: issues.is_empty(),
             issue_count: issues.len(),
             issues: issues.to_vec(),
@@ -142,9 +142,9 @@ fn render_issues(issues: &[HygieneIssue], global: &GlobalFlags) {
     }
 }
 
-pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     match args.action {
-        HygieneAction::Check { paths } => {
+        TidyAction::Check { paths } => {
             let issues = collect_issues(&paths, global)?;
             if !global.quiet {
                 render_issues(&issues, global);
@@ -155,7 +155,7 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(exit::CHANGES_DETECTED)
             }
         }
-        HygieneAction::Fix { paths } => {
+        TidyAction::Fix { paths } => {
             let root = global.resolve_cwd()?;
             let glob_matcher = crate::build_glob_matcher(global)?;
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
@@ -298,8 +298,8 @@ mod tests {
         assert!(issues.is_empty(), "expected no issues for clean file");
 
         let global = flags_for(tmp.path());
-        let args = HygieneArgs {
-            action: HygieneAction::Check {
+        let args = TidyArgs {
+            action: TidyAction::Check {
                 paths: vec![".".to_string()],
             },
             write: Default::default(),
@@ -387,8 +387,8 @@ mod tests {
         global.ensure_final_newline = true;
         global.apply = true;
 
-        let args = HygieneArgs {
-            action: HygieneAction::Fix {
+        let args = TidyArgs {
+            action: TidyAction::Fix {
                 paths: vec![".".to_string()],
             },
             write: Default::default(),
@@ -413,8 +413,8 @@ mod tests {
         global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
         global.apply = true;
 
-        let args = HygieneArgs {
-            action: HygieneAction::Fix {
+        let args = TidyArgs {
+            action: TidyAction::Fix {
                 paths: vec![".".to_string()],
             },
             write: Default::default(),
@@ -439,8 +439,8 @@ mod tests {
         global.trim_trailing_whitespace = true;
         global.apply = true;
 
-        let args = HygieneArgs {
-            action: HygieneAction::Fix {
+        let args = TidyArgs {
+            action: TidyAction::Fix {
                 paths: vec![".".to_string()],
             },
             write: Default::default(),
@@ -464,8 +464,8 @@ mod tests {
         global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
         global.apply = true;
 
-        let args = HygieneArgs {
-            action: HygieneAction::Fix {
+        let args = TidyArgs {
+            action: TidyAction::Fix {
                 paths: vec![".".to_string()],
             },
             write: Default::default(),

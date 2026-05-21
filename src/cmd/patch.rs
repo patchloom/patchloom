@@ -20,7 +20,6 @@ pub enum PatchAction {
     Check {
         // ref:patch-mode:file
         /// Path to a diff file.
-        #[arg(long)]
         file: Option<String>,
         // ref:patch-mode:stdin
         /// Read diff from stdin.
@@ -31,7 +30,6 @@ pub enum PatchAction {
     Apply {
         // ref:patch-mode:file
         /// Path to a diff file.
-        #[arg(long)]
         file: Option<String>,
         // ref:patch-mode:stdin
         /// Read diff from stdin.

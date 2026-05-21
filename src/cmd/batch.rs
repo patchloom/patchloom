@@ -12,12 +12,12 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// Each line is one operation with positional arguments:
 ///
 /// ```text
-/// doc.set <path> <key> <value>
-/// doc.delete <path> <key>
+/// doc.set <path> <selector> <value>
+/// doc.delete <path> <selector>
 /// doc.merge <path> <json-value>
-/// doc.ensure <path> <key> <value>
-/// doc.append <path> <key> <value>
-/// doc.prepend <path> <key> <value>
+/// doc.ensure <path> <selector> <value>
+/// doc.append <path> <selector> <value>
+/// doc.prepend <path> <selector> <value>
 /// doc.update <path> <selector> <value>
 /// doc.move <path> <from> <to>
 /// doc.delete_where <path> <selector> <predicate>
@@ -31,15 +31,15 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.insert_after_heading <path> <heading> <content>
 /// md.insert_before_heading <path> <heading> <content>
 /// md.dedupe_headings <path>
-/// hygiene.fix <path>
+/// tidy.fix <path>
 /// ```
 ///
 /// Lines starting with `#` are comments. Empty lines are ignored.
 /// Values containing spaces must be quoted with double quotes.
 #[derive(Debug, Args)]
 pub struct BatchArgs {
-    /// Read operations from a file instead of stdin. Use `-` for stdin (default).
-    #[arg(long, default_value = "-")]
+    /// Read operations from a file, or stdin if omitted.
+    #[arg(default_value = "-")]
     pub input: String,
 
     #[command(flatten)]
@@ -61,7 +61,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[2])?;
             Ok(Operation::DocSet {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 value,
             })
         }
@@ -69,7 +69,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 2, line_num)?;
             Ok(Operation::DocDelete {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
             })
         }
         "doc.merge" => {
@@ -85,7 +85,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[2])?;
             Ok(Operation::DocEnsure {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 value,
             })
         }
@@ -94,7 +94,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[2])?;
             Ok(Operation::DocAppend {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 value,
             })
         }
@@ -103,7 +103,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[2])?;
             Ok(Operation::DocPrepend {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 value,
             })
         }
@@ -166,7 +166,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[2])?;
             Ok(Operation::DocUpdate {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 value,
             })
         }
@@ -182,7 +182,7 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 3, line_num)?;
             Ok(Operation::DocDeleteWhere {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 predicate: args[2].clone(),
             })
         }
@@ -216,9 +216,9 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 path: args[0].clone(),
             })
         }
-        "hygiene.fix" => {
+        "tidy.fix" => {
             require_args(op, args, 1, line_num)?;
-            Ok(Operation::HygieneFix {
+            Ok(Operation::TidyFix {
                 path: args[0].clone(),
                 ensure_final_newline: None,
                 trim_trailing_whitespace: None,
@@ -476,8 +476,8 @@ mod tests {
         let op = parse_line("doc.set config.json version 42", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, key, value }
-            if path == "config.json" && key == "version" && value == serde_json::json!(42)
+            Operation::DocSet { path, selector, value }
+            if path == "config.json" && selector == "version" && value == serde_json::json!(42)
         ));
     }
 
@@ -486,8 +486,8 @@ mod tests {
         let op = parse_line(r#"doc.set config.json name "my app""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, key, value }
-            if path == "config.json" && key == "name" && value == serde_json::json!("my app")
+            Operation::DocSet { path, selector, value }
+            if path == "config.json" && selector == "name" && value == serde_json::json!("my app")
         ));
     }
 
@@ -518,11 +518,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_line_hygiene_fix() {
-        let op = parse_line("hygiene.fix src/lib.rs", 1).unwrap();
+    fn parse_line_tidy_fix() {
+        let op = parse_line("tidy.fix src/lib.rs", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::HygieneFix { path, ensure_final_newline, trim_trailing_whitespace, normalize_eol }
+            Operation::TidyFix { path, ensure_final_newline, trim_trailing_whitespace, normalize_eol }
             if path == "src/lib.rs"
                 && ensure_final_newline.is_none()
                 && trim_trailing_whitespace.is_none()
@@ -548,8 +548,8 @@ mod tests {
         let op = parse_line(r#"doc.update config.json items[*] "{\"active\":true}""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocUpdate { path, key, value }
-            if path == "config.json" && key == "items[*]" && value == serde_json::json!({"active": true})
+            Operation::DocUpdate { path, selector, value }
+            if path == "config.json" && selector == "items[*]" && value == serde_json::json!({"active": true})
         ));
     }
 
@@ -568,8 +568,8 @@ mod tests {
         let op = parse_line(r#"doc.delete_where config.json items "status=obsolete""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocDeleteWhere { path, key, predicate }
-            if path == "config.json" && key == "items" && predicate == "status=obsolete"
+            Operation::DocDeleteWhere { path, selector, predicate }
+            if path == "config.json" && selector == "items" && predicate == "status=obsolete"
         ));
     }
 

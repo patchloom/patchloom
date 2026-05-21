@@ -163,7 +163,7 @@ pub struct MdReplaceSectionParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct HygieneParams {
+pub struct TidyParams {
     /// File path to normalize.
     pub path: String,
 }
@@ -344,7 +344,7 @@ fn validate_operation_paths(
             | Operation::MdUpsertBullet { path, .. }
             | Operation::MdTableAppend { path, .. }
             | Operation::MdDedupeHeadings { path, .. }
-            | Operation::HygieneFix { path, .. }
+            | Operation::TidyFix { path, .. }
             | Operation::FileCreate { path, .. }
             | Operation::FileDelete { path, .. }
             | Operation::Read { path, .. }
@@ -425,7 +425,7 @@ fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, Mcp
         .map_err(|e| McpError::internal_error(format!("failed to get current exe: {e}"), None))?;
 
     let output = std::process::Command::new(&exe)
-        .args(["--json", "tx", "--plan"])
+        .args(["--json", "tx"])
         .arg(tmp.path())
         .arg("--apply")
         .current_dir(cwd)
@@ -517,7 +517,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 value: p.value,
             }]),
             &self.cwd,
@@ -535,7 +535,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
             }]),
             &self.cwd,
         )
@@ -569,7 +569,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 value: p.value,
             }]),
             &self.cwd,
@@ -587,7 +587,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 value: p.value,
             }]),
             &self.cwd,
@@ -605,7 +605,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 value: p.value,
             }]),
             &self.cwd,
@@ -623,7 +623,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 predicate: p.predicate,
             }]),
             &self.cwd,
@@ -641,7 +641,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
-                key: p.key,
+                selector: p.key,
                 value: p.value,
             }]),
             &self.cwd,
@@ -941,13 +941,13 @@ impl PatchloomService {
     #[tool(
         description = "Fix whitespace: ensures file ends with a newline and trims trailing spaces from all lines."
     )]
-    async fn patchloom_hygiene(
+    async fn patchloom_tidy(
         &self,
-        Parameters(p): Parameters<HygieneParams>,
+        Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
         execute_plan(
-            make_plan(vec![Operation::HygieneFix {
+            make_plan(vec![Operation::TidyFix {
                 path: p.path,
                 ensure_final_newline: Some(true),
                 trim_trailing_whitespace: Some(true),
@@ -1066,7 +1066,7 @@ impl ServerHandler for PatchloomService {
                      patchloom_md_* for markdown edits, patchloom_replace for text replacement, \
                      patchloom_search for file content search, patchloom_read for reading files, \
                      patchloom_status for git status, patchloom_file_rename for renaming files, \
-                     patchloom_hygiene for whitespace fixes, and patchloom_batch for atomic edits.",
+                     patchloom_tidy for whitespace fixes, and patchloom_batch for atomic edits.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1145,7 +1145,7 @@ mod tests {
         assert!(names.contains(&"patchloom_status"), "missing status tool");
         assert!(names.contains(&"patchloom_replace"), "missing replace tool");
         assert!(names.contains(&"patchloom_batch"), "missing batch tool");
-        assert!(names.contains(&"patchloom_hygiene"), "missing hygiene tool");
+        assert!(names.contains(&"patchloom_tidy"), "missing tidy tool");
         assert!(
             names.contains(&"patchloom_file_rename"),
             "missing file_rename tool"

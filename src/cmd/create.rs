@@ -10,7 +10,6 @@ use std::fs;
 #[derive(Debug, Args)]
 pub struct CreateArgs {
     /// Path of the file to create.
-    #[arg(long)]
     pub file: String,
     /// Content to write (alternative to --stdin).
     #[arg(long)]

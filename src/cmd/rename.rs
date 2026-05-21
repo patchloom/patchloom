@@ -10,10 +10,8 @@ use std::fs;
 #[derive(Debug, Args)]
 pub struct RenameArgs {
     /// Source file path.
-    #[arg(long)]
     pub from: String,
     /// Destination file path.
-    #[arg(long)]
     pub to: String,
     /// Overwrite if destination already exists.
     #[arg(long)]

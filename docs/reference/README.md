@@ -46,7 +46,7 @@ These flags shape how written content is normalized before it reaches disk.
 
 - **What it does:** Ensures non-empty written files end with `\n`.
 - **Use when:** You want simple newline hygiene on every touched file without running a separate cleanup command.
-- **Prefer instead:** Use `hygiene fix` when the goal is repo cleanup, not just normalization of files already being edited.
+- **Prefer instead:** Use `tidy fix` when the goal is repo cleanup, not just normalization of files already being edited.
 
 <!-- ref:write-flag:normalize-eol -->
 ### `--normalize-eol`
@@ -60,7 +60,7 @@ These flags shape how written content is normalized before it reaches disk.
 
 - **What it does:** Removes trailing spaces and tabs from touched lines before writing.
 - **Use when:** You want text cleanup to happen automatically as part of another write command.
-- **Prefer instead:** Use `hygiene fix` when the goal is to sweep existing files for whitespace problems.
+- **Prefer instead:** Use `tidy fix` when the goal is to sweep existing files for whitespace problems.
 
 <!-- ref:write-flag:respect-editorconfig -->
 ### `--respect-editorconfig`
@@ -163,13 +163,13 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `replace` for plain text, `md` for markdown, or `patch` for existing diffs.
 - **Related:** `doc` actions, `tx` document operations
 
-<!-- ref:command:hygiene -->
-## `hygiene`
+<!-- ref:command:tidy -->
+## `tidy`
 
 - **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines.
-- **Use when:** You need repo text normalization, or a CI guard for basic text hygiene.
+- **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
-- **Related:** `hygiene check`, `hygiene fix`, `tx hygiene.fix`
+- **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
 
 <!-- ref:command:create -->
 ## `create`
@@ -207,7 +207,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 20 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.dedupe_headings, hygiene.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 20 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.dedupe_headings, tidy.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
@@ -615,19 +615,19 @@ Use these when the change already exists as a unified diff.
 - **Use when:** The desired change is already available as patch text and should be replayed directly.
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
 
-## `hygiene` actions
+## `tidy` actions
 
 Use these when newline and whitespace correctness is the main concern.
 
-<!-- ref:hygiene-action:check -->
-### `hygiene check`
+<!-- ref:tidy-action:check -->
+### `tidy check`
 
 - **What it does:** Reports missing final newlines, mixed line endings, and trailing whitespace.
-- **Use when:** You want a non mutating hygiene audit for CI or local review.
-- **Prefer instead:** Use `hygiene fix` when the goal is to normalize the files immediately.
+- **Use when:** You want a non mutating tidy audit for CI or local review.
+- **Prefer instead:** Use `tidy fix` when the goal is to normalize the files immediately.
 
-<!-- ref:hygiene-action:fix -->
-### `hygiene fix`
+<!-- ref:tidy-action:fix -->
+### `tidy fix`
 
 - **What it does:** Applies newline and whitespace normalization.
 - **Use when:** Existing files already need cleanup and the cleanup itself is the task.
@@ -814,12 +814,12 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** Cleanup of generated docs should stay atomic with the rest of the plan.
 - **Related:** top level `md dedupe-headings`
 
-<!-- ref:tx-op:hygiene.fix -->
-### `hygiene.fix`
+<!-- ref:tx-op:tidy.fix -->
+### `tidy.fix`
 
-- **What it does:** Applies hygiene normalization inside a transaction.
+- **What it does:** Applies tidy normalization inside a transaction.
 - **Use when:** Text cleanup should be part of the same atomic success criteria as other edits.
-- **Related:** top level `hygiene fix`
+- **Related:** top level `tidy fix`
 
 <!-- ref:tx-op:file.create -->
 ### `file.create`

@@ -648,7 +648,6 @@ fn test_replace_apply_modifies_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("old_text")
         .arg("--to")
         .arg("new_text")
@@ -675,7 +674,6 @@ fn test_replace_dry_run_does_not_modify_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("old_text")
         .arg("--to")
         .arg("new_text")
@@ -714,7 +712,6 @@ fn test_patch_apply_dry_run_does_not_modify_file() {
         .arg(dir.path())
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .assert()
         .success();
@@ -745,7 +742,6 @@ fn test_patch_apply_with_apply_flag_writes_file() {
         .arg(dir.path())
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--apply")
         .assert()
@@ -764,7 +760,6 @@ fn test_replace_if_exists_no_match_exit_0() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("nonexistent")
         .arg("--to")
         .arg("new")
@@ -789,7 +784,6 @@ fn test_quiet_suppresses_replace_output() {
         .unwrap()
         .arg("--quiet")
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("hi")
@@ -818,7 +812,6 @@ fn test_quiet_suppresses_create_output() {
         .unwrap()
         .arg("--quiet")
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello")
@@ -895,7 +888,7 @@ fn test_search_files_with_matches_returns_success_on_match() {
 }
 
 #[test]
-fn test_quiet_suppresses_hygiene_check_output() {
+fn test_quiet_suppresses_tidy_check_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("no_newline.txt");
     fs::write(&file, "missing newline").unwrap();
@@ -903,7 +896,7 @@ fn test_quiet_suppresses_hygiene_check_output() {
     let result = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--quiet")
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(dir.path())
         .assert()
@@ -913,7 +906,7 @@ fn test_quiet_suppresses_hygiene_check_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.is_empty(),
-        "quiet mode should suppress hygiene check output, got: {stdout}"
+        "quiet mode should suppress tidy check output, got: {stdout}"
     );
 }
 
@@ -951,7 +944,6 @@ fn test_replace_empty_from_rejected() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("")
         .arg("--to")
         .arg("X")
@@ -983,7 +975,6 @@ fn test_tx_replace_empty_from_rejected() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -1002,7 +993,6 @@ fn test_replace_invalid_regex_fails() {
         .unwrap()
         .arg("replace")
         .arg("--regex")
-        .arg("--from")
         .arg("[invalid(regex")
         .arg("--to")
         .arg("x")
@@ -1026,7 +1016,6 @@ fn test_replace_multiline_regex() {
         .arg("replace")
         .arg("--regex")
         .arg("--multiline")
-        .arg("--from")
         .arg(r"fn main\(\) \{.*\}")
         .arg("--to")
         .arg("fn main() { /* replaced */ }")
@@ -1519,7 +1508,6 @@ fn test_tx_yaml_doc_set_preserves_comments() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(&plan)
         .arg("--apply")
         .assert()
@@ -1990,7 +1978,6 @@ fn test_md_replace_section() {
         .unwrap()
         .arg("md")
         .arg("replace-section")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Section")
@@ -2029,7 +2016,6 @@ fn test_md_table_append() {
         .unwrap()
         .arg("md")
         .arg("table-append")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Table")
@@ -2060,7 +2046,6 @@ fn test_md_insert_after_heading() {
         .unwrap()
         .arg("md")
         .arg("insert-after-heading")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("# Title")
@@ -2091,7 +2076,6 @@ fn test_md_upsert_bullet_adds_new() {
         .unwrap()
         .arg("md")
         .arg("upsert-bullet")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Rules")
@@ -2120,7 +2104,6 @@ fn test_md_upsert_bullet_skips_duplicate() {
         .unwrap()
         .arg("md")
         .arg("upsert-bullet")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Rules")
@@ -2132,18 +2115,18 @@ fn test_md_upsert_bullet_skips_duplicate() {
 }
 
 // ---------------------------------------------------------------------------
-// hygiene
+// tidy
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_hygiene_check_detects_missing_newline() {
+fn test_tidy_check_detects_missing_newline() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "no trailing newline").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(&file)
         .assert()
@@ -2151,14 +2134,14 @@ fn test_hygiene_check_detects_missing_newline() {
 }
 
 #[test]
-fn test_hygiene_fix_apply() {
+fn test_tidy_fix_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "no trailing newline").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("fix")
         .arg(&file)
         .arg("--ensure-final-newline")
@@ -2704,7 +2687,6 @@ fn test_create_new_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello")
@@ -2725,7 +2707,6 @@ fn test_create_refuses_overwrite() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("overwrite")
@@ -2776,7 +2757,6 @@ fn test_tx_multi_op_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -2826,7 +2806,6 @@ fn test_tx_rollback_on_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -2864,7 +2843,6 @@ fn test_tx_rollback_preserves_original_content() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -2898,7 +2876,6 @@ fn test_tx_success_applies_all() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -2929,7 +2906,6 @@ fn test_tx_check_mode_reports_changes_without_writing() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .assert()
@@ -3165,7 +3141,6 @@ fn test_replace_check_exits_2() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("hi")
@@ -3182,14 +3157,14 @@ fn test_replace_check_exits_2() {
 }
 
 #[test]
-fn test_hygiene_check_exits_2_with_issues() {
+fn test_tidy_check_exits_2_with_issues() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "no trailing newline").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(&file)
         .assert()
@@ -3197,14 +3172,14 @@ fn test_hygiene_check_exits_2_with_issues() {
 }
 
 #[test]
-fn test_hygiene_check_json_output() {
+fn test_tidy_check_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "trailing spaces   \nno final newline").unwrap();
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(&file)
         .arg("--json")
@@ -3290,7 +3265,7 @@ fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
 }
 
 #[test]
-fn test_hygiene_check_jsonl_output() {
+fn test_tidy_check_jsonl_output() {
     let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.txt");
     let b = dir.path().join("b.txt");
@@ -3299,7 +3274,7 @@ fn test_hygiene_check_jsonl_output() {
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(&a)
         .arg(&b)
@@ -3327,14 +3302,14 @@ fn test_hygiene_check_jsonl_output() {
 }
 
 #[test]
-fn test_hygiene_check_exits_0_when_clean() {
+fn test_tidy_check_exits_0_when_clean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "clean file\n").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg(&file)
         .assert()
@@ -3352,7 +3327,6 @@ fn test_patch_apply_json_parse_error_returns_error_object() {
         .arg("--json")
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .output()
         .unwrap();
@@ -3380,7 +3354,6 @@ fn test_patch_apply_json_stale_error_returns_error_object() {
         .arg(dir.path())
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--apply")
         .output()
@@ -3408,7 +3381,6 @@ fn test_patch_check_exits_0_when_clean() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .assert()
         .success();
@@ -3433,7 +3405,6 @@ fn test_patch_check_json_output_clean() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--json")
         .output()
@@ -3458,7 +3429,6 @@ fn test_patch_apply_jsonl_parse_error_returns_error_object() {
         .arg("--jsonl")
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .output()
         .unwrap();
@@ -3485,7 +3455,6 @@ fn test_patch_check_jsonl_output() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--jsonl")
         .output()
@@ -3524,7 +3493,6 @@ fn test_patch_check_exits_5_when_stale() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .assert()
         .code(5);
@@ -3549,7 +3517,6 @@ fn test_patch_check_exits_5_on_directory_read_error() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .assert()
         .code(5)
@@ -3577,7 +3544,6 @@ fn test_patch_check_json_reports_directory_read_error() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--json")
         .output()
@@ -3615,7 +3581,6 @@ fn test_patch_check_jsonl_reports_directory_read_error() {
         .arg(dir.path())
         .arg("patch")
         .arg("check")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--jsonl")
         .output()
@@ -3662,7 +3627,6 @@ fn test_patch_apply_check_quiet_suppresses_output() {
         .arg(dir.path())
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .arg("--check")
         .assert()
@@ -3683,7 +3647,6 @@ fn test_create_check_exits_2() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello")
@@ -3702,7 +3665,6 @@ fn test_create_check_jsonl_output() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
@@ -3727,7 +3689,6 @@ fn test_create_check_json_output() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
@@ -3764,9 +3725,7 @@ fn test_rename_moves_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .assert()
@@ -3786,9 +3745,7 @@ fn test_rename_check_does_not_move() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--check")
         .output()
@@ -3813,9 +3770,7 @@ fn test_rename_refuses_overwrite_without_force() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .assert()
@@ -3837,9 +3792,7 @@ fn test_rename_force_overwrites() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--force")
         .arg("--apply")
@@ -3857,9 +3810,7 @@ fn test_rename_missing_source_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(dir.path().join("nope.txt"))
-        .arg("--to")
         .arg(dir.path().join("dst.txt"))
         .arg("--apply")
         .assert()
@@ -3876,9 +3827,7 @@ fn test_rename_check_directory_source_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--check")
         .assert()
@@ -3900,9 +3849,7 @@ fn test_rename_force_directory_destination_fails_in_dry_run() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--force")
         .assert()
@@ -3924,9 +3871,7 @@ fn test_rename_force_directory_destination_fails_in_check_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--force")
         .arg("--check")
@@ -3949,9 +3894,7 @@ fn test_rename_force_directory_destination_fails_in_apply_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--force")
         .arg("--apply")
@@ -3973,9 +3916,7 @@ fn test_rename_directory_source_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .assert()
@@ -3997,9 +3938,7 @@ fn test_rename_binary_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .assert()
@@ -4019,9 +3958,7 @@ fn test_rename_check_jsonl_output() {
         .unwrap()
         .arg("--jsonl")
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(dir.path().join("new.txt"))
         .arg("--check")
         .output()
@@ -4046,9 +3983,7 @@ fn test_rename_json_output() {
         .unwrap()
         .arg("--json")
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .output()
@@ -4073,9 +4008,7 @@ fn test_rename_check_json_output() {
         .unwrap()
         .arg("--json")
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(dir.path().join("new.txt"))
         .arg("--check")
         .output()
@@ -4099,9 +4032,7 @@ fn test_rename_binary_file_diff_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(dir.path().join("moved.bin"))
         .assert()
         .success();
@@ -4120,9 +4051,7 @@ fn test_rename_with_write_policy() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--ensure-final-newline")
         .arg("--apply")
@@ -4143,9 +4072,7 @@ fn test_rename_binary_with_write_policy_includes_path_in_error() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(dir.path().join("moved.bin"))
         .arg("--trim-trailing-whitespace")
         .arg("--apply")
@@ -4169,9 +4096,7 @@ fn test_rename_default_diff_preview() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .assert()
         .success()
@@ -4193,9 +4118,7 @@ fn test_rename_creates_parent_dirs() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg("--from")
         .arg(&src)
-        .arg("--to")
         .arg(&dst)
         .arg("--apply")
         .assert()
@@ -4217,7 +4140,6 @@ fn test_create_check_fails_if_parent_missing() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
@@ -4239,7 +4161,6 @@ fn test_create_check_force_skips_parent_verification() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
@@ -4289,7 +4210,6 @@ fn test_replace_json_check_output() {
         .unwrap()
         .arg("--json")
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("bye")
@@ -4315,7 +4235,6 @@ fn test_replace_jsonl_check_output() {
         .unwrap()
         .arg("--jsonl")
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("bye")
@@ -4422,10 +4341,10 @@ fn test_parse_subcommand_doc() {
 }
 
 #[test]
-fn test_parse_subcommand_hygiene() {
+fn test_parse_subcommand_tidy() {
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["hygiene", "--help"])
+        .args(["tidy", "--help"])
         .assert()
         .success();
 }
@@ -4461,7 +4380,7 @@ fn test_parse_global_flag_json() {
 fn test_parse_write_flag_ensure_final_newline() {
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["hygiene", "--ensure-final-newline", "--help"])
+        .args(["tidy", "--ensure-final-newline", "--help"])
         .assert()
         .success();
 }
@@ -4682,7 +4601,6 @@ fn test_md_dedupe_headings_removes_duplicate() {
         .unwrap()
         .arg("md")
         .arg("dedupe-headings")
-        .arg("--file")
         .arg(&file)
         .arg("--apply")
         .assert()
@@ -4704,7 +4622,6 @@ fn test_md_dedupe_headings_jsonl_output() {
         .arg("--jsonl")
         .arg("md")
         .arg("dedupe-headings")
-        .arg("--file")
         .arg(&file)
         .arg("--apply")
         .output()
@@ -4729,7 +4646,6 @@ fn test_md_dedupe_headings_json_output() {
         .arg("--json")
         .arg("md")
         .arg("dedupe-headings")
-        .arg("--file")
         .arg(&file)
         .arg("--apply")
         .output()
@@ -4753,7 +4669,6 @@ fn test_md_lint_agents_quiet_suppresses_output() {
         .arg("--quiet")
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .output()
         .unwrap();
@@ -4775,7 +4690,6 @@ fn test_md_lint_agents_clean_file_exits_0() {
         .unwrap()
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .assert()
         .success();
@@ -4795,7 +4709,6 @@ fn test_md_lint_agents_bad_file_exits_2() {
         .unwrap()
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .assert()
         .code(2);
@@ -4817,7 +4730,6 @@ fn test_md_lint_agents_skips_fenced_code_blocks() {
         .unwrap()
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .assert()
         .success();
@@ -4838,7 +4750,6 @@ fn test_md_lint_agents_json_output() {
         .arg("--json")
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .output()
         .unwrap();
@@ -4866,7 +4777,6 @@ fn test_md_lint_agents_jsonl_output() {
         .arg("--jsonl")
         .arg("md")
         .arg("lint-agents")
-        .arg("--file")
         .arg(&file)
         .output()
         .unwrap();
@@ -5058,7 +4968,6 @@ fn test_create_force_directory_target_fails_in_dry_run() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&target)
         .arg("--content")
         .arg("hello\n")
@@ -5079,7 +4988,6 @@ fn test_create_force_directory_target_fails_in_check_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&target)
         .arg("--content")
         .arg("hello\n")
@@ -5101,7 +5009,6 @@ fn test_create_force_directory_target_fails_in_apply_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&target)
         .arg("--content")
         .arg("hello\n")
@@ -5123,7 +5030,6 @@ fn test_create_force_overwrites_existing() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("overwritten")
@@ -5149,7 +5055,6 @@ fn test_replace_no_match_without_if_exists_exits_3() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("nonexistent_pattern_xyz")
         .arg("--to")
         .arg("new")
@@ -5199,7 +5104,6 @@ fn test_tx_file_create_and_delete() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5228,7 +5132,6 @@ fn test_tx_check_create_then_delete_is_noop() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .assert()
@@ -5258,7 +5161,6 @@ fn test_tx_json_output_create_then_delete_is_noop() {
         .arg(dir.path())
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .output()
@@ -5292,7 +5194,6 @@ fn test_tx_file_delete_directory_target_fails() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .assert()
         .code(7)
@@ -5320,7 +5221,6 @@ fn test_tx_file_delete_existing() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5348,7 +5248,6 @@ fn test_tx_cli_ensure_final_newline_flag() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--ensure-final-newline")
         .arg("--apply")
@@ -5388,7 +5287,6 @@ fn test_tx_plan_write_policy_overrides_cli_flag() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--ensure-final-newline")
         .arg("--apply")
@@ -5428,7 +5326,6 @@ fn test_tx_write_policy_ensure_final_newline() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5492,7 +5389,6 @@ fn test_patch_malformed_file_fails() {
         .arg(dir.path())
         .arg("patch")
         .arg("apply")
-        .arg("--file")
         .arg(&patch_file)
         .assert()
         .failure();
@@ -5612,7 +5508,6 @@ fn test_tx_validate_required_failure_exits_6() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5638,7 +5533,6 @@ fn test_tx_doc_delete_in_plan() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5789,7 +5683,6 @@ fn test_tx_file_delete_empty_file() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5818,7 +5711,6 @@ fn test_tx_file_rename_directory_source_fails() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .assert()
         .code(7)
@@ -5847,7 +5739,6 @@ fn test_tx_file_rename_moves_file() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5879,7 +5770,6 @@ fn test_tx_file_rename_fails_if_dst_exists() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .output()
@@ -5917,7 +5807,6 @@ fn test_tx_file_rename_force_overwrites() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -5949,7 +5838,6 @@ fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .assert()
         .code(7)
@@ -5978,7 +5866,6 @@ fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .assert()
@@ -6008,7 +5895,6 @@ fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6037,7 +5923,6 @@ fn test_tx_file_rename_same_path_is_noop() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6094,7 +5979,6 @@ fn test_tx_optional_validation_failure_ignored() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6122,7 +6006,6 @@ fn test_md_replace_section_check_exits_2_no_write() {
         .unwrap()
         .arg("md")
         .arg("replace-section")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Section")
@@ -6140,18 +6023,18 @@ fn test_md_replace_section_check_exits_2_no_write() {
 }
 
 // ---------------------------------------------------------------------------
-// hygiene fix --check
+// tidy fix --check
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_hygiene_fix_check_exits_2_no_write() {
+fn test_tidy_fix_check_exits_2_no_write() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "trailing whitespace   ").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("fix")
         .arg(&file)
         .arg("--ensure-final-newline")
@@ -6181,7 +6064,6 @@ fn test_md_apply_check_does_not_write() {
         .unwrap()
         .arg("md")
         .arg("replace-section")
-        .arg("--file")
         .arg(&file)
         .arg("--heading")
         .arg("## Section")
@@ -6223,7 +6105,6 @@ fn test_tx_glob_replace_only_matches_pattern() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6265,7 +6146,6 @@ fn test_tx_glob_replace_matches_file_created_earlier_in_transaction() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6297,7 +6177,6 @@ fn test_tx_glob_replace_matches_nested_relative_pattern() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6345,7 +6224,6 @@ fn test_tx_md_replace_section_in_plan() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .assert()
@@ -6370,7 +6248,6 @@ fn test_replace_normalize_eol_lf() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("old")
         .arg("--to")
         .arg("new")
@@ -6400,7 +6277,6 @@ fn test_create_trim_trailing_whitespace() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("hello   \nworld\t\n")
@@ -6424,7 +6300,6 @@ fn test_create_ensure_final_newline() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("no trailing newline")
@@ -6448,7 +6323,6 @@ fn test_create_normalize_eol_lf() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
-        .arg("--file")
         .arg(&file)
         .arg("--content")
         .arg("line1\r\nline2\r\n")
@@ -6479,7 +6353,6 @@ fn test_replace_directory_modifies_all_matching_files() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("bye")
@@ -6547,7 +6420,7 @@ fn test_editorconfig_final_newline() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("fix")
         .arg(&file)
         .arg("--respect-editorconfig")
@@ -6576,7 +6449,6 @@ fn test_replace_nth_replaces_only_nth_occurrence() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("foo")
         .arg("--to")
         .arg("REPLACED")
@@ -6600,7 +6472,6 @@ fn test_replace_nth_zero_rejected() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("hi")
@@ -6626,7 +6497,6 @@ fn test_replace_nth_no_match_when_out_of_range() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("foo")
         .arg("--to")
         .arg("REPLACED")
@@ -6666,7 +6536,6 @@ fn test_replace_insert_before() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("    /// Doc comment.")
         .arg("--insert-before")
         .arg("    // marker\n")
@@ -6690,7 +6559,6 @@ fn test_replace_insert_after() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("anchor")
         .arg("--insert-after")
         .arg(" // tagged")
@@ -6714,7 +6582,6 @@ fn test_replace_insert_before_with_regex() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("b+")
         .arg("--regex")
         .arg("--insert-before")
@@ -6736,7 +6603,6 @@ fn test_replace_insert_after_with_regex() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("b+")
         .arg("--regex")
         .arg("--insert-after")
@@ -6758,7 +6624,6 @@ fn test_replace_insert_before_nth() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("a")
         .arg("--insert-before")
         .arg("[")
@@ -6781,7 +6646,6 @@ fn test_replace_insert_before_and_to_conflict() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("world")
@@ -6816,7 +6680,6 @@ fn test_tx_replace_insert_before_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -6849,7 +6712,6 @@ fn test_tx_replace_insert_before_with_regex_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -6879,7 +6741,6 @@ fn test_tx_replace_insert_after_with_regex_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -6911,7 +6772,6 @@ fn test_tx_replace_rejects_both_insert_before_and_after() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -6943,7 +6803,6 @@ fn test_tx_replace_rejects_to_with_insert() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -6961,7 +6820,6 @@ fn test_replace_case_insensitive() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("hello")
         .arg("--to")
         .arg("HI")
@@ -7009,7 +6867,6 @@ fn test_delete_removes_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7028,7 +6885,6 @@ fn test_delete_jsonl_check_output() {
         .unwrap()
         .arg("--jsonl")
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--check")
         .output()
@@ -7051,7 +6907,6 @@ fn test_delete_json_apply_output() {
         .unwrap()
         .arg("--json")
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -7076,7 +6931,6 @@ fn test_delete_json_check_output() {
         .unwrap()
         .arg("--json")
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--check")
         .output()
@@ -7100,7 +6954,6 @@ fn test_delete_check_mode_does_not_remove() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--check")
         .assert()
@@ -7118,7 +6971,6 @@ fn test_delete_directory_target_fails_in_dry_run() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(target.to_str().unwrap())
         .assert()
         .code(1)
@@ -7136,7 +6988,6 @@ fn test_delete_directory_target_fails_in_check_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(target.to_str().unwrap())
         .arg("--check")
         .assert()
@@ -7154,7 +7005,6 @@ fn test_delete_nonexistent_file_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7175,7 +7025,6 @@ fn test_md_insert_before_heading() {
         .unwrap()
         .arg("md")
         .arg("insert-before-heading")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--heading")
         .arg("Section B")
@@ -7207,7 +7056,6 @@ fn test_tx_file_create_new_file_writes_content() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7240,7 +7088,6 @@ fn test_tx_file_create_force_directory_target_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .assert()
         .code(7)
@@ -7269,7 +7116,6 @@ fn test_tx_file_create_force_overwrites() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7297,7 +7143,6 @@ fn test_tx_file_create_without_force_fails_on_existing() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7330,7 +7175,6 @@ fn test_tx_format_step_runs_between_write_and_validate() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7360,7 +7204,6 @@ fn test_tx_doc_prepend_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7391,7 +7234,6 @@ fn test_tx_doc_set_selector_alias_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7419,7 +7261,6 @@ fn test_tx_doc_ensure_selector_alias_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7448,7 +7289,6 @@ fn test_tx_doc_ensure_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7479,7 +7319,6 @@ fn test_tx_doc_move_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7514,7 +7353,6 @@ fn test_tx_doc_delete_where_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7551,7 +7389,6 @@ fn test_tx_doc_update_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7582,7 +7419,6 @@ fn test_tx_md_insert_before_heading_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7612,7 +7448,6 @@ fn test_tx_md_upsert_bullet_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7647,7 +7482,6 @@ fn test_tx_md_table_append_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7679,7 +7513,6 @@ fn test_tx_md_dedupe_headings_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7710,7 +7543,6 @@ fn test_tx_md_insert_after_heading_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7721,7 +7553,7 @@ fn test_tx_md_insert_after_heading_in_plan() {
 }
 
 #[test]
-fn test_tx_hygiene_fix_in_plan() {
+fn test_tx_tidy_fix_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("messy.txt");
     // File has no final newline.
@@ -7729,7 +7561,7 @@ fn test_tx_hygiene_fix_in_plan() {
 
     let plan = serde_json::json!({
         "operations": [{
-            "op": "hygiene.fix",
+            "op": "tidy.fix",
             "path": file.to_str().unwrap(),
             "ensure_final_newline": true
         }]
@@ -7740,7 +7572,6 @@ fn test_tx_hygiene_fix_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7751,14 +7582,14 @@ fn test_tx_hygiene_fix_in_plan() {
 }
 
 #[test]
-fn test_tx_hygiene_fix_trim_trailing_whitespace() {
+fn test_tx_tidy_fix_trim_trailing_whitespace() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("messy.txt");
     fs::write(&file, "hello   \nworld\t\n").unwrap();
 
     let plan = serde_json::json!({
         "operations": [{
-            "op": "hygiene.fix",
+            "op": "tidy.fix",
             "path": file.to_str().unwrap(),
             "trim_trailing_whitespace": true,
             "ensure_final_newline": false
@@ -7770,7 +7601,6 @@ fn test_tx_hygiene_fix_trim_trailing_whitespace() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7781,14 +7611,14 @@ fn test_tx_hygiene_fix_trim_trailing_whitespace() {
 }
 
 #[test]
-fn test_tx_hygiene_fix_normalize_eol() {
+fn test_tx_tidy_fix_normalize_eol() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("crlf.txt");
     fs::write(&file, "line1\r\nline2\r\n").unwrap();
 
     let plan = serde_json::json!({
         "operations": [{
-            "op": "hygiene.fix",
+            "op": "tidy.fix",
             "path": file.to_str().unwrap(),
             "normalize_eol": "lf",
             "ensure_final_newline": false
@@ -7800,7 +7630,6 @@ fn test_tx_hygiene_fix_normalize_eol() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7830,7 +7659,6 @@ fn test_tx_doc_append_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7860,7 +7688,6 @@ fn test_tx_doc_merge_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7895,7 +7722,6 @@ fn test_tx_replace_case_insensitive_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7926,7 +7752,6 @@ fn test_tx_replace_multiline_regex_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7956,7 +7781,6 @@ fn test_tx_replace_nth_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -7985,7 +7809,6 @@ fn test_tx_replace_apply_no_match_exits_3() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8014,7 +7837,6 @@ fn test_tx_replace_check_no_match_exits_3() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--check")
         .assert()
@@ -8042,7 +7864,6 @@ fn test_tx_json_check_replace_no_match_exits_3_without_success_payload() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--check")
         .output()
@@ -8073,7 +7894,6 @@ fn test_tx_replace_if_exists_no_match_succeeds() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8103,7 +7923,6 @@ fn test_tx_replace_if_exists_still_replaces_when_found() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8142,7 +7961,6 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8177,7 +7995,6 @@ fn test_tx_patch_apply_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8221,7 +8038,6 @@ fn test_tx_patch_apply_uses_pending_file_state() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8258,7 +8074,6 @@ fn test_tx_validate_timeout_kills_hanging_command() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .timeout(std::time::Duration::from_secs(10))
@@ -8290,7 +8105,6 @@ fn test_tx_format_timeout_kills_hanging_command() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .timeout(std::time::Duration::from_secs(10))
@@ -8314,7 +8128,6 @@ fn test_tx_read_operation_in_plan() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8348,7 +8161,6 @@ fn test_tx_read_empty_file_without_lines_matches_read_contract() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8377,7 +8189,6 @@ fn test_tx_read_without_lines_preserves_crlf_content() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8406,7 +8217,6 @@ fn test_tx_read_with_lines_in_plan() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8439,7 +8249,6 @@ fn test_tx_read_lines_start_past_eof_clamps_metadata() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8472,7 +8281,6 @@ fn test_tx_read_sees_in_plan_state() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8503,7 +8311,6 @@ fn test_tx_search_operation_in_plan() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8535,7 +8342,6 @@ fn test_tx_search_then_replace_in_plan() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -8578,7 +8384,6 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8613,7 +8418,6 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8647,7 +8451,6 @@ fn test_tx_strict_mode_restores_modified_empty_file_on_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8680,7 +8483,6 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -8711,7 +8513,6 @@ fn test_tx_json_output_on_apply() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -8746,7 +8547,6 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -8780,7 +8580,6 @@ fn test_tx_json_output_on_modified_empty_file_reports_modified_in_check_mode() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--check")
         .output()
@@ -8812,7 +8611,6 @@ fn test_tx_jsonl_output_on_check() {
         .unwrap()
         .arg("--jsonl")
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .output()
@@ -8849,7 +8647,6 @@ fn test_tx_json_output_on_check() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--check")
         .output()
@@ -8882,7 +8679,6 @@ fn test_tx_json_output_with_create_and_delete() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -8915,7 +8711,6 @@ fn test_tx_json_output_on_operation_failure() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -8954,7 +8749,6 @@ fn test_tx_json_output_on_diff() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -8978,7 +8772,6 @@ fn test_tx_json_output_on_parse_error() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9014,7 +8807,6 @@ fn test_tx_replace_requires_replacement_mode() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9044,7 +8836,6 @@ fn test_tx_json_output_on_replace_missing_mode_parse_error() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -9082,7 +8873,6 @@ fn test_tx_json_output_on_replace_conflict_parse_error() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9124,7 +8914,6 @@ fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9163,7 +8952,6 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9205,7 +8993,6 @@ fn test_tx_json_output_on_validation_failure() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9248,7 +9035,6 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9288,7 +9074,6 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9321,7 +9106,6 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9354,7 +9138,6 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9389,7 +9172,6 @@ fn test_tx_format_failure_redacts_shell_command_in_stderr() {
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9427,7 +9209,6 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9469,7 +9250,6 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
         .unwrap()
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .output()
@@ -9510,7 +9290,6 @@ fn test_tx_respect_editorconfig_flag() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--respect-editorconfig")
         .arg("--apply")
@@ -9548,7 +9327,6 @@ fn test_tx_write_policy_ensure_final_newline_on_file_create() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9573,7 +9351,6 @@ fn test_tx_yaml_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9598,7 +9375,6 @@ fn test_tx_toml_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9621,7 +9397,6 @@ fn test_tx_yaml_plan_from_stdin() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg("-")
         .arg("--plan-format")
         .arg("yaml")
@@ -9642,7 +9417,6 @@ fn test_tx_malformed_yaml_returns_parse_error() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .assert()
         .code(4);
@@ -9666,7 +9440,6 @@ fn test_tx_plan_from_stdin() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg("-")
         .arg("--apply")
         .write_stdin(serde_json::to_string(&plan).unwrap())
@@ -9696,7 +9469,6 @@ fn test_tx_create_after_delete_unmarks_deletion() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9741,7 +9513,6 @@ fn test_tx_format_and_validate_success_path() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9764,7 +9535,6 @@ fn test_replace_nth_regex_replaces_only_nth() {
         .unwrap()
         .arg("replace")
         .arg("--regex")
-        .arg("--from")
         .arg(r"v\d+\.\d+")
         .arg("--to")
         .arg("vX.Y")
@@ -9801,7 +9571,6 @@ fn test_tx_replace_nth_regex_with_capture_groups_in_plan() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9821,7 +9590,6 @@ fn test_delete_default_dry_run_does_not_remove() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .assert()
         .success()
@@ -9840,7 +9608,6 @@ fn test_delete_quiet_dry_run_suppresses_output() {
         .unwrap()
         .arg("--quiet")
         .arg("delete")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .assert()
         .success()
@@ -9855,7 +9622,6 @@ fn test_md_table_append_missing_file_includes_path_in_error() {
         .unwrap()
         .arg("md")
         .arg("table-append")
-        .arg("--file")
         .arg("does-not-exist.md")
         .arg("--heading")
         .arg("## T")
@@ -9877,7 +9643,6 @@ fn test_md_insert_before_heading_not_found() {
         .unwrap()
         .arg("md")
         .arg("insert-before-heading")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--heading")
         .arg("Nonexistent")
@@ -9898,7 +9663,6 @@ fn test_md_insert_after_heading_not_found() {
         .unwrap()
         .arg("md")
         .arg("insert-after-heading")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--heading")
         .arg("Nonexistent")
@@ -9919,7 +9683,6 @@ fn test_md_upsert_bullet_heading_not_found() {
         .unwrap()
         .arg("md")
         .arg("upsert-bullet")
-        .arg("--file")
         .arg(file.to_str().unwrap())
         .arg("--heading")
         .arg("Nonexistent")
@@ -9950,7 +9713,6 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -9983,7 +9745,6 @@ fn test_tx_doc_update_no_match_rolls_back() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -10030,7 +9791,6 @@ fn test_tx_multi_op_batch_all_new_ops() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -10080,7 +9840,6 @@ fn test_tx_create_then_replace_on_same_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -10112,7 +9871,6 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -10154,7 +9912,6 @@ fn test_tx_doc_set_then_replace_on_same_file_flushes_cache() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("tx")
-        .arg("--plan")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
@@ -10287,7 +10044,6 @@ fn test_smoke_example_01_basic_replace_plan() {
 
     patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(example_plan_path("01-basic-replace.json"))
         .arg("--apply")
         .assert()
@@ -10305,7 +10061,6 @@ fn test_smoke_example_02_multi_file_batch_plan() {
 
     patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(example_plan_path("02-multi-file-batch.json"))
         .arg("--apply")
         .assert()
@@ -10332,7 +10087,6 @@ fn test_smoke_example_03_markdown_editing_plan() {
 
     patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(example_plan_path("03-markdown-editing.json"))
         .arg("--apply")
         .assert()
@@ -10358,7 +10112,6 @@ fn test_smoke_example_04_doc_mutations_plan() {
 
     patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(example_plan_path("04-doc-mutations.json"))
         .arg("--apply")
         .assert()
@@ -10392,7 +10145,6 @@ fn test_smoke_example_05_strict_mode_plan() {
 
     patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(example_plan_path("05-strict-mode.json"))
         .arg("--apply")
         .assert()
@@ -10447,7 +10199,6 @@ fn test_smoke_example_06_batch_version_bump() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(example_plan_path("06-batch-version-bump.txt"))
         .arg("--apply")
         .assert()
@@ -10496,7 +10247,6 @@ fn test_batch_diff_mode_does_not_write() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .assert()
         .success();
@@ -10519,7 +10269,6 @@ fn test_batch_apply_modifies_files() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10540,7 +10289,6 @@ fn test_batch_empty_input_succeeds() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10556,7 +10304,6 @@ fn test_batch_comment_only_input_succeeds() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10576,7 +10323,6 @@ fn test_batch_json_empty_input_returns_structured_success() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .output()
@@ -10605,7 +10351,6 @@ fn test_batch_jsonl_empty_input_returns_structured_success() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .output()
@@ -10630,7 +10375,6 @@ fn test_batch_malformed_line_fails() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10646,7 +10390,6 @@ fn test_batch_extra_args_fail() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10663,7 +10406,6 @@ fn test_batch_nonexistent_target_file_rollback() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10699,7 +10441,6 @@ fn test_batch_check_mode_reports_changes() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--check")
         .assert()
@@ -10725,7 +10466,6 @@ fn test_batch_quiet_suppresses_empty_message() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .output()
@@ -10753,7 +10493,6 @@ fn test_batch_json_output_on_apply() {
         .arg("--cwd")
         .arg(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .output()
@@ -10776,7 +10515,6 @@ fn test_batch_empty_quoted_string_sets_empty_value() {
 
     patchloom_in(dir.path())
         .arg("batch")
-        .arg("--input")
         .arg(&ops)
         .arg("--apply")
         .assert()
@@ -10848,7 +10586,6 @@ fn test_smoke_quickstart_command_flow() {
 
     patchloom_in(dir.path())
         .arg("replace")
-        .arg("--from")
         .arg("old_function")
         .arg("--to")
         .arg("new_function")
@@ -10864,7 +10601,6 @@ fn test_smoke_quickstart_command_flow() {
 
     patchloom_in(dir.path())
         .arg("replace")
-        .arg("--from")
         .arg("old_function")
         .arg("--to")
         .arg("new_function")
@@ -10966,7 +10702,6 @@ fn test_smoke_quickstart_transaction_snippet() {
 
     let diff_output = patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .output()
         .unwrap();
@@ -10993,7 +10728,6 @@ fn test_smoke_quickstart_transaction_snippet() {
 
     let check_output = patchloom_in(dir.path())
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--check")
         .output()
@@ -11003,7 +10737,6 @@ fn test_smoke_quickstart_transaction_snippet() {
     let apply_output = patchloom_in(dir.path())
         .arg("--json")
         .arg("tx")
-        .arg("--plan")
         .arg(&plan_file)
         .arg("--apply")
         .output()
@@ -11127,7 +10860,7 @@ fn test_smoke_readme_command_examples() {
     assert!(reference.contains("`search`"));
     assert!(reference.contains("`replace`"));
     assert!(reference.contains("`doc`"));
-    assert!(reference.contains("`hygiene`"));
+    assert!(reference.contains("`tidy`"));
     let merge_value = r#"{"settings": {"debug": true}}"#;
 
     let dir = TempDir::new().unwrap();
@@ -11143,7 +10876,6 @@ fn test_smoke_readme_command_examples() {
 
     patchloom_in(dir.path())
         .arg("replace")
-        .arg("--from")
         .arg("old_name")
         .arg("--to")
         .arg("new_name")
@@ -11178,25 +10910,25 @@ fn test_smoke_readme_command_examples() {
         serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
     assert_eq!(config["settings"]["debug"], true);
 
-    let hygiene_target = dir.path().join("notes.txt");
-    fs::write(&hygiene_target, "line with space \nsecond line").unwrap();
+    let tidy_target = dir.path().join("notes.txt");
+    fs::write(&tidy_target, "line with space \nsecond line").unwrap();
 
     patchloom_in(dir.path())
-        .arg("hygiene")
+        .arg("tidy")
         .arg("check")
         .arg("notes.txt")
         .assert()
         .code(2);
 
     patchloom_in(dir.path())
-        .arg("hygiene")
+        .arg("tidy")
         .arg("fix")
         .arg(".")
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
         .success();
-    assert!(fs::read(&hygiene_target).unwrap().ends_with(b"\n"));
+    assert!(fs::read(&tidy_target).unwrap().ends_with(b"\n"));
 }
 
 fn reference_path() -> PathBuf {
@@ -11325,10 +11057,8 @@ fn expected_reference_markers() -> Vec<String> {
     for name in collect_enum_variant_cli_names(&cmd_dir.join("patch.rs"), "pub enum PatchAction") {
         markers.insert(format!("patch-action:{name}"));
     }
-    for name in
-        collect_enum_variant_cli_names(&cmd_dir.join("hygiene.rs"), "pub enum HygieneAction")
-    {
-        markers.insert(format!("hygiene-action:{name}"));
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("tidy.rs"), "pub enum TidyAction") {
+        markers.insert(format!("tidy-action:{name}"));
     }
     for name in collect_struct_field_names(&plan_path, "pub struct Plan") {
         markers.insert(format!("tx-field:{name}"));
@@ -11488,7 +11218,7 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
     );
     assert!(
         agents.contains(
-            "23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops"
+            "23 operation types including all doc/md/replace/tidy/file/patch/read/search ops"
         ),
         "AGENTS.md should describe the current tx operation count"
     );
@@ -11539,7 +11269,6 @@ fn test_replace_skips_binary_files() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
-        .arg("--from")
         .arg("old value")
         .arg("--to")
         .arg("new value")
@@ -11557,7 +11286,7 @@ fn test_replace_skips_binary_files() {
 }
 
 #[test]
-fn test_hygiene_skips_binary_files() {
+fn test_tidy_skips_binary_files() {
     let dir = TempDir::new().unwrap();
     // Text file with trailing whitespace.
     let text_file = dir.path().join("text.txt");
@@ -11570,7 +11299,7 @@ fn test_hygiene_skips_binary_files() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("hygiene")
+        .arg("tidy")
         .arg("fix")
         .arg(dir.path().to_str().unwrap())
         .arg("--trim-trailing-whitespace")
@@ -11758,7 +11487,6 @@ fn test_jsonl_error_envelope_on_delete_nonexistent_file() {
         .unwrap()
         .arg("--jsonl")
         .arg("delete")
-        .arg("--file")
         .arg(nonexistent_path("jsonl-error-del.txt"))
         .arg("--apply")
         .output()
@@ -11780,7 +11508,6 @@ fn test_json_error_envelope_on_delete_nonexistent_file() {
         .unwrap()
         .arg("--json")
         .arg("delete")
-        .arg("--file")
         .arg(nonexistent_path("json-error-del.txt"))
         .arg("--apply")
         .output()

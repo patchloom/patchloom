@@ -80,8 +80,8 @@ def test_tx_multi_file(agent, workspace, patchloom_shim):
 
 
 @pytest.mark.timeout(180)
-def test_hygiene(agent, workspace, patchloom_shim):
-    """Agent should use patchloom hygiene to fix trailing whitespace."""
+def test_tidy(agent, workspace, patchloom_shim):
+    """Agent should use patchloom tidy to fix trailing whitespace."""
     (workspace / "dirty.txt").write_text("line one   \nline two\t\nline three  \n")
     (workspace / "clean.txt").write_text("already clean\n")
 
@@ -92,8 +92,8 @@ def test_hygiene(agent, workspace, patchloom_shim):
         "Fix trailing whitespace in all text files in this project.",
     )
 
-    # Primary: patchloom hygiene was used
-    assert_patchloom_used(result, "hygiene")
+    # Primary: patchloom tidy was used
+    assert_patchloom_used(result, "tidy")
 
     # Secondary: trailing whitespace removed
     content = (workspace / "dirty.txt").read_text()

@@ -20,7 +20,7 @@ If patchloom MCP tools are available in your session (tool names starting with `
 - Accept structured JSON parameters (no shell quoting)
 - Enforce path containment (cannot escape working directory)
 
-Available tools: `patchloom_doc_set`, `patchloom_doc_delete`, `patchloom_doc_merge`, `patchloom_doc_append`, `patchloom_doc_prepend`, `patchloom_doc_ensure`, `patchloom_doc_delete_where`, `patchloom_doc_update`, `patchloom_doc_move`, `patchloom_doc_get`, `patchloom_doc_has`, `patchloom_doc_keys`, `patchloom_doc_len`, `patchloom_doc_select`, `patchloom_doc_flatten`, `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, `patchloom_replace`, `patchloom_md_upsert_bullet`, `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, `patchloom_hygiene`, `patchloom_file_rename`, `patchloom_batch`.
+Available tools: `patchloom_doc_set`, `patchloom_doc_delete`, `patchloom_doc_merge`, `patchloom_doc_append`, `patchloom_doc_prepend`, `patchloom_doc_ensure`, `patchloom_doc_delete_where`, `patchloom_doc_update`, `patchloom_doc_move`, `patchloom_doc_get`, `patchloom_doc_has`, `patchloom_doc_keys`, `patchloom_doc_len`, `patchloom_doc_select`, `patchloom_doc_flatten`, `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, `patchloom_replace`, `patchloom_md_upsert_bullet`, `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, `patchloom_tidy`, `patchloom_file_rename`, `patchloom_batch`.
 
 ## Batching (the main speed win)
 
@@ -48,7 +48,7 @@ patchloom batch --input ops.txt --apply
 For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:
 
 ```bash
-patchloom tx --plan plan.json --apply
+patchloom tx plan.json --apply
 ```
 
 ## Structured edits
@@ -59,7 +59,7 @@ patchloom doc set config.json version '"2.0.0"' --apply
 patchloom doc merge config.yaml --value '{"db":{"pool":10}}' --apply
 
 # Append a row to a markdown table
-patchloom md table-append --file README.md --heading "## API" --row "| new | row |" --apply
+patchloom md table-append README.md --heading "## API" --row "| new | row |" --apply
 ```
 
 On Windows, use double-quote escaping:
@@ -67,7 +67,7 @@ On Windows, use double-quote escaping:
 ```bash
 patchloom doc set config.json version "\"2.0.0\"" --apply
 patchloom doc merge config.yaml --value "{\"db\":{\"pool\":10}}" --apply
-patchloom md table-append --file README.md --heading "## API" --row "| new | row |" --apply
+patchloom md table-append README.md --heading "## API" --row "| new | row |" --apply
 ```
 
 Add `--apply` to all write commands. Without it, patchloom previews changes without writing.
@@ -81,7 +81,7 @@ Add `--apply` to all write commands. Without it, patchloom previews changes with
 patchloom search --count "old_function_name" src/
 
 # Replace in all matching files
-patchloom replace --from "old_function_name" --to "new_function_name" src/ --apply
+patchloom replace "old_function_name" --to "new_function_name" src/ --apply
 ```
 
 ### Edit a CI workflow
@@ -105,11 +105,11 @@ EOF
 ### Multi-file refactoring with a transaction
 
 ```bash
-patchloom tx --plan - --apply <<'EOF'
+patchloom tx - --apply <<'EOF'
 {"operations": [
-{"type": "replace", "path": "src/config.rs", "from": "old_default", "to": "new_default"},
-{"type": "doc.set", "path": "config.toml", "key": "default_value", "value": "new_default"},
-{"type": "md.replace_section", "path": "docs/config.md", "heading": "## Defaults",
+{"op": "replace", "path": "src/config.rs", "from": "old_default", "to": "new_default"},
+{"op": "doc.set", "path": "config.toml", "selector": "default_value", "value": "new_default"},
+{"op": "md.replace_section", "path": "docs/config.md", "heading": "## Defaults",
 "content": "The default value is now `new_default`.\n"}
 ]}
 EOF

@@ -62,15 +62,15 @@ pub enum Operation {
     #[serde(rename = "doc.set")]
     DocSet {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete")]
     DocDelete {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
     },
     #[serde(rename = "doc.merge")]
     DocMerge {
@@ -80,22 +80,22 @@ pub enum Operation {
     #[serde(rename = "doc.append")]
     DocAppend {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.prepend")]
     DocPrepend {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.update")]
     DocUpdate {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.move")]
@@ -107,15 +107,15 @@ pub enum Operation {
     #[serde(rename = "doc.ensure")]
     DocEnsure {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete_where")]
     DocDeleteWhere {
         path: String,
-        #[serde(alias = "selector")]
-        key: String,
+        #[serde(alias = "key")]
+        selector: String,
         predicate: String,
     },
     #[serde(rename = "md.replace_section")]
@@ -150,8 +150,8 @@ pub enum Operation {
     },
     #[serde(rename = "md.dedupe_headings")]
     MdDedupeHeadings { path: String },
-    #[serde(rename = "hygiene.fix")]
-    HygieneFix {
+    #[serde(rename = "tidy.fix", alias = "hygiene.fix")]
+    TidyFix {
         path: String,
         ensure_final_newline: Option<bool>,
         trim_trailing_whitespace: Option<bool>,
@@ -295,47 +295,47 @@ mod tests {
     }
 
     #[test]
-    fn parse_doc_operation_selector_alias_maps_to_key_field() {
+    fn parse_doc_operation_key_alias_maps_to_selector_field() {
         let json = r#"{
             "operations": [
-                {"op": "doc.set", "path": "f.json", "selector": "nested.key", "value": 1},
-                {"op": "doc.delete", "path": "f.json", "selector": "nested.key"},
-                {"op": "doc.append", "path": "f.json", "selector": "items", "value": 1},
-                {"op": "doc.prepend", "path": "f.json", "selector": "items", "value": 0},
-                {"op": "doc.update", "path": "f.json", "selector": "items[*].status", "value": "done"},
-                {"op": "doc.ensure", "path": "f.json", "selector": "defaults.enabled", "value": true},
-                {"op": "doc.delete_where", "path": "f.json", "selector": "items", "predicate": "name=x"}
+                {"op": "doc.set", "path": "f.json", "key": "nested.key", "value": 1},
+                {"op": "doc.delete", "path": "f.json", "key": "nested.key"},
+                {"op": "doc.append", "path": "f.json", "key": "items", "value": 1},
+                {"op": "doc.prepend", "path": "f.json", "key": "items", "value": 0},
+                {"op": "doc.update", "path": "f.json", "key": "items[*].status", "value": "done"},
+                {"op": "doc.ensure", "path": "f.json", "key": "defaults.enabled", "value": true},
+                {"op": "doc.delete_where", "path": "f.json", "key": "items", "predicate": "name=x"}
             ]
         }"#;
         let plan = parse_plan(json).unwrap();
 
         assert!(matches!(
             &plan.operations[0],
-            Operation::DocSet { key, .. } if key == "nested.key"
+            Operation::DocSet { selector, .. } if selector == "nested.key"
         ));
         assert!(matches!(
             &plan.operations[1],
-            Operation::DocDelete { key, .. } if key == "nested.key"
+            Operation::DocDelete { selector, .. } if selector == "nested.key"
         ));
         assert!(matches!(
             &plan.operations[2],
-            Operation::DocAppend { key, .. } if key == "items"
+            Operation::DocAppend { selector, .. } if selector == "items"
         ));
         assert!(matches!(
             &plan.operations[3],
-            Operation::DocPrepend { key, .. } if key == "items"
+            Operation::DocPrepend { selector, .. } if selector == "items"
         ));
         assert!(matches!(
             &plan.operations[4],
-            Operation::DocUpdate { key, .. } if key == "items[*].status"
+            Operation::DocUpdate { selector, .. } if selector == "items[*].status"
         ));
         assert!(matches!(
             &plan.operations[5],
-            Operation::DocEnsure { key, .. } if key == "defaults.enabled"
+            Operation::DocEnsure { selector, .. } if selector == "defaults.enabled"
         ));
         assert!(matches!(
             &plan.operations[6],
-            Operation::DocDeleteWhere { key, .. } if key == "items"
+            Operation::DocDeleteWhere { selector, .. } if selector == "items"
         ));
     }
 
@@ -371,8 +371,8 @@ mod tests {
             {"op": "md.upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
             {"op": "md.table_append", "path": "f.md", "heading": "H", "row": "| a | b |"},
             {"op": "md.dedupe_headings", "path": "f.md"},
-            {"op": "hygiene.fix", "path": "f.txt"},
-            {"op": "hygiene.fix", "path": "f.txt", "trim_trailing_whitespace": true, "normalize_eol": "lf"},
+            {"op": "tidy.fix", "path": "f.txt"},
+            {"op": "tidy.fix", "path": "f.txt", "trim_trailing_whitespace": true, "normalize_eol": "lf"},
             {"op": "file.create", "path": "f.txt", "content": "c"},
             {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
             {"op": "file.delete", "path": "f.txt"},
