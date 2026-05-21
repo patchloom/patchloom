@@ -213,7 +213,7 @@ jobs:
         run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom --json doc get /tmp/bench.json name' --max-runs 100
 
       - name: Benchmark replace dry-run (must be under 50ms)
-        run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom replace --from hello --to world /tmp/bench.txt' --max-runs 100
+        run: hyperfine --warmup 3 --min-runs 20 -N './target/release/patchloom replace hello --to world /tmp/bench.txt' --max-runs 100
 
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
