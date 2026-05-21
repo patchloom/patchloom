@@ -1,5 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
+use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::process;
@@ -54,7 +55,9 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     for path in &args.paths {
         cmd.arg("--").arg(path);
     }
-    let output = cmd.output()?;
+    let output = cmd
+        .output()
+        .context("failed to run `git status` -- is git installed?")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("git status failed: {stderr}");

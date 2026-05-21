@@ -68,16 +68,10 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("file already exists: {}", args.file);
     }
 
-    // --check mode: verify parent directory exists (unless --force will create
-    // it), then report that file would be created.
+    // --check mode: report that file would be created.
+    // Parent directory creation is handled transparently by --apply,
+    // so --check does not reject missing parents.
     if global.check {
-        if !args.force
-            && let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-            && !parent.exists()
-        {
-            bail!("parent directory does not exist: {}", parent.display());
-        }
         let output = CreateOutput {
             ok: true,
             path: args.file.clone(),

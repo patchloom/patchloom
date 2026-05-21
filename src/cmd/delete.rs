@@ -1,5 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
+use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 
@@ -42,7 +43,8 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
-        std::fs::remove_file(path)?;
+        std::fs::remove_file(&path)
+            .with_context(|| format!("failed to delete {}", path.display()))?;
         let output = DeleteOutput {
             ok: true,
             path: args.file.clone(),
