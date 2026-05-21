@@ -197,7 +197,7 @@ Or use a JSON plan with format and validate lifecycle:
 ```json
 {
   "operations": [
-    { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
+    { "op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0" },
     { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "Rules", "bullet": "- Always test" },
     { "op": "replace", "path": "src/main.rs", "from": "v1", "to": "v2" }
   ],
@@ -223,7 +223,7 @@ cargo install --path . --features mcp
 patchloom mcp-server
 ```
 
-MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"file": "config.json", "key": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
+MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
 ## Getting started
 

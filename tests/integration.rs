@@ -7272,7 +7272,7 @@ fn test_tx_doc_prepend_in_plan() {
 }
 
 #[test]
-fn test_tx_doc_set_selector_alias_in_plan() {
+fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
     fs::write(&file, r#"{"nested": {"name": "old"}}"#).unwrap();
@@ -7301,7 +7301,7 @@ fn test_tx_doc_set_selector_alias_in_plan() {
 }
 
 #[test]
-fn test_tx_doc_ensure_selector_alias_in_plan() {
+fn test_tx_doc_ensure_selector_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
     fs::write(&file, r#"{"name": "test"}"#).unwrap();

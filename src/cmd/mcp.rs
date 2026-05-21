@@ -1140,7 +1140,7 @@ mod tests {
         let params = rmcp::model::CallToolRequestParams::new("patchloom_doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "../../etc/passwd",
-                "key": "root",
+                "selector": "root",
                 "value": "hacked"
             }))
             .unwrap(),
