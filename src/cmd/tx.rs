@@ -426,6 +426,8 @@ struct TxState<'a> {
     tx_reads: &'a mut Vec<TxReadResult>,
     tx_searches: &'a mut Vec<TxSearchResult>,
     cwd: &'a Path,
+    quiet: bool,
+    structured: bool,
 }
 
 /// Execute a replace operation within a transaction.
@@ -527,7 +529,9 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                 match result {
                     Ok(c) => c.to_owned(),
                     Err(e) => {
-                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        if !tx.structured && !tx.quiet {
+                            eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        }
                         continue;
                     }
                 }
@@ -535,7 +539,9 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                 match std::fs::read_to_string(&file_path) {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        if !tx.structured && !tx.quiet {
+                            eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+                        }
                         continue;
                     }
                 }
@@ -1334,6 +1340,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             cwd: &cwd,
+            quiet: global.quiet,
+            structured,
         };
         let result = execute_operation(op, &mut tx);
         match result {
