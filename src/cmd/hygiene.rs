@@ -94,15 +94,15 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     let root = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
+    let glob_roots = crate::collect_glob_roots(paths, global, Some(&root))?;
 
-    let file_issues: Vec<Vec<HygieneIssue>> = crate::par_process_files(
-        &file_paths,
-        glob_matcher.as_ref(),
-        |path| match check_file(path) {
-            Ok(issues) if !issues.is_empty() => Some(issues),
-            _ => None,
-        },
-    );
+    let file_issues: Vec<Vec<HygieneIssue>> =
+        crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
+            match check_file(path) {
+                Ok(issues) if !issues.is_empty() => Some(issues),
+                _ => None,
+            }
+        });
 
     Ok(file_issues.into_iter().flatten().collect())
 }
@@ -159,6 +159,7 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let root = global.resolve_cwd()?;
             let glob_matcher = crate::build_glob_matcher(global)?;
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
+            let glob_roots = crate::collect_glob_roots(&paths, global, Some(&root))?;
 
             // Parallel read+compute phase: each file is read, checked for
             // binary content, and has the write policy applied concurrently.
@@ -169,8 +170,11 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 fixed: String,
             }
 
-            let results: Vec<FixResult> =
-                crate::par_process_files(&fix_file_paths, glob_matcher.as_ref(), |file_path| {
+            let results: Vec<FixResult> = crate::par_process_files(
+                &fix_file_paths,
+                glob_matcher.as_ref(),
+                &glob_roots,
+                |file_path| {
                     let data = std::fs::read(file_path).ok()?;
                     if data.is_empty() || is_binary(&data) {
                         return None;
@@ -194,7 +198,8 @@ pub fn run(args: HygieneArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         original: original.into_owned(),
                         fixed,
                     })
-                });
+                },
+            );
 
             // Serial output/write phase for ordered, crash-safe writes.
             let any_changed = !results.is_empty();

@@ -97,6 +97,7 @@ fn collect_replacements(
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots(&args.paths, global, Some(&cwd))?;
     let replacement = build_replacement(args);
     let quiet = global.quiet;
 
@@ -121,7 +122,7 @@ fn collect_replacements(
     let nth = args.nth;
 
     let mut replacements: Vec<FileReplacement> =
-        crate::par_process_files(&file_paths, glob_matcher.as_ref(), |path| {
+        crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::read_text_file(path, "replace", quiet)?;
             let (replaced, count) =
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);

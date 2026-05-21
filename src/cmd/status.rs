@@ -49,6 +49,7 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .arg("status")
         .arg("--porcelain=v1")
         .arg("--no-renames")
+        .arg("--untracked-files=all")
         .arg("-z");
     for path in &args.paths {
         cmd.arg("--").arg(path);
@@ -60,6 +61,7 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let glob_matcher = crate::build_glob_matcher(global)?;
+    let glob_roots = crate::collect_glob_roots(&args.paths, global, Some(&cwd))?;
 
     let mut modified = Vec::new();
     let mut created = Vec::new();
@@ -75,8 +77,9 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             None => continue,
         };
 
+        let file_path = cwd.join(&file);
         if let Some(ref matcher) = glob_matcher
-            && !crate::matches_glob(std::path::Path::new(&file), Some(matcher))
+            && !crate::matches_glob_with_roots(&file_path, Some(matcher), &glob_roots)
         {
             continue;
         }

@@ -373,6 +373,26 @@ fn test_glob_filters_by_pattern() {
         .stdout(predicate::str::contains("skip.txt").not());
 }
 
+#[test]
+fn test_glob_filters_nested_relative_pattern() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub/keep.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("other.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--glob")
+        .arg("sub/*.txt")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("sub/keep.txt"))
+        .stdout(predicate::str::contains("other.txt").not());
+}
+
 // ---------------------------------------------------------------------------
 // --cwd flag
 // ---------------------------------------------------------------------------
@@ -2437,6 +2457,32 @@ fn test_status_glob_matches_filename_with_spaces() {
         created.iter().any(|v| v.as_str() == Some("file name.txt")),
         "glob-filtered status should report the unquoted filename, got: {json}"
     );
+}
+
+#[test]
+fn test_status_glob_matches_nested_relative_pattern() {
+    let dir = TempDir::new().unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
+    fs::create_dir_all(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub/keep.txt"), "new\n").unwrap();
+    fs::write(dir.path().join("other.txt"), "new\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--glob")
+        .arg("sub/*.txt")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let created = json["created"].as_array().unwrap();
+    assert!(created.iter().any(|v| v.as_str() == Some("sub/keep.txt")));
+    assert!(!created.iter().any(|v| v.as_str() == Some("other.txt")));
 }
 
 // ── create command ─────────────────────────────────────────────────
@@ -6019,6 +6065,42 @@ fn test_tx_glob_replace_matches_file_created_earlier_in_transaction() {
     assert_eq!(
         fs::read_to_string(dir.path().join("new.txt")).unwrap(),
         "bye\n"
+    );
+}
+
+#[test]
+fn test_tx_glob_replace_matches_nested_relative_pattern() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub/keep.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("other.txt"), "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "replace", "glob": "sub/*.txt", "from": "hello", "to": "bye"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("sub/keep.txt")).unwrap(),
+        "bye\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("other.txt")).unwrap(),
+        "hello\n"
     );
 }
 
