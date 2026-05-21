@@ -178,12 +178,16 @@ fn kill_process_tree(child: &mut std::process::Child) {
         // The child was spawned in its own process group, so its PID
         // equals its PGID. Kill the entire group.
         let pid = child.id() as i32;
-        // SAFETY: killpg is a POSIX function that sends a signal to a
-        // process group. We pass the child's PID (which is also its
-        // PGID due to process_group(0)) and SIGKILL (9).
-        #[expect(unsafe_code)]
-        unsafe {
-            libc::killpg(pid, libc::SIGKILL);
+        // Guard: if the child has already exited, id() returns 0.
+        // killpg(0, SIGKILL) would kill our own process group.
+        if pid > 0 {
+            // SAFETY: killpg is a POSIX function that sends a signal to a
+            // process group. We pass the child's PID (which is also its
+            // PGID due to process_group(0)) and SIGKILL (9).
+            #[expect(unsafe_code)]
+            unsafe {
+                libc::killpg(pid, libc::SIGKILL);
+            }
         }
     }
     let _ = child.wait();
