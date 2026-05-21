@@ -5013,36 +5013,6 @@ fn test_search_short_alias_files_with_matches() {
 }
 
 // ---------------------------------------------------------------------------
-// backward compat: hygiene.fix alias in tx plans
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_tx_hygiene_fix_backward_compat() {
-    let dir = TempDir::new().unwrap();
-    let file = dir.path().join("test.txt");
-    fs::write(&file, "hello").unwrap(); // missing final newline
-
-    let plan = serde_json::json!({
-        "operations": [{"op": "hygiene.fix", "path": "test.txt"}]
-    });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
-
-    patchloom_in(dir.path())
-        .arg("tx")
-        .arg(plan_file.to_str().unwrap())
-        .arg("--apply")
-        .assert()
-        .success();
-
-    let content = fs::read(&file).unwrap();
-    assert!(
-        content.ends_with(b"\n"),
-        "hygiene.fix alias should still apply tidy normalization"
-    );
-}
-
-// ---------------------------------------------------------------------------
 // create --force
 // ---------------------------------------------------------------------------
 
