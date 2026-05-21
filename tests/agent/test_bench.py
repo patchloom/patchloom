@@ -214,6 +214,78 @@ TASKS = [
             "v4.0.0 released" in (ws / "CHANGELOG.md").read_text(),
         ]),
     },
+    {
+        "name": "yaml_comment_preserve",
+        "prompt": (
+            "Set the 'database.port' key to 5432 in config.yaml. "
+            "The file has comments that MUST be preserved."
+        ),
+        "setup": lambda ws: (ws / "config.yaml").write_text(
+            "# Database configuration\n"
+            "database:\n"
+            "  host: localhost  # primary host\n"
+            "  port: 3306  # default MySQL port\n"
+            "  name: myapp  # database name\n"
+        ),
+        "check": lambda ws: all([
+            "5432" in (ws / "config.yaml").read_text(),
+            "# primary host" in (ws / "config.yaml").read_text(),
+            "# database name" in (ws / "config.yaml").read_text(),
+        ]),
+    },
+    {
+        "name": "md_insert",
+        "prompt": (
+            "Insert the text 'Released on 2026-01-15.' immediately after the '## v2.0.0' heading "
+            "in CHANGELOG.md. Do NOT replace the existing content under that heading."
+        ),
+        "setup": lambda ws: (ws / "CHANGELOG.md").write_text(
+            "# Changelog\n\n"
+            "## v2.0.0\n\n"
+            "- Added new feature\n"
+            "- Fixed bug\n\n"
+            "## v1.0.0\n\n"
+            "- Initial release\n"
+        ),
+        "check": lambda ws: all([
+            "Released on 2026-01-15" in (ws / "CHANGELOG.md").read_text(),
+            "Added new feature" in (ws / "CHANGELOG.md").read_text(),
+            "Fixed bug" in (ws / "CHANGELOG.md").read_text(),
+        ]),
+    },
+    {
+        "name": "file_ops",
+        "prompt": (
+            "Create a file called 'LICENSE' with the text 'MIT License\\n\\nCopyright 2026 MyApp'. "
+            "Then rename 'old_config.json' to 'config.json'."
+        ),
+        "setup": lambda ws: [
+            (ws / "old_config.json").write_text(json.dumps({"version": "1.0.0"}, indent=2) + "\n"),
+        ],
+        "check": lambda ws: all([
+            (ws / "LICENSE").exists(),
+            "MIT License" in (ws / "LICENSE").read_text(),
+            (ws / "config.json").exists(),
+            not (ws / "old_config.json").exists(),
+        ]),
+    },
+    {
+        "name": "tidy",
+        "prompt": (
+            "Check all .txt files in the project for missing final newlines and trailing whitespace. "
+            "Report which files have issues, then fix all the issues."
+        ),
+        "setup": lambda ws: [
+            (ws / "clean.txt").write_text("This file is clean\n"),
+            (ws / "dirty1.txt").write_text("trailing spaces   \nmore trailing\t\n"),
+            (ws / "dirty2.txt").write_text("no final newline"),
+        ],
+        "check": lambda ws: all([
+            (ws / "dirty1.txt").read_text() == "trailing spaces\nmore trailing\n",
+            (ws / "dirty2.txt").read_text().endswith("\n"),
+            (ws / "clean.txt").read_text() == "This file is clean\n",
+        ]),
+    },
 ]
 
 

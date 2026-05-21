@@ -81,9 +81,38 @@ def generate_corpus(base: Path, scale_name: str):
         return
     corpus_dir.mkdir(parents=True)
 
-    # Create a config.json for doc benchmarks
+    # Create structured config files for doc benchmarks
     (corpus_dir / "config.json").write_text(
         json.dumps({"name": "bench", "version": "v1.0.0", "debug": False}, indent=2)
+        + "\n"
+    )
+    (corpus_dir / "config.yaml").write_text(
+        "# Application configuration\n"
+        "app:\n"
+        "  name: bench  # project name\n"
+        "  version: 'v1.0.0'  # current release\n"
+        "  debug: false\n"
+    )
+    (corpus_dir / "config.toml").write_text(
+        "# Application configuration\n"
+        "[app]\n"
+        'name = "bench"  # project name\n'
+        'version = "v1.0.0"  # current release\n'
+        "debug = false\n"
+    )
+    (corpus_dir / "README.md").write_text(
+        "# Bench Project\n\n"
+        "## Commands\n\n"
+        "| Command | Description |\n"
+        "|---------|-------------|\n"
+        "| build | Build the project |\n"
+        "| test | Run tests |\n\n"
+        "## Changelog\n\n"
+        "- v1.0.0 initial release\n"
+    )
+    (corpus_dir / "VERSION").write_text("v1.0.0\n")
+    (corpus_dir / "package.json").write_text(
+        json.dumps({"name": "bench", "version": "v1.0.0", "main": "index.js"}, indent=2)
         + "\n"
     )
 
