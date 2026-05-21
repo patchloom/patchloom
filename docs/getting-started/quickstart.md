@@ -21,6 +21,12 @@ Count them:
 patchloom search 'TODO' --count src/
 ```
 
+Limit a search to a nested subtree with `--glob`:
+
+```bash
+patchloom search 'TODO' src/ --glob 'sub/*.rs'
+```
+
 ## Step 2: Replace text across files
 
 Preview a rename (no files changed yet):

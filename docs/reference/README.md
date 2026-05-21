@@ -104,7 +104,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:glob -->
 ### `--glob`
 
-- **What it does:** Restricts candidate files by one or more glob patterns.
+- **What it does:** Restricts candidate files by one or more glob patterns. Patterns match either the basename or the path relative to the input root, so `sub/*.txt` matches files under a searched `sub/` directory.
 - **Use when:** A command should only see a narrow file type or subtree, even if the input path is broader.
 - **Prefer instead:** Use `--files-from` when another tool has already determined the exact file list.
 

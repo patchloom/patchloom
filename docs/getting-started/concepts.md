@@ -89,6 +89,8 @@ Most commands accept `--glob <pattern>` (repeatable) to restrict which files are
 patchloom replace --from "old" --to "new" --glob "*.rs" --glob "*.toml" --apply
 ```
 
+Glob patterns match either the basename or the path relative to the input root. For example, if you search `src/`, then `--glob 'sub/*.txt'` matches `src/sub/file.txt`.
+
 In tx plans, individual operations can use `"glob"` instead of `"path"` to target multiple files.
 
 ## Security model
