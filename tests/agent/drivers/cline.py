@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, parse_last_json_line
 

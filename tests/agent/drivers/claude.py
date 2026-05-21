@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import time
+from pathlib import Path
 
 from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls
 
@@ -66,7 +67,7 @@ class ClaudeDriver(AgentDriver):
             exit_code=proc.returncode,
             output_json=output_json,
             duration_secs=duration,
-            patchloom_calls=_load_calls(extra_env),
+            patchloom_calls=load_shim_calls(extra_env),
         )
 
     def is_available(self) -> bool:
