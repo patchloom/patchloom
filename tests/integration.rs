@@ -11619,6 +11619,70 @@ fn test_json_error_envelope_on_delete_nonexistent_file() {
     assert_eq!(json["ok"], false);
 }
 
+#[test]
+fn test_json_error_envelope_on_doc_append_non_array_target() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("name")
+        .arg("\"x\"")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("doc append: target at 'name' is not an array")
+    );
+}
+
+#[test]
+fn test_jsonl_error_envelope_on_doc_prepend_non_array_target() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("name")
+        .arg("\"x\"")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL error should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|_| panic!("expected JSON line, got: {}", lines[0]));
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("doc prepend: target at 'name' is not an array")
+    );
+}
+
 // ---------------------------------------------------------------------------
 // MCP server integration tests
 // ---------------------------------------------------------------------------
