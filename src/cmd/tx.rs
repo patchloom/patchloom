@@ -575,33 +575,18 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
         return Ok(());
     }
 
-    let all_lines: Vec<&str> = content.lines().collect();
-    let total_lines = all_lines.len();
-    let (start, end) = {
+    let selected = {
         let spec = lines.as_ref().unwrap();
-        let (s, e) = crate::cmd::read::parse_line_range(spec)?;
-        let end = e.unwrap_or(total_lines).min(total_lines);
-        (s, end)
-    };
-
-    let selected = if total_lines == 0 {
-        String::new()
-    } else {
-        let start_idx = (start - 1).min(total_lines);
-        let end_idx = end.min(total_lines);
-        let mut s = all_lines[start_idx..end_idx].join("\n");
-        if content.ends_with('\n') && end >= total_lines {
-            s.push('\n');
-        }
-        s
+        let range = crate::cmd::read::parse_line_range(spec)?;
+        crate::cmd::read::select_lines(content, range)
     };
 
     tx.tx_reads.push(TxReadResult {
         path: path.to_string(),
-        content: selected,
-        start_line: start,
-        end_line: end,
-        total_lines,
+        content: selected.content,
+        start_line: selected.start_line,
+        end_line: selected.end_line,
+        total_lines: selected.total_lines,
     });
     Ok(())
 }

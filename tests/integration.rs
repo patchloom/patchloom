@@ -2170,6 +2170,30 @@ fn test_read_json_output() {
 }
 
 #[test]
+fn test_read_json_lines_start_past_eof_clamps_metadata() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("short.txt");
+    fs::write(&file, "a\nb\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("5:9")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["content"].as_str().unwrap(), "");
+    assert_eq!(json["total_lines"], 2);
+    assert_eq!(json["start_line"], 0);
+    assert_eq!(json["end_line"], 0);
+}
+
+#[test]
 fn test_read_respects_cwd() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("inner.txt"), "content\n").unwrap();
@@ -8212,6 +8236,35 @@ fn test_tx_read_with_lines_in_plan() {
     assert!(!content.contains("eee"));
     assert_eq!(json["reads"][0]["start_line"], 2);
     assert_eq!(json["reads"][0]["end_line"], 4);
+}
+
+#[test]
+fn test_tx_read_lines_start_past_eof_clamps_metadata() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("short.txt");
+    fs::write(&file, "a\nb\n").unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [{"op": "read", "path": file.to_str().unwrap(), "lines": "5:9"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg("--plan")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["reads"][0]["content"].as_str().unwrap(), "");
+    assert_eq!(json["reads"][0]["total_lines"], 2);
+    assert_eq!(json["reads"][0]["start_line"], 0);
+    assert_eq!(json["reads"][0]["end_line"], 0);
 }
 
 #[test]

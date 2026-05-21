@@ -26,6 +26,25 @@ struct ReadOutput {
 
 type LineRange = (usize, Option<usize>);
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SelectedLines {
+    pub content: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub total_lines: usize,
+}
+
+impl SelectedLines {
+    fn empty(total_lines: usize) -> Self {
+        Self {
+            content: String::new(),
+            start_line: 0,
+            end_line: 0,
+            total_lines,
+        }
+    }
+}
+
 pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
     if let Some((start_str, end_str)) = spec.split_once(':') {
         if start_str.is_empty() {
@@ -58,6 +77,33 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
     }
 }
 
+pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
+    let all_lines: Vec<&str> = content.lines().collect();
+    let total_lines = all_lines.len();
+    if total_lines == 0 {
+        return SelectedLines::empty(total_lines);
+    }
+
+    let (start, end) = lines;
+    let start_idx = (start - 1).min(total_lines);
+    let end_idx = end.unwrap_or(total_lines).min(total_lines);
+    if start_idx == end_idx {
+        return SelectedLines::empty(total_lines);
+    }
+
+    let mut selected = all_lines[start_idx..end_idx].join("\n");
+    if content.ends_with('\n') && end_idx == total_lines {
+        selected.push('\n');
+    }
+
+    SelectedLines {
+        content: selected,
+        start_line: start_idx + 1,
+        end_line: end_idx,
+        total_lines,
+    }
+}
+
 fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
 
@@ -75,38 +121,15 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
         });
     }
 
-    let all_lines: Vec<&str> = content.lines().collect();
-    let total_lines = all_lines.len();
-
-    let (start, end) = if let Some((start, end)) = lines {
-        (start, end.unwrap_or(total_lines).min(total_lines))
-    } else {
-        (1, total_lines)
-    };
-
-    let selected_content = if total_lines == 0 {
-        String::new()
-    } else {
-        let start_idx = (start - 1).min(total_lines);
-        let end_idx = end.min(total_lines);
-        if start_idx == end_idx {
-            String::new()
-        } else {
-            let mut s = all_lines[start_idx..end_idx].join("\n");
-            if content.ends_with('\n') && end >= total_lines {
-                s.push('\n');
-            }
-            s
-        }
-    };
+    let selected = select_lines(&content, lines.unwrap());
 
     Ok(ReadOutput {
         ok: true,
         path: path.to_string(),
-        start_line: start,
-        end_line: end,
-        total_lines,
-        content: selected_content,
+        start_line: selected.start_line,
+        end_line: selected.end_line,
+        total_lines: selected.total_lines,
+        content: selected.content,
     })
 }
 
