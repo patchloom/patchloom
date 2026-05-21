@@ -434,12 +434,19 @@ fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, Mcp
         .output()
         .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
 
+    output_to_tool_result(&output, "Operation completed successfully.")
+}
+
+/// Convert subprocess output into a `CallToolResult`.
+fn output_to_tool_result(
+    output: &std::process::Output,
+    success_fallback: &str,
+) -> Result<CallToolResult, McpError> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let code = output.status.code().unwrap_or(1);
-
     if code == crate::exit::SUCCESS as i32 {
         let msg = if stdout.trim().is_empty() {
-            "Operation completed successfully.".to_string()
+            success_fallback.to_string()
         } else {
             stdout.trim().to_string()
         };
@@ -468,28 +475,7 @@ fn run_readonly_command(args: &[&str], cwd: &std::path::Path) -> Result<CallTool
         .stderr(std::process::Stdio::piped())
         .output()
         .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if output.status.success() {
-        let msg = if stdout.trim().is_empty() {
-            "No results.".to_string()
-        } else {
-            stdout.trim().to_string()
-        };
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let msg = if !stderr.trim().is_empty() {
-            stderr.trim().to_string()
-        } else if !stdout.trim().is_empty() {
-            stdout.trim().to_string()
-        } else {
-            format!(
-                "Command failed with exit code {}.",
-                output.status.code().unwrap_or(1)
-            )
-        };
-        Ok(CallToolResult::error(vec![Content::text(msg)]))
-    }
+    output_to_tool_result(&output, "No results.")
 }
 
 fn make_plan(operations: Vec<Operation>) -> Plan {
@@ -990,27 +976,7 @@ impl PatchloomService {
             .output()
             .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let code = output.status.code().unwrap_or(1);
-
-        if code == crate::exit::SUCCESS as i32 {
-            let msg = if stdout.trim().is_empty() {
-                format!("Renamed {} -> {}", p.from, p.to)
-            } else {
-                stdout.trim().to_string()
-            };
-            Ok(CallToolResult::success(vec![Content::text(msg)]))
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let msg = if !stderr.trim().is_empty() {
-                stderr.trim().to_string()
-            } else if !stdout.trim().is_empty() {
-                stdout.trim().to_string()
-            } else {
-                format!("Rename failed with exit code {code}.")
-            };
-            Ok(CallToolResult::error(vec![Content::text(msg)]))
-        }
+        output_to_tool_result(&output, &format!("Renamed {} -> {}", p.from, p.to))
     }
 
     #[tool(
