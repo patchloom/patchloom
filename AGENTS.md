@@ -195,6 +195,47 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 7. Run `make check`.
 
+## Adding a new MCP tool
+
+MCP tools live in `src/cmd/mcp.rs` behind the `mcp` feature gate. To add a new tool:
+
+1. **Define a params struct** with `Deserialize` and `schemars::JsonSchema`:
+
+```rust
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct NewToolParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    // ... other fields
+}
+```
+
+2. **Add a handler method** in the `#[tool_router] impl PatchloomService` block:
+
+```rust
+#[tool(description = "Short description of what the tool does.")]
+async fn patchloom_new_tool(
+    &self,
+    Parameters(p): Parameters<NewToolParams>,
+) -> Result<CallToolResult, McpError> {
+    validate_path_contained(&p.path)?;
+    // For write tools: build an Operation and call execute_plan()
+    execute_plan(
+        make_plan(vec![Operation::Variant { /* fields */ }]),
+        &self.cwd,
+    )
+    // For read-only tools: call run_readonly_command()
+}
+```
+
+3. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
+
+4. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
+
+5. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
+
+6. Run `make sync-patchloom-md && make update-readme && make check`.
+
 ## Coding conventions
 
 - Run `cargo fmt` before every commit.
