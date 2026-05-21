@@ -81,14 +81,15 @@ pub(crate) mod doc {
                             // the CST path will leave unhandled (it only does
                             // same-length updates and deletion).
                             let has_array_growth = has_array_growth_diffs(old_value, new_value);
-                            apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
+                            let all_cst_applied =
+                                apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
                             let result = file.to_string();
                             // Validate the CST output is still valid YAML
                             // that parses to a mapping.
                             if serde_yaml_ng::from_str::<serde_json::Value>(&result)
                                 .is_ok_and(|v| v.is_object())
                             {
-                                if !has_array_growth {
+                                if !has_array_growth && all_cst_applied {
                                     return Ok(result);
                                 }
                                 // There were array-growth diffs left
@@ -312,18 +313,21 @@ pub(crate) mod doc {
     /// Recursively walk `old` and `new` JSON value trees and apply only the
     /// differences to the `yaml_edit::Mapping`, preserving comments and
     /// formatting on unchanged parts.
+    /// Returns `Ok(true)` if all CST changes were fully applied, `Ok(false)`
+    /// if at least one array resize was too complex for the CST path.
     fn apply_yaml_mapping_diff(
         mapping: &yaml_edit::Mapping,
         old: &serde_json::Value,
         new: &serde_json::Value,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<bool> {
         if old == new {
-            return Ok(());
+            return Ok(true);
         }
 
         let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
-            return Ok(());
+            return Ok(true);
         };
+        let mut all_applied = true;
 
         // Remove keys that no longer exist.
         let removed: Vec<String> = old_map
@@ -345,7 +349,9 @@ pub(crate) mod doc {
                     // Both objects: recurse into the nested mapping.
                     (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                         if let Some(child) = mapping.get_mapping(key.as_str()) {
-                            apply_yaml_mapping_diff(&child, old_val, new_val)?;
+                            if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
+                                all_applied = false;
+                            }
                         } else {
                             mapping.set(key.as_str(), json_to_yaml_mapping(new_val)?);
                         }
@@ -356,15 +362,15 @@ pub(crate) mod doc {
                         if let Some(seq) = mapping.get_sequence(key.as_str()) {
                             if old_arr.len() == new_arr.len() {
                                 apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
-                            } else {
-                                apply_yaml_sequence_resize(
-                                    &seq,
-                                    old_arr,
-                                    new_arr,
-                                    mapping,
-                                    key.as_str(),
-                                    new_val,
-                                )?;
+                            } else if !apply_yaml_sequence_resize(
+                                &seq,
+                                old_arr,
+                                new_arr,
+                                mapping,
+                                key.as_str(),
+                                new_val,
+                            ) {
+                                all_applied = false;
                             }
                         } else {
                             mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
@@ -380,7 +386,7 @@ pub(crate) mod doc {
                 mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
             }
         }
-        Ok(())
+        Ok(all_applied)
     }
 
     /// Element-by-element diff for same-length YAML sequences.
@@ -417,6 +423,9 @@ pub(crate) mod doc {
     /// Growth (prepend, append, general restructuring) leaves the CST
     /// unchanged; the caller in `serialize_value_preserving` handles it
     /// via text-level splicing so comments are always preserved.
+    /// Returns `true` if the CST was successfully updated, `false` if the
+    /// change was too complex for the CST path (caller should flag the result
+    /// as needing a fallback).
     fn apply_yaml_sequence_resize(
         seq: &yaml_edit::Sequence,
         old_arr: &[serde_json::Value],
@@ -424,14 +433,13 @@ pub(crate) mod doc {
         _mapping: &yaml_edit::Mapping,
         _key: &str,
         _new_val: &serde_json::Value,
-    ) -> anyhow::Result<()> {
+    ) -> bool {
         if new_arr.len() < old_arr.len() && try_remove_subsequence(seq, old_arr, new_arr) {
-            return Ok(());
+            return true;
         }
-        // Growth or complex deletion: leave the CST unchanged.
-        // Text-level splicing in serialize_value_preserving will handle
-        // it, preserving all surrounding comments.
-        Ok(())
+        // Growth or complex deletion: CST unchanged. Return false so the
+        // caller knows a text-level fallback is needed.
+        false
     }
 
     /// Try to remove elements from `seq` so that it matches `new_arr`,
@@ -2222,6 +2230,23 @@ mod tests {
             assert!(result.contains("# Section C"), "section C comment missing");
             assert!(result.contains("99"), "new value missing");
             assert!(!result.contains("b: 2"), "old value still present");
+        }
+
+        #[test]
+        fn yaml_array_shrink_with_modification_not_lost() {
+            // Regression: complex array shrinkage (shrink + modify remaining
+            // elements) must not be silently dropped. The CST path cannot
+            // handle this case, so it should fall through to serialize_value.
+            let yaml = "# Config\nname: app\ntags:\n  - alpha\n  - beta\n  - gamma\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let new = json!({"name": "app", "tags": ["MODIFIED"]});
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let parsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(
+                parsed, new,
+                "serialized YAML must match target value: {result}"
+            );
         }
 
         #[test]
