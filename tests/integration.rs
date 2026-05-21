@@ -10565,6 +10565,64 @@ fn test_batch_comment_only_input_succeeds() {
 }
 
 #[test]
+fn test_batch_json_empty_input_returns_structured_success() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("empty.txt");
+    fs::write(&ops, "").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["files_changed"], 0);
+    assert_eq!(json["files_created"], 0);
+    assert_eq!(json["files_deleted"], 0);
+    assert_eq!(json["changes"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn test_batch_jsonl_empty_input_returns_structured_success() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("empty.txt");
+    fs::write(&ops, "# only a comment\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("--input")
+        .arg(&ops)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["files_changed"], 0);
+}
+
+#[test]
 fn test_batch_malformed_line_fails() {
     let dir = TempDir::new().unwrap();
     let ops = dir.path().join("bad.txt");
