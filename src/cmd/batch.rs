@@ -315,7 +315,16 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if operations.is_empty() {
-        if !global.quiet {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": true,
+                "status": "success",
+                "files_changed": 0,
+                "files_created": 0,
+                "files_deleted": 0,
+                "changes": []
+            }))?;
+        } else if !global.quiet {
             eprintln!("batch: no operations found in input");
         }
         return Ok(exit::SUCCESS);
