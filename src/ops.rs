@@ -1288,17 +1288,14 @@ pub(crate) mod replace {
             (Some(n), Some(re)) => {
                 let mut count = 0usize;
                 let mut result = String::with_capacity(content.len());
-                for m in re.find_iter(content) {
+                for caps in re.captures_iter(content) {
                     count += 1;
                     if count != n {
                         continue;
                     }
-
+                    let m = caps.get(0).unwrap();
                     result.push_str(&content[..m.start()]);
-                    if let Some(caps) = re.captures(&content[m.start()..]) {
-                        let replacement = expand_regex_replacement(&caps, to);
-                        result.push_str(&replacement);
-                    }
+                    result.push_str(&expand_regex_replacement(&caps, to));
                     result.push_str(&content[m.end()..]);
                     return (Cow::Owned(result), 1);
                 }
@@ -1376,10 +1373,15 @@ pub(crate) mod md {
     pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
         let mut headings = Vec::new();
         let mut total_lines = 0usize;
+        let mut in_fence = false;
 
         for (idx, line) in content.lines().enumerate() {
             total_lines = idx + 1;
-            if !line.starts_with('#') {
+            if line.starts_with("```") || line.starts_with("~~~") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence || !line.starts_with('#') {
                 continue;
             }
             let hashes = line.bytes().take_while(|&b| b == b'#').count();
@@ -1622,7 +1624,13 @@ pub(crate) mod md {
 
             if is_table_row(line) {
                 in_table = true;
-                if !is_separator_row(line) {
+                if is_separator_row(line) {
+                    // Always update after the separator so new rows go
+                    // below it, even when no data rows exist yet.
+                    last_data_end = Some(next_pos);
+                } else if last_data_end.is_some() {
+                    // Only count non-separator rows that appear after the
+                    // separator (i.e. actual data rows, not the header).
                     last_data_end = Some(next_pos);
                 }
             } else if in_table {
@@ -2717,6 +2725,24 @@ mod tests {
         }
 
         #[test]
+        fn parse_headings_skips_fenced_code_blocks() {
+            let content = "# Real\n```\n# Fake\n```\n## Also Real\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Real");
+            assert_eq!(headings[1].text, "Also Real");
+        }
+
+        #[test]
+        fn parse_headings_skips_tilde_fenced_blocks() {
+            let content = "# Top\n~~~bash\n# Not a heading\n~~~\n# Bottom\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Top");
+            assert_eq!(headings[1].text, "Bottom");
+        }
+
+        #[test]
         fn parse_headings_section_boundaries() {
             // ## B (level 2) does NOT end # A (level 1); only same-or-higher level ends it
             let content = "# A\nline1\nline2\n## B\nline3\n";
@@ -2851,6 +2877,17 @@ mod tests {
             let (start, end) = find_section(content, "API").unwrap();
             let result = table_append_in(content, start, end, "| b | 2 |").unwrap();
             assert!(result.contains("| a | 1 |\n| b | 2 |\n## Next"));
+        }
+
+        #[test]
+        fn table_append_header_only() {
+            let content = "# API\n| Name | Value |\n|---|---|\n## Next\n";
+            let (start, end) = find_section(content, "API").unwrap();
+            let result = table_append_in(content, start, end, "| a | 1 |").unwrap();
+            assert_eq!(
+                result,
+                "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n## Next\n"
+            );
         }
 
         #[test]
