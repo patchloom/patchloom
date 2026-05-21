@@ -113,7 +113,14 @@ impl GlobalFlags {
     /// current directory.
     pub fn resolve_cwd(&self) -> anyhow::Result<std::path::PathBuf> {
         if let Some(ref cwd) = self.cwd {
-            Ok(std::path::PathBuf::from(cwd))
+            let path = std::path::PathBuf::from(cwd);
+            if !path.exists() {
+                anyhow::bail!("--cwd directory does not exist: {cwd}");
+            }
+            if !path.is_dir() {
+                anyhow::bail!("--cwd is not a directory: {cwd}");
+            }
+            Ok(path)
         } else {
             std::env::current_dir().map_err(Into::into)
         }
