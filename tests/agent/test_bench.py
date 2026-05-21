@@ -90,7 +90,10 @@ def _make_workspace(tmp_path, real_bin, mode):
     ws.mkdir(exist_ok=True)
 
     if mode == "patchloom":
-        result = subprocess.run([real_bin, "agent-rules"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [real_bin, "agent-rules", "--mode", "cli", "--platform", "linux"],
+            capture_output=True, text=True, check=True,
+        )
         (ws / "AGENTS.md").write_text(result.stdout)
     elif mode == "mcp":
         # Configure grok to discover patchloom as an MCP server
@@ -103,13 +106,12 @@ def _make_workspace(tmp_path, real_bin, mode):
             f'startup_timeout_sec = 10\n'
             f'tool_timeout_sec = 30\n'
         )
-        # Minimal AGENTS.md telling the model to prefer MCP tools
-        (ws / "AGENTS.md").write_text(
-            "# Patchloom\n\n"
-            "Patchloom MCP tools are available in this session. "
-            "Use them for structured file edits (JSON, YAML, TOML, markdown) "
-            "and multi-file batch operations instead of shell commands.\n"
+        # Focused MCP AGENTS.md with tool list and usage guidance
+        result = subprocess.run(
+            [real_bin, "agent-rules", "--mode", "mcp"],
+            capture_output=True, text=True, check=True,
         )
+        (ws / "AGENTS.md").write_text(result.stdout)
 
     subprocess.run(["git", "init"], cwd=ws, capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=ws, capture_output=True, check=True)
@@ -257,16 +259,16 @@ TASKS = [
         "name": "file_ops",
         "prompt": (
             "Create a file called 'LICENSE' with the text 'MIT License\\n\\nCopyright 2026 MyApp'. "
-            "Then rename 'old_config.json' to 'config.json'."
+            "Then rename 'old_settings.json' to 'settings.json'."
         ),
         "setup": lambda ws: [
-            (ws / "old_config.json").write_text(json.dumps({"version": "1.0.0"}, indent=2) + "\n"),
+            (ws / "old_settings.json").write_text(json.dumps({"theme": "dark"}, indent=2) + "\n"),
         ],
         "check": lambda ws: all([
             (ws / "LICENSE").exists(),
             "MIT License" in (ws / "LICENSE").read_text(),
-            (ws / "config.json").exists(),
-            not (ws / "old_config.json").exists(),
+            (ws / "settings.json").exists(),
+            not (ws / "old_settings.json").exists(),
         ]),
     },
     {

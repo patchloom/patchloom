@@ -94,9 +94,9 @@ def workspace(tmp_path, patchloom_bin):
     The workspace is a git repo so agents discover AGENTS.md via the standard
     project-rules mechanism.
     """
-    # Generate AGENTS.md from patchloom agent-rules
+    # Generate focused CLI/Linux AGENTS.md from patchloom agent-rules
     result = subprocess.run(
-        [patchloom_bin, "agent-rules"],
+        [patchloom_bin, "agent-rules", "--mode", "cli", "--platform", "linux"],
         capture_output=True,
         text=True,
         check=True,
