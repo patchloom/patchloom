@@ -11973,3 +11973,34 @@ async fn test_mcp_batch_rejects_oversized_payload() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_file_rename_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old_name.txt"), "content\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_file_rename",
+        serde_json::json!({"from": "old_name.txt", "to": "new_name.txt"}),
+    )
+    .await;
+    assert!(!is_error, "rename should succeed: {text}");
+    assert!(
+        !dir.path().join("old_name.txt").exists(),
+        "old file should not exist"
+    );
+    assert!(
+        dir.path().join("new_name.txt").exists(),
+        "new file should exist"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new_name.txt")).unwrap(),
+        "content\n"
+    );
+    client.cancel().await.unwrap();
+}
