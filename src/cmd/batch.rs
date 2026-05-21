@@ -52,7 +52,12 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     if tokens.is_empty() {
         anyhow::bail!("line {line_num}: empty operation");
     }
-    let op = tokens[0].as_str();
+    let raw_op = tokens[0].as_str();
+    // Normalize deprecated aliases so the match block only uses current names.
+    let op = match raw_op {
+        "hygiene.fix" => "tidy.fix",
+        other => other,
+    };
     let args = &tokens[1..];
 
     match op {
@@ -528,6 +533,12 @@ mod tests {
                 && trim_trailing_whitespace.is_none()
                 && normalize_eol.is_none()
         ));
+    }
+
+    #[test]
+    fn parse_line_hygiene_fix_alias_accepted() {
+        let op = parse_line("hygiene.fix src/lib.rs", 1).unwrap();
+        assert!(matches!(op, Operation::TidyFix { path, .. } if path == "src/lib.rs"));
     }
 
     #[test]

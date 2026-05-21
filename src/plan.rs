@@ -340,6 +340,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_plan_hygiene_fix_alias_accepted() {
+        let json = r#"{"operations": [{"op": "hygiene.fix", "path": "f.txt"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(matches!(&plan.operations[0], Operation::TidyFix { path, .. } if path == "f.txt"));
+    }
+
+    #[test]
     fn parse_plan_unknown_op_fails() {
         let json = r#"{"operations": [{"op": "unknown", "x": 1}]}"#;
         assert!(parse_plan(json).is_err());
