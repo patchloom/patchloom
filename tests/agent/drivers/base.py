@@ -93,8 +93,8 @@ def create_driver(agent_name: str, model: str) -> AgentDriver:
 
 _PATCHLOOM_SUBCOMMANDS = {
     "search", "replace", "patch", "md", "doc", "tidy",
-    "create", "delete", "read", "status", "tx", "completions", "agent-rules",
-    "batch", "mcp-server",
+    "create", "delete", "rename", "read", "status", "tx", "completions",
+    "agent-rules", "batch", "mcp-server",
 }
 
 
@@ -169,3 +169,25 @@ def parse_shim_log(path: Path) -> list[dict]:
             except json.JSONDecodeError:
                 pass
     return entries
+
+
+def load_shim_calls(extra_env: dict | None) -> list[dict]:
+    """Load patchloom shim calls from the log path in extra_env."""
+    if not extra_env:
+        return []
+    log_path = extra_env.get("PATCHLOOM_SHIM_LOG", "")
+    if not log_path:
+        return []
+    return parse_shim_log(Path(log_path))
+
+
+def parse_last_json_line(text: str) -> dict | None:
+    """Parse the last valid JSON line from JSONL/NDJSON output."""
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line:
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    return None

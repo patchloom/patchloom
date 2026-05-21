@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
-from .base import AgentDriver, AgentMetadata, AgentResult, parse_shim_log
+from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, parse_last_json_line
 
 
 class CodexDriver(AgentDriver):
@@ -60,12 +58,12 @@ class CodexDriver(AgentDriver):
                 exit_code=-1,
                 output_json=None,
                 duration_secs=time.monotonic() - start,
-                patchloom_calls=_load_calls(extra_env),
+                patchloom_calls=load_shim_calls(extra_env),
             )
         duration = time.monotonic() - start
 
         # Codex --json emits JSONL; try to parse the last complete line
-        output_json = _parse_last_json_line(proc.stdout)
+        output_json = parse_last_json_line(proc.stdout)
 
         return AgentResult(
             stdout=proc.stdout,
@@ -73,7 +71,7 @@ class CodexDriver(AgentDriver):
             exit_code=proc.returncode,
             output_json=output_json,
             duration_secs=duration,
-            patchloom_calls=_load_calls(extra_env),
+            patchloom_calls=load_shim_calls(extra_env),
         )
 
     def is_available(self) -> bool:
@@ -99,23 +97,3 @@ class CodexDriver(AgentDriver):
             cli_version=cli_version,
         )
 
-
-def _parse_last_json_line(text: str) -> dict | None:
-    """Parse the last valid JSON line from JSONL output."""
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if line:
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                continue
-    return None
-
-
-def _load_calls(extra_env: dict | None) -> list[dict]:
-    if not extra_env:
-        return []
-    log_path = extra_env.get("PATCHLOOM_SHIM_LOG", "")
-    if not log_path:
-        return []
-    return parse_shim_log(Path(log_path))

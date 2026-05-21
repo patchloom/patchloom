@@ -7,9 +7,8 @@ import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
-from .base import AgentDriver, AgentMetadata, AgentResult, parse_shim_log
+from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls
 
 
 class GrokDriver(AgentDriver):
@@ -59,7 +58,7 @@ class GrokDriver(AgentDriver):
                 exit_code=-1,
                 output_json=None,
                 duration_secs=time.monotonic() - start,
-                patchloom_calls=_load_calls(extra_env),
+                patchloom_calls=load_shim_calls(extra_env),
             )
         duration = time.monotonic() - start
 
@@ -71,7 +70,7 @@ class GrokDriver(AgentDriver):
             exit_code=proc.returncode,
             output_json=output_json,
             duration_secs=duration,
-            patchloom_calls=_load_calls(extra_env),
+            patchloom_calls=load_shim_calls(extra_env),
         )
 
     def is_available(self) -> bool:
@@ -119,11 +118,3 @@ def _try_parse_json(text: str) -> dict | None:
     except (json.JSONDecodeError, TypeError):
         return None
 
-
-def _load_calls(extra_env: dict | None) -> list[dict]:
-    if not extra_env:
-        return []
-    log_path = extra_env.get("PATCHLOOM_SHIM_LOG", "")
-    if not log_path:
-        return []
-    return parse_shim_log(Path(log_path))

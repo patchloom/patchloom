@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import time
-from pathlib import Path
 
-from .base import AgentDriver, AgentMetadata, AgentResult, parse_shim_log
+from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls
 
 
 class AiderDriver(AgentDriver):
@@ -55,7 +53,7 @@ class AiderDriver(AgentDriver):
                 exit_code=-1,
                 output_json=None,
                 duration_secs=time.monotonic() - start,
-                patchloom_calls=_load_calls(extra_env),
+                patchloom_calls=load_shim_calls(extra_env),
             )
         duration = time.monotonic() - start
 
@@ -91,11 +89,3 @@ class AiderDriver(AgentDriver):
             cli_version=cli_version,
         )
 
-
-def _load_calls(extra_env: dict | None) -> list[dict]:
-    if not extra_env:
-        return []
-    log_path = extra_env.get("PATCHLOOM_SHIM_LOG", "")
-    if not log_path:
-        return []
-    return parse_shim_log(Path(log_path))
