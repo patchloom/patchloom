@@ -52,17 +52,25 @@ pytest -v --model gpt-5
 |-------|--------|---------------|-----|-----------------|
 | `grok` | `drivers/grok.py` | `grok-build` | `grok` | `GROK_CODE_XAI_API_KEY` |
 | `claude` | `drivers/claude.py` | `claude-sonnet-4-20250514` | `claude` | `ANTHROPIC_API_KEY` |
+| `codex` | `drivers/codex.py` | `o3` | `codex` | `CODEX_API_KEY` or `OPENAI_API_KEY` |
+| `cline` | `drivers/cline.py` | `claude-sonnet-4-20250514` | `cline` | Provider-specific (configured via `cline auth`) |
 | `aider` | `drivers/aider.py` | `sonnet` | `aider` | `ANTHROPIC_API_KEY` (or model-specific) |
 
 ```bash
+# Test with Grok (default)
+pytest -v --agent grok --model sxs-claude-opus-4-6
+
 # Test with Claude Code
 pytest -v --agent claude --model claude-sonnet-4-20250514
 
+# Test with OpenAI Codex CLI
+pytest -v --agent codex --model o3
+
+# Test with Cline
+pytest -v --agent cline --model claude-sonnet-4-20250514
+
 # Test with Aider
 pytest -v --agent aider --model sonnet
-
-# Test with Grok (default)
-pytest -v --agent grok --model sxs-claude-opus-4-6
 ```
 
 ## Adding a new agent driver
@@ -79,3 +87,4 @@ pytest -v --agent grok --model sxs-claude-opus-4-6
 | `AGENT_TEST_MODEL` | Model name (default: `grok-build`) |
 | `GROK_CODE_XAI_API_KEY` | API key for Grok Build CLI |
 | `ANTHROPIC_API_KEY` | API key for Claude Code CLI and Aider |
+| `CODEX_API_KEY` or `OPENAI_API_KEY` | API key for OpenAI Codex CLI |

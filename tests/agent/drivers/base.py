@@ -72,7 +72,18 @@ def create_driver(agent_name: str, model: str) -> AgentDriver:
         from .aider import AiderDriver
 
         return AiderDriver(model=model)
-    raise ValueError(f"Unknown agent: {agent_name!r}. Available: grok, claude, aider")
+    if agent_name == "codex":
+        from .codex import CodexDriver
+
+        return CodexDriver(model=model)
+    if agent_name == "cline":
+        from .cline import ClineDriver
+
+        return ClineDriver(model=model)
+    raise ValueError(
+        f"Unknown agent: {agent_name!r}. "
+        f"Available: grok, claude, aider, codex, cline"
+    )
 
 
 # ---------------------------------------------------------------------------
