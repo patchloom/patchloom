@@ -143,9 +143,11 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `patchloom_doc_len`, `patchloom_doc_select`, `patchloom_doc_flatten`, \
              `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, \
              `patchloom_replace`, `patchloom_md_upsert_bullet`, \
-             `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, \
+             `patchloom_md_table_append`, `patchloom_md_replace_section`, \
+             `patchloom_md_insert_after_heading`, `patchloom_md_insert_before_heading`, \
+             `patchloom_read`, \
              `patchloom_create`, `patchloom_delete`, `patchloom_rename`, \
-             `patchloom_patch`, `patchloom_tidy`, `patchloom_batch`.\n\n",
+             `patchloom_patch`, `patchloom_tidy`, `patchloom_batch`, `patchloom_tx`.\n\n",
         );
     }
 

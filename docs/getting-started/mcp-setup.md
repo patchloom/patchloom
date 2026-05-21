@@ -89,12 +89,15 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `patchloom_md_upsert_bullet` | Add a bullet under a markdown heading |
 | `patchloom_md_table_append` | Append a row to a markdown table |
 | `patchloom_md_replace_section` | Replace a markdown section by heading |
+| `patchloom_md_insert_after_heading` | Insert content after a markdown heading |
+| `patchloom_md_insert_before_heading` | Insert content before a markdown heading |
 | `patchloom_tidy` | Fix whitespace and line endings |
 | `patchloom_create` | Create a new file with content |
 | `patchloom_delete` | Delete a file |
 | `patchloom_rename` | Move or rename a file (binary-safe) |
 | `patchloom_patch` | Apply a unified diff |
 | `patchloom_batch` | Run multiple operations in one call |
+| `patchloom_tx` | Execute a full transaction plan with format/validate lifecycle |
 
 ## How MCP mode differs from CLI mode
 
@@ -110,7 +113,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
 
-The `patchloom_batch` tool parses its operations line by line and validates every path before execution. Shell commands (`format` and `validate` lifecycle steps from `tx` plans) are not exposed through MCP.
+The `patchloom_batch` tool parses its operations line by line and validates every path before execution. The `patchloom_tx` tool accepts full transaction plans including `format` and `validate` lifecycle steps, which execute shell commands in the working directory. All operation paths and plan-level `cwd` fields are validated for containment before execution.
 
 ## Example tool call
 

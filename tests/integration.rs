@@ -12192,3 +12192,169 @@ async fn test_mcp_patch_round_trip() {
     );
     client.cancel().await.unwrap();
 }
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_md_insert_after_heading_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doc.md"), "# Title\n\nExisting body.\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_md_insert_after_heading",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Title",
+            "content": "Inserted line.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md insert_after_heading should succeed: {text}");
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("Inserted line."),
+        "inserted content should be present: {content}"
+    );
+    // Existing body should still be there.
+    assert!(
+        content.contains("Existing body."),
+        "existing body should be preserved: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_md_insert_before_heading_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# First\n\nBody one.\n\n## Second\n\nBody two.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_md_insert_before_heading",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## Second",
+            "content": "Preface text.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md insert_before_heading should succeed: {text}");
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("Preface text."),
+        "inserted content should be present: {content}"
+    );
+    // The preface should appear before ## Second.
+    let preface_pos = content.find("Preface text.").unwrap();
+    let heading_pos = content.find("## Second").unwrap();
+    assert!(
+        preface_pos < heading_pos,
+        "preface should appear before ## Second"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "foo bar\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "replace", "path": "a.txt", "from": "hello", "to": "goodbye"},
+            {"op": "replace", "path": "b.txt", "from": "foo", "to": "baz"}
+        ]
+    });
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_tx",
+        serde_json::json!({"plan": plan.to_string()}),
+    )
+    .await;
+    assert!(!is_error, "tx should succeed: {text}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "goodbye world\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "baz bar\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_rejects_escaping_cwd() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "/tmp",
+        "operations": [
+            {"op": "replace", "path": "a.txt", "from": "a", "to": "b"}
+        ]
+    });
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("patchloom_tx".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with escaping cwd should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_yaml_format() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
+
+    let yaml_plan = "version: \"1\"\noperations:\n  - op: replace\n    path: target.txt\n    from: old\n    to: new\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_tx",
+        serde_json::json!({"plan": yaml_plan, "format": "yaml"}),
+    )
+    .await;
+    assert!(!is_error, "tx with yaml format should succeed: {text}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "new\n"
+    );
+    client.cancel().await.unwrap();
+}

@@ -163,6 +163,26 @@ pub struct MdReplaceSectionParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MdInsertParams {
+    /// Markdown file path.
+    pub path: String,
+    /// Heading to target (e.g., "## Changelog").
+    pub heading: String,
+    /// Content to insert.
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TxParams {
+    /// Transaction plan as a JSON, YAML, or TOML string. Must include
+    /// "version" and "operations". May include "format", "validate",
+    /// "write_policy", "strict", and "cwd".
+    pub plan: String,
+    /// Plan format: "json", "yaml", or "toml". Auto-detected if omitted.
+    pub format: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TidyParams {
     /// File path to normalize.
     pub path: String,
@@ -954,6 +974,100 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Insert content immediately after a markdown heading. Preserves existing section body; the new content appears between the heading and the old body."
+    )]
+    async fn patchloom_md_insert_after_heading(
+        &self,
+        Parameters(p): Parameters<MdInsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        execute_plan(
+            make_plan(vec![Operation::MdInsertAfterHeading {
+                path: p.path,
+                heading: p.heading,
+                content: p.content,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Insert content immediately before a markdown heading. The new content appears above the heading line."
+    )]
+    async fn patchloom_md_insert_before_heading(
+        &self,
+        Parameters(p): Parameters<MdInsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        validate_path_contained(&p.path)?;
+        execute_plan(
+            make_plan(vec![Operation::MdInsertBeforeHeading {
+                path: p.path,
+                heading: p.heading,
+                content: p.content,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(
+        description = "Execute a full transaction plan. Accepts a JSON/YAML/TOML plan string with operations, optional format/validate lifecycle steps, strict mode, and write_policy. This is the most powerful tool: use it when you need atomic multi-file edits with post-write formatting (cargo fmt, prettier), validation (tests, lints), and rollback on failure."
+    )]
+    async fn patchloom_tx(
+        &self,
+        Parameters(p): Parameters<TxParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let plan =
+            crate::plan::parse_plan_auto(&p.plan, None, p.format.as_deref()).map_err(|e| {
+                McpError::invalid_params(format!("failed to parse transaction plan: {e}"), None)
+            })?;
+
+        // Validate plan-level cwd for containment.
+        if let Some(ref plan_cwd) = plan.cwd {
+            let cwd_path = std::path::Path::new(plan_cwd);
+            if cwd_path.is_absolute() {
+                // Absolute cwd must be inside the server's working directory.
+                let canon_server_cwd = self.cwd.canonicalize().map_err(|e| {
+                    McpError::internal_error(
+                        format!("failed to canonicalize server cwd: {e}"),
+                        None,
+                    )
+                })?;
+                let canon_plan_cwd = cwd_path.canonicalize().map_err(|e| {
+                    McpError::invalid_params(
+                        format!("plan cwd does not exist or is inaccessible: {e}"),
+                        None,
+                    )
+                })?;
+                if !canon_plan_cwd.starts_with(&canon_server_cwd) {
+                    return Err(McpError::invalid_params(
+                        format!("plan cwd must be inside the working directory: {plan_cwd}"),
+                        None,
+                    ));
+                }
+            } else {
+                validate_path_contained(plan_cwd)?;
+                validate_path_resolved(plan_cwd, &self.cwd)?;
+            }
+        }
+
+        // Resolve effective cwd for path validation.
+        let effective_cwd = if let Some(ref plan_cwd) = plan.cwd {
+            let p = std::path::Path::new(plan_cwd);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                self.cwd.join(p)
+            }
+        } else {
+            self.cwd.clone()
+        };
+
+        validate_operation_paths(&plan.operations, &effective_cwd)?;
+
+        execute_plan(plan, &self.cwd)
+    }
+
+    #[tool(
         description = "Fix whitespace: ensures file ends with a newline and trims trailing spaces from all lines."
     )]
     async fn patchloom_tidy(
@@ -1152,12 +1266,15 @@ impl ServerHandler for PatchloomService {
                      YAML, TOML, and Markdown files. Use patchloom_doc_set/delete/merge/append/\
                      prepend/update/move/ensure/delete_where for config file edits, \
                      patchloom_doc_get/has/keys/len/select/flatten/diff for read-only queries, \
-                     patchloom_md_* for markdown edits, patchloom_replace for text replacement, \
+                     patchloom_md_* for markdown edits (replace_section, insert_after_heading, \
+                     insert_before_heading, upsert_bullet, table_append), \
+                     patchloom_replace for text replacement, \
                      patchloom_search for file content search, patchloom_read for reading files, \
                      patchloom_status for git status, patchloom_rename for renaming files, \
                      patchloom_create for creating files, patchloom_delete for deleting files, \
                      patchloom_patch for applying unified diffs, \
-                     patchloom_tidy for whitespace fixes, and patchloom_batch for atomic edits.",
+                     patchloom_tidy for whitespace fixes, patchloom_batch for multi-op edits, \
+                     and patchloom_tx for full transaction plans with format/validate lifecycle.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1241,6 +1358,16 @@ mod tests {
         assert!(names.contains(&"patchloom_create"), "missing create tool");
         assert!(names.contains(&"patchloom_delete"), "missing delete tool");
         assert!(names.contains(&"patchloom_patch"), "missing patch tool");
+        assert!(
+            names.contains(&"patchloom_md_insert_after_heading"),
+            "missing md_insert_after_heading tool"
+        );
+        assert!(
+            names.contains(&"patchloom_md_insert_before_heading"),
+            "missing md_insert_before_heading tool"
+        );
+        assert!(names.contains(&"patchloom_tx"), "missing tx tool");
+        assert_eq!(names.len(), 32, "expected 32 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
