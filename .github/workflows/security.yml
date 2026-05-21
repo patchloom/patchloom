@@ -27,6 +27,9 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@v6
+      - name: Create isolated Docker config for Trivy
+        run: mkdir -p "$RUNNER_TEMP/trivy-docker"
+
       - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -37,6 +40,7 @@ jobs:
           ignore-unfixed: true
         env:
           TRIVY_DB_REPOSITORY: "ghcr.io/aquasecurity/trivy-db:2"
+          DOCKER_CONFIG: "${{ runner.temp }}/trivy-docker"
 
   gitleaks:
     name: Gitleaks
