@@ -87,8 +87,7 @@ struct TxReadResult {
 #[derive(Debug, Args)]
 pub struct TxArgs {
     // ref:tx-mode:plan-stdin
-    /// Path to a plan JSON file, or `-` for stdin.
-    #[arg(long)]
+    /// Path to a plan file (JSON/YAML/TOML), or `-` for stdin.
     pub plan: String,
     // ref:tx-mode:plan-yaml
     /// Plan format when reading from stdin (json, yaml, toml). Auto-detected from file extension otherwise.
@@ -209,7 +208,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
         Operation::MdTableAppend { .. } => "md.table_append",
         Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
-        Operation::HygieneFix { .. } => "hygiene.fix",
+        Operation::TidyFix { .. } => "tidy.fix",
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
         Operation::FileRename { .. } => "file.rename",
@@ -271,7 +270,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdUpsertBullet { .. }
         | Operation::MdTableAppend { .. }
         | Operation::MdDedupeHeadings { .. }
-        | Operation::HygieneFix { .. }
+        | Operation::TidyFix { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }
@@ -675,7 +674,7 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::PatchApply { .. }
             | Operation::Read { .. }
             | Operation::Search { .. }
-            | Operation::HygieneFix { .. }
+            | Operation::TidyFix { .. }
     )
 }
 
@@ -685,17 +684,21 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             return execute_replace_op(op, tx);
         }
 
-        Operation::DocSet { path, key, value } => {
+        Operation::DocSet {
+            path,
+            selector,
+            value,
+        } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             set_at_path(root, &sel, value.clone()).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
-        Operation::DocDelete { path, key } => {
+        Operation::DocDelete { path, selector } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             delete_at_selector(root, &sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
@@ -705,10 +708,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             deep_merge(root, value);
         }
 
-        Operation::DocAppend { path, key, value } => {
+        Operation::DocAppend {
+            path,
+            selector,
+            value,
+        } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             let target =
                 navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             target
@@ -717,10 +724,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 .push(value.clone());
         }
 
-        Operation::DocPrepend { path, key, value } => {
+        Operation::DocPrepend {
+            path,
+            selector,
+            value,
+        } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             let target =
                 navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             target
@@ -729,13 +740,17 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 .insert(0, value.clone());
         }
 
-        Operation::DocUpdate { path, key, value } => {
+        Operation::DocUpdate {
+            path,
+            selector,
+            value,
+        } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             let count = update_matching(root, &sel, value);
             if count == 0 {
-                anyhow::bail!("{path}: no matching nodes found for selector '{key}'");
+                anyhow::bail!("{path}: no matching nodes found for selector '{selector}'");
             }
         }
 
@@ -747,10 +762,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             move_at_path(root, &from_sel, &to_sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
-        Operation::DocEnsure { path, key, value } => {
+        Operation::DocEnsure {
+            path,
+            selector,
+            value,
+        } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             // If the path already exists, no-op.
             if selector::eval(root, &sel).is_empty() {
                 set_at_path(root, &sel, value.clone())
@@ -760,12 +779,12 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::DocDeleteWhere {
             path,
-            key,
+            selector,
             predicate,
         } => {
             let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
                 .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(key).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
             delete_where(root, &sel, predicate).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         }
 
@@ -832,7 +851,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
 
-        Operation::HygieneFix {
+        Operation::TidyFix {
             path,
             ensure_final_newline,
             trim_trailing_whitespace,
@@ -1617,7 +1636,7 @@ mod tests {
         let no_nl = dir.path().join("no_nl.txt");
         fs::write(&no_nl, "content").unwrap();
 
-        // Build plan with replace + doc.set + hygiene.fix.
+        // Build plan with replace + doc.set + tidy.fix.
         let plan_json = serde_json::json!({
             "operations": [
                 {
@@ -1633,7 +1652,7 @@ mod tests {
                     "value": "new"
                 },
                 {
-                    "op": "hygiene.fix",
+                    "op": "tidy.fix",
                     "path": no_nl.to_str().unwrap(),
                     "ensure_final_newline": true
                 }
@@ -1662,7 +1681,7 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&json_file).unwrap()).unwrap();
         assert_eq!(config["name"], serde_json::json!("new"));
 
-        // Verify hygiene.fix.
+        // Verify tidy.fix.
         assert!(fs::read_to_string(&no_nl).unwrap().ends_with('\n'));
     }
 

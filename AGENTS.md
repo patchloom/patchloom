@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. The default build provides fifteen core commands (`search`, `replace`, `patch`, `md`, `doc`, `hygiene`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, shell completion generation, and end-user agent rules generation. Building with `--features mcp` adds the optional `mcp-server` command for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. The default build provides fifteen core commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, shell completion generation, and end-user agent rules generation. Building with `--features mcp` adds the optional `mcp-server` command for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -34,7 +34,7 @@ src/
   main.rs             Thin entrypoint; calls patchloom::run(), maps Result to ExitCode
   lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports modules
   files.rs             File-walking utilities: is_binary, collect_file_paths, build_glob_matcher,
-                       matches_glob. Used by search, replace, hygiene, and status commands.
+                       matches_glob. Used by search, replace, tidy, and status commands.
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
   cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
                        --files-from) and WriteFlags (--diff, --apply, --check,
@@ -53,7 +53,7 @@ src/
   cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (get, has, keys, len, set,
                        delete, merge, append, prepend, update, move, ensure, delete-where,
                        select, flatten, diff)
-  cmd/hygiene.rs       Final newline, line ending, and trailing whitespace normalization
+  cmd/tidy.rs          Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
   cmd/read.rs          Read file contents with optional line range
   cmd/status.rs        Show uncommitted file changes vs git HEAD
@@ -72,14 +72,14 @@ src/
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
-                       23 operation types including all doc/md/replace/hygiene/file/patch/read/search ops
+                       23 operation types including all doc/md/replace/tidy/file/patch/read/search ops
 tests/
   integration.rs       Rust integration tests (cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom
     conftest.py        Fixtures: workspace with AGENTS.md, patchloom shim for invocation capture
     drivers/           Pluggable agent drivers (GrokDriver first, extensible)
     test_basic.py      Search, replace, read scenarios
-    test_batch.py      Batch replace, tx multi-file, hygiene scenarios
+    test_batch.py      Batch replace, tx multi-file, tidy scenarios
     test_structured.py Doc set, md table-append scenarios
     shim.sh            Patchloom invocation-capture shim template
 PATCHLOOM.md           Generated CLI usage guide for AI agents (from patchloom agent-rules)

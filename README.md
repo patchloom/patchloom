@@ -247,7 +247,7 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 | `doc` | Parser-backed JSON/YAML/TOML edits | Changing config values without breaking syntax |
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
-| `hygiene` | Whitespace and newline normalization | CI checks for text hygiene |
+| `tidy` | Whitespace and newline normalization | CI checks for text tidiness |
 | `mcp-server` | MCP protocol server (requires `--features mcp`) | MCP-capable agents (no shell syntax) |
 
 ### General-purpose (also useful in scripts and CI)

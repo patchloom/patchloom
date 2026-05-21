@@ -13,7 +13,7 @@ pub(crate) fn is_binary(data: &[u8]) -> bool {
 
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
-/// paths are joined with it before walking.  Hygiene commands set
+/// paths are joined with it before walking.  Tidy commands set
 /// `include_hidden = true` so dotfiles are checked.
 pub(crate) fn collect_file_paths_opts(
     paths: &[String],

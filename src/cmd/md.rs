@@ -26,7 +26,6 @@ pub struct MdArgs {
 pub enum MdAction {
     /// Replace a heading section.
     ReplaceSection {
-        #[arg(long)]
         file: String,
         #[arg(long)]
         heading: String,
@@ -40,7 +39,6 @@ pub enum MdAction {
     },
     /// Insert content after a heading.
     InsertAfterHeading {
-        #[arg(long)]
         file: String,
         #[arg(long)]
         heading: String,
@@ -52,7 +50,6 @@ pub enum MdAction {
     },
     /// Insert content before a heading.
     InsertBeforeHeading {
-        #[arg(long)]
         file: String,
         #[arg(long)]
         heading: String,
@@ -64,7 +61,6 @@ pub enum MdAction {
     },
     /// Add a bullet under a heading if not already present.
     UpsertBullet {
-        #[arg(long)]
         file: String,
         #[arg(long)]
         heading: String,
@@ -72,18 +68,11 @@ pub enum MdAction {
         bullet: String,
     },
     /// Remove duplicate headings.
-    DedupeHeadings {
-        #[arg(long)]
-        file: String,
-    },
+    DedupeHeadings { file: String },
     /// Lint common AGENTS.md problems.
-    LintAgents {
-        #[arg(long)]
-        file: String,
-    },
+    LintAgents { file: String },
     /// Append a row to a markdown table under a heading.
     TableAppend {
-        #[arg(long)]
         file: String,
         #[arg(long)]
         heading: String,

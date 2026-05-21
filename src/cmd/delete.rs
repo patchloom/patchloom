@@ -6,7 +6,6 @@ use serde::Serialize;
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
     /// Path of the file to delete.
-    #[arg(long)]
     pub file: String,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,

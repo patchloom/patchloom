@@ -12,8 +12,7 @@ use std::path::Path;
 
 #[derive(Debug, Args)]
 pub struct ReplaceArgs {
-    /// Text to find.
-    #[arg(long)]
+    /// Pattern to find.
     pub from: String,
     /// Text to replace with.
     #[arg(long)]
@@ -28,11 +27,11 @@ pub struct ReplaceArgs {
     pub insert_after: Option<String>,
     /// Paths to operate on.
     pub paths: Vec<String>,
-    /// Treat --from as a literal string (default).
-    #[arg(long)]
+    /// Treat pattern as a literal string (default).
+    #[arg(long, short = 'F')]
     pub literal: bool,
     // ref:replace-mode:regex
-    /// Treat --from as a regex.
+    /// Treat pattern as a regex.
     #[arg(long)]
     pub regex: bool,
     // ref:replace-mode:if-exists

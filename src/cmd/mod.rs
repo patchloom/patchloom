@@ -2,7 +2,6 @@ pub mod batch;
 pub mod create;
 pub mod delete;
 pub mod doc;
-pub mod hygiene;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod md;
@@ -12,6 +11,7 @@ pub mod rename;
 pub mod replace;
 pub mod search;
 pub mod status;
+pub mod tidy;
 pub mod tx;
 
 use crate::cli::Cli;
@@ -40,7 +40,7 @@ pub enum Command {
     /// Parser-backed JSON, YAML, and TOML operations.
     Doc(doc::DocArgs),
     /// Final newline, line ending, and whitespace normalization.
-    Hygiene(hygiene::HygieneArgs),
+    Tidy(tidy::TidyArgs),
     /// Execute a multi-operation plan atomically.
     Tx(tx::TxArgs),
     /// Execute multiple operations from a simple line-oriented format.
@@ -144,7 +144,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, \
              `patchloom_replace`, `patchloom_md_upsert_bullet`, \
              `patchloom_md_table_append`, `patchloom_md_replace_section`, `patchloom_read`, \
-             `patchloom_hygiene`, `patchloom_file_rename`, `patchloom_batch`.\n\n",
+             `patchloom_tidy`, `patchloom_file_rename`, `patchloom_batch`.\n\n",
         );
     }
 
@@ -190,7 +190,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:\n\n\
              ```bash\n\
-             patchloom tx --plan plan.json --apply\n\
+             patchloom tx plan.json --apply\n\
              ```\n\n",
         );
 
@@ -205,7 +205,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  patchloom doc merge config.yaml --value '{\"db\":{\"pool\":10}}' --apply\n\
                  \n\
                  # Append a row to a markdown table\n\
-                 patchloom md table-append --file README.md --heading \"## API\" --row \"| new | row |\" --apply\n\
+                 patchloom md table-append README.md --heading \"## API\" --row \"| new | row |\" --apply\n\
                  ```\n\n",
             );
         }
@@ -218,7 +218,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                 "```bash\n\
                  patchloom doc set config.json version \"\\\"2.0.0\\\"\" --apply\n\
                  patchloom doc merge config.yaml --value \"{\\\"db\\\":{\\\"pool\\\":10}}\" --apply\n\
-                 patchloom md table-append --file README.md --heading \"## API\" --row \"| new | row |\" --apply\n\
+                 patchloom md table-append README.md --heading \"## API\" --row \"| new | row |\" --apply\n\
                  ```\n\n",
             );
         }
@@ -232,13 +232,15 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_cli {
         out.push_str("## Workflow examples\n\n");
 
-        out.push_str("### Rename a function across a codebase\n\n\
+        out.push_str(
+            "### Rename a function across a codebase\n\n\
              ```bash\n\
              # Find all occurrences first\n\
              patchloom search --count \"old_function_name\" src/\n\n\
              # Replace in all matching files\n\
-             patchloom replace --from \"old_function_name\" --to \"new_function_name\" src/ --apply\n\
-             ```\n\n");
+             patchloom replace \"old_function_name\" --to \"new_function_name\" src/ --apply\n\
+             ```\n\n",
+        );
 
         out.push_str(
             "### Edit a CI workflow\n\n\
@@ -263,11 +265,11 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
             out.push_str("### Multi-file refactoring with a transaction\n\n\
                  ```bash\n\
-                 patchloom tx --plan - --apply <<'EOF'\n\
+                 patchloom tx - --apply <<'EOF'\n\
                  {\"operations\": [\n\
-                   {\"type\": \"replace\", \"path\": \"src/config.rs\", \"from\": \"old_default\", \"to\": \"new_default\"},\n\
-                   {\"type\": \"doc.set\", \"path\": \"config.toml\", \"key\": \"default_value\", \"value\": \"new_default\"},\n\
-                   {\"type\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\
+                   {\"op\": \"replace\", \"path\": \"src/config.rs\", \"from\": \"old_default\", \"to\": \"new_default\"},\n\
+                   {\"op\": \"doc.set\", \"path\": \"config.toml\", \"selector\": \"default_value\", \"value\": \"new_default\"},\n\
+                   {\"op\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\
                     \"content\": \"The default value is now `new_default`.\\n\"}\n\
                  ]}\n\
                  EOF\n\
@@ -340,9 +342,9 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             global.merge_write(&args.write);
             doc::run(args, &global)
         }
-        Command::Hygiene(args) => {
+        Command::Tidy(args) => {
             global.merge_write(&args.write);
-            hygiene::run(args, &global)
+            tidy::run(args, &global)
         }
         Command::Tx(args) => {
             global.merge_write(&args.write);
