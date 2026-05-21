@@ -40,7 +40,8 @@ src/
                        --files-from) and WriteFlags (--diff, --apply, --check,
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
                        --respect-editorconfig). Write flags are only available on write commands.
-  cmd/mod.rs           Command enum (clap Subcommand) and dispatch() function
+  cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules
+                       generator, and inline Completions command
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
   cmd/mcp.rs           MCP server (feature-gated): exposes patchloom operations as structured tool calls
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
@@ -61,7 +62,6 @@ src/
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
-  cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output
   exit.rs              Exit code constants: SUCCESS=0, FAILURE=1, CHANGES_DETECTED=2,
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
@@ -80,6 +80,7 @@ tests/
     drivers/           Pluggable agent drivers (GrokDriver first, extensible)
     test_basic.py      Search, replace, read scenarios
     test_batch.py      Batch replace, tx multi-file, tidy scenarios
+    test_files.py      Create, delete, status, patch scenarios
     test_structured.py Doc set, md table-append scenarios
     shim.sh            Patchloom invocation-capture shim template
 PATCHLOOM.md           Generated CLI usage guide for AI agents (from patchloom agent-rules)

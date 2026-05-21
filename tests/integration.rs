@@ -11296,7 +11296,9 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
     let agents = fs::read_to_string(repo_root().join("AGENTS.md")).unwrap();
 
     assert!(
-        agents.contains("cmd/mod.rs           Command enum, dispatch(), and built-in `agent-rules` generator output"),
+        agents.contains(
+            "cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules"
+        ),
         "AGENTS.md should describe the current agent-rules implementation location"
     );
     assert!(
