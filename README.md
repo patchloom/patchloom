@@ -210,6 +210,8 @@ Or use a JSON plan with format and validate lifecycle:
 patchloom tx --plan plan.json --apply
 ```
 
+`tx` plans are trusted input. `format` and `validate` run their `cmd` fields through the host shell (`sh -c` on Unix, `cmd /C` on Windows), so only run plans you trust.
+
 ### 4. Or use MCP for structured tool calls (no shell syntax)
 
 ```bash
