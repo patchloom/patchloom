@@ -10407,6 +10407,141 @@ fn test_smoke_example_06_batch_version_bump() {
     );
 }
 
+#[test]
+fn test_smoke_example_07_yaml_plan() {
+    let dir = TempDir::new().unwrap();
+
+    // Create fixture files matching the YAML plan operations.
+    fs::write(
+        dir.path().join("config.yaml"),
+        "app:\n  version: \"1.0.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## Unreleased\n\n- Initial\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("README.md"),
+        "# Project v1.0.0\n\nUsing v1.0.0 everywhere.\n",
+    )
+    .unwrap();
+
+    // --diff mode: plan should parse successfully.
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(example_plan_path("07-yaml-plan.yaml"))
+        .arg("--diff")
+        .assert()
+        .success();
+
+    // --apply: skip format/validate (prettier/yamllint may not exist).
+    // Instead verify the plan parses and operations apply.
+    let _ = patchloom_in(dir.path())
+        .arg("tx")
+        .arg(example_plan_path("07-yaml-plan.yaml"))
+        .arg("--apply")
+        .assert();
+
+    let config = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
+    assert!(
+        config.contains("2.0.0"),
+        "config.yaml version not updated: {config}"
+    );
+}
+
+#[test]
+fn test_smoke_example_09_patch_apply() {
+    let dir = TempDir::new().unwrap();
+
+    // Create the fixture file that the patch targets.
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    // Fixture must match the line numbers in the patch hunks:
+    // Hunk 1: @@ -10,7  =>  pub struct Config { at line 10
+    // Hunk 2: @@ -20,6  =>  Config { at line 20
+    fs::write(
+        dir.path().join("src/config.rs"),
+        "// Config module\n\n\
+         use std::time::Duration;\n\n\
+         const MAX_RETRIES: u32 = 5;\n\
+         const DEFAULT_PORT: u16 = 8080;\n\n\
+         /// Application configuration.\n\
+         #[derive(Debug, Clone)]\n\
+         pub struct Config {\n\
+         \x20\x20\x20\x20pub host: String,\n\
+         \x20\x20\x20\x20pub port: u16,\n\
+         \x20\x20\x20\x20pub timeout: u64,\n\
+         \x20\x20\x20\x20pub retries: u32,\n\
+         }\n\n\
+         impl Default for Config {\n\
+         \x20\x20\x20\x20fn default() -> Self {\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20// Create with sensible defaults\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20Config {\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20host: \"localhost\".to_string(),\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20port: 8080,\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20timeout: 30,\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20retries: 3,\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20}\n\
+         \x20\x20\x20\x20}\n\
+         }\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(example_plan_path("09-patch-apply.json"))
+        .arg("--diff")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_smoke_example_10_inspect_and_edit() {
+    let dir = TempDir::new().unwrap();
+
+    // Create fixture files matching the plan's operations.
+    fs::write(
+        dir.path().join("config.json"),
+        "{\n  \"database\": {\n    \"port\": 5432\n  }\n}\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(
+        dir.path().join("src/db.rs"),
+        "const DB_PORT: u16 = 5432;\n\nfn connect() {\n    // ...\n}\n",
+    )
+    .unwrap();
+
+    // --diff mode: should parse and preview changes.
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(example_plan_path("10-inspect-and-edit.json"))
+        .arg("--diff")
+        .assert()
+        .success();
+
+    // --apply: verify writes landed.
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(example_plan_path("10-inspect-and-edit.json"))
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let config = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    assert!(
+        config.contains("5433"),
+        "config.json port not updated: {config}"
+    );
+
+    let db = fs::read_to_string(dir.path().join("src/db.rs")).unwrap();
+    assert!(
+        db.contains("DB_PORT: u16 = 5433"),
+        "db.rs not updated: {db}"
+    );
+}
+
 // ── Batch integration tests ───────────────────────────────────────────
 
 #[test]
