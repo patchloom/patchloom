@@ -128,7 +128,14 @@ pub(crate) mod doc {
                             && let Some(spliced) =
                                 splice_yaml_root_sequence(original_content, old_arr, new_arr)?
                         {
-                            return Ok(spliced);
+                            // Validate the spliced result matches the target.
+                            if serde_yaml_ng::from_str::<serde_json::Value>(&spliced)
+                                .is_ok_and(|v| v == *new_value)
+                            {
+                                return Ok(spliced);
+                            }
+                            // Splice produced incorrect YAML; fall through
+                            // to serialize_value.
                         }
                     }
                 }
