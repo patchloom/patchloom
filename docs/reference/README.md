@@ -214,7 +214,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:read -->
 ## `read`
 
-- **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode.
+- **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode. If at least one requested file is read successfully, the command still exits successfully and reports errors only for the missing files.
 - **Use when:** An agent needs to inspect one or several files before deciding on an edit. For AI agents, native read_file tools are typically faster for single-file reads.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
 - **Related:** `search`, `doc get`
