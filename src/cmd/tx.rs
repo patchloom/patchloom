@@ -479,7 +479,15 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
     } else if let Some(pattern) = glob {
         let matcher = Glob::new(pattern)?.compile_matcher();
         let matches_pattern = |path: &Path| {
-            matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
+            matcher.is_match(path)
+                || path.file_name().is_some_and(|name| matcher.is_match(name))
+                || path.strip_prefix(tx.cwd).ok().is_some_and(|relative| {
+                    !relative.as_os_str().is_empty()
+                        && (matcher.is_match(relative)
+                            || relative
+                                .file_name()
+                                .is_some_and(|name| matcher.is_match(name)))
+                })
         };
         let mut total_matches = 0usize;
         let mut candidate_paths = Vec::new();

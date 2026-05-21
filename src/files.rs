@@ -1,7 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::{WalkBuilder, WalkState};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
@@ -99,11 +99,91 @@ pub(crate) fn build_glob_matcher(global: &GlobalFlags) -> anyhow::Result<Option<
     Ok(Some(builder.build()?))
 }
 
+/// Collect roots used for matching `--glob` patterns against walked files.
+pub(crate) fn collect_glob_roots(
+    paths: &[String],
+    global: &GlobalFlags,
+    root: Option<&Path>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    if global.files_from.is_some() {
+        return Ok(root.map(|r| vec![r.to_path_buf()]).unwrap_or_default());
+    }
+
+    let defaults;
+    let effective: &[String] = if paths.is_empty() {
+        defaults = [".".to_string()];
+        &defaults
+    } else {
+        paths
+    };
+
+    let mut roots = Vec::new();
+    for path in effective {
+        let resolved = match root {
+            Some(r) => r.join(path),
+            None => PathBuf::from(path),
+        };
+        let glob_root = if resolved.is_file() {
+            resolved
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| resolved.clone())
+        } else {
+            resolved.clone()
+        };
+        let glob_root = normalize_glob_root(glob_root);
+        if !roots.contains(&glob_root) {
+            roots.push(glob_root);
+        }
+    }
+
+    Ok(roots)
+}
+
+fn normalize_glob_root(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
+fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
+    matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
+}
+
+/// Check whether `path` matches any of the globs, either directly or relative
+/// to one of the provided roots (always true if no globs).
+pub(crate) fn matches_glob_with_roots(
+    path: &Path,
+    matcher: Option<&GlobSet>,
+    roots: &[PathBuf],
+) -> bool {
+    match matcher {
+        None => true,
+        Some(m) => {
+            matches_glob(path, Some(m))
+                || roots.iter().any(|root| {
+                    path.strip_prefix(root).ok().is_some_and(|relative| {
+                        !relative.as_os_str().is_empty() && matches_glob(relative, Some(m))
+                    })
+                })
+        }
+    }
+}
+
 /// Check whether `path` matches any of the globs (always true if no globs).
 pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     match matcher {
         None => true,
-        Some(m) => m.is_match(path) || path.file_name().is_some_and(|n| m.is_match(n)),
+        Some(m) => glob_matches_path(path, m),
     }
 }
 
@@ -175,20 +255,26 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
 pub(crate) fn par_process_files<T, F>(
     paths: &[PathBuf],
     glob_matcher: Option<&GlobSet>,
+    glob_roots: &[PathBuf],
     f: F,
 ) -> Vec<T>
 where
     T: Send,
     F: Fn(&Path) -> Option<T> + Sync,
 {
-    fn process_slice<T, F>(paths: &[PathBuf], glob_matcher: Option<&GlobSet>, f: &F) -> Vec<T>
+    fn process_slice<T, F>(
+        paths: &[PathBuf],
+        glob_matcher: Option<&GlobSet>,
+        glob_roots: &[PathBuf],
+        f: &F,
+    ) -> Vec<T>
     where
         T: Send,
         F: Fn(&Path) -> Option<T> + Sync,
     {
         paths
             .iter()
-            .filter(|p| matches_glob(p, glob_matcher))
+            .filter(|p| matches_glob_with_roots(p, glob_matcher, glob_roots))
             .filter_map(|p| f(p.as_path()))
             .collect()
     }
@@ -199,7 +285,7 @@ where
         .min(paths.len());
 
     if num_splits <= 1 {
-        return process_slice(paths, glob_matcher, &f);
+        return process_slice(paths, glob_matcher, glob_roots, &f);
     }
 
     let chunk_size = paths.len().div_ceil(num_splits);
@@ -209,11 +295,11 @@ where
         // Spawn threads for all chunks except the first.
         let handles: Vec<_> = chunks[1..]
             .iter()
-            .map(|chunk| s.spawn(|| process_slice(chunk, glob_matcher, &f)))
+            .map(|chunk| s.spawn(|| process_slice(chunk, glob_matcher, glob_roots, &f)))
             .collect();
 
         // Process the first chunk on the calling thread immediately.
-        let mut results = process_slice(chunks[0], glob_matcher, &f);
+        let mut results = process_slice(chunks[0], glob_matcher, glob_roots, &f);
 
         // Collect results from spawned threads.
         for handle in handles {
@@ -282,12 +368,41 @@ mod tests {
         assert!(!matches_glob(Path::new("src/main.py"), Some(&matcher)));
     }
 
+    #[test]
+    fn glob_matches_nested_relative_pattern_with_root() {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("sub/*.txt").unwrap());
+        let matcher = builder.build().unwrap();
+        let roots = vec![PathBuf::from("/tmp/project")];
+
+        assert!(matches_glob_with_roots(
+            Path::new("/tmp/project/sub/file.txt"),
+            Some(&matcher),
+            &roots,
+        ));
+        assert!(!matches_glob_with_roots(
+            Path::new("/tmp/project/other.txt"),
+            Some(&matcher),
+            &roots,
+        ));
+    }
+
+    #[test]
+    fn collect_glob_roots_normalizes_current_directory_segments() {
+        let global = GlobalFlags::default();
+        let roots = collect_glob_roots(&[], &global, Some(Path::new("/tmp/project"))).unwrap();
+
+        assert_eq!(roots, vec![PathBuf::from("/tmp/project")]);
+    }
+
     // ── par_process_files ─────────────────────────────────────────────
 
     #[test]
     fn par_process_single_file() {
         let paths = vec![PathBuf::from("a.txt")];
-        let results = par_process_files(&paths, None, |p| Some(p.to_string_lossy().into_owned()));
+        let results = par_process_files(&paths, None, &[], |p| {
+            Some(p.to_string_lossy().into_owned())
+        });
         assert_eq!(results, vec!["a.txt"]);
     }
 
@@ -301,7 +416,7 @@ mod tests {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("*.rs").unwrap());
         let matcher = builder.build().unwrap();
-        let results = par_process_files(&paths, Some(&matcher), |p| {
+        let results = par_process_files(&paths, Some(&matcher), &[], |p| {
             Some(p.to_string_lossy().into_owned())
         });
         assert_eq!(results.len(), 2);
@@ -310,17 +425,34 @@ mod tests {
     }
 
     #[test]
+    fn par_process_filters_with_relative_glob_root() {
+        let paths = vec![
+            PathBuf::from("/tmp/project/sub/a.txt"),
+            PathBuf::from("/tmp/project/other.txt"),
+        ];
+        let mut builder = GlobSetBuilder::new();
+        builder.add(Glob::new("sub/*.txt").unwrap());
+        let matcher = builder.build().unwrap();
+        let roots = vec![PathBuf::from("/tmp/project")];
+        let results = par_process_files(&paths, Some(&matcher), &roots, |p| {
+            Some(p.to_string_lossy().into_owned())
+        });
+        assert_eq!(results, vec!["/tmp/project/sub/a.txt".to_string()]);
+    }
+
+    #[test]
     fn par_process_empty_paths() {
         let paths: Vec<PathBuf> = vec![];
-        let results: Vec<String> =
-            par_process_files(&paths, None, |p| Some(p.to_string_lossy().into_owned()));
+        let results: Vec<String> = par_process_files(&paths, None, &[], |p| {
+            Some(p.to_string_lossy().into_owned())
+        });
         assert!(results.is_empty());
     }
 
     #[test]
     fn par_process_closure_can_filter() {
         let paths = vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")];
-        let results = par_process_files(&paths, None, |p| {
+        let results = par_process_files(&paths, None, &[], |p| {
             if p.to_string_lossy().contains('a') {
                 Some(1)
             } else {
