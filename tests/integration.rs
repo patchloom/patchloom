@@ -502,6 +502,122 @@ fn test_search_assert_count_zero_but_found() {
 }
 
 #[test]
+fn test_search_assert_count_json_success_returns_structured_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "foo\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("3")
+        .arg("foo")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["assert_count"]["expected"], 3);
+    assert_eq!(json["assert_count"]["actual"], 3);
+    assert_eq!(json["assert_count"]["matched"], true);
+}
+
+#[test]
+fn test_search_assert_count_json_mismatch_returns_structured_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("5")
+        .arg("foo")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert_eq!(json["assert_count"]["expected"], 5);
+    assert_eq!(json["assert_count"]["actual"], 2);
+    assert_eq!(json["assert_count"]["matched"], false);
+}
+
+#[test]
+fn test_search_assert_count_jsonl_success_returns_structured_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "foo\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("3")
+        .arg("foo")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "success");
+    assert_eq!(json["assert_count"]["expected"], 3);
+    assert_eq!(json["assert_count"]["actual"], 3);
+    assert_eq!(json["assert_count"]["matched"], true);
+}
+
+#[test]
+fn test_search_assert_count_jsonl_mismatch_returns_structured_output() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "foo\nbar\nfoo\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("search")
+        .arg("--literal")
+        .arg("--assert-count")
+        .arg("5")
+        .arg("foo")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert_eq!(json["assert_count"]["expected"], 5);
+    assert_eq!(json["assert_count"]["actual"], 2);
+    assert_eq!(json["assert_count"]["matched"], false);
+}
+
+#[test]
 fn test_search_multiline_spans_lines() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
