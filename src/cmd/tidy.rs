@@ -476,4 +476,48 @@ mod tests {
         let content = std::fs::read_to_string(&file).unwrap();
         assert_eq!(content, "hello\nworld\n");
     }
+
+    #[test]
+    fn fix_dry_run_returns_changes_detected_when_dirty() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("no_nl.txt");
+        std::fs::write(&file, b"hello").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.ensure_final_newline = true;
+        // No --apply: default dry-run mode.
+
+        let args = TidyArgs {
+            action: TidyAction::Fix {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        // File must not be modified in dry-run mode.
+        let content = std::fs::read(&file).unwrap();
+        assert_eq!(content, b"hello");
+    }
+
+    #[test]
+    fn fix_dry_run_returns_success_when_clean() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("clean.txt");
+        std::fs::write(&file, b"hello\n").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.ensure_final_newline = true;
+        // No --apply: default dry-run mode.
+
+        let args = TidyArgs {
+            action: TidyAction::Fix {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
 }
