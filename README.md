@@ -119,7 +119,7 @@ Patchloom is not faster than native tools for simple, single-file edits. Use nat
 Where patchloom *is* faster is multi-file batching. Six file edits via native tools means six round-trips to the LLM. One `batch` call does the same work in a single round-trip.
 
 <details>
-<summary>Benchmark details (Claude Opus 4.6 via Grok 4.3, 7 tasks)</summary>
+<summary>Benchmark details (Claude Opus 4.6 via Grok 4.3, 11 tasks)</summary>
 
 ```
 Task               PL-CLI    MCP    Native
@@ -305,7 +305,7 @@ All commits must be signed off with `git commit -s`.
 
 ### Agent integration tests
 
-`make agent-test` runs 19 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 7 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+`make agent-test` runs 20 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 11 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
 
 ## How it works with your AI agent
 

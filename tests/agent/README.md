@@ -40,7 +40,7 @@ pytest -v --model gpt-5
 
 ## Adding a new scenario
 
-1. Pick the right test file (`test_basic.py`, `test_batch.py`, or `test_structured.py`)
+1. Pick the right test file (`test_basic.py`, `test_batch.py`, `test_structured.py`, or `test_files.py`)
 2. Write fixture files into the `workspace`
 3. Call `run_scenario(agent, workspace, patchloom_shim, prompt)`
 4. Assert with `assert_patchloom_used(result, "command")`
