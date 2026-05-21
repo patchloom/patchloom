@@ -2746,7 +2746,7 @@ fn test_tx_multi_op_plan() {
             {
                 "op": "doc.set",
                 "path": json_file.to_str().unwrap(),
-                "key": "name",
+                "selector": "name",
                 "value": "new"
             }
         ]
@@ -2795,7 +2795,7 @@ fn test_tx_rollback_on_failure() {
             {
                 "op": "doc.set",
                 "path": nonexistent.to_str().unwrap(),
-                "key": "name",
+                "selector": "name",
                 "value": "test"
             }
         ]
@@ -2832,8 +2832,8 @@ fn test_tx_rollback_preserves_original_content() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.set", "path": "a.json", "key": "key", "value": "changed"},
-            {"op": "doc.set", "path": "b.json", "key": "missing", "value": "fail"}
+            {"op": "doc.set", "path": "a.json", "selector": "key", "value": "changed"},
+            {"op": "doc.set", "path": "b.json", "selector": "missing", "value": "fail"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -2865,8 +2865,8 @@ fn test_tx_success_applies_all() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.set", "path": "config.json", "key": "name", "value": "new"},
-            {"op": "doc.set", "path": "config.json", "key": "version", "value": 2}
+            {"op": "doc.set", "path": "config.json", "selector": "name", "value": "new"},
+            {"op": "doc.set", "path": "config.json", "selector": "version", "value": 2}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -2896,7 +2896,7 @@ fn test_tx_check_mode_reports_changes_without_writing() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.set", "path": "data.json", "key": "key", "value": "new"}
+            {"op": "doc.set", "path": "data.json", "selector": "key", "value": "new"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -5579,7 +5579,7 @@ fn test_tx_doc_delete_in_plan() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.delete", "path": "config.json", "key": "remove"}
+            {"op": "doc.delete", "path": "config.json", "selector": "remove"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -7251,7 +7251,7 @@ fn test_tx_doc_prepend_in_plan() {
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "value": 0
         }]
     });
@@ -7336,8 +7336,8 @@ fn test_tx_doc_ensure_in_plan() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "version", "value": "1.0"},
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "name", "value": "ignored"}
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -7400,7 +7400,7 @@ fn test_tx_doc_delete_where_in_plan() {
         "operations": [{
             "op": "doc.delete_where",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "predicate": "name=remove"
         }]
     });
@@ -7436,7 +7436,7 @@ fn test_tx_doc_update_in_plan() {
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
-            "key": "items[*].status",
+            "selector": "items[*].status",
             "value": "archived"
         }]
     });
@@ -7706,7 +7706,7 @@ fn test_tx_doc_append_in_plan() {
         "operations": [{
             "op": "doc.append",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "value": 3
         }]
     });
@@ -8007,7 +8007,7 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
             {
                 "op": "doc.ensure",
                 "path": config.to_str().unwrap(),
-                "key": "version",
+                "selector": "version",
                 "value": "1.0"
             }
         ]
@@ -9760,7 +9760,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
-            "key": "name",
+            "selector": "name",
             "value": "oops"
         }]
     });
@@ -9792,7 +9792,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
-            "key": "items[*].status",
+            "selector": "items[*].status",
             "value": "archived"
         }]
     });
@@ -9835,8 +9835,8 @@ fn test_tx_multi_op_batch_all_new_ops() {
     let plan = serde_json::json!({
         "operations": [
             {"op": "replace", "path": txt.to_str().unwrap(), "from": "foo", "to": "XXX", "nth": 1},
-            {"op": "doc.set", "path": json_file.to_str().unwrap(), "key": "name", "value": "new"},
-            {"op": "doc.ensure", "path": json_file.to_str().unwrap(), "key": "version", "value": "1.0"},
+            {"op": "doc.set", "path": json_file.to_str().unwrap(), "selector": "name", "value": "new"},
+            {"op": "doc.ensure", "path": json_file.to_str().unwrap(), "selector": "version", "value": "1.0"},
             {"op": "md.upsert_bullet", "path": md_file.to_str().unwrap(), "heading": "Rules", "bullet": "- rule two"},
             {"op": "md.table_append", "path": md_file.to_str().unwrap(), "heading": "Targets", "row": "| test | run tests |"},
             {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "created!\n"}
@@ -9917,9 +9917,9 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "version", "value": "2.0"},
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "port", "value": 9090},
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "debug", "value": true}
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "version", "value": "2.0"},
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "port", "value": 9090},
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "debug", "value": true}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -9959,7 +9959,7 @@ fn test_tx_doc_set_then_replace_on_same_file_flushes_cache() {
 
     let plan = serde_json::json!({
         "operations": [
-            {"op": "doc.set", "path": file.to_str().unwrap(), "key": "name", "value": "new"},
+            {"op": "doc.set", "path": file.to_str().unwrap(), "selector": "name", "value": "new"},
             {"op": "replace", "path": file.to_str().unwrap(), "from": "1.0", "to": "2.0"}
         ]
     });
@@ -11708,7 +11708,7 @@ async fn test_mcp_doc_set_round_trip() {
     let (is_error, _text) = call_tool_text(
         &client,
         "patchloom_doc_set",
-        serde_json::json!({"path": "config.json", "key": "name", "value": "new"}),
+        serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
     )
     .await;
     assert!(!is_error, "doc_set should succeed");
@@ -11811,7 +11811,7 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     let (is_error, _text) = call_tool_text(
         &client,
         "patchloom_doc_set",
-        serde_json::json!({"path": "nope.json", "key": "x", "value": 1}),
+        serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
     )
     .await;
     assert!(is_error, "doc_set on nonexistent file should return error");
@@ -11857,7 +11857,7 @@ async fn test_mcp_doc_has_existing_key() {
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_doc_has",
-        serde_json::json!({"path": "data.json", "key": "name"}),
+        serde_json::json!({"path": "data.json", "selector": "name"}),
     )
     .await;
     assert!(!is_error, "doc_has should succeed: {text}");
@@ -11884,7 +11884,7 @@ async fn test_mcp_doc_get_reads_value() {
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_doc_get",
-        serde_json::json!({"path": "config.json", "key": "version"}),
+        serde_json::json!({"path": "config.json", "selector": "version"}),
     )
     .await;
     assert!(!is_error, "doc_get should succeed: {text}");

@@ -22,8 +22,8 @@ use crate::plan::{Operation, Plan};
 pub struct DocSetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Key/selector for the value to set (e.g., "version", "db.pool", "items[0].name").
-    pub key: String,
+    /// Selector for the value to set (e.g., "version", "db.pool", "items[0].name").
+    pub selector: String,
     /// Value to set (string, number, boolean, object, or array).
     pub value: serde_json::Value,
 }
@@ -32,8 +32,8 @@ pub struct DocSetParams {
 pub struct DocDeleteParams {
     /// File path.
     pub path: String,
-    /// Key/selector to delete.
-    pub key: String,
+    /// Selector for the value to delete.
+    pub selector: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -48,8 +48,8 @@ pub struct DocMergeParams {
 pub struct DocArrayParams {
     /// File path.
     pub path: String,
-    /// Key/selector pointing to the target array.
-    pub key: String,
+    /// Selector pointing to the target array.
+    pub selector: String,
     /// Value to append or prepend.
     pub value: serde_json::Value,
 }
@@ -58,8 +58,8 @@ pub struct DocArrayParams {
 pub struct DocEnsureParams {
     /// File path.
     pub path: String,
-    /// Key/selector to ensure exists.
-    pub key: String,
+    /// Selector for the value to ensure exists.
+    pub selector: String,
     /// Value to set only if the key is missing.
     pub value: serde_json::Value,
 }
@@ -69,7 +69,7 @@ pub struct DocUpdateParams {
     /// File path.
     pub path: String,
     /// Wildcard selector for items to update (e.g., "items[*]").
-    pub key: String,
+    pub selector: String,
     /// Value to set on each matched item.
     pub value: serde_json::Value,
 }
@@ -88,8 +88,8 @@ pub struct DocMoveParams {
 pub struct DocDeleteWhereParams {
     /// File path.
     pub path: String,
-    /// Key/selector pointing to the target array.
-    pub key: String,
+    /// Selector pointing to the target array.
+    pub selector: String,
     /// Predicate for items to delete (e.g., "name=obsolete").
     pub predicate: String,
 }
@@ -120,8 +120,8 @@ pub struct ReplaceParams {
 pub struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Key/selector for the value to read (e.g., "version", "db.pool").
-    pub key: String,
+    /// Selector for the value to read (e.g., "version", "db.pool").
+    pub selector: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -213,8 +213,8 @@ pub struct SearchParams {
 pub struct DocSelectorParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Key/selector to query (e.g., "version", "db.pool", "items[*]").
-    pub key: String,
+    /// Selector to query (e.g., "version", "db.pool", "items[*]").
+    pub selector: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -503,7 +503,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
@@ -521,7 +521,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
             }]),
             &self.cwd,
         )
@@ -555,7 +555,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
@@ -573,7 +573,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
@@ -591,7 +591,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
@@ -609,7 +609,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 predicate: p.predicate,
             }]),
             &self.cwd,
@@ -627,7 +627,7 @@ impl PatchloomService {
         execute_plan(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
-                selector: p.key,
+                selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
@@ -663,7 +663,7 @@ impl PatchloomService {
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
         run_readonly_command(
-            &["--json", "doc", "get", &abs.to_string_lossy(), &p.key],
+            &["--json", "doc", "get", &abs.to_string_lossy(), &p.selector],
             &self.cwd,
         )
     }
@@ -679,7 +679,7 @@ impl PatchloomService {
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
         run_readonly_command(
-            &["--json", "doc", "has", &abs.to_string_lossy(), &p.key],
+            &["--json", "doc", "has", &abs.to_string_lossy(), &p.selector],
             &self.cwd,
         )
     }
@@ -695,7 +695,7 @@ impl PatchloomService {
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
         run_readonly_command(
-            &["--json", "doc", "keys", &abs.to_string_lossy(), &p.key],
+            &["--json", "doc", "keys", &abs.to_string_lossy(), &p.selector],
             &self.cwd,
         )
     }
@@ -711,7 +711,7 @@ impl PatchloomService {
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
         run_readonly_command(
-            &["--json", "doc", "len", &abs.to_string_lossy(), &p.key],
+            &["--json", "doc", "len", &abs.to_string_lossy(), &p.selector],
             &self.cwd,
         )
     }
@@ -727,7 +727,13 @@ impl PatchloomService {
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
         run_readonly_command(
-            &["--json", "doc", "select", &abs.to_string_lossy(), &p.key],
+            &[
+                "--json",
+                "doc",
+                "select",
+                &abs.to_string_lossy(),
+                &p.selector,
+            ],
             &self.cwd,
         )
     }

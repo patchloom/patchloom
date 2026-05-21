@@ -120,7 +120,7 @@ An MCP-capable agent sends:
     "name": "patchloom_doc_set",
     "arguments": {
       "path": "config.yaml",
-      "key": "database.port",
+      "selector": "database.port",
       "value": 5432
     }
   }

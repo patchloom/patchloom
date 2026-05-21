@@ -1652,7 +1652,7 @@ mod tests {
                 {
                     "op": "doc.set",
                     "path": json_file.to_str().unwrap(),
-                    "key": "name",
+                    "selector": "name",
                     "value": "new"
                 },
                 {
@@ -1735,7 +1735,7 @@ mod tests {
                 {
                     "op": "doc.set",
                     "path": nonexistent.to_str().unwrap(),
-                    "key": "name",
+                    "selector": "name",
                     "value": "test"
                 }
             ]

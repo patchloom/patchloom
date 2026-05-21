@@ -713,7 +713,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Runs a targeted structured set inside a transaction.
 - **Use when:** A precise config update must be bundled atomically with other repo changes.
-- **Field naming:** Use `selector` in new plans. For backward compatibility, existing plans that still use legacy `key` are also accepted for `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
+- **Field naming:** Use `selector` for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
 - **Related:** top level `doc set`
 
 <!-- ref:tx-op:doc.delete -->

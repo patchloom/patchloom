@@ -62,16 +62,11 @@ pub enum Operation {
     #[serde(rename = "doc.set")]
     DocSet {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete")]
-    DocDelete {
-        path: String,
-        #[serde(alias = "key")]
-        selector: String,
-    },
+    DocDelete { path: String, selector: String },
     #[serde(rename = "doc.merge")]
     DocMerge {
         path: String,
@@ -80,21 +75,18 @@ pub enum Operation {
     #[serde(rename = "doc.append")]
     DocAppend {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.prepend")]
     DocPrepend {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.update")]
     DocUpdate {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         value: serde_json::Value,
     },
@@ -107,14 +99,12 @@ pub enum Operation {
     #[serde(rename = "doc.ensure")]
     DocEnsure {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete_where")]
     DocDeleteWhere {
         path: String,
-        #[serde(alias = "key")]
         selector: String,
         predicate: String,
     },
@@ -295,51 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_doc_operation_key_alias_maps_to_selector_field() {
-        let json = r#"{
-            "operations": [
-                {"op": "doc.set", "path": "f.json", "key": "nested.key", "value": 1},
-                {"op": "doc.delete", "path": "f.json", "key": "nested.key"},
-                {"op": "doc.append", "path": "f.json", "key": "items", "value": 1},
-                {"op": "doc.prepend", "path": "f.json", "key": "items", "value": 0},
-                {"op": "doc.update", "path": "f.json", "key": "items[*].status", "value": "done"},
-                {"op": "doc.ensure", "path": "f.json", "key": "defaults.enabled", "value": true},
-                {"op": "doc.delete_where", "path": "f.json", "key": "items", "predicate": "name=x"}
-            ]
-        }"#;
-        let plan = parse_plan(json).unwrap();
-
-        assert!(matches!(
-            &plan.operations[0],
-            Operation::DocSet { selector, .. } if selector == "nested.key"
-        ));
-        assert!(matches!(
-            &plan.operations[1],
-            Operation::DocDelete { selector, .. } if selector == "nested.key"
-        ));
-        assert!(matches!(
-            &plan.operations[2],
-            Operation::DocAppend { selector, .. } if selector == "items"
-        ));
-        assert!(matches!(
-            &plan.operations[3],
-            Operation::DocPrepend { selector, .. } if selector == "items"
-        ));
-        assert!(matches!(
-            &plan.operations[4],
-            Operation::DocUpdate { selector, .. } if selector == "items[*].status"
-        ));
-        assert!(matches!(
-            &plan.operations[5],
-            Operation::DocEnsure { selector, .. } if selector == "defaults.enabled"
-        ));
-        assert!(matches!(
-            &plan.operations[6],
-            Operation::DocDeleteWhere { selector, .. } if selector == "items"
-        ));
-    }
-
-    #[test]
     fn parse_plan_unknown_op_fails() {
         let json = r#"{"operations": [{"op": "unknown", "x": 1}]}"#;
         assert!(parse_plan(json).is_err());
@@ -356,15 +301,15 @@ mod tests {
         let json = r#"{"operations": [
             {"op": "replace", "from": "a", "to": "b"},
             {"op": "replace", "from": "a", "to": "b", "nth": 2},
-            {"op": "doc.set", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc.delete", "path": "f.json", "key": "k"},
+            {"op": "doc.set", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "selector": "k"},
             {"op": "doc.merge", "path": "f.json", "value": {}},
-            {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
-            {"op": "doc.prepend", "path": "f.json", "key": "arr", "value": 0},
-            {"op": "doc.update", "path": "f.json", "key": "k", "value": 2},
+            {"op": "doc.append", "path": "f.json", "selector": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "selector": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "selector": "k", "value": 2},
             {"op": "doc.move", "path": "f.json", "from": "a", "to": "b"},
-            {"op": "doc.ensure", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc.delete_where", "path": "f.json", "key": "arr", "predicate": "name=x"},
+            {"op": "doc.ensure", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "selector": "arr", "predicate": "name=x"},
             {"op": "md.replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_after_heading", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_before_heading", "path": "f.md", "heading": "H", "content": "c"},

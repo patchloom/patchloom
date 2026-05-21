@@ -92,7 +92,7 @@ Create a plan file called `bump.json`:
 {
   "write_policy": { "ensure_final_newline": true },
   "operations": [
-    { "op": "doc.set", "path": "package.json", "key": "version", "value": "2.0.0" },
+    { "op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0" },
     { "op": "replace", "path": "README.md", "from": "v1.0.0", "to": "v2.0.0" },
     { "op": "md.insert_after_heading", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Bumped to v2.0.0" }
   ]
