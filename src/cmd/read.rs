@@ -124,7 +124,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
         });
     }
 
-    let selected = select_lines(&content, lines.unwrap());
+    let selected = select_lines(&content, lines.expect("checked is_none above"));
 
     Ok(ReadOutput {
         ok: true,

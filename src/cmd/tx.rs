@@ -405,7 +405,10 @@ fn get_doc_root<'a>(
         );
     }
 
-    Ok(&mut doc_cache.get_mut(&file_path).unwrap().value)
+    Ok(&mut doc_cache
+        .get_mut(&file_path)
+        .expect("just inserted into doc_cache")
+        .value)
 }
 
 /// Cached parsed document for avoiding redundant parse-serialize cycles when
@@ -585,7 +588,7 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
     }
 
     let selected = {
-        let spec = lines.as_ref().unwrap();
+        let spec = lines.as_ref().expect("checked is_none above");
         let range = crate::cmd::read::parse_line_range(spec)?;
         crate::cmd::read::select_lines(content, range)
     };

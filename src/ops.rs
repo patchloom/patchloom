@@ -1412,7 +1412,7 @@ pub(crate) mod md {
                     fence_marker = Some("~~~");
                     continue;
                 }
-            } else if line.starts_with(fence_marker.unwrap()) {
+            } else if line.starts_with(fence_marker.expect("checked is_none above")) {
                 fence_marker = None;
                 continue;
             }
