@@ -5992,6 +5992,36 @@ fn test_tx_glob_replace_only_matches_pattern() {
     );
 }
 
+#[test]
+fn test_tx_glob_replace_matches_file_created_earlier_in_transaction() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "operations": [
+            {"op": "file.create", "path": "new.txt", "content": "hello\n"},
+            {"op": "replace", "glob": "*.txt", "from": "hello", "to": "bye"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("--plan")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "bye\n"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // tx: md operations in plan
 // ---------------------------------------------------------------------------

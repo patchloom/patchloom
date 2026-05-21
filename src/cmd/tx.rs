@@ -478,8 +478,14 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         Ok(match_count)
     } else if let Some(pattern) = glob {
         let matcher = Glob::new(pattern)?.compile_matcher();
-        let walker = WalkBuilder::new(tx.cwd).build();
+        let matches_pattern = |path: &Path| {
+            matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
+        };
         let mut total_matches = 0usize;
+        let mut candidate_paths = Vec::new();
+        let mut seen_paths = HashSet::new();
+
+        let walker = WalkBuilder::new(tx.cwd).build();
         for entry in walker {
             let entry = match entry {
                 Ok(e) => e,
@@ -489,11 +495,25 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                 continue;
             }
             let file_path = entry.path().to_path_buf();
-            if !matcher.is_match(&file_path)
-                && !file_path.file_name().is_some_and(|n| matcher.is_match(n))
+            if matches_pattern(&file_path) && seen_paths.insert(file_path.clone()) {
+                candidate_paths.push(file_path);
+            }
+        }
+
+        for pending_path in tx.pending.keys() {
+            if !pending_path.starts_with(tx.cwd)
+                || pending_path.exists()
+                || tx.deletions.contains(pending_path)
+                || !matches_pattern(pending_path)
             {
                 continue;
             }
+            if seen_paths.insert(pending_path.clone()) {
+                candidate_paths.push(pending_path.clone());
+            }
+        }
+
+        for file_path in candidate_paths {
             let content = if tx.pending.contains_key(&file_path) {
                 let result = read_file_content(tx.pending, &file_path, tx.cwd);
                 match result {
