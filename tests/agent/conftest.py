@@ -35,6 +35,12 @@ def pytest_addoption(parser):
         default=int(os.environ.get("BENCH_RUNS", "1")),
         help="Number of benchmark runs per mode for variance reduction (default: 1)",
     )
+    parser.addoption(
+        "--dry-run-prompts",
+        action="store_true",
+        default=False,
+        help="Print benchmark prompts without calling the LLM API",
+    )
 
 
 # ---------------------------------------------------------------------------

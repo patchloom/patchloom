@@ -488,6 +488,33 @@ def n_runs(request):
 # ---------------------------------------------------------------------------
 
 
+def test_dry_run_prompts(request):
+    """Print all benchmark prompts without calling the LLM API."""
+    if not request.config.getoption("--dry-run-prompts"):
+        pytest.skip("Use --dry-run-prompts to run this test")
+
+    modes = ["patchloom", "mcp", "native"]
+    for task in TASKS:
+        print(f"\n{'=' * 60}")
+        print(f"Task: {task['name']}")
+        print(f"{'=' * 60}")
+        for mode in modes:
+            prompt = _get_prompt(task, mode)
+            label = f"[{mode}]"
+            if prompt == task["prompt"]:
+                if mode != "patchloom":
+                    continue  # same as default, skip
+                label = "[default]"
+            print(f"\n  {label}:")
+            for line in prompt.split("\n"):
+                print(f"    {line}")
+        # Show check function source for transparency
+        print(f"\n  [check]: {task['check'].__code__.co_code!r:.60}...")
+    print(f"\n{'=' * 60}")
+    print(f"Total: {len(TASKS)} tasks x {len(modes)} modes")
+    print(f"{'=' * 60}")
+
+
 @pytest.mark.timeout(1200)
 def test_multi_turn_patchloom(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
     """Run tasks in one session WITH patchloom CLI AGENTS.md."""
@@ -670,10 +697,18 @@ def _save_results(all_runs, modes, output_dir, n_runs):
             ],
         }
 
+    # Include prompts for reproducibility
+    prompts = {}
+    for task in TASKS:
+        prompts[task["name"]] = {}
+        for mode in modes:
+            prompts[task["name"]][mode] = _get_prompt(task, mode)
+
     data = {
         "timestamp": timestamp,
         "model": model,
         "n_runs": n_runs,
+        "prompts": prompts,
     }
     for mode in modes:
         runs = all_runs[mode]

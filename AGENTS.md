@@ -24,6 +24,8 @@ Patchloom is a Rust CLI for agent-grade repo operations. The default build provi
 | `make fuzz` | Run fuzz tests for selector parser and patch applier (requires nightly, not part of `check`). Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |
+| `make bench-agent-dry-run` | Preview agent benchmark prompts without calling the LLM API |
+| `make bench-agent-report` | Generate comparison report from saved agent benchmark results. Use `FILE=path` for specific file |
 
 Always run `make check` before committing. It is the full CI gate.
 

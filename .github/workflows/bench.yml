@@ -1,0 +1,56 @@
+name: Benchmarks
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      scales:
+        description: "Corpus scales to benchmark (space-separated)"
+        default: "small medium"
+        type: string
+
+permissions:
+  contents: write  # upload release assets
+
+jobs:
+  cli-bench:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check prerequisites
+        run: |
+          command -v hyperfine || (echo "hyperfine not found" && exit 1)
+          command -v jq || (echo "jq not found" && exit 1)
+          command -v yq || (echo "yq not found" && exit 1)
+
+      - name: Run CLI benchmarks
+        run: |
+          cd benches/cli
+          bash run.sh ${{ inputs.scales || 'small medium' }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-bench-results
+          path: benches/cli/results/*.md
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in benches/cli/results/*.md; do
+            gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
+          done

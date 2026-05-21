@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent fuzz
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent bench-agent-dry-run bench-agent-report fuzz
 
 .DEFAULT_GOAL := help
 
@@ -79,6 +79,15 @@ bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
 		.venv/bin/pytest test_bench.py -v -s --timeout 1200 $(if $(MODEL),--model $(MODEL),) $(if $(RUNS),--runs $(RUNS),)
+
+bench-agent-dry-run: ## Preview agent benchmark prompts without calling the LLM API
+	@cd tests/agent && \
+		([ -d .venv ] || python3 -m venv .venv) && \
+		.venv/bin/pip install -q -r requirements.txt && \
+		.venv/bin/pytest test_bench.py::test_dry_run_prompts -v -s --dry-run-prompts
+
+bench-agent-report: ## Generate comparison report from saved agent benchmark results
+	@python3 benches/agent/report.py $(if $(FILE),$(FILE),)
 
 FUZZ_TIME ?= 60
 
