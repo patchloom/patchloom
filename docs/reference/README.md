@@ -891,6 +891,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Searches a file for a pattern inside a transaction and includes match results in the JSON output without writing anything.
 - **Use when:** An agent needs to locate patterns before replacing them in the same plan, enabling locate-then-edit in a single call.
+- **Optional fields:** `regex` (bool, default false), `case_insensitive` (bool, default false), `multiline` (bool, default false), `context` (lines around matches), `before_context`, and `after_context` match the top level `search` flags.
 - **Related:** top level `search`
 
 <!-- ref:tx-op:read -->
