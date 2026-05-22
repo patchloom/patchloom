@@ -618,6 +618,7 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         pattern,
         regex,
         case_insensitive,
+        multiline,
         context,
         before_context,
         after_context,
@@ -628,16 +629,14 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
 
     let re = if *regex {
         let mut builder = RegexBuilder::new(pattern);
-        if *case_insensitive {
-            builder.case_insensitive(true);
-        }
+        builder.case_insensitive(*case_insensitive);
+        builder.dot_matches_new_line(*multiline);
         builder.build()?
     } else {
         let escaped = regex::escape(pattern);
         let mut builder = RegexBuilder::new(&escaped);
-        if *case_insensitive {
-            builder.case_insensitive(true);
-        }
+        builder.case_insensitive(*case_insensitive);
+        builder.dot_matches_new_line(*multiline);
         builder.build()?
     };
 
@@ -677,26 +676,59 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         let lines: Vec<&str> = content.lines().collect();
 
         let is_multi_file = file_paths.len() > 1;
-        for (i, line) in lines.iter().enumerate() {
-            if let Some(m) = re.find(line) {
-                let start = i.saturating_sub(ctx_before);
-                let end = (i + 1 + ctx_after).min(lines.len());
+        if *multiline {
+            // Multiline mode: search the full content so patterns can span lines.
+            for m in re.find_iter(content) {
+                let line_idx = content[..m.start()].matches('\n').count();
+                let start = line_idx.saturating_sub(ctx_before);
+                let end = (line_idx + 1 + ctx_after).min(lines.len());
+                let matched_text = m.as_str().to_string();
                 let text = if is_multi_file {
                     let display_path = file_path
                         .strip_prefix(tx.cwd)
                         .unwrap_or(file_path)
                         .to_string_lossy();
-                    format!("{display_path}:{}", line)
+                    format!("{display_path}:{matched_text}")
                 } else {
-                    line.to_string()
+                    matched_text
                 };
+                let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |p| p + 1);
                 all_matches.push(TxSearchMatch {
-                    line: i + 1,
-                    column: m.start() + 1,
+                    line: line_idx + 1,
+                    column: col + 1,
                     text,
-                    context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
-                    context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+                    context_before: lines[start..line_idx]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    context_after: lines[line_idx + 1..end]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
                 });
+            }
+        } else {
+            for (i, line) in lines.iter().enumerate() {
+                if let Some(m) = re.find(line) {
+                    let start = i.saturating_sub(ctx_before);
+                    let end = (i + 1 + ctx_after).min(lines.len());
+                    let text = if is_multi_file {
+                        let display_path = file_path
+                            .strip_prefix(tx.cwd)
+                            .unwrap_or(file_path)
+                            .to_string_lossy();
+                        format!("{display_path}:{}", line)
+                    } else {
+                        line.to_string()
+                    };
+                    all_matches.push(TxSearchMatch {
+                        line: i + 1,
+                        column: m.start() + 1,
+                        text,
+                        context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
+                        context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+                    });
+                }
             }
         }
     }

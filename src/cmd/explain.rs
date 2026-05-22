@@ -352,6 +352,7 @@ mod tests {
             pattern: "TODO".into(),
             regex: true,
             case_insensitive: false,
+            multiline: false,
             context: None,
             before_context: None,
             after_context: None,

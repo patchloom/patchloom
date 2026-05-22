@@ -8966,6 +8966,47 @@ fn test_tx_search_directory_path() {
 }
 
 #[test]
+fn test_tx_search_multiline_spans_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "search",
+            "path": portable_path_str(&file),
+            "pattern": "hello.*world",
+            "regex": true,
+            "multiline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let searches = json["searches"].as_array().unwrap();
+    assert_eq!(searches.len(), 1);
+    assert_eq!(
+        searches[0]["match_count"], 1,
+        "multiline regex should match across lines"
+    );
+}
+
+#[test]
 fn test_tx_strict_mode_reverts_on_format_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

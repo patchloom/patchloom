@@ -173,6 +173,9 @@ pub enum Operation {
         regex: bool,
         #[serde(default)]
         case_insensitive: bool,
+        /// Enable multiline matching (dot matches newlines in regex mode).
+        #[serde(default)]
+        multiline: bool,
         context: Option<usize>,
         before_context: Option<usize>,
         after_context: Option<usize>,
@@ -324,7 +327,7 @@ mod tests {
             {"op": "read", "path": "f.txt"},
             {"op": "read", "path": "f.txt", "lines": "1:10"},
             {"op": "search", "path": "f.txt", "pattern": "hello"},
-            {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true}
+            {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true}
         ]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.operations.len(), 29);
