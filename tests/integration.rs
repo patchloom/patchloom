@@ -13429,6 +13429,380 @@ async fn test_mcp_doc_merge_round_trip() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_doc_delete_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_delete",
+        serde_json::json!({"path": "config.json", "selector": "debug"}),
+    )
+    .await;
+    assert!(!is_error, "doc_delete should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(v.get("debug").is_none(), "doc_delete should remove key");
+    assert_eq!(v["name"], "app", "doc_delete should preserve other keys");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_append_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_append",
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
+    )
+    .await;
+    assert!(!is_error, "doc_append should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+    assert_eq!(v["tags"][2], "c");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_prepend_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_prepend",
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
+    )
+    .await;
+    assert!(!is_error, "doc_prepend should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"][0], "z", "doc_prepend should insert at front");
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_ensure_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"name":"app"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Ensure a missing key.
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_ensure",
+        serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
+    )
+    .await;
+    assert!(!is_error, "doc_ensure should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["debug"], false, "doc_ensure should set missing key");
+    assert_eq!(v["name"], "app", "doc_ensure should preserve existing keys");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_update_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"active":false},{"active":false}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_update",
+        serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
+    )
+    .await;
+    assert!(!is_error, "doc_update should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["items"][0]["active"], true);
+    assert_eq!(v["items"][1]["active"], true);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_move_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"old_name":"value"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_move",
+        serde_json::json!({"path": "config.json", "from": "old_name", "to": "new_name"}),
+    )
+    .await;
+    assert!(!is_error, "doc_move should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(v.get("old_name").is_none(), "doc_move should remove source");
+    assert_eq!(v["new_name"], "value", "doc_move should set destination");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_delete_where_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"name":"keep"},{"name":"drop"},{"name":"keep2"}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_delete_where",
+        serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
+    )
+    .await;
+    assert!(!is_error, "doc_delete_where should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(
+        items.len(),
+        2,
+        "doc_delete_where should remove matching item"
+    );
+    assert_eq!(items[0]["name"], "keep");
+    assert_eq!(items[1]["name"], "keep2");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_keys",
+        serde_json::json!({"path": "config.json", "selector": "."}),
+    )
+    .await;
+    assert!(!is_error, "doc_keys should succeed: {text}");
+    assert!(
+        text.contains("name"),
+        "doc_keys output should contain 'name': {text}"
+    );
+    assert!(
+        text.contains("version"),
+        "doc_keys output should contain 'version': {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b","c"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_len",
+        serde_json::json!({"path": "config.json", "selector": "tags"}),
+    )
+    .await;
+    assert!(!is_error, "doc_len should succeed: {text}");
+    assert!(text.contains('3'), "doc_len should return 3: {text}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_select_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"users":[{"role":"admin","name":"alice"},{"role":"user","name":"bob"}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_select",
+        serde_json::json!({"path": "config.json", "selector": "users[role=admin]"}),
+    )
+    .await;
+    assert!(!is_error, "doc_select should succeed: {text}");
+    assert!(
+        text.contains("alice"),
+        "doc_select should return matching item: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_flatten_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"db":{"host":"localhost","port":5432}}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_flatten",
+        serde_json::json!({"path": "config.json"}),
+    )
+    .await;
+    assert!(!is_error, "doc_flatten should succeed: {text}");
+    assert!(
+        text.contains("db.host"),
+        "doc_flatten should contain 'db.host': {text}"
+    );
+    assert!(
+        text.contains("db.port"),
+        "doc_flatten should contain 'db.port': {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_diff_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("a.json"),
+        r#"{"name":"old","version":"1.0"}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("b.json"),
+        r#"{"name":"new","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_diff",
+        serde_json::json!({"file_a": "a.json", "file_b": "b.json"}),
+    )
+    .await;
+    assert!(!is_error, "doc_diff should succeed: {text}");
+    assert!(
+        text.contains("name"),
+        "doc_diff should report name difference: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_status_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Initialize a git repo so status has something to report.
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("tracked.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Modify the tracked file to create a diff.
+    fs::write(dir.path().join("tracked.txt"), "modified\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(&client, "patchloom_status", serde_json::json!({})).await;
+    assert!(!is_error, "status should succeed: {text}");
+    assert!(
+        text.contains("tracked.txt"),
+        "status should show modified file: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Backup pruning integration tests (#371)
 // ---------------------------------------------------------------------------
