@@ -13,7 +13,7 @@
 
 Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by selector (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
 
-![Patchloom demo: batch edit 4 files, preview diff, apply, verify YAML comments preserved](demo/demo.gif)
+![Patchloom demo: 6 edits across 4 files in JSON, YAML, and TOML — one command, comments preserved](demo/demo.gif)
 
 ```bash
 # Edit a YAML value by selector without breaking comments or formatting
@@ -29,6 +29,8 @@ replace CHANGELOG.md "1.0.0" "2.0.0"
 file.create VERSION "2.0.0"
 EOF
 ```
+
+**[Why Patchloom?](#why-patchloom)** | **[Install](#install)** | **[Quick start](#quick-start)** | **[Commands](#commands)** | **[Comparison](#how-patchloom-compares)** | **[Architecture](#how-it-works-with-your-ai-agent)** | **[Status](#status)**
 
 ---
 
@@ -219,12 +221,9 @@ patchloom tx plan.json --apply
 
 ### 4. Or use MCP for structured tool calls (no shell syntax)
 
-```bash
-# Install or build with MCP support
-cargo install --path . --features mcp
-# or: cargo build --features mcp
+After [installing with MCP support](#install), start the server:
 
-# Then add to your agent's MCP config
+```bash
 patchloom mcp-server
 ```
 
@@ -331,14 +330,37 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 
 **When to keep using native tools:** Single-file reads, simple text search, single-file text replacement where comments don't matter. Patchloom's agent-rules tell agents exactly when to use each approach.
 
+## How it works with your AI agent
+
+Two integration modes, same capabilities:
+
+```mermaid
+flowchart LR
+    subgraph CLI["CLI mode (any agent)"]
+        direction TB
+        A["patchloom agent-rules >> AGENTS.md"] --> B["Agent reads AGENTS.md"]
+        B --> C{"What kind of edit?"}
+        C -->|Simple edit| D["Native tool (faster)"]
+        C -->|Config edit| E["patchloom doc (safer)"]
+        C -->|Markdown edit| F["patchloom md (smarter)"]
+        C -->|Multi-file edit| G["patchloom batch (batched)"]
+    end
+
+    subgraph MCP["MCP mode (MCP-capable agents)"]
+        direction TB
+        H["patchloom mcp-server"] --> I["Agent discovers tools via MCP"]
+        I --> J["Structured JSON tool calls"]
+        J --> K["No shell syntax needed"]
+    end
+```
+
+## Status
+
+976 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+
 ## Full command reference
 
 Every command, flag, transaction operation, and exit code is documented in the **[Command Reference](docs/reference/README.md)**.
-
-Quick links:
-- [Core concepts](docs/getting-started/concepts.md) (write modes, exit codes, transaction behavior)
-- [Examples](examples/README.md) (copy-paste transaction plans)
-- [Installation](docs/getting-started/installation.md) (all install methods)
 
 ## License
 
@@ -360,40 +382,6 @@ All commits must be signed off with `git commit -s`.
 ### Agent integration tests
 
 `make agent-test` runs 20 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 11 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
-
-## How it works with your AI agent
-
-Two integration modes, same capabilities:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  CLI mode (any agent)                                   │
-│                                                         │
-│  AGENTS.md  ◄── patchloom agent-rules >> ...            │
-│  (tells the agent when to use patchloom)                │
-│                                                         │
-│  Agent reads AGENTS.md at session start                 │
-│  ├── Simple edit?     → native tool (faster)            │
-│  ├── Config edit?     → patchloom doc (safer)           │
-│  ├── Markdown edit?   → patchloom md (smarter)          │
-│  └── Multi-file edit? → patchloom batch (batched)       │
-└─────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────┐
-│  MCP mode (MCP-capable agents)                          │
-│                                                         │
-│  Agent discovers patchloom tools via MCP protocol       │
-│  No shell syntax needed, no quoting errors              │
-│  Same operations, structured tool calls                 │
-│                                                         │
-│  Start: patchloom mcp-server                            │
-│  Build: cargo build --features mcp                      │
-└─────────────────────────────────────────────────────────┘
-```
-
-## Status
-
-976 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Security
 
