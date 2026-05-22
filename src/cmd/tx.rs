@@ -1892,6 +1892,7 @@ mod tests {
         };
         let mut global = default_global();
         global.apply = true;
+        global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -1919,6 +1920,7 @@ mod tests {
         };
         let mut global = default_global();
         global.apply = true;
+        global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::VALIDATION_FAILED);
@@ -1946,6 +1948,7 @@ mod tests {
         };
         let mut global = default_global();
         global.apply = true;
+        global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
