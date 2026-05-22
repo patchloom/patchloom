@@ -241,3 +241,45 @@ impl GlobalFlags {
         Ok(Some(lines))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_apply_returns_true_when_apply_set() {
+        let g = GlobalFlags {
+            apply: true,
+            ..GlobalFlags::default()
+        };
+        assert!(g.should_apply());
+    }
+
+    #[test]
+    fn should_apply_returns_false_by_default() {
+        let g = GlobalFlags::default();
+        assert!(!g.should_apply());
+    }
+
+    #[test]
+    fn should_apply_confirm_non_tty_returns_false() {
+        // In test environments, stdin is not a TTY, so --confirm should
+        // return false (safe fallback).
+        let g = GlobalFlags {
+            confirm: true,
+            ..GlobalFlags::default()
+        };
+        assert!(!g.should_apply());
+    }
+
+    #[test]
+    fn merge_write_copies_confirm() {
+        let w = WriteFlags {
+            confirm: true,
+            ..WriteFlags::default()
+        };
+        let mut g = GlobalFlags::default();
+        g.merge_write(&w);
+        assert!(g.confirm);
+    }
+}

@@ -4484,6 +4484,42 @@ fn test_parse_write_flag_normalize_eol() {
 }
 
 #[test]
+fn test_confirm_conflicts_with_apply() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "foo",
+            "--to",
+            "bar",
+            "--confirm",
+            "--apply",
+            "src/",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_confirm_conflicts_with_check() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "foo",
+            "--to",
+            "bar",
+            "--confirm",
+            "--check",
+            "src/",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[test]
 fn test_parse_unknown_subcommand_fails() {
     Command::cargo_bin("patchloom")
         .unwrap()
