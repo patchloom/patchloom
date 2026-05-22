@@ -80,10 +80,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   ci-macos:
-    # GitHub-hosted macOS runners are unavailable while this repo stays
-    # private and hosted-runner billing is blocked.
-    if: ${{ !github.event.repository.private }}
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 20
     steps:
       - name: Harden Runner
@@ -96,19 +93,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: rustfmt, clippy
 
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Unit tests (including MCP)
-        run: cargo test --lib --all-features
-
-      - name: Integration tests (including MCP)
-        run: cargo test --test integration --all-features
+      - name: Run checks
+        run: make check
 
   msrv:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
