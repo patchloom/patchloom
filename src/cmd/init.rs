@@ -1,7 +1,7 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::Args;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -69,18 +69,41 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         status!("skipped {rel_target}");
     }
 
-    // 2. Shell completions hint.
-    if !quiet {
-        eprintln!();
-        if let Some(shell) = detect_shell() {
-            let cmd = completion_command(&shell);
-            eprintln!("shell completions ({shell}):");
-            eprintln!("  {cmd}");
+    // 2. Shell completions: auto-install or hint.
+    if let Some(shell) = detect_shell() {
+        if let Some(target) = completion_install_path(&shell) {
+            let can_write = target
+                .parent()
+                .map(|p| p.exists() || std::fs::create_dir_all(p).is_ok())
+                .unwrap_or(false);
+            if can_write
+                && (auto_yes
+                    || confirm(&format!(
+                        "Install {} completions to {}?",
+                        shell,
+                        target.display()
+                    )))
+            {
+                match generate_completions(&shell, &target) {
+                    Ok(()) => status!("installed {shell} completions to {}", target.display()),
+                    Err(e) => status!("failed to install completions: {e}"),
+                }
+            } else {
+                let cmd = completion_command(&shell);
+                status!("\nshell completions ({shell}):");
+                status!("  {cmd}");
+            }
         } else {
-            eprintln!("shell completions:");
-            eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
+            let cmd = completion_command(&shell);
+            status!("\nshell completions ({shell}):");
+            status!("  {cmd}");
         }
+    } else if !quiet {
+        eprintln!("\nshell completions:");
+        eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
+    }
 
+    if !quiet {
         // 3. MCP setup hint.
         eprintln!();
         if cfg!(feature = "mcp") {
@@ -137,6 +160,44 @@ fn completion_command(shell: &str) -> String {
     }
 }
 
+fn completion_install_path(shell: &str) -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let home = Path::new(&home);
+    match shell {
+        "bash" => {
+            let xdg = home.join(".local/share/bash-completion/completions");
+            if xdg.is_dir() {
+                return Some(xdg.join("patchloom"));
+            }
+            // System path as fallback (may need root).
+            let sys = Path::new("/etc/bash_completion.d/patchloom");
+            Some(sys.to_path_buf())
+        }
+        "zsh" => Some(home.join(".zfunc/_patchloom")),
+        "fish" => Some(home.join(".config/fish/completions/patchloom.fish")),
+        _ => None,
+    }
+}
+
+fn generate_completions(shell: &str, target: &Path) -> anyhow::Result<()> {
+    use crate::cli::Cli;
+    let clap_shell = match shell {
+        "bash" => clap_complete::Shell::Bash,
+        "zsh" => clap_complete::Shell::Zsh,
+        "fish" => clap_complete::Shell::Fish,
+        "elvish" => clap_complete::Shell::Elvish,
+        _ => anyhow::bail!("unsupported shell: {shell}"),
+    };
+    let mut cmd = <Cli as clap::CommandFactory>::command();
+    let mut buf = Vec::new();
+    clap_complete::generate(clap_shell, &mut cmd, "patchloom", &mut buf);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(target, buf)?;
+    Ok(())
+}
+
 fn home_file_exists(rel: &str) -> bool {
     if let Some(home) = std::env::var_os("HOME") {
         return Path::new(&home).join(rel).exists();
@@ -191,5 +252,26 @@ mod tests {
         let found = find_agent_file(dir.path());
         assert!(found.is_some());
         assert!(found.unwrap().ends_with("AGENTS.md"));
+    }
+
+    #[test]
+    fn generate_completions_writes_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = dir.path().join("completions/patchloom");
+        generate_completions("bash", &target).unwrap();
+        assert!(target.exists());
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert!(content.contains("patchloom"));
+    }
+
+    #[test]
+    fn completion_install_path_returns_some_for_known_shells() {
+        // Requires HOME to be set (normal in test environments).
+        if std::env::var("HOME").is_ok() {
+            assert!(completion_install_path("bash").is_some());
+            assert!(completion_install_path("zsh").is_some());
+            assert!(completion_install_path("fish").is_some());
+            assert!(completion_install_path("elvish").is_none());
+        }
     }
 }
