@@ -202,6 +202,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
+    let cwd = global.resolve_cwd()?;
     let replacements = collect_replacements(&args, global)?;
 
     if replacements.is_empty() {
@@ -250,10 +251,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write changes using atomic_write with write policy.
     if global.apply {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        for r in &replacements {
+            backup.save_before_write(Path::new(&r.path))?;
+        }
         for r in &replacements {
             let policy = policy_from_flags(global, Some(Path::new(&r.path)));
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
+        let _ = backup.finalize();
 
         let color = global.should_color();
         if global.json {
@@ -309,10 +315,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        for r in &replacements {
+            backup.save_before_write(Path::new(&r.path))?;
+        }
         for r in &replacements {
             let policy = policy_from_flags(global, Some(Path::new(&r.path)));
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
+        let _ = backup.finalize();
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }

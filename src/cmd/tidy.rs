@@ -208,6 +208,16 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // Serial output/write phase for ordered, crash-safe writes.
             let any_changed = !results.is_empty();
+            let mut backup = if global.apply && any_changed {
+                Some(crate::backup::BackupSession::new(&root)?)
+            } else {
+                None
+            };
+            if let Some(ref mut b) = backup {
+                for r in &results {
+                    b.save_before_write(&r.path)?;
+                }
+            }
             for r in &results {
                 if global.check {
                     if !global.quiet {
@@ -232,6 +242,9 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
 
             if global.apply {
+                if let Some(b) = backup {
+                    let _ = b.finalize();
+                }
                 Ok(exit::SUCCESS)
             } else if any_changed {
                 if global.show_status() {
@@ -239,10 +252,15 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 // --confirm: prompt after showing diffs, then apply if confirmed.
                 if global.should_apply() {
+                    let mut backup = crate::backup::BackupSession::new(&root)?;
+                    for r in &results {
+                        backup.save_before_write(&r.path)?;
+                    }
                     for r in &results {
                         let noop = WritePolicy::default();
                         atomic_write(&r.path, &r.fixed, &noop)?;
                     }
+                    let _ = backup.finalize();
                     return Ok(exit::SUCCESS);
                 }
                 Ok(exit::CHANGES_DETECTED)

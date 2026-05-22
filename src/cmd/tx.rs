@@ -1492,6 +1492,19 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
+        // Back up originals before writing.
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        for (path, _, _) in &changes {
+            if deletions.contains(path) {
+                backup.save_before_delete(path)?;
+            } else {
+                backup.save_before_write(path)?;
+            }
+        }
+        for path in &deletions {
+            backup.save_before_delete(path)?;
+        }
+
         // Write all files atomically (policy already applied).
         let noop_policy = WritePolicy::default();
         for (path, _, new_content) in &changes {
@@ -1521,6 +1534,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::remove_file(path)?;
             }
         }
+        let _ = backup.finalize();
 
         // Show diffs if --diff flag is set.
         if global.diff && !changes.is_empty() {
@@ -1596,6 +1610,18 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
     if !no_effective_changes && global.should_apply() {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        for (path, _, _) in &changes {
+            if deletions.contains(path) {
+                backup.save_before_delete(path)?;
+            } else {
+                backup.save_before_write(path)?;
+            }
+        }
+        for path in &deletions {
+            backup.save_before_delete(path)?;
+        }
+
         let noop_policy = WritePolicy::default();
         for (path, _, new_content) in &changes {
             if deletions.contains(path) {
@@ -1619,6 +1645,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::remove_file(path)?;
             }
         }
+        let _ = backup.finalize();
     }
 
     Ok(exit::SUCCESS)

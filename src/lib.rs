@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod backup;
 pub mod cli;
 pub mod cmd;
 pub mod config;

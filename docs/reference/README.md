@@ -241,6 +241,18 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
 
+<!-- ref:command:undo -->
+## `undo`
+
+- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. The `undo` command reads the most recent (or a specified) backup and restores all files to their original state.
+- **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
+- **Notable flags:**
+  - `--list` shows available backup sessions.
+  - `--session <timestamp>` targets a specific session (defaults to most recent).
+  - `--apply` actually restores files (dry-run by default, showing what would change).
+- **Prefer instead:** Use `git checkout` or `git stash` when working in a committed git repo.
+- **Related:** `tx`, `replace`, `tidy`
+
 <!-- ref:command:explain -->
 ## `explain`
 

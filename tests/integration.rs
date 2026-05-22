@@ -6731,6 +6731,103 @@ fn test_explain_stdin() {
         .stdout(predicates::str::contains("Delete file x.txt"));
 }
 
+// ── undo ─────────────────────────────────────────────────────
+
+#[test]
+fn test_undo_restores_replaced_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    // Apply a replace.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--to", "goodbye", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world\n");
+
+    // Undo should restore the original.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello world\n");
+}
+
+#[test]
+fn test_undo_list_shows_sessions() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    // Apply a replace to create a backup.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    // List should show the session.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("test.txt"));
+}
+
+#[test]
+fn test_undo_dry_run_by_default() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    // Apply.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace", "original", "--to", "modified", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    // Undo without --apply should show what would change but not restore.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .code(2) // CHANGES_DETECTED
+        .stdout(predicates::str::contains("restore original"));
+
+    // File should still be modified.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "modified\n");
+}
+
+#[test]
+fn test_undo_no_sessions_exits_3() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .code(3); // NO_MATCHES
+}
+
 #[test]
 fn test_editorconfig_final_newline() {
     let dir = TempDir::new().unwrap();

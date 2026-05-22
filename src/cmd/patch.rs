@@ -256,6 +256,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // --apply mode: write files to disk.
             if global.apply {
+                let mut backup = crate::backup::BackupSession::new(&root)?;
+                for (file_path, _) in &file_changes {
+                    backup.save_before_write(file_path)?;
+                }
                 for (file_path, patched) in &file_changes {
                     let policy = policy_from_flags(global, Some(file_path));
                     atomic_write(file_path, patched, &policy)?;
@@ -263,6 +267,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         eprintln!("patch apply: {} -- written", file_path.display());
                     }
                 }
+                let _ = backup.finalize();
                 if global.diff {
                     let result = DiffResult {
                         diffs,
@@ -288,10 +293,15 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // --confirm: prompt after showing diff, then apply if confirmed.
             if global.should_apply() {
+                let mut backup = crate::backup::BackupSession::new(&root)?;
+                for (file_path, _) in &file_changes {
+                    backup.save_before_write(file_path)?;
+                }
                 for (file_path, patched) in &file_changes {
                     let policy = policy_from_flags(global, Some(file_path));
                     atomic_write(file_path, patched, &policy)?;
                 }
+                let _ = backup.finalize();
             }
 
             Ok(exit::SUCCESS)
