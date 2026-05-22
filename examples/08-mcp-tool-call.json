@@ -18,16 +18,19 @@
       "description": "Search for a pattern across the repo",
       "tool": "patchloom_search",
       "arguments": {
-        "path": "src",
-        "pattern": "TODO|FIXME",
-        "regex": true
+        "paths": ["src"],
+        "pattern": "TODO|FIXME"
       }
     },
     {
       "description": "Batch multiple edits in one call",
       "tool": "patchloom_batch",
       "arguments": {
-        "input": "doc.set config.json version \"2.0\"\nreplace README.md \"v1\" \"v2\"\nmd.upsert_bullet CHANGELOG.md \"Unreleased\" \"- Version bump\""
+        "operations": [
+          "doc.set config.json version \"2.0\"",
+          "replace README.md \"v1\" \"v2\"",
+          "md.upsert_bullet CHANGELOG.md \"Unreleased\" \"- Version bump\""
+        ]
       }
     },
     {
