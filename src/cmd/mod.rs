@@ -325,8 +325,19 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     out
 }
 
+/// Load and apply project config from `.patchloom.toml`.
+fn load_project_config(global: &mut crate::cli::global::GlobalFlags) {
+    let cwd = global.resolve_cwd().unwrap_or_default();
+    if let Some((config, _)) = crate::config::find_and_load(&cwd) {
+        crate::config::apply_config(global, &config);
+    }
+}
+
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     let mut global = cli.global;
+
+    // Load config early for read-only commands (no merge_write).
+    // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
         Command::McpServer => mcp::run_mcp_server(),
@@ -341,47 +352,66 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
             Ok(crate::exit::SUCCESS)
         }
-        Command::Read(args) => read::run(args, &global),
-        Command::Search(args) => search::run(args, &global),
-        Command::Status(args) => status::run(args, &global),
+        Command::Read(args) => {
+            load_project_config(&mut global);
+            read::run(args, &global)
+        }
+        Command::Search(args) => {
+            load_project_config(&mut global);
+            search::run(args, &global)
+        }
+        Command::Status(args) => {
+            load_project_config(&mut global);
+            status::run(args, &global)
+        }
         Command::Create(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             create::run(args, &global)
         }
         Command::Delete(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             delete::run(args, &global)
         }
         Command::Rename(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             rename::run(args, &global)
         }
         Command::Replace(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             replace::run(args, &global)
         }
         Command::Patch(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             patch::run(args, &global)
         }
         Command::Md(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             md::run(args, &global)
         }
         Command::Doc(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             doc::run(args, &global)
         }
         Command::Tidy(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             tidy::run(args, &global)
         }
         Command::Tx(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             tx::run(args, &global)
         }
         Command::Batch(args) => {
             global.merge_write(&args.write);
+            load_project_config(&mut global);
             batch::run(args, &global)
         }
     }

@@ -6609,6 +6609,66 @@ fn test_files_from_nonexistent_path_fails() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn test_project_config_sets_write_policy_defaults() {
+    let dir = TempDir::new().unwrap();
+
+    // Create .patchloom.toml with write policy.
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[write_policy]\nensure_final_newline = true\n",
+    )
+    .unwrap();
+
+    // Create a file without trailing newline.
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "no newline").unwrap();
+
+    // Run tidy with --apply but without --ensure-final-newline flag.
+    // Config should supply the default.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix"])
+        .arg(&file)
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    let content = fs::read(&file).unwrap();
+    assert!(
+        content.ends_with(b"\n"),
+        "config should have enabled ensure_final_newline"
+    );
+}
+
+#[test]
+fn test_project_config_exclude_globs() {
+    let dir = TempDir::new().unwrap();
+
+    // Create .patchloom.toml with glob that limits to *.rs files.
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[exclude]\nglobs = [\"*.rs\"]\n",
+    )
+    .unwrap();
+
+    // Create both .rs and .txt files.
+    fs::write(dir.path().join("code.rs"), "hello\n").unwrap();
+    fs::write(dir.path().join("notes.txt"), "hello\n").unwrap();
+
+    // Search should find matches in .rs but not .txt (glob from config).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["search", "hello", ".", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("code.rs"))
+        .stdout(predicates::str::contains("notes.txt").not());
+}
+
+#[test]
 fn test_editorconfig_final_newline() {
     let dir = TempDir::new().unwrap();
 

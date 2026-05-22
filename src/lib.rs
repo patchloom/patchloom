@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod cmd;
+pub mod config;
 pub mod diff;
 pub mod exit;
 pub(crate) mod files;
