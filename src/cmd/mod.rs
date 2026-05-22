@@ -2,6 +2,7 @@ pub mod batch;
 pub mod create;
 pub mod delete;
 pub mod doc;
+pub mod explain;
 pub mod init;
 #[cfg(feature = "mcp")]
 pub mod mcp;
@@ -46,6 +47,8 @@ pub enum Command {
     Tx(tx::TxArgs),
     /// Execute multiple operations from a simple line-oriented format.
     Batch(batch::BatchArgs),
+    /// Explain a tx plan in plain English.
+    Explain(explain::ExplainArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
     AgentRules(AgentRulesArgs),
     /// Set up patchloom in the current project.
@@ -355,6 +358,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Read(args) => {
             load_project_config(&mut global);
             read::run(args, &global)
+        }
+        Command::Explain(args) => {
+            load_project_config(&mut global);
+            explain::run(args, &global)
         }
         Command::Search(args) => {
             load_project_config(&mut global);

@@ -241,6 +241,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
 
+<!-- ref:command:explain -->
+## `explain`
+
+- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` for structured output and `--stdin` for piped input.
+- **Use when:** A user or agent wants to review what a tx plan will do before running `tx --apply`. Converts machine-readable plan format into plain English descriptions.
+- **Prefer instead:** Use `tx` directly (without `--apply`) to see the actual diff preview. Use `explain` when you want a quick overview without touching any files.
+- **Related:** `tx`, `batch`
+
 <!-- ref:command:agent-rules -->
 ## `agent-rules`
 

@@ -6668,6 +6668,69 @@ fn test_project_config_exclude_globs() {
         .stdout(predicates::str::contains("notes.txt").not());
 }
 
+// ── explain ──────────────────────────────────────────────────
+
+#[test]
+fn test_explain_prints_human_summary() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{
+            "version": "1",
+            "strict": true,
+            "operations": [
+                {"op": "file.create", "path": "test.txt", "content": "hi"},
+                {"op": "file.delete", "path": "old.txt"}
+            ],
+            "validate": [{"cmd": "echo ok", "required": true}]
+        }"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("2 operation(s) (strict mode)"))
+        .stdout(predicates::str::contains("Create file test.txt"))
+        .stdout(predicates::str::contains("Delete file old.txt"))
+        .stdout(predicates::str::contains("Validate: echo ok (required)"));
+}
+
+#[test]
+fn test_explain_json_output() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain", "--json"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"operation_count\": 1"))
+        .stdout(predicates::str::contains("\"strict\": false"));
+}
+
+#[test]
+fn test_explain_stdin() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain", "--stdin"])
+        .write_stdin(r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Delete file x.txt"));
+}
+
 #[test]
 fn test_editorconfig_final_newline() {
     let dir = TempDir::new().unwrap();
