@@ -51,17 +51,24 @@ fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
     if let Ok(rel) = file_path.strip_prefix(project_root) {
         return rel.to_path_buf();
     }
-    // File is outside the project root. Strip leading `/` (or drive prefix)
-    // so session_dir.join(rel) doesn't replace the session dir.
+    // File is outside the project root. Place it under __external__/ with
+    // enough information to reconstruct the original absolute path on restore.
     let s = file_path.to_string_lossy();
-    let stripped = s
-        .strip_prefix('/')
-        .or_else(|| {
-            // Windows: strip "C:\" style prefix
-            s.get(3..).filter(|_| s.as_bytes().get(1) == Some(&b':'))
-        })
-        .unwrap_or(&s);
-    PathBuf::from(format!("__external__/{stripped}"))
+    if let Some(rest) = s.strip_prefix('/') {
+        // Unix absolute path: /tmp/foo -> __external__/tmp/foo
+        PathBuf::from(format!("__external__/{rest}"))
+    } else if s.len() >= 3
+        && s.as_bytes()[1] == b':'
+        && (s.as_bytes()[2] == b'\\' || s.as_bytes()[2] == b'/')
+    {
+        // Windows absolute path: C:\tmp\foo -> __external_C__/tmp/foo
+        let drive = s.as_bytes()[0] as char;
+        let rest = &s[3..];
+        PathBuf::from(format!("__external_{drive}__/{rest}"))
+    } else {
+        // Relative path that couldn't be stripped (shouldn't normally happen).
+        PathBuf::from(format!("__external__/{s}"))
+    }
 }
 
 /// An active backup session that collects originals before writes.
@@ -258,11 +265,24 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
 /// Resolve the restore target path from a manifest entry.
 ///
 /// Paths starting with `__external__/` were backed up from outside the project
-/// root. Restore them to their original absolute location by re-adding the
-/// leading `/`.
+/// root (Unix). Paths starting with `__external_X__/` carry a Windows drive
+/// letter. Both are reconstructed back to their original absolute location.
 fn resolve_restore_path(project_root: &Path, entry_path: &str) -> PathBuf {
     if let Some(rest) = entry_path.strip_prefix("__external__/") {
+        // Unix external path: __external__/tmp/foo -> /tmp/foo
         PathBuf::from(format!("/{rest}"))
+    } else if entry_path.starts_with("__external_")
+        && entry_path.len() > 14
+        && entry_path
+            .as_bytes()
+            .get(11)
+            .is_some_and(|b| b.is_ascii_alphabetic())
+        && entry_path[12..].starts_with("__/")
+    {
+        // Windows external path: __external_C__/tmp/foo -> C:\tmp\foo
+        let drive = entry_path.as_bytes()[11] as char;
+        let rest = &entry_path[15..];
+        PathBuf::from(format!("{drive}:\\{rest}"))
     } else {
         project_root.join(entry_path)
     }
@@ -515,10 +535,17 @@ mod tests {
     }
 
     #[test]
-    fn resolve_restore_path_external() {
+    fn resolve_restore_path_external_unix() {
         let root = Path::new("/project");
         let p = resolve_restore_path(root, "__external__/tmp/other/file.txt");
         assert_eq!(p, PathBuf::from("/tmp/other/file.txt"));
+    }
+
+    #[test]
+    fn resolve_restore_path_external_windows() {
+        let root = Path::new("/project");
+        let p = resolve_restore_path(root, "__external_C__/Users/name/file.txt");
+        assert_eq!(p, PathBuf::from("C:\\Users/name/file.txt"));
     }
 
     #[test]
