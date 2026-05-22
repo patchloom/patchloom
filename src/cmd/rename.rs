@@ -87,34 +87,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: perform the rename.
     if global.apply {
-        // Ensure parent directories exist for the destination.
-        if let Some(parent) = dst.parent()
-            && !parent.as_os_str().is_empty()
-            && !parent.exists()
-        {
-            fs::create_dir_all(parent)?;
-        }
-
-        // Fast path: when no write-policy transforms are active, use
-        // fs::rename (atomic, handles binary files, no memory allocation).
-        // Falls back to fs::copy + fs::remove_file for cross-filesystem moves.
-        if policy.is_noop() {
-            if args.force || !dst.exists() {
-                rename_or_copy(&src, &dst)?;
-            } else {
-                anyhow::bail!("destination already exists: {}", args.to);
-            }
-        } else {
-            // Write-policy transforms require reading as text.
-            let content =
-                fs::read_to_string(&src).with_context(|| format!("reading {}", args.from))?;
-            if args.force {
-                atomic_write(&dst, &content, &policy)?;
-            } else {
-                atomic_create_new(&dst, &content, &policy)?;
-            }
-            fs::remove_file(&src)?;
-        }
+        do_rename(&src, &dst, &args, &policy)?;
 
         if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.
@@ -156,34 +129,46 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing preview, then rename if confirmed.
     if global.should_apply() {
-        if let Some(parent) = dst.parent()
-            && !parent.as_os_str().is_empty()
-            && !parent.exists()
-        {
-            fs::create_dir_all(parent)?;
-        }
-        if policy.is_noop() {
-            if args.force || !dst.exists() {
-                rename_or_copy(&src, &dst)?;
-            } else {
-                anyhow::bail!("destination already exists: {}", args.to);
-            }
-        } else {
-            let content =
-                fs::read_to_string(&src).with_context(|| format!("reading {}", args.from))?;
-            if args.force {
-                atomic_write(&dst, &content, &policy)?;
-            } else {
-                atomic_create_new(&dst, &content, &policy)?;
-            }
-            fs::remove_file(&src)?;
-        }
+        do_rename(&src, &dst, &args, &policy)?;
         if global.show_status() {
             eprintln!("renamed {} -> {}", args.from, args.to);
         }
     }
 
     Ok(exit::SUCCESS)
+}
+
+/// Perform the actual file rename: create parent dirs, move or transform the
+/// content, and remove the source.
+fn do_rename(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    args: &RenameArgs,
+    policy: &crate::write::WritePolicy,
+) -> anyhow::Result<()> {
+    if let Some(parent) = dst.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)?;
+    }
+
+    if policy.is_noop() {
+        if args.force || !dst.exists() {
+            rename_or_copy(src, dst)?;
+        } else {
+            anyhow::bail!("destination already exists: {}", args.to);
+        }
+    } else {
+        let content = fs::read_to_string(src).with_context(|| format!("reading {}", args.from))?;
+        if args.force {
+            atomic_write(dst, &content, policy)?;
+        } else {
+            atomic_create_new(dst, &content, policy)?;
+        }
+        fs::remove_file(src)?;
+    }
+    Ok(())
 }
 
 /// Try to read `path` as text and produce a rename diff. Returns `None` for
