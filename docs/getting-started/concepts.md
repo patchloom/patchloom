@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 15 core commands. Building with `--features mcp` adds a 16th, `mcp-server`:
+Patchloom has 16 core commands. Building with `--features mcp` adds a 17th, `mcp-server`:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
@@ -16,6 +16,7 @@ Patchloom has 15 core commands. Building with `--features mcp` adds a 16th, `mcp
 - **batch** -- line-oriented multi-operation format (delegates to tx engine)
 - **completions** -- shell completion generation
 - **agent-rules** -- print end-user agent documentation for patchloom
+- **init** -- set up patchloom in a project (agent rules, completions, MCP)
 - **mcp-server** -- MCP protocol server exposing patchloom tools for AI agents (requires `--features mcp`)
 
 For feature-by-feature `Use when` guidance on commands, operations, and notable modes, see the [reference guide](../reference/README.md).
@@ -52,6 +53,16 @@ In tx plans, set these at the plan level:
   "operations": [...]
 }
 ```
+
+## Color output
+
+Patchloom colorizes diffs and search results when stdout is a terminal. Override with:
+
+- `--color=always` -- force color (useful when piping to a pager like `less -R`)
+- `--color=never` -- disable color
+- `NO_COLOR=1` -- environment variable that disables color for all tools ([no-color.org](https://no-color.org))
+
+Machine-readable modes (`--json`, `--jsonl`, `--quiet`) never produce color.
 
 ## Transaction plans
 

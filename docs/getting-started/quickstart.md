@@ -7,6 +7,17 @@ This guide takes you from zero to a working multi-file edit in under 5 minutes.
 - Patchloom installed (see [installation.md](installation.md))
 - A git repo to work in (or create a test directory)
 
+## Step 0: Set up your project (optional)
+
+Run `init` to generate agent rules, get shell completions, and detect MCP setup:
+
+```bash
+patchloom init
+```
+
+This creates or appends to your `AGENTS.md` so AI agents know how to use patchloom.
+Pass `-y` to skip confirmation prompts.
+
 ## Step 1: Search for something
 
 Find all TODO comments in your project:
