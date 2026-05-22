@@ -4990,6 +4990,80 @@ fn test_files_from_restricts_search() {
 }
 
 #[test]
+fn test_files_from_stdin_restricts_search() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("included.txt"), "findme\n").unwrap();
+    fs::write(dir.path().join("excluded.txt"), "findme\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("-")
+        .arg("search")
+        .arg("findme")
+        .arg(".")
+        .write_stdin("included.txt\n")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("included.txt"));
+    assert!(
+        !stdout.contains("excluded.txt"),
+        "excluded file should not appear"
+    );
+}
+
+#[test]
+fn test_color_never_suppresses_ansi_codes() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--color=never")
+        .arg("search")
+        .arg("hello")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(".")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\x1b["),
+        "ANSI escape codes should not appear with --color=never"
+    );
+    assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn test_color_always_forces_ansi_codes() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--color=always")
+        .arg("search")
+        .arg("hello")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(".")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\x1b["),
+        "ANSI escape codes should appear with --color=always"
+    );
+}
+
+#[test]
 fn test_search_context_flag() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
