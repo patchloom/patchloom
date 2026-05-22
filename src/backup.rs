@@ -51,7 +51,8 @@ pub struct BackupSession {
 }
 
 impl BackupSession {
-    /// Start a new backup session. Creates the session directory.
+    /// Start a new backup session. Creates the session directory and prunes
+    /// stale backups older than 7 days.
     pub fn new(project_root: &Path) -> anyhow::Result<Self> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -60,6 +61,9 @@ impl BackupSession {
         let session_dir = project_root.join(BACKUP_DIR).join(&timestamp);
         std::fs::create_dir_all(&session_dir)
             .with_context(|| format!("failed to create backup dir {}", session_dir.display()))?;
+
+        // Best-effort prune of old backups; ignore errors.
+        let _ = prune_old_backups(project_root);
 
         Ok(Self {
             session_dir,
