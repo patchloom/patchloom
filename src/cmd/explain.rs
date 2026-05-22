@@ -353,9 +353,11 @@ mod tests {
             regex: true,
             case_insensitive: false,
             multiline: false,
+            invert_match: false,
             context: None,
             before_context: None,
             after_context: None,
+            assert_count: None,
         };
         assert!(describe_operation(&op).contains("(regex)"));
     }

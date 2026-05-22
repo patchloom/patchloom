@@ -176,9 +176,14 @@ pub enum Operation {
         /// Enable multiline matching (dot matches newlines in regex mode).
         #[serde(default)]
         multiline: bool,
+        /// Show lines that do NOT match the pattern.
+        #[serde(default)]
+        invert_match: bool,
         context: Option<usize>,
         before_context: Option<usize>,
         after_context: Option<usize>,
+        /// Assert that the total match count equals N. Fails the operation otherwise.
+        assert_count: Option<usize>,
     },
     #[serde(rename = "read")]
     Read {
@@ -327,10 +332,11 @@ mod tests {
             {"op": "read", "path": "f.txt"},
             {"op": "read", "path": "f.txt", "lines": "1:10"},
             {"op": "search", "path": "f.txt", "pattern": "hello"},
-            {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true}
+            {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true},
+            {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 29);
+        assert_eq!(plan.operations.len(), 30);
     }
 
     #[test]

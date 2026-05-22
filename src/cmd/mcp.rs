@@ -19,6 +19,7 @@ use crate::plan::{Operation, Plan};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocSetParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -29,6 +30,7 @@ pub struct DocSetParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocDeleteParams {
     /// File path.
     pub path: String,
@@ -37,6 +39,7 @@ pub struct DocDeleteParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocMergeParams {
     /// File path.
     pub path: String,
@@ -45,6 +48,7 @@ pub struct DocMergeParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocArrayParams {
     /// File path.
     pub path: String,
@@ -55,6 +59,7 @@ pub struct DocArrayParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocEnsureParams {
     /// File path.
     pub path: String,
@@ -65,6 +70,7 @@ pub struct DocEnsureParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocUpdateParams {
     /// File path.
     pub path: String,
@@ -75,6 +81,7 @@ pub struct DocUpdateParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocMoveParams {
     /// File path.
     pub path: String,
@@ -85,6 +92,7 @@ pub struct DocMoveParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocDeleteWhereParams {
     /// File path.
     pub path: String,
@@ -95,6 +103,7 @@ pub struct DocDeleteWhereParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReplaceParams {
     /// File path.
     pub path: String,
@@ -123,6 +132,7 @@ pub struct ReplaceParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -131,6 +141,7 @@ pub struct DocGetParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReadFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -139,12 +150,14 @@ pub struct ReadFileParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MdLintAgentsParams {
     /// Markdown file path (typically AGENTS.md).
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MdUpsertBulletParams {
     /// Markdown file path.
     pub path: String,
@@ -155,6 +168,7 @@ pub struct MdUpsertBulletParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MdTableAppendParams {
     /// Markdown file path.
     pub path: String,
@@ -165,6 +179,7 @@ pub struct MdTableAppendParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MdReplaceSectionParams {
     /// Markdown file path.
     pub path: String,
@@ -175,6 +190,7 @@ pub struct MdReplaceSectionParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MdInsertParams {
     /// Markdown file path.
     pub path: String,
@@ -185,6 +201,7 @@ pub struct MdInsertParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TxParams {
     /// Transaction plan as a JSON, YAML, or TOML string. Must include
     /// "version" and "operations". May include "format", "validate",
@@ -195,12 +212,14 @@ pub struct TxParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TidyParams {
     /// File path to normalize.
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FileRenameParams {
     /// Source file path (relative to working directory).
     pub from: String,
@@ -212,6 +231,7 @@ pub struct FileRenameParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -223,18 +243,21 @@ pub struct CreateFileParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DeleteFileParams {
     /// File path (relative to working directory).
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PatchParams {
     /// Unified diff text to apply.
     pub diff: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BatchParams {
     /// List of operations, one per string, in line-oriented batch format.
     /// Example: ["doc.set config.json version \"2.0.0\"", "replace README.md \"old\" \"new\""]
@@ -242,6 +265,7 @@ pub struct BatchParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
@@ -254,8 +278,12 @@ pub struct SearchParams {
     /// Case-insensitive matching.
     #[serde(default)]
     pub case_insensitive: bool,
-    /// Lines of context around matches.
+    /// Lines of context around matches (shorthand for before_context + after_context).
     pub context: Option<usize>,
+    /// Lines of context before each match.
+    pub before_context: Option<usize>,
+    /// Lines of context after each match.
+    pub after_context: Option<usize>,
     /// Only return file paths with matches (not match details).
     #[serde(default)]
     pub files_with_matches: bool,
@@ -268,6 +296,7 @@ pub struct SearchParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocSelectorParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -276,12 +305,14 @@ pub struct DocSelectorParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocFileParams {
     /// File path (relative to working directory).
     pub path: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DocDiffParams {
     /// First file path.
     pub file_a: String,
@@ -866,6 +897,14 @@ impl PatchloomService {
         }
         if let Some(ctx) = p.context {
             args.push("-C".into());
+            args.push(ctx.to_string());
+        }
+        if let Some(ctx) = p.before_context {
+            args.push("-B".into());
+            args.push(ctx.to_string());
+        }
+        if let Some(ctx) = p.after_context {
+            args.push("-A".into());
             args.push(ctx.to_string());
         }
         args.push(p.pattern);
@@ -1511,6 +1550,66 @@ mod tests {
         std::os::unix::fs::symlink("/tmp", &link).unwrap();
         let result = validate_path_resolved("escape", dir.path());
         assert!(result.is_err(), "symlink escaping cwd should be rejected");
+    }
+
+    #[tokio::test]
+    async fn mcp_example_argument_keys_match_schemas() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let tools = client.peer().list_all_tools().await.unwrap();
+
+        // Build map of tool_name -> set of valid property keys from schemas
+        let mut schema_keys: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for tool in &tools {
+            if let Some(props) = tool
+                .input_schema
+                .get("properties")
+                .and_then(|p| p.as_object())
+            {
+                schema_keys.insert(tool.name.to_string(), props.keys().cloned().collect());
+            }
+        }
+
+        // Read and validate the example file
+        let example_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/08-mcp-tool-call.json");
+        let example_content = std::fs::read_to_string(&example_path)
+            .expect("failed to read examples/08-mcp-tool-call.json");
+        let example_json: serde_json::Value = serde_json::from_str(&example_content)
+            .expect("failed to parse examples/08-mcp-tool-call.json");
+
+        let examples = example_json["examples"]
+            .as_array()
+            .expect("examples should be an array");
+
+        let mut errors = Vec::new();
+        for entry in examples {
+            let tool_name = entry["tool"].as_str().expect("tool should be a string");
+            let arguments = entry["arguments"]
+                .as_object()
+                .expect("arguments should be an object");
+
+            if let Some(valid_keys) = schema_keys.get(tool_name) {
+                for key in arguments.keys() {
+                    if !valid_keys.contains(key) {
+                        errors.push(format!(
+                            "tool '{}': unknown argument '{}' (valid: {:?})",
+                            tool_name, key, valid_keys
+                        ));
+                    }
+                }
+            } else {
+                errors.push(format!("tool '{}': not found in MCP tool list", tool_name));
+            }
+        }
+
+        assert!(
+            errors.is_empty(),
+            "MCP example validation errors:\n{}",
+            errors.join("\n")
+        );
+        client.cancel().await.unwrap();
     }
 
     #[cfg(unix)]

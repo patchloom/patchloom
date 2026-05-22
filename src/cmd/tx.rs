@@ -284,8 +284,17 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }
         | Operation::Read { .. }
-        | Operation::Search { .. }
         | Operation::PatchApply { .. } => Ok(()),
+        Operation::Search {
+            invert_match,
+            multiline,
+            ..
+        } => {
+            if *invert_match && *multiline {
+                anyhow::bail!("search: invert_match and multiline cannot be combined");
+            }
+            Ok(())
+        }
     }
 }
 
@@ -619,13 +628,19 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         regex,
         case_insensitive,
         multiline,
+        invert_match,
         context,
         before_context,
         after_context,
+        assert_count,
     } = op
     else {
         unreachable!()
     };
+
+    if *invert_match && *multiline {
+        anyhow::bail!("invert_match and multiline cannot be combined");
+    }
 
     let re = if *regex {
         let mut builder = RegexBuilder::new(pattern);
@@ -709,7 +724,13 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
             }
         } else {
             for (i, line) in lines.iter().enumerate() {
-                if let Some(m) = re.find(line) {
+                let found = re.find(line);
+                let is_match = if *invert_match {
+                    found.is_none()
+                } else {
+                    found.is_some()
+                };
+                if is_match {
                     let start = i.saturating_sub(ctx_before);
                     let end = (i + 1 + ctx_after).min(lines.len());
                     let text = if is_multi_file {
@@ -721,9 +742,10 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
                     } else {
                         line.to_string()
                     };
+                    let column = found.map_or(1, |m| m.start() + 1);
                     all_matches.push(TxSearchMatch {
                         line: i + 1,
-                        column: m.start() + 1,
+                        column,
                         text,
                         context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
                         context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
@@ -731,6 +753,18 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
                 }
             }
         }
+    }
+
+    if let Some(expected) = assert_count
+        && all_matches.len() != *expected
+    {
+        anyhow::bail!(
+            "search assert_count: expected {} matches for '{}' in {}, found {}",
+            expected,
+            pattern,
+            path,
+            all_matches.len()
+        );
     }
 
     tx.tx_searches.push(TxSearchResult {

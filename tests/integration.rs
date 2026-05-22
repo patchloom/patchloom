@@ -9007,6 +9007,160 @@ fn test_tx_search_multiline_spans_lines() {
 }
 
 #[test]
+fn test_tx_search_invert_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\ngoodbye\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "search",
+            "path": portable_path_str(&file),
+            "pattern": "hello",
+            "invert_match": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let searches = json["searches"].as_array().unwrap();
+    assert_eq!(searches.len(), 1);
+    // "hello" matches line 1, so invert_match returns lines 2 and 3
+    assert_eq!(
+        searches[0]["match_count"], 2,
+        "invert_match should return non-matching lines"
+    );
+    let texts: Vec<&str> = searches[0]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["text"].as_str().unwrap())
+        .collect();
+    assert!(
+        texts.iter().all(|t| !t.contains("hello")),
+        "inverted results should not contain 'hello': {texts:?}"
+    );
+}
+
+#[test]
+fn test_tx_search_assert_count_pass() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\naaa\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "search",
+            "path": portable_path_str(&file),
+            "pattern": "aaa",
+            "assert_count": 2
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "assert_count=2 should pass when there are 2 matches; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_tx_search_assert_count_fail() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\naaa\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "search",
+            "path": portable_path_str(&file),
+            "pattern": "aaa",
+            "assert_count": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "assert_count=5 should fail when there are only 2 matches"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("assert_count") || stdout.contains("expected 5"),
+        "error should mention assert_count: {stdout}"
+    );
+}
+
+#[test]
+fn test_tx_search_invert_match_multiline_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "search",
+            "path": portable_path_str(&file),
+            "pattern": "hello",
+            "invert_match": true,
+            "multiline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "invert_match + multiline should be rejected"
+    );
+}
+
+#[test]
 fn test_tx_strict_mode_reverts_on_format_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -12578,7 +12732,6 @@ async fn test_mcp_batch_round_trip() {
         &client,
         "patchloom_batch",
         serde_json::json!({
-            "version": "1",
             "operations": ["doc.set a.json version \"2.0.0\"", "replace b.txt \"old\" \"new\""]
         }),
     )
@@ -12727,7 +12880,7 @@ async fn test_mcp_batch_rejects_oversized_payload() {
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_batch",
-        serde_json::json!({ "version": "1", "operations": ops}),
+        serde_json::json!({ "operations": ops }),
     )
     .await;
     assert!(is_error, "oversized batch should be rejected: {text}");
