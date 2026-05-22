@@ -334,7 +334,7 @@ mod tests {
         s1.save_before_write(&file).unwrap();
         let ts1 = s1.finalize().unwrap().unwrap();
 
-        // Small delay to get a different millisecond timestamp.
+        // Small delay to guarantee a different nanosecond timestamp.
         std::thread::sleep(std::time::Duration::from_millis(10));
 
         std::fs::write(&file, "v2").unwrap();
