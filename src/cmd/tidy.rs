@@ -234,6 +234,9 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if global.apply {
                 Ok(exit::SUCCESS)
             } else if any_changed {
+                if global.show_status() {
+                    eprintln!("{} file(s) changed", results.len());
+                }
                 // --confirm: prompt after showing diffs, then apply if confirmed.
                 if global.should_apply() {
                     for r in &results {

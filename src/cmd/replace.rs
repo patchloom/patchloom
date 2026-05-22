@@ -303,6 +303,9 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else {
         print!("{}", make_diff_output(&replacements, color));
     }
+    if global.show_status() {
+        eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
+    }
 
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {

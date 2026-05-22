@@ -1589,6 +1589,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else if !changes.is_empty() {
         print_diffs(&changes, &cwd, global.should_color());
     }
+    if !no_effective_changes && global.show_status() {
+        let n = changes.len() + deletions.len();
+        eprintln!("{n} file(s) changed");
+    }
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
     if !no_effective_changes && global.should_apply() {

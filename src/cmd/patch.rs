@@ -282,6 +282,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 "{}",
                 format_diff_result_colored(&result, global.should_color())
             );
+            if global.show_status() {
+                eprintln!("{} file(s) changed", result.total_files_changed);
+            }
 
             // --confirm: prompt after showing diff, then apply if confirmed.
             if global.should_apply() {
