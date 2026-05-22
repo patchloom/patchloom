@@ -91,6 +91,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `patchloom_md_replace_section` | Replace a markdown section by heading |
 | `patchloom_md_insert_after_heading` | Insert content after a markdown heading |
 | `patchloom_md_insert_before_heading` | Insert content before a markdown heading |
+| `patchloom_md_lint_agents` | Lint an AGENTS.md file for common issues |
 | `patchloom_tidy` | Fix whitespace and line endings |
 | `patchloom_create` | Create a new file with content |
 | `patchloom_delete` | Delete a file |
