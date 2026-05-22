@@ -3817,6 +3817,8 @@ fn test_rename_moves_file() {
         .arg(&src)
         .arg(&dst)
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .success();
 
@@ -3885,6 +3887,8 @@ fn test_rename_force_overwrites() {
         .arg(&dst)
         .arg("--force")
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .success();
 
@@ -3987,6 +3991,8 @@ fn test_rename_force_directory_destination_fails_in_apply_mode() {
         .arg(&dst)
         .arg("--force")
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .code(1)
         .stderr(predicate::str::contains("destination is not a file"));
@@ -4008,6 +4014,8 @@ fn test_rename_directory_source_fails() {
         .arg(&src)
         .arg(&dst)
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .code(1)
         .stderr(predicate::str::contains("source is not a file"));
@@ -4030,6 +4038,8 @@ fn test_rename_binary_file() {
         .arg(&src)
         .arg(&dst)
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .success();
 
@@ -4075,6 +4085,8 @@ fn test_rename_json_output() {
         .arg(&src)
         .arg(&dst)
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .output()
         .unwrap();
 
@@ -4144,6 +4156,8 @@ fn test_rename_with_write_policy() {
         .arg(&dst)
         .arg("--ensure-final-newline")
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .success();
 
@@ -4165,6 +4179,8 @@ fn test_rename_binary_with_write_policy_includes_path_in_error() {
         .arg(dir.path().join("moved.bin"))
         .arg("--trim-trailing-whitespace")
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .code(1)
         .stderr(predicates::str::contains("binary.bin"));
@@ -4210,6 +4226,8 @@ fn test_rename_creates_parent_dirs() {
         .arg(&src)
         .arg(&dst)
         .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .assert()
         .success();
 
@@ -13390,4 +13408,118 @@ fn test_replace_apply_keeps_recent_backup_sessions() {
         2,
         "both recent backup sessions should be kept"
     );
+}
+
+#[test]
+fn test_delete_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doomed.txt");
+    fs::write(&file, "original content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(!file.exists(), "file should be deleted");
+
+    // A backup session should exist with the original content.
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(
+        backup_dir.exists(),
+        "backup dir should exist after delete --apply"
+    );
+
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert_eq!(sessions.len(), 1, "one backup session expected");
+}
+
+#[test]
+fn test_delete_apply_undo_restores_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("precious.txt");
+    fs::write(&file, "precious data\n").unwrap();
+
+    // Delete the file.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("delete")
+        .arg("precious.txt")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(!file.exists());
+
+    // Undo should restore it.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(file.exists(), "undo should restore the deleted file");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "precious data\n");
+}
+
+#[test]
+fn test_rename_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("old.txt")
+        .arg("new.txt")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be gone");
+    assert!(dir.path().join("new.txt").exists(), "dest should exist");
+
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(
+        backup_dir.exists(),
+        "backup dir should exist after rename --apply"
+    );
+}
+
+#[test]
+fn test_config_malformed_toml_warns_on_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "this is not valid { toml [",
+    )
+    .unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    // Running any command in a dir with malformed config should warn on stderr.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("hello")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: malformed"));
 }

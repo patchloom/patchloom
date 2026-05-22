@@ -87,7 +87,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: perform the rename.
     if global.apply {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        backup.save_before_delete(&src)?;
         do_rename(&src, &dst, &args, &policy)?;
+        backup.finalize()?;
 
         if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.
@@ -129,7 +132,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing preview, then rename if confirmed.
     if global.should_apply() {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        backup.save_before_delete(&src)?;
         do_rename(&src, &dst, &args, &policy)?;
+        backup.finalize()?;
         if global.show_status() {
             eprintln!("renamed {} -> {}", args.from, args.to);
         }
@@ -231,8 +237,11 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn default_global() -> GlobalFlags {
-        GlobalFlags::default()
+    fn global_for(dir: &TempDir) -> GlobalFlags {
+        GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        }
     }
 
     #[test]
@@ -242,7 +251,7 @@ mod tests {
         let dst = dir.path().join("new.txt");
         fs::write(&src, "hello\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -267,7 +276,7 @@ mod tests {
         fs::write(&src, "hello\n").unwrap();
         fs::write(&dst, "existing\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -296,7 +305,7 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &global_for(&dir)).unwrap_err();
         assert!(err.to_string().contains("destination is not a file"));
     }
 
@@ -308,7 +317,7 @@ mod tests {
         fs::write(&src, "new content\n").unwrap();
         fs::write(&dst, "old content\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -330,7 +339,7 @@ mod tests {
         let src = dir.path().join("old.txt");
         fs::write(&src, "hello\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.check = true;
 
         let args = RenameArgs {
@@ -349,7 +358,7 @@ mod tests {
     #[test]
     fn rename_fails_if_src_missing() {
         let dir = TempDir::new().unwrap();
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -369,7 +378,7 @@ mod tests {
         let file = dir.path().join("same.txt");
         fs::write(&file, "hello\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -393,7 +402,7 @@ mod tests {
         // Write non-UTF-8 content.
         fs::write(&src, b"\x00\x01\x02\xff\xfe").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {
@@ -416,7 +425,7 @@ mod tests {
         let dst = dir.path().join("sub").join("dir").join("new.txt");
         fs::write(&src, "hello\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = global_for(&dir);
         global.apply = true;
 
         let args = RenameArgs {

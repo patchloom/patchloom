@@ -47,8 +47,11 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        backup.save_before_delete(&path)?;
         std::fs::remove_file(&path)
             .with_context(|| format!("failed to delete {}", path.display()))?;
+        backup.finalize()?;
         let output = DeleteOutput {
             ok: true,
             path: args.file.clone(),
@@ -72,8 +75,11 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing preview, then delete if confirmed.
     if global.should_apply() {
+        let mut backup = crate::backup::BackupSession::new(&cwd)?;
+        backup.save_before_delete(&path)?;
         std::fs::remove_file(&path)
             .with_context(|| format!("failed to delete {}", path.display()))?;
+        backup.finalize()?;
         if global.show_status() {
             eprintln!("deleted {}", args.file);
         }
