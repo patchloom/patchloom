@@ -48,6 +48,34 @@ fn make_diff_output(path: &str, content: &str) -> String {
     format_diff_result(&diff_result)
 }
 
+/// Create a file, without writing to stdout.
+/// Used by the MCP server for direct in-process file creation.
+#[cfg(feature = "mcp")]
+pub(crate) fn apply_create(
+    path: &std::path::Path,
+    content: &str,
+    force: bool,
+) -> anyhow::Result<()> {
+    if path.exists() && !path.is_file() {
+        bail!("target is not a file: {}", path.display());
+    }
+
+    // Ensure parent directories exist.
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+
+    let policy = crate::write::WritePolicy::default();
+    if force {
+        atomic_write(path, content, &policy)?;
+    } else {
+        atomic_create_new(path, content, &policy)?;
+    }
+    Ok(())
+}
+
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 

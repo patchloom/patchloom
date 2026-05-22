@@ -16,7 +16,7 @@ pub struct StatusArgs {
 }
 
 #[derive(Debug, Serialize)]
-struct StatusOutput {
+pub(crate) struct StatusOutput {
     ok: bool,
     modified: Vec<String>,
     created: Vec<String>,
@@ -46,7 +46,11 @@ fn parse_porcelain_record(record: &[u8]) -> Option<(FileCategory, String)> {
     Some((category, file))
 }
 
-pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+/// Collect git status without writing to stdout.
+pub(crate) fn collect_status(
+    paths: &[String],
+    global: &GlobalFlags,
+) -> anyhow::Result<StatusOutput> {
     let cwd = global.resolve_cwd()?;
 
     let mut cmd = process::Command::new("git");
@@ -56,7 +60,7 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .arg("--no-renames")
         .arg("--untracked-files=all")
         .arg("-z");
-    for path in &args.paths {
+    for path in paths {
         cmd.arg("--").arg(path);
     }
     let output = cmd
@@ -68,7 +72,7 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let glob_matcher = crate::build_glob_matcher(global)?;
-    let glob_roots = crate::collect_glob_roots(&args.paths, global, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots(paths, global, Some(&cwd))?;
 
     let mut modified = Vec::new();
     let mut created = Vec::new();
@@ -100,13 +104,18 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let total_changes = modified.len() + created.len() + deleted.len();
 
-    let out = StatusOutput {
+    Ok(StatusOutput {
         ok: true,
         modified,
         created,
         deleted,
         total_changes,
-    };
+    })
+}
+
+pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let out = collect_status(&args.paths, global)?;
+
     if !global.emit_json(&out)? && !global.quiet {
         for f in &out.modified {
             println!("M  {f}");
@@ -122,7 +131,7 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
-    if total_changes > 0 {
+    if out.total_changes > 0 {
         Ok(exit::CHANGES_DETECTED)
     } else {
         Ok(exit::SUCCESS)

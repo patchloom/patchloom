@@ -1384,6 +1384,246 @@ fn rollback_strict(
 }
 
 // ---------------------------------------------------------------------------
+// Direct execution (MCP / in-process callers)
+// ---------------------------------------------------------------------------
+
+/// Build a JSON error string without writing to stdout.
+#[cfg(feature = "mcp")]
+fn make_error_json(error_kind: &'static str, error: &str) -> String {
+    let legacy_error_prefix = if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    };
+    make_error_json_with_prefix(error_kind, legacy_error_prefix, error)
+}
+
+/// Build a JSON error string with an explicit legacy prefix.
+#[cfg(feature = "mcp")]
+fn make_error_json_with_prefix(
+    error_kind: &'static str,
+    legacy_error_prefix: &'static str,
+    error: &str,
+) -> String {
+    let output = TxOutput {
+        ok: false,
+        status: "error",
+        files_changed: 0,
+        files_created: 0,
+        files_deleted: 0,
+        changes: Vec::new(),
+        reads: Vec::new(),
+        searches: Vec::new(),
+        error_kind: Some(error_kind),
+        error: Some(format!("{legacy_error_prefix}: {error}")),
+    };
+    serde_json::to_string_pretty(&output).unwrap_or_default()
+}
+
+/// Execute a parsed [`Plan`] directly and return the exit code and JSON
+/// result string. Does **not** write to stdout or stderr.
+///
+/// This is the in-process equivalent of spawning
+/// `patchloom --json tx <plan-file> --apply` and capturing its output.
+/// The MCP server calls this to avoid subprocess overhead.
+#[cfg(feature = "mcp")]
+pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
+    // Validate plan.
+    if plan.version != crate::plan::SCHEMA_VERSION {
+        let msg = format!(
+            "unsupported plan version '{}' (this build supports version {})",
+            plan.version,
+            crate::plan::SCHEMA_VERSION
+        );
+        return Ok((exit::PARSE_ERROR, make_error_json("parse_error", &msg)));
+    }
+    if let Err(e) = validate_plan_operations(&plan) {
+        return Ok((
+            exit::PARSE_ERROR,
+            make_error_json("parse_error", &e.to_string()),
+        ));
+    }
+
+    // Resolve working directory (plan.cwd overrides argument).
+    let effective_cwd: PathBuf = if let Some(ref c) = plan.cwd {
+        PathBuf::from(c)
+    } else {
+        cwd.to_path_buf()
+    };
+
+    // Load project config so write_policy picks up .patchloom.toml settings.
+    let mut global = GlobalFlags {
+        cwd: Some(effective_cwd.to_string_lossy().into_owned()),
+        ..GlobalFlags::default()
+    };
+    if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
+        crate::config::apply_config(&mut global, &config);
+    }
+
+    // Execute all operations, collecting changes in memory.
+    let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
+    let mut deletions: HashSet<PathBuf> = HashSet::new();
+    let mut has_non_idempotent_replace = false;
+    let mut total_replace_matches = 0usize;
+    let mut tx_reads: Vec<TxReadResult> = Vec::new();
+    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
+    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
+
+    for (i, op) in plan.operations.iter().enumerate() {
+        if let Operation::Replace { if_exists, .. } = op
+            && !if_exists
+        {
+            has_non_idempotent_replace = true;
+        }
+        if op_needs_doc_flush(op) {
+            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+        }
+        let mut tx = TxState {
+            pending: &mut pending,
+            deletions: &mut deletions,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut tx_reads,
+            tx_searches: &mut tx_searches,
+            cwd: &effective_cwd,
+            quiet: true,
+            structured: true,
+        };
+        match execute_operation(op, &mut tx) {
+            Ok(count) => total_replace_matches += count,
+            Err(e) => {
+                let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+                return Ok((exit::ROLLBACK, make_error_json("rollback", &msg)));
+            }
+        }
+    }
+
+    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+
+    let existed_before: HashSet<PathBuf> = pending
+        .keys()
+        .filter(|path| path.exists())
+        .cloned()
+        .collect();
+
+    // Apply write policy and collect actual file changes.
+    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
+    for (path, (original, current)) in &pending {
+        let write_policy = build_write_policy(&plan, &global, path)?;
+        let final_content = apply_policy(current, &write_policy);
+        if *original != *final_content {
+            changes.push((path.clone(), original.clone(), final_content.into_owned()));
+        }
+    }
+    changes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let pending_deletions = deletions
+        .iter()
+        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
+        .count();
+    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
+    let replace_no_matches =
+        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
+
+    if replace_no_matches {
+        return Ok((exit::NO_MATCHES, String::new()));
+    }
+
+    if no_effective_changes {
+        let mut output = build_tx_output(
+            "success",
+            true,
+            &changes,
+            &deletions,
+            &existed_before,
+            &effective_cwd,
+        );
+        output.reads = tx_reads;
+        output.searches = tx_searches;
+        let json = serde_json::to_string_pretty(&output)?;
+        return Ok((exit::SUCCESS, json));
+    }
+
+    // Apply: back up originals, write files, run lifecycle.
+    let mut backup = crate::backup::BackupSession::new(&effective_cwd)?;
+    for (path, _, _) in &changes {
+        if deletions.contains(path) {
+            backup.save_before_delete(path)?;
+        } else {
+            backup.save_before_write(path)?;
+        }
+    }
+    for path in &deletions {
+        backup.save_before_delete(path)?;
+    }
+
+    let noop_policy = WritePolicy::default();
+    for (path, _, new_content) in &changes {
+        if deletions.contains(path) {
+            std::fs::remove_file(path)?;
+        } else {
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            if !existed_before.contains(path) {
+                atomic_create_new(path, new_content, &noop_policy)?;
+            } else {
+                atomic_write(path, new_content, &noop_policy)?;
+            }
+        }
+    }
+    for path in &deletions {
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    }
+    backup.finalize()?;
+
+    // Run format steps, then validation steps.
+    let lifecycle_err = plan
+        .format
+        .as_deref()
+        .map(|steps| run_format_steps(steps, &effective_cwd))
+        .unwrap_or(Ok(()))
+        .err()
+        .or_else(|| {
+            plan.validate
+                .as_deref()
+                .and_then(|steps| run_validate_steps(steps, &effective_cwd).err())
+        });
+
+    if let Some(err) = lifecycle_err {
+        if plan.strict {
+            rollback_strict(&changes, &pending, &deletions, &existed_before);
+            let msg = format!("strict mode -- all changes reverted ({})", err.message);
+            return Ok((
+                exit::ROLLBACK,
+                make_error_json_with_prefix(err.kind, "rollback", &msg),
+            ));
+        }
+        return Ok((
+            exit::VALIDATION_FAILED,
+            make_error_json(err.kind, &err.message),
+        ));
+    }
+
+    let mut output = build_tx_output(
+        "success",
+        true,
+        &changes,
+        &deletions,
+        &existed_before,
+        &effective_cwd,
+    );
+    output.reads = tx_reads;
+    output.searches = tx_searches;
+    let json = serde_json::to_string_pretty(&output)?;
+    Ok((exit::SUCCESS, json))
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 

@@ -23,6 +23,23 @@ struct DeleteOutput {
     applied: bool,
 }
 
+/// Delete a file with backup, without writing to stdout.
+/// Used by the MCP server for direct in-process deletes.
+#[cfg(feature = "mcp")]
+pub(crate) fn apply_delete(path: &std::path::Path, cwd: &std::path::Path) -> anyhow::Result<()> {
+    if !path.exists() {
+        anyhow::bail!("file not found: {}", path.display());
+    }
+    if !path.is_file() {
+        anyhow::bail!("target is not a file: {}", path.display());
+    }
+    let mut backup = crate::backup::BackupSession::new(cwd)?;
+    backup.save_before_delete(path)?;
+    std::fs::remove_file(path).with_context(|| format!("failed to delete {}", path.display()))?;
+    backup.finalize()?;
+    Ok(())
+}
+
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let path = cwd.join(&args.file);

@@ -12,6 +12,8 @@ use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use serde::Deserialize;
 use std::path::PathBuf;
 
+use crate::cli::global::GlobalFlags;
+use crate::exit;
 use crate::plan::{Operation, Plan};
 
 // ---------------------------------------------------------------------------
@@ -493,78 +495,46 @@ impl PatchloomService {
     }
 }
 
-/// Execute a plan by invoking patchloom as a subprocess.
-///
-/// We use subprocess execution instead of calling the library directly because
-/// the MCP server owns stdout for JSON-RPC. Any patchloom output to stdout
-/// would corrupt the MCP protocol stream.
+/// Execute a plan by calling the tx engine directly (no subprocess).
 fn execute_plan(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
     // Validate all operation paths for containment (syntactic + symlink).
     validate_operation_paths(&plan.operations, cwd)?;
 
-    let plan_json = serde_json::to_string(&plan)
-        .map_err(|e| McpError::internal_error(format!("failed to serialize plan: {e}"), None))?;
+    let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd)
+        .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
 
-    let tmp = tempfile::NamedTempFile::new()
-        .map_err(|e| McpError::internal_error(format!("failed to create temp file: {e}"), None))?;
-    std::fs::write(tmp.path(), &plan_json)
-        .map_err(|e| McpError::internal_error(format!("failed to write plan: {e}"), None))?;
-
-    let exe = std::env::current_exe()
-        .map_err(|e| McpError::internal_error(format!("failed to get current exe: {e}"), None))?;
-
-    let output = std::process::Command::new(&exe)
-        .args(["--json", "tx"])
-        .arg(tmp.path())
-        .arg("--apply")
-        .current_dir(cwd)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-
-    output_to_tool_result(&output, "Operation completed successfully.")
+    exit_code_to_result(code, &json, "Operation completed successfully.")
 }
 
-/// Convert subprocess output into a `CallToolResult`.
-fn output_to_tool_result(
-    output: &std::process::Output,
+/// Convert an exit code + output string into a `CallToolResult`.
+fn exit_code_to_result(
+    code: u8,
+    output: &str,
     success_fallback: &str,
 ) -> Result<CallToolResult, McpError> {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let code = output.status.code().unwrap_or(1);
-    if code == crate::exit::SUCCESS as i32 {
-        let msg = if stdout.trim().is_empty() {
+    if code == exit::SUCCESS {
+        let msg = if output.trim().is_empty() {
             success_fallback.to_string()
         } else {
-            stdout.trim().to_string()
+            output.trim().to_string()
         };
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let msg = if !stderr.trim().is_empty() {
-            stderr.trim().to_string()
-        } else if !stdout.trim().is_empty() {
-            stdout.trim().to_string()
-        } else {
+        let msg = if output.trim().is_empty() {
             format!("Operation failed with exit code {code}.")
+        } else {
+            output.trim().to_string()
         };
         Ok(CallToolResult::error(vec![Content::text(msg)]))
     }
 }
 
-/// Run a read-only patchloom subcommand and return its output as a tool result.
-fn run_readonly_command(args: &[&str], cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
-    let exe = std::env::current_exe()
-        .map_err(|e| McpError::internal_error(format!("failed to get current exe: {e}"), None))?;
-    let output = std::process::Command::new(&exe)
-        .args(args)
-        .current_dir(cwd)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-    output_to_tool_result(&output, "No results.")
+/// Execute a read-only doc operation directly (no subprocess).
+fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, McpError> {
+    let (output, code) =
+        crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    exit_code_to_result(code, &output, "No results.")
 }
 
 fn make_plan(operations: Vec<Operation>) -> Plan {
@@ -751,10 +721,11 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &["--json", "doc", "get", &abs.to_string_lossy(), &p.selector],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Get {
+            file: abs.to_string_lossy().into_owned(),
+            selector: p.selector,
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -767,10 +738,11 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &["--json", "doc", "has", &abs.to_string_lossy(), &p.selector],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Has {
+            file: abs.to_string_lossy().into_owned(),
+            selector: p.selector,
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -783,10 +755,11 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &["--json", "doc", "keys", &abs.to_string_lossy(), &p.selector],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Keys {
+            file: abs.to_string_lossy().into_owned(),
+            selector: p.selector,
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -799,10 +772,11 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &["--json", "doc", "len", &abs.to_string_lossy(), &p.selector],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Len {
+            file: abs.to_string_lossy().into_owned(),
+            selector: p.selector,
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -815,16 +789,11 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &[
-                "--json",
-                "doc",
-                "select",
-                &abs.to_string_lossy(),
-                &p.selector,
-            ],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Select {
+            file: abs.to_string_lossy().into_owned(),
+            selector: p.selector,
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -837,10 +806,10 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
         let abs = self.cwd.join(&p.path);
-        run_readonly_command(
-            &["--json", "doc", "flatten", &abs.to_string_lossy()],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Flatten {
+            file: abs.to_string_lossy().into_owned(),
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -856,16 +825,11 @@ impl PatchloomService {
         validate_path_resolved(&p.file_b, &self.cwd)?;
         let abs_a = self.cwd.join(&p.file_a);
         let abs_b = self.cwd.join(&p.file_b);
-        run_readonly_command(
-            &[
-                "--json",
-                "doc",
-                "diff",
-                &abs_a.to_string_lossy(),
-                &abs_b.to_string_lossy(),
-            ],
-            &self.cwd,
-        )
+        let action = crate::cmd::doc::DocAction::Diff {
+            file_a: abs_a.to_string_lossy().into_owned(),
+            file_b: abs_b.to_string_lossy().into_owned(),
+        };
+        doc_readonly(&action)
     }
 
     #[tool(
@@ -879,42 +843,45 @@ impl PatchloomService {
             validate_path_contained(path)?;
             validate_path_resolved(path, &self.cwd)?;
         }
-        let mut args: Vec<String> = vec!["--json".into(), "search".into()];
-        if p.literal {
-            args.push("--literal".into());
-        }
-        if p.case_insensitive {
-            args.push("-i".into());
-        }
-        if p.files_with_matches {
-            args.push("--files-with-matches".into());
-        }
-        if p.count {
-            args.push("--count".into());
-        }
-        if p.multiline {
-            args.push("--multiline".into());
-        }
-        if let Some(ctx) = p.context {
-            args.push("-C".into());
-            args.push(ctx.to_string());
-        }
-        if let Some(ctx) = p.before_context {
-            args.push("-B".into());
-            args.push(ctx.to_string());
-        }
-        if let Some(ctx) = p.after_context {
-            args.push("-A".into());
-            args.push(ctx.to_string());
-        }
-        args.push(p.pattern);
-        if p.paths.is_empty() {
-            args.push(".".into());
+        let search_args = crate::cmd::search::SearchArgs {
+            pattern: p.pattern,
+            paths: if p.paths.is_empty() {
+                vec![".".into()]
+            } else {
+                p.paths
+            },
+            literal: p.literal,
+            regex: !p.literal,
+            context: p.context,
+            before_context: p.before_context,
+            after_context: p.after_context,
+            files_with_matches: p.files_with_matches,
+            count: p.count,
+            invert_match: false,
+            multiline: p.multiline,
+            case_insensitive: p.case_insensitive,
+            assert_count: None,
+        };
+        let global = GlobalFlags {
+            json: true,
+            cwd: Some(self.cwd.to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let results = crate::cmd::search::collect_matches(&search_args, &global)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+        let has_matches = if search_args.count || search_args.files_with_matches {
+            !results.file_match_counts.is_empty()
         } else {
-            args.extend(p.paths);
+            results.has_matches()
+        };
+        if !has_matches {
+            return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
         }
-        let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-        run_readonly_command(&arg_refs, &self.cwd)
+
+        let output = crate::cmd::search::format_results(results, &search_args, &global)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        exit_code_to_result(exit::SUCCESS, &output, "No results.")
     }
 
     #[tool(
@@ -924,7 +891,15 @@ impl PatchloomService {
         &self,
         #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
-        run_readonly_command(&["--json", "status"], &self.cwd)
+        let global = GlobalFlags {
+            cwd: Some(self.cwd.to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let status = crate::cmd::status::collect_status(&[], &global)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let json = serde_json::to_string_pretty(&status)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
     #[tool(
@@ -1075,7 +1050,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
-        run_readonly_command(&["--json", "md", "lint-agents", &p.path], &self.cwd)
+        let abs = self.cwd.join(&p.path);
+        let content = std::fs::read_to_string(&abs)
+            .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+        let issues = crate::cmd::md::lint_agents_content(&content);
+        let json = serde_json::to_string_pretty(&issues)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
     #[tool(
@@ -1167,27 +1148,15 @@ impl PatchloomService {
         validate_path_resolved(&p.from, &self.cwd)?;
         validate_path_resolved(&p.to, &self.cwd)?;
 
-        // Use the standalone rename command (handles binary files via
-        // fs::rename) instead of going through the tx engine.
-        let exe = std::env::current_exe().map_err(|e| {
-            McpError::internal_error(format!("failed to get current exe: {e}"), None)
-        })?;
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.args(["--json", "rename"])
-            .arg(&p.from)
-            .arg(&p.to)
-            .arg("--apply");
-        if p.force {
-            cmd.arg("--force");
+        let src = self.cwd.join(&p.from);
+        let dst = self.cwd.join(&p.to);
+        match crate::cmd::rename::apply_rename(&src, &dst, p.force, &self.cwd) {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Renamed {} -> {}",
+                p.from, p.to
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
         }
-        let output = cmd
-            .current_dir(&self.cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-
-        output_to_tool_result(&output, &format!("Renamed {} -> {}", p.from, p.to))
     }
 
     #[tool(
@@ -1200,25 +1169,14 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
 
-        let exe = std::env::current_exe().map_err(|e| {
-            McpError::internal_error(format!("failed to get current exe: {e}"), None)
-        })?;
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.args(["--json", "create"])
-            .arg(&p.path)
-            .args(["--content", &p.content])
-            .arg("--apply");
-        if p.force {
-            cmd.arg("--force");
+        let abs = self.cwd.join(&p.path);
+        match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Created {}",
+                p.path
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
         }
-        let output = cmd
-            .current_dir(&self.cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-
-        output_to_tool_result(&output, &format!("Created {}", p.path))
     }
 
     #[tool(description = "Delete a file. Fails if the file does not exist.")]
@@ -1229,20 +1187,14 @@ impl PatchloomService {
         validate_path_contained(&p.path)?;
         validate_path_resolved(&p.path, &self.cwd)?;
 
-        let exe = std::env::current_exe().map_err(|e| {
-            McpError::internal_error(format!("failed to get current exe: {e}"), None)
-        })?;
-        let output = std::process::Command::new(&exe)
-            .args(["--json", "delete"])
-            .arg(&p.path)
-            .arg("--apply")
-            .current_dir(&self.cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-
-        output_to_tool_result(&output, &format!("Deleted {}", p.path))
+        let abs = self.cwd.join(&p.path);
+        match crate::cmd::delete::apply_delete(&abs, &self.cwd) {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Deleted {}",
+                p.path
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+        }
     }
 
     #[tool(
@@ -1260,29 +1212,10 @@ impl PatchloomService {
             validate_path_resolved(&pf.path, &self.cwd)?;
         }
 
-        let exe = std::env::current_exe().map_err(|e| {
-            McpError::internal_error(format!("failed to get current exe: {e}"), None)
-        })?;
-
-        // Write diff to a temp file and pass it to patch apply.
-        let tmp = tempfile::NamedTempFile::new().map_err(|e| {
-            McpError::internal_error(format!("failed to create temp file: {e}"), None)
-        })?;
-        std::fs::write(tmp.path(), &p.diff).map_err(|e| {
-            McpError::internal_error(format!("failed to write temp file: {e}"), None)
-        })?;
-
-        let output = std::process::Command::new(&exe)
-            .args(["--json", "patch", "apply"])
-            .arg(tmp.path())
-            .arg("--apply")
-            .current_dir(&self.cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| McpError::internal_error(format!("failed to run patchloom: {e}"), None))?;
-
-        output_to_tool_result(&output, "Patch applied successfully.")
+        execute_plan(
+            make_plan(vec![Operation::PatchApply { diff: p.diff }]),
+            &self.cwd,
+        )
     }
 
     #[tool(

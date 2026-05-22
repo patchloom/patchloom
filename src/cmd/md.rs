@@ -167,7 +167,7 @@ fn strip_inline_code(line: &str) -> Cow<'_, str> {
 }
 
 #[derive(Debug, Serialize)]
-struct LintIssue {
+pub(crate) struct LintIssue {
     issue: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<usize>,
@@ -175,7 +175,7 @@ struct LintIssue {
     heading: Option<String>,
 }
 
-fn lint_agents_content(content: &str) -> Vec<LintIssue> {
+pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     let mut issues = Vec::new();
 
     // 1. Duplicate headings (same text at same level).

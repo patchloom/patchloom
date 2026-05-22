@@ -279,7 +279,7 @@ fn diff_values(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OutputMode {
+pub(crate) enum OutputMode {
     Text,
     Json,
     Jsonl,
@@ -648,7 +648,10 @@ fn execute_write(
 // Core execution (returns output text + exit code for testability)
 // ---------------------------------------------------------------------------
 
-fn execute_with_mode(action: &DocAction, output_mode: OutputMode) -> anyhow::Result<(String, u8)> {
+pub(crate) fn execute_with_mode(
+    action: &DocAction,
+    output_mode: OutputMode,
+) -> anyhow::Result<(String, u8)> {
     match action {
         DocAction::Get { file, selector } => {
             let root = load_file(file)?;

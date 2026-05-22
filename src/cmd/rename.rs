@@ -144,6 +144,48 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
+/// Perform a rename with backup, without writing to stdout.
+/// Used by the MCP server for direct in-process renames.
+#[cfg(feature = "mcp")]
+pub(crate) fn apply_rename(
+    from: &std::path::Path,
+    to: &std::path::Path,
+    force: bool,
+    cwd: &std::path::Path,
+) -> anyhow::Result<()> {
+    if !from.exists() {
+        anyhow::bail!("source file not found: {}", from.display());
+    }
+    if !from.is_file() {
+        anyhow::bail!("source is not a file: {}", from.display());
+    }
+    if to.exists() && !to.is_file() {
+        anyhow::bail!("destination is not a file: {}", to.display());
+    }
+    if !force && to.exists() {
+        anyhow::bail!("destination already exists: {}", to.display());
+    }
+    if from == to {
+        return Ok(());
+    }
+
+    let mut backup = crate::backup::BackupSession::new(cwd)?;
+    backup.save_before_delete(from)?;
+
+    // Create parent directories if needed.
+    if let Some(parent) = to.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Binary-safe rename via fs::rename (with cross-device fallback).
+    rename_or_copy(from, to)?;
+    backup.finalize()?;
+    Ok(())
+}
+
 /// Perform the actual file rename: create parent dirs, move or transform the
 /// content, and remove the source.
 fn do_rename(

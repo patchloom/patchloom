@@ -101,9 +101,16 @@ struct SearchAssertCountOutput {
     assert_count: SearchAssertCount,
 }
 
-struct SearchResults {
+pub(crate) struct SearchResults {
     matches: Vec<SearchMatch>,
-    file_match_counts: BTreeMap<Arc<str>, usize>,
+    pub(crate) file_match_counts: BTreeMap<Arc<str>, usize>,
+}
+
+impl SearchResults {
+    #[cfg(feature = "mcp")]
+    pub(crate) fn has_matches(&self) -> bool {
+        !self.matches.is_empty()
+    }
 }
 
 /// Matcher abstraction: either a compiled regex or a memchr literal finder.
@@ -286,7 +293,10 @@ fn search_one_file(
     }
 }
 
-fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<SearchResults> {
+pub(crate) fn collect_matches(
+    args: &SearchArgs,
+    global: &GlobalFlags,
+) -> anyhow::Result<SearchResults> {
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let matcher = build_matcher(args)?;
@@ -320,7 +330,7 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     })
 }
 
-fn format_results(
+pub(crate) fn format_results(
     results: SearchResults,
     args: &SearchArgs,
     global: &GlobalFlags,
