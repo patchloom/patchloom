@@ -5,6 +5,11 @@ use serde::Serialize;
 use std::fs;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom read src/main.rs
+  patchloom read src/main.rs --lines 1-10
+  patchloom read src/main.rs src/lib.rs --json")]
 pub struct ReadArgs {
     /// Paths to the files to read.
     #[arg(required = true, num_args = 1..)]

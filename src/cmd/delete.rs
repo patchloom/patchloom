@@ -5,6 +5,10 @@ use clap::Args;
 use serde::Serialize;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom delete old_config.json --apply
+  patchloom delete temp.log --check")]
 pub struct DeleteArgs {
     /// Path of the file to delete.
     pub file: String,

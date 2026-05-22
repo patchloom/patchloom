@@ -6,6 +6,10 @@ use serde::Serialize;
 use std::process;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom status
+  patchloom status --json")]
 pub struct StatusArgs {
     /// Paths to check (defaults to current directory).
     pub paths: Vec<String>,

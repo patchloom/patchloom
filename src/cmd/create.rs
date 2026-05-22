@@ -8,6 +8,10 @@ use serde::Serialize;
 use std::fs;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom create src/config.json --content '{\"version\": 1}' --apply
+  echo 'hello' | patchloom create greeting.txt --stdin --apply")]
 pub struct CreateArgs {
     /// Path of the file to create.
     pub file: String,

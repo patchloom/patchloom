@@ -14,6 +14,12 @@ use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom doc get package.json version
+  patchloom doc set config.yaml database.port 5433 --apply
+  patchloom doc keys config.toml
+  patchloom doc merge config.json '{\"debug\": true}' --apply")]
 pub struct DocArgs {
     #[command(subcommand)]
     pub action: DocAction,

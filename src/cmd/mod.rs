@@ -82,6 +82,11 @@ pub enum AgentPlatform {
 }
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom agent-rules >> AGENTS.md
+  patchloom agent-rules --mode mcp
+  patchloom agent-rules --platform linux")]
 pub struct AgentRulesArgs {
     /// Which integration mode to generate instructions for.
     #[arg(long, value_enum, default_value = "all")]

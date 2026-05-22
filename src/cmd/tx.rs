@@ -85,6 +85,11 @@ struct TxReadResult {
 }
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom tx plan.json
+  patchloom tx plan.json --apply
+  patchloom tx plan.yaml --check --json")]
 pub struct TxArgs {
     // ref:tx-mode:plan-stdin
     /// Path to a plan file (JSON/YAML/TOML), or `-` for stdin.

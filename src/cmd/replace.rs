@@ -11,6 +11,11 @@ use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom replace 'old_name' --to 'new_name' src/
+  patchloom replace 'http://' --to 'https://' src/ --apply
+  patchloom replace 'v1\\.0' --to 'v2.0' --regex README.md")]
 pub struct ReplaceArgs {
     /// Pattern to find.
     pub from: String,

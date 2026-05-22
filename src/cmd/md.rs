@@ -15,6 +15,11 @@ use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom md table-append README.md --heading '## API' --row '| /users | List users |'
+  patchloom md upsert-bullet AGENTS.md --heading '## Rules' --bullet '- Run make check'
+  patchloom md replace-section CHANGELOG.md --heading '## Unreleased' --content '- New feature' --apply")]
 pub struct MdArgs {
     #[command(subcommand)]
     pub action: MdAction,

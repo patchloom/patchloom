@@ -10,6 +10,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom search 'TODO' src/
+  patchloom search 'fn main' src/ --count
+  patchloom search 'error|warn' --regex src/ -C 2
+  patchloom search 'password' . --glob '*.yaml'")]
 pub struct SearchArgs {
     /// Pattern to search for.
     pub pattern: String,

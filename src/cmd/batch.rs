@@ -37,6 +37,12 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// Lines starting with `#` are comments. Empty lines are ignored.
 /// Values containing spaces must be quoted with double quotes.
 #[derive(Debug, Args)]
+#[command(after_help = r#"EXAMPLES:
+  patchloom batch 'doc.set config.json version "2.0"' 'replace README.md v1 v2'
+  patchloom batch --apply <<'EOF'
+  doc.set package.json version "3.0.0"
+  replace README.md "v1.0" "v3.0"
+  EOF"#)]
 pub struct BatchArgs {
     /// Read operations from a file, or stdin if omitted.
     #[arg(default_value = "-")]

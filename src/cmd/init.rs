@@ -4,6 +4,10 @@ use clap::Args;
 use std::path::Path;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom init
+  patchloom init --yes")]
 pub struct InitArgs {
     /// Skip confirmation prompts.
     #[arg(long, short = 'y')]

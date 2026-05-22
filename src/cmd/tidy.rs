@@ -7,6 +7,11 @@ use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom tidy src/ --ensure-final-newline
+  patchloom tidy . --trim-trailing-whitespace --apply
+  patchloom tidy . --normalize-eol lf --check")]
 pub struct TidyArgs {
     #[command(subcommand)]
     pub action: TidyAction,

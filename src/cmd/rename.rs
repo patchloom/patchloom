@@ -8,6 +8,10 @@ use serde::Serialize;
 use std::fs;
 
 #[derive(Debug, Args)]
+#[command(after_help = "\
+EXAMPLES:
+  patchloom rename old_config.json config.json --apply
+  patchloom rename src/utils.rs src/helpers.rs --apply --force")]
 pub struct RenameArgs {
     /// Source file path.
     pub from: String,
