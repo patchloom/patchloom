@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::replace::{
     ReplaceModeError, replace_content, replacement_text, validate_replace_mode,
@@ -73,6 +73,8 @@ struct ReplaceOutput {
 /// Result of processing a single file.
 struct FileReplacement {
     path: String,
+    /// Relative path for display in diffs and JSON output.
+    display_path: String,
     original: String,
     replaced: String,
     match_count: usize,
@@ -120,6 +122,7 @@ fn collect_replacements(
     let from = &args.from;
     let nth = args.nth;
 
+    let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::read_text_file(path, "replace", quiet)?;
@@ -127,8 +130,14 @@ fn collect_replacements(
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
             if count > 0 {
                 let replaced = replaced.into_owned();
+                let display_path = path
+                    .strip_prefix(cwd_ref)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .into_owned();
                 Some(FileReplacement {
                     path: path.to_string_lossy().into_owned(),
+                    display_path,
                     original: content,
                     replaced,
                     match_count: count,
@@ -146,23 +155,23 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
     replacements
         .iter()
         .map(|r| ReplaceFileResult {
-            path: r.path.clone(),
+            path: r.display_path.clone(),
             match_count: r.match_count,
         })
         .collect()
 }
 
-fn make_diff_output(replacements: &[FileReplacement]) -> String {
+fn make_diff_output(replacements: &[FileReplacement], color: bool) -> String {
     let diffs: Vec<_> = replacements
         .iter()
-        .map(|r| unified_diff(&r.path, &r.original, &r.replaced))
+        .map(|r| unified_diff(&r.display_path, &r.original, &r.replaced))
         .collect();
     let total_files_changed = diffs.iter().filter(|d| d.has_changes).count();
     let diff_result = DiffResult {
         diffs,
         total_files_changed,
     };
-    format_diff_result(&diff_result)
+    diff::format_diff_result_colored(&diff_result, color)
 }
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -195,6 +204,9 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if replacements.is_empty() {
         if args.if_exists {
             return Ok(exit::SUCCESS);
+        }
+        if global.show_status() {
+            eprintln!("no matches for '{}'", args.from);
         }
         return Ok(exit::NO_MATCHES);
     }
@@ -234,9 +246,10 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
 
+        let color = global.should_color();
         if global.json {
             let diff_text = if global.diff {
-                Some(make_diff_output(&replacements))
+                Some(make_diff_output(&replacements, false))
             } else {
                 None
             };
@@ -253,7 +266,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 println!("{}", serde_json::to_string(f)?);
             }
         } else if global.diff {
-            print!("{}", make_diff_output(&replacements));
+            print!("{}", make_diff_output(&replacements, color));
         } else if !global.quiet {
             println!("replaced {total_matches} match(es) in {file_count} file(s)");
             for f in &files {
@@ -264,13 +277,14 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diff of changes.
+    let color = global.should_color();
     if global.json {
         let output = ReplaceOutput {
             ok: true,
             match_count: total_matches,
             file_count,
             files,
-            diff: Some(make_diff_output(&replacements)),
+            diff: Some(make_diff_output(&replacements, false)),
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else if global.jsonl {
@@ -278,7 +292,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("{}", serde_json::to_string(f)?);
         }
     } else {
-        print!("{}", make_diff_output(&replacements));
+        print!("{}", make_diff_output(&replacements, color));
     }
 
     Ok(exit::SUCCESS)
@@ -411,7 +425,7 @@ mod tests {
             vec![dir.path().to_string_lossy().into_owned()],
         );
         let replacements = collect_replacements(&args, &default_global()).unwrap();
-        let diff_output = make_diff_output(&replacements);
+        let diff_output = make_diff_output(&replacements, false);
 
         assert!(diff_output.contains("--- a/"));
         assert!(diff_output.contains("+++ b/"));

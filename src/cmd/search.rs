@@ -185,11 +185,13 @@ fn search_one_file(
     matcher: &Matcher,
     args: &SearchArgs,
     quiet: bool,
+    cwd: &std::path::Path,
 ) -> Option<FileResult> {
     let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
-    let path_str: Arc<str> = Arc::from(path.to_string_lossy().as_ref());
+    let display = path.strip_prefix(cwd).unwrap_or(path);
+    let path_str: Arc<str> = Arc::from(display.to_string_lossy().as_ref());
     let mut file_matches: Vec<SearchMatch> = Vec::new();
     let mut count = 0usize;
 
@@ -287,9 +289,10 @@ fn collect_matches(args: &SearchArgs, global: &GlobalFlags) -> anyhow::Result<Se
     let count_only = args.count || args.files_with_matches;
 
     // Process files in parallel (#167).
+    let cwd_ref = &cwd;
     let file_results: Vec<FileResult> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            search_one_file(path, &matcher, args, global.quiet)
+            search_one_file(path, &matcher, args, global.quiet, cwd_ref)
         });
 
     // Merge parallel results.
@@ -351,15 +354,31 @@ fn format_results(
             }
         }
     } else if args.files_with_matches {
+        let color = global.should_color();
         for path in results.file_match_counts.keys() {
-            out.push_str(path);
-            out.push('\n');
+            if color {
+                let _ = writeln!(out, "\x1b[35m{path}\x1b[0m");
+            } else {
+                out.push_str(path);
+                out.push('\n');
+            }
         }
     } else if args.count {
+        let color = global.should_color();
         for (path, count) in &results.file_match_counts {
-            let _ = writeln!(out, "{path}:{count}");
+            if color {
+                let _ = writeln!(out, "\x1b[35m{path}\x1b[0m:{count}");
+            } else {
+                let _ = writeln!(out, "{path}:{count}");
+            }
         }
     } else {
+        let color = global.should_color();
+        let (path_c, sep_c, ln_c, reset) = if color {
+            ("\x1b[35m", "\x1b[36m", "\x1b[32m", "\x1b[0m")
+        } else {
+            ("", "", "", "")
+        };
         let has_ctx =
             args.context.is_some() || args.before_context.is_some() || args.after_context.is_some();
         let mut first = true;
@@ -371,14 +390,26 @@ fn format_results(
             if let Some(ref before) = m.context_before {
                 for (j, ctx) in before.iter().enumerate() {
                     let ln = m.line - before.len() + j;
-                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
+                    let _ = writeln!(
+                        out,
+                        "{path_c}{}{reset}{sep_c}-{reset}{ln_c}{ln}{reset}{sep_c}-{reset}{ctx}",
+                        m.path
+                    );
                 }
             }
-            let _ = writeln!(out, "{}:{}:{}:{}", m.path, m.line, m.column, m.text);
+            let _ = writeln!(
+                out,
+                "{path_c}{}{reset}{sep_c}:{reset}{ln_c}{}{reset}{sep_c}:{reset}{}{sep_c}:{reset}{}",
+                m.path, m.line, m.column, m.text
+            );
             if let Some(ref after) = m.context_after {
                 for (j, ctx) in after.iter().enumerate() {
                     let ln = m.line + 1 + j;
-                    let _ = writeln!(out, "{}-{ln}-{ctx}", m.path);
+                    let _ = writeln!(
+                        out,
+                        "{path_c}{}{reset}{sep_c}-{reset}{ln_c}{ln}{reset}{sep_c}-{reset}{ctx}",
+                        m.path
+                    );
                 }
             }
         }
@@ -435,6 +466,15 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         !results.matches.is_empty()
     };
     if !has_matches {
+        if global.show_status() {
+            let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
+            let path_desc = if paths.is_empty() {
+                ".".to_string()
+            } else {
+                paths.join(", ")
+            };
+            eprintln!("no matches for '{}' in {path_desc}", args.pattern);
+        }
         return Ok(exit::NO_MATCHES);
     }
 

@@ -1,6 +1,18 @@
 use clap::Args;
 use std::io::BufRead;
 
+/// Color mode for terminal output.
+#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+pub enum ColorMode {
+    /// Auto-detect: color when stdout is a terminal.
+    #[default]
+    Auto,
+    /// Always emit ANSI color codes.
+    Always,
+    /// Never emit ANSI color codes.
+    Never,
+}
+
 /// Write policy for EOL normalization.
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum EolMode {
@@ -43,6 +55,10 @@ pub struct GlobalFlags {
     /// Read file list from a file or stdin (`-`), one path per line.
     #[arg(long, global = true)]
     pub files_from: Option<String>,
+
+    /// When to use color: auto (default), always, or never.
+    #[arg(long, global = true, value_enum, default_value = "auto")]
+    pub color: ColorMode,
 
     // -- Write-only flags (populated via merge_write in dispatch) -----------
     #[clap(skip)]
@@ -107,6 +123,32 @@ impl GlobalFlags {
         self.normalize_eol = w.normalize_eol;
         self.trim_trailing_whitespace = w.trim_trailing_whitespace;
         self.respect_editorconfig = w.respect_editorconfig;
+    }
+
+    /// Whether to emit ANSI color codes to stdout.
+    ///
+    /// Respects `--color`, the `NO_COLOR` env var, and TTY detection.
+    pub fn should_color(&self) -> bool {
+        match self.color {
+            ColorMode::Always => true,
+            ColorMode::Never => false,
+            ColorMode::Auto => {
+                // Respect NO_COLOR (https://no-color.org)
+                if std::env::var_os("NO_COLOR").is_some() {
+                    return false;
+                }
+                anstream::stdout().is_terminal()
+            }
+        }
+    }
+
+    /// Whether to show human-friendly status messages on stderr.
+    ///
+    /// Returns true when stderr is a TTY and `--quiet`/`--json`/`--jsonl` are
+    /// not set. This lets commands print brief summaries for humans without
+    /// interfering with machine-readable stdout.
+    pub fn show_status(&self) -> bool {
+        !self.quiet && !self.json && !self.jsonl && anstream::stderr().is_terminal()
     }
 
     /// Resolve the working directory from `--cwd`, defaulting to the process

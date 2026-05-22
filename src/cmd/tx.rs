@@ -1,5 +1,5 @@
 use crate::cli::global::{EolMode, GlobalFlags};
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::ops::doc::{
     FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
@@ -1193,7 +1193,7 @@ fn describe_exit_status(status: std::process::ExitStatus) -> String {
     }
 }
 
-fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path) {
+fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
         .map(|(p, old, new)| {
@@ -1206,7 +1206,7 @@ fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path) {
         diffs,
         total_files_changed: total,
     };
-    print!("{}", format_diff_result(&result));
+    print!("{}", format_diff_result_colored(&result, color));
 }
 
 // ---------------------------------------------------------------------------
@@ -1520,7 +1520,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         // Show diffs if --diff flag is set.
         if global.diff && !changes.is_empty() {
-            print_diffs(&changes, &cwd);
+            print_diffs(&changes, &cwd, global.should_color());
         }
 
         // 7. Run format steps, then validation steps.
@@ -1562,6 +1562,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             output.reads = std::mem::take(&mut tx_reads);
             output.searches = std::mem::take(&mut tx_searches);
             emit_output_json(&output, compact);
+        } else if global.show_status() {
+            let n_changed = changes.len();
+            let n_deleted = deletions.len();
+            let total = n_changed + n_deleted;
+            eprintln!("applied: {total} file(s) affected");
         }
         return Ok(exit::SUCCESS);
     }
@@ -1578,7 +1583,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         output.searches = std::mem::take(&mut tx_searches);
         emit_output_json(&output, compact);
     } else if !changes.is_empty() {
-        print_diffs(&changes, &cwd);
+        print_diffs(&changes, &cwd, global.should_color());
     }
 
     Ok(exit::SUCCESS)

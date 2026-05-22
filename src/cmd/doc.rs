@@ -390,12 +390,17 @@ fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Val
 struct WriteContext {
     check: bool,
     apply: bool,
+    color: bool,
     write_policy: write::WritePolicy,
 }
 
 /// Diff / check / apply logic shared by all write subcommands.
+///
+/// `path` is the absolute (IO) path used for writing.
+/// `display_path` is the relative path shown in diff headers.
 fn write_result(
     path: &str,
+    display_path: &str,
     original: &str,
     new_content: &str,
     ctx: &WriteContext,
@@ -411,13 +416,13 @@ fn write_result(
         return Ok((String::new(), exit::SUCCESS));
     }
     // Default or explicit --diff: show unified diff.
-    let file_diff = diff::unified_diff(path, original, new_content);
+    let file_diff = diff::unified_diff(display_path, original, new_content);
     if file_diff.has_changes {
         let diff_result = diff::DiffResult {
             diffs: vec![file_diff],
             total_files_changed: 1,
         };
-        let output = diff::format_diff_result(&diff_result);
+        let output = diff::format_diff_result_colored(&diff_result, ctx.color);
         Ok((output, exit::SUCCESS))
     } else {
         Ok((String::new(), exit::SUCCESS))
@@ -428,7 +433,20 @@ fn write_result(
 // Write-mode execution
 // ---------------------------------------------------------------------------
 
-fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(String, u8)> {
+/// Compute a relative display path by stripping the cwd prefix.
+fn display_path<'a>(absolute: &'a str, cwd: &std::path::Path) -> &'a str {
+    let p = std::path::Path::new(absolute);
+    p.strip_prefix(cwd)
+        .ok()
+        .and_then(|r| r.to_str())
+        .unwrap_or(absolute)
+}
+
+fn execute_write(
+    action: &DocAction,
+    ctx: &WriteContext,
+    cwd: &std::path::Path,
+) -> anyhow::Result<(String, u8)> {
     match action {
         DocAction::Set {
             file,
@@ -443,7 +461,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Delete { file, selector } => {
@@ -456,7 +474,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::DeleteWhere {
@@ -475,7 +493,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Merge { file, stdin, value } => {
@@ -494,7 +512,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             deep_merge(&mut root, &merge_val);
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Append {
@@ -519,7 +537,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Prepend {
@@ -544,7 +562,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Update {
@@ -563,7 +581,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Move { file, from, to } => {
@@ -575,7 +593,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             move_at_path(&mut root, &from_sel, &to_sel).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         DocAction::Ensure {
@@ -597,7 +615,7 @@ fn execute_write(action: &DocAction, ctx: &WriteContext) -> anyhow::Result<(Stri
             set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &original, &new_content, ctx)
+            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
         }
 
         // Read-only actions are handled by execute_with_mode().
@@ -860,9 +878,10 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let ctx = WriteContext {
             check: global.check,
             apply: global.apply,
+            color: global.should_color(),
             write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
         };
-        let (output, code) = execute_write(&args.action, &ctx)?;
+        let (output, code) = execute_write(&args.action, &ctx, &cwd)?;
         if code == exit::FAILURE && !output.is_empty() {
             if global.json || global.jsonl {
                 anyhow::bail!(output);
@@ -874,6 +893,17 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         if !output.is_empty() {
             println!("{output}");
+        }
+        if global.apply
+            && code == exit::SUCCESS
+            && global.show_status()
+            && let Some(dp) = doc_file_path
+        {
+            let rel = std::path::Path::new(dp)
+                .strip_prefix(&cwd)
+                .map(|r| r.to_string_lossy())
+                .unwrap_or_else(|_| dp.into());
+            eprintln!("updated {rel}");
         }
         return Ok(code);
     }
@@ -1072,7 +1102,7 @@ mod tests {
             value: "42".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx).unwrap();
+        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         // Default: shows diff containing the new key.
         assert!(output.contains("+"));
@@ -1089,7 +1119,7 @@ mod tests {
             value: "world".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx).unwrap();
+        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("world"));
     }
@@ -1105,7 +1135,7 @@ mod tests {
             selector: "age".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx).unwrap();
+        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("-"));
         assert!(output.contains("age"));
@@ -1130,7 +1160,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1154,7 +1184,7 @@ mod tests {
             predicate: "name=nobody".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -1175,7 +1205,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1193,7 +1223,7 @@ mod tests {
             selector: "nonexistent".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -1212,7 +1242,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1232,7 +1262,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1282,7 +1312,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1306,7 +1336,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (output, code) = execute_write(&action, &ctx).unwrap();
+        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.is_empty());
         // File should be unchanged.
@@ -1327,7 +1357,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1350,7 +1380,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1373,7 +1403,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1395,7 +1425,7 @@ mod tests {
             check: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -1495,7 +1525,7 @@ mod tests {
             value: "42".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx).unwrap();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
 

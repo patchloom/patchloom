@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
@@ -115,7 +115,10 @@ fn apply_mutation(
                 diffs: vec![d],
                 total_files_changed: 1,
             };
-            print!("{}", format_diff_result(&result));
+            print!(
+                "{}",
+                diff::format_diff_result_colored(&result, global.should_color())
+            );
         }
     }
 

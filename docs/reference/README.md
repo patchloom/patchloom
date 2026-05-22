@@ -115,6 +115,13 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** Another tool already selected the exact paths and Patchloom should operate only on that set.
 - **Prefer instead:** Use `--glob` for pattern based scoping, or direct path arguments when the target set is already small and obvious.
 
+<!-- ref:global-flag:color -->
+### `--color`
+
+- **What it does:** Controls when ANSI color codes appear in output. `auto` (default) enables color when stdout is a terminal and the `NO_COLOR` environment variable is not set. `always` forces color even when piped. `never` disables color unconditionally.
+- **Use when:** You need to override the default terminal detection, for example forcing color into a pager or disabling it in a terminal that renders escape codes literally.
+- **Prefer instead:** Set the `NO_COLOR` environment variable when you want a global, tool-agnostic way to disable color across all CLI tools.
+
 ### Exit codes
 
 Use [Core Concepts](../getting-started/concepts.md#exit-codes) as the canonical exit code table. When integrating Patchloom into CI or agent workflows, branch on exit codes instead of parsing human readable output.
@@ -237,6 +244,16 @@ These are the main entry points. If you are deciding between commands, start her
   - `--platform linux|windows|all` (default: `all`): `linux` uses heredocs and single-quote syntax, `windows` uses file arguments and double-quote escaping, `all` shows both.
 - **Prefer instead:** Nothing; this is the only way to generate the end-user agent documentation.
 - **Related:** `completions`, `mcp-server`
+
+<!-- ref:command:init -->
+## `init`
+
+- **What it does:** Sets up patchloom in the current project: creates or appends agent rules to AGENTS.md, prints shell completion instructions, and detects MCP configuration opportunities.
+- **Use when:** You just installed patchloom and want a single command to configure a project instead of running `agent-rules`, `completions`, and MCP setup separately.
+- **Notable flags:**
+  - `-y, --yes`: Skip confirmation prompts and auto-accept all actions.
+- **Prefer instead:** `agent-rules` if you only need the rules text, or `completions` if you only need shell completions.
+- **Related:** `agent-rules`, `completions`, `mcp-server`
 
 <!-- ref:command:mcp-server -->
 ## `mcp-server`

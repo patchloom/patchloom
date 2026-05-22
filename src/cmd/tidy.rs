@@ -214,9 +214,14 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 } else if !global.quiet {
                     let diff = unified_diff(&r.rel_path, &r.original, &r.fixed);
                     if diff.has_changes {
-                        println!("--- a/{}", r.rel_path);
-                        println!("+++ b/{}", r.rel_path);
-                        print!("{}", diff.hunks);
+                        let result = crate::diff::DiffResult {
+                            diffs: vec![diff],
+                            total_files_changed: 1,
+                        };
+                        print!(
+                            "{}",
+                            crate::diff::format_diff_result_colored(&result, global.should_color())
+                        );
                     }
                 }
             }

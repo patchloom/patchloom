@@ -47,18 +47,52 @@ pub fn unified_diff(path: &str, old: &str, new: &str) -> FileDiff {
     }
 }
 
-/// Format a [`DiffResult`] into a single unified diff string.
+/// Format a [`DiffResult`] into a single unified diff string (no color).
 ///
 /// Concatenates all file diffs that have changes, prepending the standard
 /// `--- a/<path>` / `+++ b/<path>` header pair to each file's hunks.
 /// Returns an empty string if no files changed.
 pub fn format_diff_result(result: &DiffResult) -> String {
+    format_diff_result_opt(result, false)
+}
+
+/// Format a [`DiffResult`] with optional ANSI color.
+pub fn format_diff_result_colored(result: &DiffResult, color: bool) -> String {
+    format_diff_result_opt(result, color)
+}
+
+fn format_diff_result_opt(result: &DiffResult, color: bool) -> String {
     use std::fmt::Write;
+
+    let (hdr, add, rem, hunk, reset) = if color {
+        ("\x1b[1m", "\x1b[32m", "\x1b[31m", "\x1b[36m", "\x1b[0m")
+    } else {
+        ("", "", "", "", "")
+    };
+
     let mut output = String::new();
     for diff in &result.diffs {
         if diff.has_changes {
-            let _ = write!(output, "--- a/{}\n+++ b/{}\n", diff.path, diff.path);
-            output.push_str(&diff.hunks);
+            let _ = write!(
+                output,
+                "{hdr}--- a/{}{reset}\n{hdr}+++ b/{}{reset}\n",
+                diff.path, diff.path
+            );
+            if color {
+                for line in diff.hunks.lines() {
+                    if line.starts_with('+') {
+                        let _ = writeln!(output, "{add}{line}{reset}");
+                    } else if line.starts_with('-') {
+                        let _ = writeln!(output, "{rem}{line}{reset}");
+                    } else if line.starts_with("@@") {
+                        let _ = writeln!(output, "{hunk}{line}{reset}");
+                    } else {
+                        let _ = writeln!(output, "{line}");
+                    }
+                }
+            } else {
+                output.push_str(&diff.hunks);
+            }
         }
     }
     output

@@ -40,6 +40,8 @@ regex = "1"
 similar = { version = "3", features = ["text"] }
 tempfile = "3"
 anyhow = "1"
+anstream = "1"
+anstyle = "1"
 ec4rs = "1"
 clap_complete = "4"
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }

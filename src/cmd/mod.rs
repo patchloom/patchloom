@@ -2,6 +2,7 @@ pub mod batch;
 pub mod create;
 pub mod delete;
 pub mod doc;
+pub mod init;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod md;
@@ -47,6 +48,8 @@ pub enum Command {
     Batch(batch::BatchArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
     AgentRules(AgentRulesArgs),
+    /// Set up patchloom in the current project.
+    Init(init::InitArgs),
     /// Start an MCP (Model Context Protocol) server on stdio.
     #[cfg(feature = "mcp")]
     McpServer,
@@ -327,6 +330,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             print!("{output}");
             Ok(crate::exit::SUCCESS)
         }
+        Command::Init(args) => init::run(args, &global),
         Command::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
