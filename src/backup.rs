@@ -220,7 +220,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
 
     let mut restored = 0;
     for entry in &manifest.entries {
-        let target = project_root.join(&entry.path);
+        let target = resolve_restore_path(project_root, &entry.path);
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
@@ -253,6 +253,19 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     }
 
     Ok(restored)
+}
+
+/// Resolve the restore target path from a manifest entry.
+///
+/// Paths starting with `__external__/` were backed up from outside the project
+/// root. Restore them to their original absolute location by re-adding the
+/// leading `/`.
+fn resolve_restore_path(project_root: &Path, entry_path: &str) -> PathBuf {
+    if let Some(rest) = entry_path.strip_prefix("__external__/") {
+        PathBuf::from(format!("/{rest}"))
+    } else {
+        project_root.join(entry_path)
+    }
 }
 
 /// Prune backup sessions older than 7 days.
@@ -491,6 +504,44 @@ mod tests {
         assert!(
             sessions[0].entries[0].path.starts_with("__external__/"),
             "external file path should be under __external__/"
+        );
+    }
+
+    #[test]
+    fn resolve_restore_path_internal() {
+        let root = Path::new("/project");
+        let p = resolve_restore_path(root, "src/main.rs");
+        assert_eq!(p, PathBuf::from("/project/src/main.rs"));
+    }
+
+    #[test]
+    fn resolve_restore_path_external() {
+        let root = Path::new("/project");
+        let p = resolve_restore_path(root, "__external__/tmp/other/file.txt");
+        assert_eq!(p, PathBuf::from("/tmp/other/file.txt"));
+    }
+
+    #[test]
+    fn backup_and_restore_external_file() {
+        let project = TempDir::new().unwrap();
+        let external = TempDir::new().unwrap();
+        let ext_file = external.path().join("data.txt");
+        std::fs::write(&ext_file, "original external").unwrap();
+
+        // Back up the external file.
+        let mut session = BackupSession::new(project.path()).unwrap();
+        session.save_before_write(&ext_file).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        // Simulate modification.
+        std::fs::write(&ext_file, "modified external").unwrap();
+
+        // Restore should put the original content back at the external path.
+        let restored = restore_session(project.path(), &ts).unwrap();
+        assert_eq!(restored, 1);
+        assert_eq!(
+            std::fs::read_to_string(&ext_file).unwrap(),
+            "original external"
         );
     }
 
