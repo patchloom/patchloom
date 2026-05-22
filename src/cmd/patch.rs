@@ -267,7 +267,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         eprintln!("patch apply: {} -- written", file_path.display());
                     }
                 }
-                let _ = backup.finalize();
+                backup.finalize()?;
                 if global.diff {
                     let result = DiffResult {
                         diffs,
@@ -301,7 +301,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     let policy = policy_from_flags(global, Some(file_path));
                     atomic_write(file_path, patched, &policy)?;
                 }
-                let _ = backup.finalize();
+                backup.finalize()?;
             }
 
             Ok(exit::SUCCESS)

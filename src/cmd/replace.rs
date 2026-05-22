@@ -259,7 +259,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let policy = policy_from_flags(global, Some(Path::new(&r.path)));
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
-        let _ = backup.finalize();
+        backup.finalize()?;
 
         let color = global.should_color();
         if global.json {
@@ -323,7 +323,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let policy = policy_from_flags(global, Some(Path::new(&r.path)));
             atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
         }
-        let _ = backup.finalize();
+        backup.finalize()?;
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }

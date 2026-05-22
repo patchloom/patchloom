@@ -1600,7 +1600,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::remove_file(path)?;
             }
         }
-        let _ = backup.finalize();
+        backup.finalize()?;
 
         // Show diffs if --diff flag is set.
         if global.diff && !changes.is_empty() {
@@ -1711,7 +1711,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::remove_file(path)?;
             }
         }
-        let _ = backup.finalize();
+        backup.finalize()?;
     }
 
     Ok(exit::SUCCESS)

@@ -260,7 +260,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         let noop = WritePolicy::default();
                         atomic_write(&r.path, &r.fixed, &noop)?;
                     }
-                    let _ = backup.finalize();
+                    backup.finalize()?;
                     return Ok(exit::SUCCESS);
                 }
                 Ok(exit::CHANGES_DETECTED)
