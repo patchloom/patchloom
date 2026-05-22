@@ -16,6 +16,14 @@ const AGENT_FILES: &[&str] = &["AGENTS.md", "CLAUDE.md", "PATCHLOOM.md"];
 pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let auto_yes = args.yes;
+    let quiet = global.quiet;
+
+    // Helper: print to stderr unless --quiet.
+    macro_rules! status {
+        ($($arg:tt)*) => {
+            if !quiet { eprintln!($($arg)*); }
+        };
+    }
 
     // 1. Generate and write agent rules.
     let rules = super::generate_agent_rules(&super::AgentRulesArgs {
@@ -37,7 +45,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Check if patchloom rules are already present.
         let content = std::fs::read_to_string(&target_path).unwrap_or_default();
         if content.contains("patchloom") {
-            eprintln!("{rel_target} already contains patchloom rules, skipping.");
+            status!("{rel_target} already contains patchloom rules, skipping.");
         } else if auto_yes || confirm(&format!("Append patchloom rules to {rel_target}?")) {
             let mut content = content;
             if !content.ends_with('\n') {
@@ -46,50 +54,52 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content.push('\n');
             content.push_str(&rules);
             std::fs::write(&target_path, content)?;
-            eprintln!("appended patchloom rules to {rel_target}");
+            status!("appended patchloom rules to {rel_target}");
         } else {
-            eprintln!("skipped {rel_target}");
+            status!("skipped {rel_target}");
         }
     } else if auto_yes || confirm(&format!("Create {rel_target}?")) {
         std::fs::write(&target_path, &rules)?;
-        eprintln!("created {rel_target}");
+        status!("created {rel_target}");
     } else {
-        eprintln!("skipped {rel_target}");
+        status!("skipped {rel_target}");
     }
 
     // 2. Shell completions hint.
-    eprintln!();
-    if let Some(shell) = detect_shell() {
-        let cmd = completion_command(&shell);
-        eprintln!("shell completions ({shell}):");
-        eprintln!("  {cmd}");
-    } else {
-        eprintln!("shell completions:");
-        eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
-    }
-
-    // 3. MCP setup hint.
-    eprintln!();
-    if cfg!(feature = "mcp") {
-        eprintln!("MCP server is available. Add to your agent's config:");
-        if cwd.join(".grok").is_dir() || home_file_exists(".grok/config.toml") {
-            eprintln!("  Grok: add to ~/.grok/config.toml:");
-            eprintln!("    [mcp_servers.patchloom]");
-            eprintln!("    command = \"patchloom\"");
-            eprintln!("    args = [\"mcp-server\"]");
+    if !quiet {
+        eprintln!();
+        if let Some(shell) = detect_shell() {
+            let cmd = completion_command(&shell);
+            eprintln!("shell completions ({shell}):");
+            eprintln!("  {cmd}");
+        } else {
+            eprintln!("shell completions:");
+            eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
         }
-        if cwd.join(".vscode").is_dir() {
-            eprintln!("  VS Code: add to .vscode/settings.json:");
-            eprintln!(
-                "    \"mcp.servers\": {{ \"patchloom\": {{ \"command\": \"patchloom\", \"args\": [\"mcp-server\"] }} }}"
-            );
-        }
-    } else {
-        eprintln!("MCP server not available (build with --features mcp to enable).");
-    }
 
-    eprintln!();
-    eprintln!("setup complete.");
+        // 3. MCP setup hint.
+        eprintln!();
+        if cfg!(feature = "mcp") {
+            eprintln!("MCP server is available. Add to your agent's config:");
+            if cwd.join(".grok").is_dir() || home_file_exists(".grok/config.toml") {
+                eprintln!("  Grok: add to ~/.grok/config.toml:");
+                eprintln!("    [mcp_servers.patchloom]");
+                eprintln!("    command = \"patchloom\"");
+                eprintln!("    args = [\"mcp-server\"]");
+            }
+            if cwd.join(".vscode").is_dir() {
+                eprintln!("  VS Code: add to .vscode/settings.json:");
+                eprintln!(
+                    "    \"mcp.servers\": {{ \"patchloom\": {{ \"command\": \"patchloom\", \"args\": [\"mcp-server\"] }} }}"
+                );
+            }
+        } else {
+            eprintln!("MCP server not available (build with --features mcp to enable).");
+        }
+
+        eprintln!();
+        eprintln!("setup complete.");
+    }
     Ok(exit::SUCCESS)
 }
 

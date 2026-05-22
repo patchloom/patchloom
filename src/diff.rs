@@ -187,4 +187,37 @@ mod tests {
         assert!(!result.has_changes);
         assert!(result.hunks.is_empty());
     }
+
+    #[test]
+    fn colored_diff_has_ansi_codes() {
+        let diff = unified_diff("test.txt", "old\n", "new\n");
+        let result = DiffResult {
+            diffs: vec![diff],
+            total_files_changed: 1,
+        };
+        let colored = format_diff_result_colored(&result, true);
+        // Bold header
+        assert!(colored.contains("\x1b[1m--- a/test.txt"));
+        // Green addition
+        assert!(colored.contains("\x1b[32m+new"));
+        // Red removal
+        assert!(colored.contains("\x1b[31m-old"));
+        // Reset codes present
+        assert!(colored.contains("\x1b[0m"));
+    }
+
+    #[test]
+    fn colored_false_has_no_ansi_codes() {
+        let diff = unified_diff("test.txt", "old\n", "new\n");
+        let result = DiffResult {
+            diffs: vec![diff],
+            total_files_changed: 1,
+        };
+        let plain = format_diff_result_colored(&result, false);
+        assert!(!plain.contains("\x1b["));
+        // But still has diff content
+        assert!(plain.contains("--- a/test.txt"));
+        assert!(plain.contains("-old"));
+        assert!(plain.contains("+new"));
+    }
 }

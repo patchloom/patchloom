@@ -351,6 +351,88 @@ fn test_agent_rules_mode_and_platform_compose() {
 }
 
 // ---------------------------------------------------------------------------
+// init command
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_init_creates_agents_md_in_empty_dir() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let agents = dir.path().join("AGENTS.md");
+    assert!(agents.exists(), "AGENTS.md should be created");
+    let content = fs::read_to_string(&agents).unwrap();
+    assert!(content.contains("patchloom"));
+    assert!(content.contains("# Patchloom"));
+}
+
+#[test]
+fn test_init_appends_to_existing_agents_md() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("AGENTS.md"), "# My Rules\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert!(
+        content.starts_with("# My Rules\n"),
+        "original content should be preserved"
+    );
+    assert!(
+        content.contains("# Patchloom"),
+        "patchloom rules should be appended"
+    );
+}
+
+#[test]
+fn test_init_skips_if_patchloom_already_present() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("AGENTS.md"),
+        "# Rules\nUse patchloom for edits.\n",
+    )
+    .unwrap();
+    let before = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let after = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert_eq!(before, after, "file should not be modified");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already contains patchloom"));
+}
+
+#[test]
+fn test_init_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["init", "--yes", "--quiet", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    // File should still be created
+    assert!(dir.path().join("AGENTS.md").exists());
+    // But stderr should be empty
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.is_empty(), "stderr should be empty with --quiet");
+}
+
+// ---------------------------------------------------------------------------
 // --glob flag
 // ---------------------------------------------------------------------------
 
