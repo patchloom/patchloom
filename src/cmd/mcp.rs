@@ -114,6 +114,9 @@ pub struct ReplaceParams {
     /// Case-insensitive matching.
     #[serde(default)]
     pub case_insensitive: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    #[serde(default)]
+    pub multiline: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -918,7 +921,7 @@ impl PatchloomService {
                 insert_before: p.insert_before,
                 insert_after: p.insert_after,
                 case_insensitive: p.case_insensitive,
-                multiline: false,
+                multiline: p.multiline,
                 if_exists: false,
             }]),
             &self.cwd,
