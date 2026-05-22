@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{DiffResult, format_diff_result, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::ops::patch::{apply_hunks, parse_patch};
 use crate::write::{atomic_write, policy_from_flags};
@@ -278,7 +278,18 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diffs,
                 total_files_changed: patch_files.len(),
             };
-            print!("{}", format_diff_result(&result));
+            print!(
+                "{}",
+                format_diff_result_colored(&result, global.should_color())
+            );
+
+            // --confirm: prompt after showing diff, then apply if confirmed.
+            if global.should_apply() {
+                for (file_path, patched) in &file_changes {
+                    let policy = policy_from_flags(global, Some(file_path));
+                    atomic_write(file_path, patched, &policy)?;
+                }
+            }
 
             Ok(exit::SUCCESS)
         }

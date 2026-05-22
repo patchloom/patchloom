@@ -68,7 +68,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // For non-write modes, an early exists check is fine (no TOCTOU concern).
     // The --apply path below uses File::create_new for race-free creation.
-    if !global.apply && !args.force && path.exists() {
+    if !global.apply && !global.confirm && !args.force && path.exists() {
         bail!("file already exists: {}", args.file);
     }
 
@@ -133,6 +133,21 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     if !global.emit_json(&output)? {
         print!("{diff_text}");
+    }
+
+    // --confirm: prompt after showing diff, then apply if confirmed.
+    if global.should_apply() {
+        let policy = policy_from_flags(global, Some(&path));
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        if args.force {
+            atomic_write(&path, &content, &policy)?;
+        } else {
+            atomic_create_new(&path, &content, &policy)?;
+        }
     }
 
     Ok(exit::SUCCESS)

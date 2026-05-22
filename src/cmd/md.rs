@@ -113,7 +113,7 @@ fn apply_mutation(
     let final_content = crate::write::apply_policy(new_content, &policy);
     let has_changes = original != final_content;
 
-    if global.diff {
+    if global.diff || global.confirm {
         let d = unified_diff(file, original, &final_content);
         if d.has_changes {
             let result = DiffResult {
@@ -131,7 +131,7 @@ fn apply_mutation(
         return Ok(exit::CHANGES_DETECTED);
     }
 
-    if global.apply {
+    if global.apply || (global.confirm && has_changes && global.should_apply()) {
         atomic_write(path, new_content, &policy)?;
     }
 

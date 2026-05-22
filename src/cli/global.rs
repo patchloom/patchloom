@@ -75,6 +75,8 @@ pub struct GlobalFlags {
     pub trim_trailing_whitespace: bool,
     #[clap(skip)]
     pub respect_editorconfig: bool,
+    #[clap(skip)]
+    pub confirm: bool,
 }
 
 /// Write-only flags exposed in subcommands that mutate files.
@@ -111,6 +113,10 @@ pub struct WriteFlags {
     /// Read write policy from .editorconfig when present.
     #[arg(long, global = true)]
     pub respect_editorconfig: bool,
+
+    /// Show diff then prompt before applying. Implies --apply on confirmation.
+    #[arg(long, global = true, conflicts_with_all = ["apply", "check"])]
+    pub confirm: bool,
 }
 
 impl GlobalFlags {
@@ -119,10 +125,35 @@ impl GlobalFlags {
         self.diff = w.diff;
         self.apply = w.apply;
         self.check = w.check;
+        self.confirm = w.confirm;
         self.ensure_final_newline = w.ensure_final_newline;
         self.normalize_eol = w.normalize_eol;
         self.trim_trailing_whitespace = w.trim_trailing_whitespace;
         self.respect_editorconfig = w.respect_editorconfig;
+    }
+
+    /// Whether to proceed with the write after optional confirmation.
+    ///
+    /// Returns `true` when `--apply` is set, or when `--confirm` is set and
+    /// the user answers yes at the interactive prompt. When `--confirm` is
+    /// used but stdin is not a TTY, returns `false` (safe fallback).
+    pub fn should_apply(&self) -> bool {
+        if self.apply {
+            return true;
+        }
+        if self.confirm {
+            if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                return false;
+            }
+            eprint!("Apply? [Y/n] ");
+            let mut buf = String::new();
+            if std::io::stdin().read_line(&mut buf).is_err() {
+                return false;
+            }
+            let answer = buf.trim().to_lowercase();
+            return answer.is_empty() || answer == "y" || answer == "yes";
+        }
+        false
     }
 
     /// Whether to emit ANSI color codes to stdout.

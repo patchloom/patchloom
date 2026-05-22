@@ -396,6 +396,7 @@ fn load_file_with_content(path: &str) -> anyhow::Result<(String, serde_json::Val
 struct WriteContext {
     check: bool,
     apply: bool,
+    confirm: bool,
     color: bool,
     write_policy: write::WritePolicy,
 }
@@ -429,6 +430,24 @@ fn write_result(
             total_files_changed: 1,
         };
         let output = diff::format_diff_result_colored(&diff_result, ctx.color);
+        // --confirm: show diff, prompt, then apply if confirmed.
+        if ctx.confirm {
+            let apply = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                eprint!("Apply? [Y/n] ");
+                let mut buf = String::new();
+                if std::io::stdin().read_line(&mut buf).is_ok() {
+                    let answer = buf.trim().to_lowercase();
+                    answer.is_empty() || answer == "y" || answer == "yes"
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if apply {
+                write::atomic_write(Path::new(path), new_content, &ctx.write_policy)?;
+            }
+        }
         Ok((output, exit::SUCCESS))
     } else {
         Ok((String::new(), exit::SUCCESS))
@@ -880,6 +899,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let ctx = WriteContext {
             check: global.check,
             apply: global.apply,
+            confirm: global.confirm,
             color: global.should_color(),
             write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
         };

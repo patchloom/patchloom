@@ -298,6 +298,17 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         print!("{}", make_diff_output(&replacements, color));
     }
 
+    // --confirm: prompt after showing diff, then apply if confirmed.
+    if global.should_apply() {
+        for r in &replacements {
+            let policy = policy_from_flags(global, Some(Path::new(&r.path)));
+            atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
+        }
+        if global.show_status() {
+            eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
+        }
+    }
+
     Ok(exit::SUCCESS)
 }
 

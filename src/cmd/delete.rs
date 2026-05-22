@@ -60,7 +60,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    // Default: dry-run.
+    // Default: dry-run (show what would be deleted).
     let output = DeleteOutput {
         ok: true,
         path: args.file.clone(),
@@ -68,6 +68,15 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     if !global.emit_json(&output)? && !global.quiet {
         println!("would delete {}", args.file);
+    }
+
+    // --confirm: prompt after showing preview, then delete if confirmed.
+    if global.should_apply() {
+        std::fs::remove_file(&path)
+            .with_context(|| format!("failed to delete {}", path.display()))?;
+        if global.show_status() {
+            eprintln!("deleted {}", args.file);
+        }
     }
     Ok(exit::SUCCESS)
 }

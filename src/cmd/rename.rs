@@ -154,6 +154,35 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
+    // --confirm: prompt after showing preview, then rename if confirmed.
+    if global.should_apply() {
+        if let Some(parent) = dst.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)?;
+        }
+        if policy.is_noop() {
+            if args.force || !dst.exists() {
+                rename_or_copy(&src, &dst)?;
+            } else {
+                anyhow::bail!("destination already exists: {}", args.to);
+            }
+        } else {
+            let content =
+                fs::read_to_string(&src).with_context(|| format!("reading {}", args.from))?;
+            if args.force {
+                atomic_write(&dst, &content, &policy)?;
+            } else {
+                atomic_create_new(&dst, &content, &policy)?;
+            }
+            fs::remove_file(&src)?;
+        }
+        if global.show_status() {
+            eprintln!("renamed {} -> {}", args.from, args.to);
+        }
+    }
+
     Ok(exit::SUCCESS)
 }
 

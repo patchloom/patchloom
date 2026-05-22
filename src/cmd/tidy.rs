@@ -234,6 +234,14 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if global.apply {
                 Ok(exit::SUCCESS)
             } else if any_changed {
+                // --confirm: prompt after showing diffs, then apply if confirmed.
+                if global.should_apply() {
+                    for r in &results {
+                        let noop = WritePolicy::default();
+                        atomic_write(&r.path, &r.fixed, &noop)?;
+                    }
+                    return Ok(exit::SUCCESS);
+                }
                 Ok(exit::CHANGES_DETECTED)
             } else {
                 Ok(exit::SUCCESS)

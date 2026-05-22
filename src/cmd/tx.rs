@@ -1590,6 +1590,33 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         print_diffs(&changes, &cwd, global.should_color());
     }
 
+    // --confirm: prompt after showing diffs, then apply if confirmed.
+    if !no_effective_changes && global.should_apply() {
+        let noop_policy = WritePolicy::default();
+        for (path, _, new_content) in &changes {
+            if deletions.contains(path) {
+                std::fs::remove_file(path)?;
+            } else {
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    std::fs::create_dir_all(parent)?;
+                }
+                if !existed_before.contains(path) {
+                    atomic_create_new(path, new_content, &noop_policy)?;
+                } else {
+                    atomic_write(path, new_content, &noop_policy)?;
+                }
+            }
+        }
+        for path in &deletions {
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
+        }
+    }
+
     Ok(exit::SUCCESS)
 }
 

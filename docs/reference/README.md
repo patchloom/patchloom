@@ -35,7 +35,14 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **Use when:** You are wiring Patchloom into CI, pre-commit validation, or agent workflows that should fail on drift.
 - **Prefer instead:** Use `--diff` when you need the actual patch text, or `--apply` when you want the mutation.
 
-`--diff`, `--apply`, and `--check` are mutually exclusive. Passing more than one is rejected with an error. When none is specified, `--diff` is the default.
+<!-- ref:write-flag:confirm -->
+### `--confirm`
+
+- **What it does:** Shows the diff preview, then prompts `Apply? [Y/n]` on stderr. If confirmed, applies the change; if declined, exits without writing.
+- **Use when:** You want a single-command preview-then-apply workflow instead of running the command twice.
+- **Prefer instead:** Use `--apply` when scripting (no interactive prompt), or `--diff` when you only want the preview.
+
+`--diff`, `--apply`, `--check`, and `--confirm` are mutually exclusive. Passing more than one is rejected with an error. When none is specified, `--diff` is the default. When `--confirm` is used and stdin is not a TTY, the command shows the diff without prompting (same as `--diff`).
 
 ### Write policy flags
 
