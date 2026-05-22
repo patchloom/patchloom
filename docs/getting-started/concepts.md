@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 16 core commands. Building with `--features mcp` adds a 17th, `mcp-server`:
+Patchloom has 18 core commands. Building with `--features mcp` adds a 19th, `mcp-server`:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
@@ -16,6 +16,8 @@ Patchloom has 16 core commands. Building with `--features mcp` adds a 17th, `mcp
 - **batch** -- line-oriented multi-operation format (delegates to tx engine)
 - **completions** -- shell completion generation
 - **agent-rules** -- print end-user agent documentation for patchloom
+- **explain** -- summarize a tx plan in plain English before applying
+- **undo** -- restore files from a backup created by `--apply`
 - **init** -- set up patchloom in a project (agent rules, completions, MCP)
 - **mcp-server** -- MCP protocol server exposing patchloom tools for AI agents (requires `--features mcp`)
 
@@ -53,6 +55,37 @@ In tx plans, set these at the plan level:
   "operations": [...]
 }
 ```
+
+## Project configuration
+
+Create a `.patchloom.toml` in your project root to set per-project defaults. CLI flags override config values.
+
+```toml
+[write_policy]
+ensure_final_newline = true
+normalize_eol = "lf"
+trim_trailing_whitespace = true
+
+[exclude]
+globs = ["target/**", "node_modules/**"]
+
+[output]
+color = "auto"
+```
+
+The config file is searched from the working directory upward, so it works in subdirectories too.
+
+## Undo safety net
+
+Before any `--apply` write, patchloom saves the original content of each affected file to `.patchloom/backups/`. If something goes wrong:
+
+```bash
+patchloom undo --list          # see available backups
+patchloom undo                 # dry-run: show what would change
+patchloom undo --apply         # actually restore files
+```
+
+Backups older than 7 days are auto-pruned.
 
 ## Color output
 

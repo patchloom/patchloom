@@ -266,6 +266,8 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 | `rename` | Move (rename) a file |
 | `read` | Read file contents with optional line range |
 | `status` | Show which files have uncommitted changes |
+| `explain` | Summarize a tx plan in plain English |
+| `undo` | Restore files from a backup created by `--apply` |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 | `agent-rules` | Generate agent instructions for your project |
 
