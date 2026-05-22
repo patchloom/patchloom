@@ -42,6 +42,28 @@ pub struct Manifest {
     pub entries: Vec<ManifestEntry>,
 }
 
+/// Convert a file path into a safe relative path for use inside a backup session.
+///
+/// If the file is under the project root, returns the relative path. Otherwise,
+/// strips the root `/` (or drive prefix on Windows) so the path can be safely
+/// joined under the session directory without replacing it.
+fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
+    if let Ok(rel) = file_path.strip_prefix(project_root) {
+        return rel.to_path_buf();
+    }
+    // File is outside the project root. Strip leading `/` (or drive prefix)
+    // so session_dir.join(rel) doesn't replace the session dir.
+    let s = file_path.to_string_lossy();
+    let stripped = s
+        .strip_prefix('/')
+        .or_else(|| {
+            // Windows: strip "C:\" style prefix
+            s.get(3..).filter(|_| s.as_bytes().get(1) == Some(&b':'))
+        })
+        .unwrap_or(&s);
+    PathBuf::from(format!("__external__/{stripped}"))
+}
+
 /// An active backup session that collects originals before writes.
 pub struct BackupSession {
     session_dir: PathBuf,
@@ -76,9 +98,7 @@ impl BackupSession {
     /// Save the original content of a file before it is modified.
     /// If the file does not exist, records it as a "created" action.
     pub fn save_before_write(&mut self, file_path: &Path) -> anyhow::Result<()> {
-        let rel = file_path
-            .strip_prefix(&self.project_root)
-            .unwrap_or(file_path);
+        let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
         // Skip duplicates (same file modified twice in one session).
@@ -115,9 +135,7 @@ impl BackupSession {
 
     /// Record a file that was deleted by the apply operation.
     pub fn save_before_delete(&mut self, file_path: &Path) -> anyhow::Result<()> {
-        let rel = file_path
-            .strip_prefix(&self.project_root)
-            .unwrap_or(file_path);
+        let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
         if self.entries.iter().any(|e| e.path == rel_str) {
@@ -431,5 +449,66 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let pruned = prune_old_backups(dir.path()).unwrap();
         assert_eq!(pruned, 0);
+    }
+
+    #[test]
+    fn sanitize_rel_path_inside_project() {
+        let root = Path::new("/project");
+        let file = Path::new("/project/src/main.rs");
+        let rel = sanitize_rel_path(file, root);
+        assert_eq!(rel, PathBuf::from("src/main.rs"));
+    }
+
+    #[test]
+    fn sanitize_rel_path_outside_project() {
+        let root = Path::new("/project");
+        let file = Path::new("/tmp/other/file.txt");
+        let rel = sanitize_rel_path(file, root);
+        assert_eq!(rel, PathBuf::from("__external__/tmp/other/file.txt"));
+    }
+
+    #[test]
+    fn backup_file_outside_project_root() {
+        let project = TempDir::new().unwrap();
+        let external = TempDir::new().unwrap();
+        let ext_file = external.path().join("outside.txt");
+        std::fs::write(&ext_file, "external content").unwrap();
+
+        let mut session = BackupSession::new(project.path()).unwrap();
+        session.save_before_write(&ext_file).unwrap();
+        session.finalize().unwrap().unwrap();
+
+        // The backup should be stored safely (not overwriting the original).
+        assert_eq!(
+            std::fs::read_to_string(&ext_file).unwrap(),
+            "external content",
+            "original file must not be corrupted by backup"
+        );
+
+        // The backup directory should contain the file under __external__/.
+        let sessions = list_sessions(project.path()).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(
+            sessions[0].entries[0].path.starts_with("__external__/"),
+            "external file path should be under __external__/"
+        );
+    }
+
+    #[test]
+    fn delete_backup_file_outside_project_root() {
+        let project = TempDir::new().unwrap();
+        let external = TempDir::new().unwrap();
+        let ext_file = external.path().join("doomed.txt");
+        std::fs::write(&ext_file, "doomed external").unwrap();
+
+        let mut session = BackupSession::new(project.path()).unwrap();
+        session.save_before_delete(&ext_file).unwrap();
+        session.finalize().unwrap().unwrap();
+
+        // Original must not be corrupted by the backup process.
+        assert_eq!(
+            std::fs::read_to_string(&ext_file).unwrap(),
+            "doomed external"
+        );
     }
 }
