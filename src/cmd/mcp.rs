@@ -117,6 +117,9 @@ pub struct ReplaceParams {
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[serde(default)]
     pub multiline: bool,
+    /// Return success even if no matches found (idempotent mode).
+    #[serde(default)]
+    pub if_exists: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -259,6 +262,9 @@ pub struct SearchParams {
     /// Only return match counts per file.
     #[serde(default)]
     pub count: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    #[serde(default)]
+    pub multiline: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -855,6 +861,9 @@ impl PatchloomService {
         if p.count {
             args.push("--count".into());
         }
+        if p.multiline {
+            args.push("--multiline".into());
+        }
         if let Some(ctx) = p.context {
             args.push("-C".into());
             args.push(ctx.to_string());
@@ -922,7 +931,7 @@ impl PatchloomService {
                 insert_after: p.insert_after,
                 case_insensitive: p.case_insensitive,
                 multiline: p.multiline,
-                if_exists: false,
+                if_exists: p.if_exists,
             }]),
             &self.cwd,
         )
