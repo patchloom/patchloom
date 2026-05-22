@@ -13338,6 +13338,97 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_tidy_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // File missing final newline and with trailing whitespace.
+    fs::write(dir.path().join("messy.txt"), "hello   \nworld").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_tidy",
+        serde_json::json!({"path": "messy.txt"}),
+    )
+    .await;
+    assert!(!is_error, "tidy should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("messy.txt")).unwrap();
+    assert!(content.ends_with('\n'), "tidy should ensure final newline");
+    assert!(
+        !content.contains("   \n"),
+        "tidy should trim trailing whitespace"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_upsert_bullet_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doc.md"), "# Rules\n\n- Existing rule\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_md_upsert_bullet",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Rules",
+            "bullet": "- New rule"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_upsert_bullet should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("- New rule"),
+        "md_upsert_bullet should add the bullet: {content}"
+    );
+    assert!(
+        content.contains("- Existing rule"),
+        "md_upsert_bullet should preserve existing bullets: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_merge_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "patchloom_doc_merge",
+        serde_json::json!({"path": "config.json", "value": {"debug": true}}),
+    )
+    .await;
+    assert!(!is_error, "doc_merge should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["debug"], true, "doc_merge should add new key: {content}");
+    assert_eq!(
+        v["name"], "app",
+        "doc_merge should preserve existing keys: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Backup pruning integration tests (#371)
 // ---------------------------------------------------------------------------
