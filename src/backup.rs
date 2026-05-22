@@ -376,4 +376,56 @@ mod tests {
         restore_session(dir.path(), &ts).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
     }
+
+    #[test]
+    fn prune_old_backups_removes_stale_sessions() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "v1").unwrap();
+
+        // Create a backup session.
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        // Backdate the session directory's mtime to 8 days ago.
+        let session_dir = dir.path().join(BACKUP_DIR).join(&ts);
+        let eight_days_ago =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+        let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
+        let f = std::fs::File::open(&session_dir).unwrap();
+        f.set_times(times).unwrap();
+
+        let pruned = prune_old_backups(dir.path()).unwrap();
+        assert_eq!(pruned, 1);
+
+        // Session should be gone.
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn prune_old_backups_keeps_recent_sessions() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "v1").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap().unwrap();
+
+        // Session is fresh; prune should not remove it.
+        let pruned = prune_old_backups(dir.path()).unwrap();
+        assert_eq!(pruned, 0);
+
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 1);
+    }
+
+    #[test]
+    fn prune_old_backups_no_backup_dir() {
+        let dir = TempDir::new().unwrap();
+        let pruned = prune_old_backups(dir.path()).unwrap();
+        assert_eq!(pruned, 0);
+    }
 }

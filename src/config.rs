@@ -211,4 +211,17 @@ color = "always"
         // CLI color wins
         assert!(matches!(global.color, crate::cli::global::ColorMode::Never));
     }
+
+    #[test]
+    fn find_and_load_returns_none_on_malformed_toml() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "this is not valid { toml [",
+        )
+        .unwrap();
+
+        // Malformed TOML is silently treated as "no config found".
+        assert!(find_and_load(dir.path()).is_none());
+    }
 }
