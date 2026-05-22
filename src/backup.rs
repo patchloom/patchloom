@@ -56,7 +56,7 @@ impl BackupSession {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
-        let timestamp = format!("{}", now.as_millis());
+        let timestamp = format!("{}", now.as_nanos());
         let session_dir = project_root.join(BACKUP_DIR).join(&timestamp);
         std::fs::create_dir_all(&session_dir)
             .with_context(|| format!("failed to create backup dir {}", session_dir.display()))?;
