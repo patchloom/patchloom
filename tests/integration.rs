@@ -6721,6 +6721,20 @@ fn test_explain_json_output() {
 }
 
 #[test]
+fn test_explain_invalid_plan_fails() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("bad.json");
+    fs::write(&plan, "not valid json at all").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_explain_stdin() {
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -6814,6 +6828,73 @@ fn test_undo_dry_run_by_default() {
 
     // File should still be modified.
     assert_eq!(fs::read_to_string(&file).unwrap(), "modified\n");
+}
+
+#[test]
+fn test_undo_list_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--json", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"timestamp\""))
+        .stdout(predicates::str::contains("\"entries\""));
+}
+
+#[test]
+fn test_undo_tx_restores_multi_file() {
+    let dir = TempDir::new().unwrap();
+    let f1 = dir.path().join("a.txt");
+    let f2 = dir.path().join("b.txt");
+    fs::write(&f1, "alpha\n").unwrap();
+    fs::write(&f2, "beta\n").unwrap();
+
+    let plan_content = format!(
+        r#"{{"version":"1","operations":[
+            {{"op":"replace","path":"{}","from":"alpha","to":"omega"}},
+            {{"op":"replace","path":"{}","from":"beta","to":"gamma"}}
+        ]}}"#,
+        portable_path_str(&f1),
+        portable_path_str(&f2)
+    );
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, &plan_content).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tx", "--apply"])
+        .arg(portable_path_str(&plan_file))
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&f1).unwrap(), "omega\n");
+    assert_eq!(fs::read_to_string(&f2).unwrap(), "gamma\n");
+
+    // Undo should restore both files.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&f1).unwrap(), "alpha\n");
+    assert_eq!(fs::read_to_string(&f2).unwrap(), "beta\n");
 }
 
 #[test]
