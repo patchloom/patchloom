@@ -15,6 +15,21 @@ pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
 
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
 /// in the first 8 KiB, the same heuristic Git uses).
+/// Check if a string contains common regex metacharacters that suggest
+/// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
+pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
+    s.contains('\\')
+        || s.contains('[')
+        || s.contains('(')
+        || s.contains('{')
+        || s.contains('*')
+        || s.contains('+')
+        || s.contains('?')
+        || s.contains('|')
+        || s.contains('^')
+        || s.contains('$')
+}
+
 pub(crate) fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(8192);
     memchr::memchr(0, &data[..check_len]).is_some()
@@ -322,6 +337,25 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── has_regex_metacharacters ──────────────────────────────────────
+
+    #[test]
+    fn plain_text_has_no_regex_meta() {
+        assert!(!has_regex_metacharacters("hello world"));
+        assert!(!has_regex_metacharacters("foo-bar_baz"));
+    }
+
+    #[test]
+    fn regex_patterns_detected() {
+        assert!(has_regex_metacharacters("fn\\s+main"));
+        assert!(has_regex_metacharacters("v1\\.0"));
+        assert!(has_regex_metacharacters("[a-z]+"));
+        assert!(has_regex_metacharacters("(group)"));
+        assert!(has_regex_metacharacters("a|b"));
+        assert!(has_regex_metacharacters("^start"));
+        assert!(has_regex_metacharacters("end$"));
+    }
 
     // ── is_binary ─────────────────────────────────────────────────────
 

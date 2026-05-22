@@ -480,6 +480,14 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 paths.join(", ")
             };
             eprintln!("no matches for '{}' in {path_desc}", args.pattern);
+            if args.literal && crate::files::has_regex_metacharacters(&args.pattern) {
+                eprintln!(
+                    "hint: --literal is set but the pattern looks like a regex, try removing --literal"
+                );
+            }
+            if !args.case_insensitive {
+                eprintln!("hint: try -i for case-insensitive matching");
+            }
         }
         return Ok(exit::NO_MATCHES);
     }

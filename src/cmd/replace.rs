@@ -210,6 +210,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         if global.show_status() {
             eprintln!("no matches for '{}'", args.from);
+            if !args.regex && crate::files::has_regex_metacharacters(&args.from) {
+                eprintln!("hint: pattern contains regex characters, try --regex");
+            }
+            if !args.case_insensitive {
+                eprintln!("hint: try -i for case-insensitive matching");
+            }
         }
         return Ok(exit::NO_MATCHES);
     }
