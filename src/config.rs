@@ -44,9 +44,20 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
     loop {
         let candidate = dir.join(".patchloom.toml");
         if candidate.is_file() {
-            let content = std::fs::read_to_string(&candidate).ok()?;
-            let config: ProjectConfig = toml_edit::de::from_str(&content).ok()?;
-            return Some((config, dir));
+            let content = match std::fs::read_to_string(&candidate) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("warning: could not read {}: {}", candidate.display(), e);
+                    return None;
+                }
+            };
+            match toml_edit::de::from_str::<ProjectConfig>(&content) {
+                Ok(config) => return Some((config, dir)),
+                Err(e) => {
+                    eprintln!("warning: malformed {}: {}", candidate.display(), e);
+                    return None;
+                }
+            }
         }
         if !dir.pop() {
             return None;
@@ -221,7 +232,7 @@ color = "always"
         )
         .unwrap();
 
-        // Malformed TOML is silently treated as "no config found".
+        // Malformed TOML returns None but prints a warning to stderr.
         assert!(find_and_load(dir.path()).is_none());
     }
 }

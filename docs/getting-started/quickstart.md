@@ -159,6 +159,59 @@ Returns:
 }
 ```
 
+## Troubleshooting
+
+### Config file not loading
+
+Patchloom searches for `.patchloom.toml` starting from the working directory
+and walking up to the filesystem root. If your config does not seem to take
+effect:
+
+1. **Verify the file location.** Run from the directory containing
+   `.patchloom.toml` or a subdirectory beneath it.
+
+2. **Check for TOML syntax errors.** Patchloom prints a warning to stderr
+   when it finds a `.patchloom.toml` that cannot be parsed:
+
+   ```
+   warning: malformed /path/to/.patchloom.toml: expected `=`, found ...
+   ```
+
+   Validate your file with:
+
+   ```bash
+   patchloom doc get .patchloom.toml write_policy
+   ```
+
+   If this errors, fix the TOML syntax.
+
+3. **CLI flags override config.** Flags like `--ensure-final-newline` and
+   `--normalize-eol` always take precedence over `.patchloom.toml` values.
+
+### Backups filling up disk
+
+Backup sessions are stored under `.patchloom/backups/` and are automatically
+pruned after 7 days. If you need to free space immediately:
+
+```bash
+rm -rf .patchloom/backups/
+```
+
+This is safe; the next `--apply` run will create a fresh backup directory.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General failure |
+| 2 | Changes detected (used by `--check`) |
+| 3 | No matches found |
+| 4 | Parse error |
+| 5 | Ambiguous match |
+| 6 | Validation failed |
+| 7 | Rollback (transaction failed and was rolled back) |
+
 ## Next steps
 
 - Browse the [examples/](../../examples/) directory for more tx plan patterns

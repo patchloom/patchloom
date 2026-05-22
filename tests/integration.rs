@@ -13245,3 +13245,149 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     );
     client.cancel().await.unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// Backup pruning integration tests (#371)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("hello")
+        .arg("--to")
+        .arg("goodbye")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // A backup session directory should exist under .patchloom/backups/.
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(backup_dir.exists(), "backup directory should be created");
+
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert_eq!(sessions.len(), 1, "exactly one backup session expected");
+
+    // The session should contain a manifest.json.
+    let manifest = sessions[0].path().join("manifest.json");
+    assert!(manifest.exists(), "manifest.json should exist in session");
+}
+
+#[test]
+fn test_replace_apply_prunes_old_backup_sessions() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\n").unwrap();
+
+    // Create a fake old backup session (8 days old).
+    let old_session = dir.path().join(".patchloom/backups/old_session");
+    fs::create_dir_all(&old_session).unwrap();
+    fs::write(
+        old_session.join("manifest.json"),
+        r#"{"timestamp":"old_session","entries":[]}"#,
+    )
+    .unwrap();
+
+    // Backdate the directory mtime to 8 days ago.
+    let eight_days_ago =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+    let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
+    let f = std::fs::File::open(&old_session).unwrap();
+    f.set_times(times).unwrap();
+
+    // Now run a replace --apply, which creates a new session and prunes old ones.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("aaa")
+        .arg("--to")
+        .arg("bbb")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let backup_dir = dir.path().join(".patchloom/backups");
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    // The old session should have been pruned; only the new one remains.
+    assert_eq!(
+        sessions.len(),
+        1,
+        "old session should be pruned, only the new one remains"
+    );
+    assert!(
+        !old_session.exists(),
+        "the old_session directory should be removed"
+    );
+}
+
+#[test]
+fn test_replace_apply_keeps_recent_backup_sessions() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "first\n").unwrap();
+
+    // First apply creates a backup.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("first")
+        .arg("--to")
+        .arg("second")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    // Small delay to ensure different timestamps.
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    // Second apply creates another backup. Both are recent.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("second")
+        .arg("--to")
+        .arg("third")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg(file.to_str().unwrap())
+        .assert()
+        .success();
+
+    let backup_dir = dir.path().join(".patchloom/backups");
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+
+    // Both sessions are recent; neither should be pruned.
+    assert_eq!(
+        sessions.len(),
+        2,
+        "both recent backup sessions should be kept"
+    );
+}
