@@ -130,9 +130,7 @@ fn collect_replacements(
                 replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
             if count > 0 {
                 let replaced = replaced.into_owned();
-                let display_path = path
-                    .strip_prefix(cwd_ref)
-                    .unwrap_or(path)
+                let display_path = crate::files::relative_display(path, cwd_ref)
                     .to_string_lossy()
                     .into_owned();
                 Some(FileReplacement {

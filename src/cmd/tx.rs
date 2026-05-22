@@ -1092,10 +1092,9 @@ fn build_tx_output(
     let mut modified = 0usize;
 
     let display_path = |p: &Path| -> String {
-        p.strip_prefix(cwd)
-            .unwrap_or(p)
+        crate::files::relative_display(p, cwd)
             .to_string_lossy()
-            .to_string()
+            .into_owned()
     };
 
     for (path, _original, _) in changes {
@@ -1197,7 +1196,7 @@ fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
         .map(|(p, old, new)| {
-            let display = p.strip_prefix(cwd).unwrap_or(p);
+            let display = crate::files::relative_display(p, cwd);
             unified_diff(&display.to_string_lossy(), old, new)
         })
         .collect();

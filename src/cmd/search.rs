@@ -190,7 +190,7 @@ fn search_one_file(
     let content = crate::read_text_file(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
-    let display = path.strip_prefix(cwd).unwrap_or(path);
+    let display = crate::files::relative_display(path, cwd);
     let path_str: Arc<str> = Arc::from(display.to_string_lossy().as_ref());
     let mut file_matches: Vec<SearchMatch> = Vec::new();
     let mut count = 0usize;

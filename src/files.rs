@@ -4,6 +4,15 @@ use ignore::{WalkBuilder, WalkState};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
+/// Compute a display-friendly relative path by stripping a `base` prefix.
+///
+/// Returns the relative portion if `path` is under `base`, otherwise returns
+/// the original path unchanged. Used by diff headers, search results, and JSON
+/// output so users see `src/main.rs` instead of `/home/user/project/src/main.rs`.
+pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
+    path.strip_prefix(base).unwrap_or(path)
+}
+
 /// Returns `true` if the buffer looks like binary content (contains a NUL byte
 /// in the first 8 KiB, the same heuristic Git uses).
 pub(crate) fn is_binary(data: &[u8]) -> bool {

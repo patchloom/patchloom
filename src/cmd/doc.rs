@@ -433,20 +433,16 @@ fn write_result(
 // Write-mode execution
 // ---------------------------------------------------------------------------
 
-/// Compute a relative display path by stripping the cwd prefix.
-fn display_path<'a>(absolute: &'a str, cwd: &std::path::Path) -> &'a str {
-    let p = std::path::Path::new(absolute);
-    p.strip_prefix(cwd)
-        .ok()
-        .and_then(|r| r.to_str())
-        .unwrap_or(absolute)
-}
-
 fn execute_write(
     action: &DocAction,
     ctx: &WriteContext,
     cwd: &std::path::Path,
 ) -> anyhow::Result<(String, u8)> {
+    let display = |f: &str| -> String {
+        crate::files::relative_display(std::path::Path::new(f), cwd)
+            .to_string_lossy()
+            .into_owned()
+    };
     match action {
         DocAction::Set {
             file,
@@ -461,7 +457,7 @@ fn execute_write(
             set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Delete { file, selector } => {
@@ -474,7 +470,7 @@ fn execute_write(
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::DeleteWhere {
@@ -493,7 +489,7 @@ fn execute_write(
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Merge { file, stdin, value } => {
@@ -512,7 +508,7 @@ fn execute_write(
             deep_merge(&mut root, &merge_val);
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Append {
@@ -537,7 +533,7 @@ fn execute_write(
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Prepend {
@@ -562,7 +558,7 @@ fn execute_write(
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Update {
@@ -581,7 +577,7 @@ fn execute_write(
             }
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Move { file, from, to } => {
@@ -593,7 +589,7 @@ fn execute_write(
             move_at_path(&mut root, &from_sel, &to_sel).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         DocAction::Ensure {
@@ -615,7 +611,7 @@ fn execute_write(
             set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
 
             let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, display_path(file, cwd), &original, &new_content, ctx)
+            write_result(file, &display(file), &original, &new_content, ctx)
         }
 
         // Read-only actions are handled by execute_with_mode().
@@ -899,11 +895,8 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             && global.show_status()
             && let Some(dp) = doc_file_path
         {
-            let rel = std::path::Path::new(dp)
-                .strip_prefix(&cwd)
-                .map(|r| r.to_string_lossy())
-                .unwrap_or_else(|_| dp.into());
-            eprintln!("updated {rel}");
+            let rel = crate::files::relative_display(std::path::Path::new(dp), &cwd);
+            eprintln!("updated {}", rel.display());
         }
         return Ok(code);
     }
