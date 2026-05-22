@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. The default build provides fifteen core commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, shell completion generation, and end-user agent rules generation. Building with `--features mcp` adds the optional `mcp-server` command for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+Patchloom is a Rust CLI for agent-grade repo operations. The default build provides eighteen core commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, and end-user agent rules generation. Building with `--features mcp` adds the optional `mcp-server` command for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
 
 ## Dev commands
 
@@ -41,7 +41,7 @@ src/
   cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
                        --files-from) and WriteFlags (--diff, --apply, --check,
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
-                       --respect-editorconfig). Write flags are only available on write commands.
+                       --respect-editorconfig, --confirm). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules
                        generator, and inline Completions command
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
@@ -61,6 +61,10 @@ src/
   cmd/read.rs          Read file contents with optional line range
   cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
+  cmd/explain.rs       Parse a tx plan and print a human-readable summary
+  cmd/undo.rs          Restore files from backup sessions created by --apply
+  config.rs            Project config file (.patchloom.toml) loading and merging
+  backup.rs            Backup session management for undo safety net
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
@@ -111,7 +115,7 @@ The `Command` enum in `src/cmd/mod.rs` has one variant per command. The `dispatc
 
 ### Global flags
 
-All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob` (repeatable), `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
+All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `--jsonl`, `--quiet`, `--cwd`, `--glob` (repeatable), `--files-from`) are global. Write-only flags (`--apply`, `--check`, `--diff`, `--confirm`, `--ensure-final-newline`, `--normalize-eol`, `--trim-trailing-whitespace`, `--respect-editorconfig`) are defined in `WriteFlags` and flattened only into write commands. The dispatcher merges them via `GlobalFlags::merge_write()`.
 
 ### Error handling
 
