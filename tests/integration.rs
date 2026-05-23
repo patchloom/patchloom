@@ -197,6 +197,35 @@ fn test_search_jsonl_output_has_path_field() {
 }
 
 #[test]
+fn test_search_json_output_reports_line_and_column_without_context() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("positions.txt"),
+        "skip\nalpha needle\nneedle suffix\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("--literal")
+        .arg("needle")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let matches = parsed["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0]["line"], 2);
+    assert_eq!(matches[0]["column"], 7);
+    assert_eq!(matches[1]["line"], 3);
+    assert_eq!(matches[1]["column"], 1);
+}
+
+#[test]
 fn test_search_jsonl_count_output() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.txt"), "aaa\naaa\n").unwrap();
