@@ -72,6 +72,7 @@ jobs:
         with:
           name: cli-bench-results
           path: benches/cli/results/*.md
+          retention-days: 14
 
       - name: Attach to release
         if: github.event_name == 'release'

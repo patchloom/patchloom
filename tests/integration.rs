@@ -12624,6 +12624,15 @@ fn test_publish_crates_workflow_serializes_publishes_per_ref() {
 }
 
 #[test]
+fn test_bench_workflow_limits_artifact_retention() {
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert!(
+        bench.contains("retention-days: 14"),
+        "benchmark artifacts should use a short explicit retention period"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
