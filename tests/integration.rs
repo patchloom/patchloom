@@ -1010,6 +1010,29 @@ fn test_quiet_suppresses_search_output() {
 }
 
 #[test]
+fn test_search_json_quiet_still_emits_structured_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("search_quiet_json.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--quiet")
+        .arg("search")
+        .arg("hello")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 1);
+    assert_eq!(parsed["file_count"], 1);
+}
+
+#[test]
 fn test_search_count_returns_success_on_match() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("count_exit.txt");
