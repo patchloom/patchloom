@@ -7590,6 +7590,23 @@ fn test_undo_no_sessions_exits_3() {
 }
 
 #[test]
+fn test_undo_list_json_empty_emits_array() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(parsed.is_array(), "empty undo --list --json should emit []");
+    assert_eq!(parsed.as_array().unwrap().len(), 0);
+}
+
+#[test]
 fn test_editorconfig_final_newline() {
     let dir = TempDir::new().unwrap();
 

@@ -45,7 +45,9 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.list {
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if global.show_status() {
+            if global.json {
+                println!("[]");
+            } else if global.show_status() {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
