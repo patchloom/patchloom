@@ -12376,6 +12376,19 @@ fn test_smoke_installation_docs_cover_mcp_feature_paths() {
 }
 
 #[test]
+fn test_smoke_installation_docs_cover_contributor_verification_loop() {
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains("make check-fast"),
+        "installation guide should mention the fast contributor iteration loop"
+    );
+    assert!(
+        content.contains("make check"),
+        "installation guide should mention the full contributor verification gate"
+    );
+}
+
+#[test]
 fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let rust_version_line = cargo

@@ -23,6 +23,8 @@ cargo install --path . --features mcp
 
 The `mcp-server` command is feature-gated. If you only run `cargo install --path .`, you get the core CLI without MCP.
 
+If you're contributing from a source checkout, use `make check-fast` while iterating and `make check` before committing. `make check` is the full local CI gate.
+
 ## From crates.io (after public launch)
 
 Core CLI:
