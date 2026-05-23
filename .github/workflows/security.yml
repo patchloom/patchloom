@@ -19,7 +19,7 @@ permissions:
 jobs:
   trivy:
     name: Trivy
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -44,7 +44,7 @@ jobs:
 
   gitleaks:
     name: Gitleaks
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 5
     steps:
       - name: Harden Runner
@@ -61,9 +61,16 @@ jobs:
           archive="${RUNNER_TEMP}/gitleaks.tar.gz"
           bindir="${RUNNER_TEMP}/gitleaks-bin"
           mkdir -p "$bindir"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64)  platform="linux_x64" ;;
+            Linux-aarch64) platform="linux_arm64" ;;
+            Darwin-x86_64) platform="darwin_x64" ;;
+            Darwin-arm64)  platform="darwin_arm64" ;;
+            *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+          esac
           curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
             -o "$archive" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
           tar -xzf "$archive" -C "$bindir" gitleaks
           printf '%s\n' "$bindir" >> "$GITHUB_PATH"
       - run: gitleaks detect --source . --exit-code 1

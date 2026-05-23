@@ -21,7 +21,7 @@ jobs:
     # Use the self-hosted runner for trusted events (push, workflow_dispatch,
     # and PRs from the same repo). Fork PRs fall back to GitHub-hosted to
     # prevent arbitrary code execution on the self-hosted machine.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -79,27 +79,8 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  ci-macos:
-    runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 20
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Run checks
-        run: make check
-
   msrv:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -124,30 +105,8 @@ jobs:
       - name: Check MSRV (all features)
         run: cargo check --all-targets --all-features
 
-  msrv-macos:
-    runs-on: [self-hosted, macOS, ARM64]
-    timeout-minutes: 10
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.95"
-
-      - name: Check MSRV (default features)
-        run: cargo check --all-targets
-
-      - name: Check MSRV (all features)
-        run: cargo check --all-targets --all-features
-
   coverage:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -173,10 +132,13 @@ jobs:
 
       - name: Generate coverage
         run: |
-          if [[ -x /home/linuxbrew/.linuxbrew/bin/llvm-profdata && -x /home/linuxbrew/.linuxbrew/bin/llvm-cov ]]; then
-            export LLVM_PROFDATA=/home/linuxbrew/.linuxbrew/bin/llvm-profdata
-            export LLVM_COV=/home/linuxbrew/.linuxbrew/bin/llvm-cov
-          fi
+          for brew_prefix in /home/linuxbrew/.linuxbrew /opt/homebrew /usr/local; do
+            if [[ -x "$brew_prefix/bin/llvm-profdata" && -x "$brew_prefix/bin/llvm-cov" ]]; then
+              export LLVM_PROFDATA="$brew_prefix/bin/llvm-profdata"
+              export LLVM_COV="$brew_prefix/bin/llvm-cov"
+              break
+            fi
+          done
           cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
 
       - name: Upload coverage artifact
@@ -186,7 +148,7 @@ jobs:
           path: lcov.info
 
   bench:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -244,7 +206,7 @@ jobs:
           python3 benches/cli/check-threshold.py "$bench_json" "replace dry-run"
 
   audit:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 5
     steps:
       - name: Harden Runner

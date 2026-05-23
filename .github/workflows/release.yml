@@ -57,7 +57,7 @@ jobs:
     # Use the self-hosted runner for trusted events. Fork PRs fall back to
     # GitHub-hosted so untrusted workflow changes never run on the self-hosted
     # machine.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-22.04' || fromJson('["self-hosted","Linux","X64"]') }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-22.04' || 'self-hosted' }}
     timeout-minutes: 10
     outputs:
       val: ${{ steps.plan.outputs.manifest }}

@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   cli-bench:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     timeout-minutes: 30
     steps:
       - name: Harden Runner
@@ -45,12 +45,19 @@ jobs:
           INSTALL_DIR: ${{ runner.temp }}/bench-bin
         run: |
           mkdir -p "$INSTALL_DIR"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64)  jq_suffix="linux-amd64";  yq_suffix="linux_amd64" ;;
+            Linux-aarch64) jq_suffix="linux-arm64";   yq_suffix="linux_arm64" ;;
+            Darwin-x86_64) jq_suffix="macos-amd64";   yq_suffix="darwin_amd64" ;;
+            Darwin-arm64)  jq_suffix="macos-arm64";    yq_suffix="darwin_arm64" ;;
+            *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+          esac
           curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
             -o "$INSTALL_DIR/jq" \
-            "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64"
+            "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-${jq_suffix}"
           curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
             -o "$INSTALL_DIR/yq" \
-            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_${yq_suffix}"
           chmod +x "$INSTALL_DIR/jq" "$INSTALL_DIR/yq"
           printf '%s\n' "$INSTALL_DIR" >> "$GITHUB_PATH"
 
