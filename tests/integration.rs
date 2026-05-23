@@ -12781,6 +12781,23 @@ fn test_ci_workflow_uses_runner_temp_for_bench_fixtures() {
 }
 
 #[test]
+fn test_ci_bench_steps_use_shared_threshold_script() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(
+        ci.contains("benches/ci/check_threshold.py"),
+        "ci.yml bench steps should call the shared check_threshold.py script"
+    );
+    assert!(
+        !ci.contains("python3 - \"$bench_json\""),
+        "ci.yml should not inline the threshold Python snippet"
+    );
+    assert!(
+        repo_root().join("benches/ci/check_threshold.py").exists(),
+        "benches/ci/check_threshold.py must exist on disk"
+    );
+}
+
+#[test]
 fn test_workflows_disable_persisted_checkout_credentials_by_default() {
     let ci = fs::read_to_string(ci_workflow_path()).unwrap();
     assert!(ci.matches("persist-credentials: false").count() >= 8);
