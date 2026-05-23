@@ -2652,6 +2652,23 @@ fn test_status_clean_repo() {
 }
 
 #[test]
+fn test_status_outside_git_repo_shows_actionable_hint() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("git status failed:"))
+        .stderr(predicate::str::contains(
+            "hint: run `git init` first, or run patchloom status from inside an existing git repository",
+        ));
+}
+
+#[test]
 fn test_status_modified_file() {
     let dir = TempDir::new().unwrap();
     init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
