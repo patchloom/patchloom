@@ -7174,6 +7174,29 @@ fn test_explain_stdin() {
         .stdout(predicates::str::contains("Delete file x.txt"));
 }
 
+#[test]
+fn test_explain_stdin_takes_precedence_over_path() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-file.txt"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain", "--stdin"])
+        .arg(&plan)
+        .write_stdin(
+            r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-stdin.txt"}]}"#,
+        )
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Delete file from-stdin.txt"))
+        .stdout(predicates::str::contains("from-file.txt").not());
+}
+
 // ── undo ─────────────────────────────────────────────────────
 
 #[test]

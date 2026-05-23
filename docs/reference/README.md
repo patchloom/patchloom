@@ -256,7 +256,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:explain -->
 ## `explain`
 
-- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` and `--jsonl` for structured output, plus `--stdin` for piped input.
+- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` and `--jsonl` for structured output, plus `--stdin` for piped input. If both a path and `--stdin` are provided, stdin takes precedence and the path is ignored.
 - **Use when:** A user or agent wants to review what a tx plan will do before running `tx --apply`. Converts machine-readable plan format into plain English descriptions.
 - **Prefer instead:** Use `tx` directly (without `--apply`) to see the actual diff preview. Use `explain` when you want a quick overview without touching any files.
 - **Related:** `tx`, `batch`
