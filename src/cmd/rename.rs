@@ -89,6 +89,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if global.apply {
         let mut backup = crate::backup::BackupSession::new(&cwd)?;
         backup.save_before_delete(&src)?;
+        backup.save_before_write(&dst)?;
         do_rename(&src, &dst, &args, &policy)?;
         backup.finalize()?;
 
@@ -134,6 +135,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if global.should_apply() {
         let mut backup = crate::backup::BackupSession::new(&cwd)?;
         backup.save_before_delete(&src)?;
+        backup.save_before_write(&dst)?;
         do_rename(&src, &dst, &args, &policy)?;
         backup.finalize()?;
         if global.show_status() {
@@ -171,6 +173,7 @@ pub(crate) fn apply_rename(
 
     let mut backup = crate::backup::BackupSession::new(cwd)?;
     backup.save_before_delete(from)?;
+    backup.save_before_write(to)?;
 
     // Create parent directories if needed.
     if let Some(parent) = to.parent()

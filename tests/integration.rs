@@ -3897,6 +3897,75 @@ fn test_rename_force_overwrites() {
 }
 
 #[test]
+fn test_rename_apply_undo_restores_original_paths() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("old.txt")
+        .arg("new.txt")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be removed after rename");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&src).unwrap(), "content\n");
+    assert!(
+        !dst.exists(),
+        "undo should remove the created destination file"
+    );
+}
+
+#[test]
+fn test_rename_force_apply_undo_restores_overwritten_destination() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "source content\n").unwrap();
+    fs::write(&dst, "destination content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("old.txt")
+        .arg("new.txt")
+        .arg("--force")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be removed after rename");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "source content\n");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&src).unwrap(), "source content\n");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "destination content\n");
+}
+
+#[test]
 fn test_rename_missing_source_fails() {
     let dir = TempDir::new().unwrap();
 
