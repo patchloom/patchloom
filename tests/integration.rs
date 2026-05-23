@@ -11160,6 +11160,13 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn concepts_path() -> PathBuf {
+    repo_root()
+        .join("docs")
+        .join("getting-started")
+        .join("concepts.md")
+}
+
 fn ci_workflow_path() -> PathBuf {
     repo_root().join(".github").join("workflows").join("ci.yml")
 }
@@ -12592,6 +12599,13 @@ fn test_reference_doc_covers_meaningful_feature_inventory() {
     let errors = reference_doc_validation_errors(&reference);
 
     assert!(errors.is_empty(), "{}", errors.join("\n\n"));
+}
+
+#[test]
+fn test_concepts_doc_mentions_confirm_write_mode() {
+    let concepts = fs::read_to_string(concepts_path()).unwrap();
+    assert!(concepts.contains("Every write command supports four modes:"));
+    assert!(concepts.contains("| `--confirm` | Show the diff, then prompt before writing |"));
 }
 
 #[test]
