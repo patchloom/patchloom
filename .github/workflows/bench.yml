@@ -63,9 +63,11 @@ jobs:
           yq --version
 
       - name: Run CLI benchmarks
+        env:
+          BENCH_SCALES: ${{ inputs.scales || 'small medium' }}
         run: |
           cd benches/cli
-          bash run.sh ${{ inputs.scales || 'small medium' }}
+          bash run.sh "$BENCH_SCALES"
 
       - name: Upload results
         uses: actions/upload-artifact@v7

@@ -12633,6 +12633,40 @@ fn test_bench_workflow_limits_artifact_retention() {
 }
 
 #[test]
+fn test_bench_workflow_passes_dispatch_scales_via_env() {
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert!(
+        bench.contains("BENCH_SCALES: ${{ inputs.scales || 'small medium' }}"),
+        "bench workflow should pass dispatch scales through an environment variable"
+    );
+    assert!(
+        bench.contains("bash run.sh \"$BENCH_SCALES\""),
+        "bench workflow should quote BENCH_SCALES when invoking the benchmark runner"
+    );
+    assert!(
+        !bench.contains("bash run.sh ${{ inputs.scales || 'small medium' }}"),
+        "bench workflow should not interpolate workflow inputs directly into the shell command"
+    );
+}
+
+#[test]
+fn test_cli_bench_runner_validates_requested_scales() {
+    let runner = fs::read_to_string(repo_root().join("benches/cli/run.sh")).unwrap();
+    assert!(
+        runner.contains("read -r -a SCALES <<< \"$SCALES_INPUT\""),
+        "bench runner should split requested scales without re-parsing shell syntax"
+    );
+    assert!(
+        runner.contains("small|medium|large"),
+        "bench runner should allow only known benchmark scales"
+    );
+    assert!(
+        runner.contains("invalid scale '$SCALE'"),
+        "bench runner should fail fast on unexpected scale names"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
