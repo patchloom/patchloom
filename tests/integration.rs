@@ -12610,6 +12610,20 @@ fn test_workflows_disable_persisted_checkout_credentials_by_default() {
 }
 
 #[test]
+fn test_publish_crates_workflow_serializes_publishes_per_ref() {
+    let publish =
+        fs::read_to_string(repo_root().join(".github/workflows/publish-crates.yml")).unwrap();
+    assert!(
+        publish.contains("group: publish-crates-${{ github.ref }}"),
+        "publish-crates workflow should serialize publishes per ref"
+    );
+    assert!(
+        publish.contains("cancel-in-progress: false"),
+        "publish-crates workflow should queue duplicate publishes instead of cancelling them"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
