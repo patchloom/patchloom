@@ -1,7 +1,5 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
-#[cfg(test)]
-use crate::plan::{FormatStep, ValidationStep};
 use crate::plan::{Operation, Plan};
 use clap::Args;
 
@@ -281,6 +279,7 @@ fn build_json_summary(plan: &Plan) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::{FormatStep, ValidationStep};
 
     #[test]
     fn describe_replace_literal() {
