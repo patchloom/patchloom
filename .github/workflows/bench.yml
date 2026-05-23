@@ -33,11 +33,32 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Check prerequisites
+      - name: Install hyperfine
+        uses: taiki-e/install-action@v2
+        with:
+          tool: hyperfine@1.20.0
+
+      - name: Install jq and yq
+        env:
+          JQ_VERSION: jq-1.8.1
+          YQ_VERSION: v4.53.2
+          INSTALL_DIR: ${{ runner.temp }}/bench-bin
         run: |
-          command -v hyperfine || (echo "hyperfine not found" && exit 1)
-          command -v jq || (echo "jq not found" && exit 1)
-          command -v yq || (echo "yq not found" && exit 1)
+          mkdir -p "$INSTALL_DIR"
+          curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
+            -o "$INSTALL_DIR/jq" \
+            "https://github.com/jqlang/jq/releases/download/${JQ_VERSION}/jq-linux-amd64"
+          curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
+            -o "$INSTALL_DIR/yq" \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          chmod +x "$INSTALL_DIR/jq" "$INSTALL_DIR/yq"
+          printf '%s\n' "$INSTALL_DIR" >> "$GITHUB_PATH"
+
+      - name: Verify benchmark tools
+        run: |
+          hyperfine --version
+          jq --version
+          yq --version
 
       - name: Run CLI benchmarks
         run: |
