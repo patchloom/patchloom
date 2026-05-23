@@ -12951,6 +12951,13 @@ fn test_reference_doc_describes_status_and_undo_contracts() {
 }
 
 #[test]
+fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle_commands() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let contract = "When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.";
+    assert_eq!(reference.matches(contract).count(), 3);
+}
+
+#[test]
 fn test_reference_doc_requires_use_when_stanza() {
     let reference = fs::read_to_string(reference_path()).unwrap();
     let broken = reference_without_use_when(&reference, "patch-mode:file");
