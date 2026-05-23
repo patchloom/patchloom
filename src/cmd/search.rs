@@ -148,6 +148,33 @@ impl Matcher {
             }
         }
     }
+
+    /// Count matches in `text`, optionally stopping after the first match.
+    fn count_matches(&self, text: &str, stop_after_first: bool) -> usize {
+        match self {
+            Matcher::Regex(re) => {
+                if stop_after_first {
+                    usize::from(re.find(text).is_some())
+                } else {
+                    re.find_iter(text).count()
+                }
+            }
+            Matcher::Literal(finder) => {
+                let bytes = text.as_bytes();
+                if stop_after_first {
+                    return usize::from(finder.find(bytes).is_some());
+                }
+                let needle_len = finder.needle().len();
+                let mut count = 0;
+                let mut start = 0;
+                while let Some(pos) = finder.find(&bytes[start..]) {
+                    count += 1;
+                    start += pos + needle_len;
+                }
+                count
+            }
+        }
+    }
 }
 
 /// Build the right matcher for the search arguments.
@@ -209,24 +236,25 @@ fn search_one_file(
     let mut count = 0usize;
 
     if args.multiline {
-        let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
-        for (start, end) in matcher.find_iter_positions(&content) {
-            count += 1;
-            if count_only {
-                if args.files_with_matches && args.assert_count.is_none() {
-                    break;
-                }
-                continue;
+        if count_only {
+            count = matcher.count_matches(
+                &content,
+                args.files_with_matches && args.assert_count.is_none(),
+            );
+        } else {
+            let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
+            for (start, end) in matcher.find_iter_positions(&content) {
+                count += 1;
+                let (line, column) = line_and_column_for_offset(&newline_offsets, start);
+                file_matches.push(SearchMatch {
+                    path: path_str.clone(),
+                    line,
+                    column,
+                    text: content[start..end].to_string(),
+                    context_before: None,
+                    context_after: None,
+                });
             }
-            let (line, column) = line_and_column_for_offset(&newline_offsets, start);
-            file_matches.push(SearchMatch {
-                path: path_str.clone(),
-                line,
-                column,
-                text: content[start..end].to_string(),
-                context_before: None,
-                context_after: None,
-            });
         }
     } else if count_only {
         // Fast path: no need to collect lines into a Vec for random access.
@@ -668,6 +696,39 @@ mod tests {
             "multiline count should not build SearchMatch objects"
         );
         assert_eq!(results.file_match_counts.values().sum::<usize>(), 1);
+    }
+
+    #[test]
+    fn multiline_files_with_matches_stops_after_first_match() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("multi.txt"), "foo\nbar\nfoo\n").unwrap();
+
+        let mut args = make_args("foo", vec![dir.path().to_string_lossy().into_owned()]);
+        args.multiline = true;
+        args.files_with_matches = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "multiline files-with-matches should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 1);
+    }
+
+    #[test]
+    fn multiline_files_with_matches_with_assert_count_counts_all_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("multi.txt"), "foo\nbar\nfoo\n").unwrap();
+
+        let mut args = make_args("foo", vec![dir.path().to_string_lossy().into_owned()]);
+        args.multiline = true;
+        args.files_with_matches = true;
+        args.assert_count = Some(2);
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "multiline files-with-matches assert-count should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 2);
     }
 
     #[test]

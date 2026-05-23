@@ -717,6 +717,25 @@ fn test_search_multiline_spans_lines() {
         .stdout(predicate::str::contains("}"));
 }
 
+#[test]
+fn test_search_multiline_files_with_matches_and_assert_count_counts_all_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.txt");
+    fs::write(&file, "foo\nbar\nfoo\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--multiline")
+        .arg("--files-with-matches")
+        .arg("--assert-count")
+        .arg("2")
+        .arg("foo")
+        .arg(&file)
+        .assert()
+        .success();
+}
+
 // ---------------------------------------------------------------------------
 // replace
 // ---------------------------------------------------------------------------
