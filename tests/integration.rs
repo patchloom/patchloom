@@ -12667,6 +12667,32 @@ fn test_cli_bench_runner_validates_requested_scales() {
 }
 
 #[test]
+fn test_readme_agent_test_count_matches_non_benchmark_scenarios() {
+    let count = fs::read_dir(repo_root().join("tests/agent"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("test_") && name.ends_with(".py") && name != "test_bench.py"
+        })
+        .map(|entry| fs::read_to_string(entry.path()).unwrap())
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.trim_start().starts_with("def test_"))
+                .count()
+        })
+        .sum::<usize>();
+
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains(&format!("`make agent-test` runs {count} pytest scenarios")),
+        "README should document the non-benchmark agent scenario count run by make agent-test"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
