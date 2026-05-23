@@ -11925,6 +11925,31 @@ fn test_doc_get_honors_cwd() {
 }
 
 #[test]
+fn test_md_insert_before_heading_honors_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\n## Section A\n\nBody A\n\n## Section B\n\nBody B\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("md")
+        .arg("insert-before-heading")
+        .arg("doc.md")
+        .arg("--heading")
+        .arg("Section B")
+        .arg("--content")
+        .arg("Inserted before B.")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(content.contains("Inserted before B.\n\n## Section B"));
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
