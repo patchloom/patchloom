@@ -33,25 +33,45 @@ struct RenameOutput {
     diff: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenameValidation {
+    NoOp,
+    Proceed,
+}
+
+fn validate_rename_paths(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    force: bool,
+    src_label: &str,
+    dst_label: &str,
+) -> anyhow::Result<RenameValidation> {
+    if !src.exists() {
+        anyhow::bail!("source file not found: {src_label}");
+    }
+    if !src.is_file() {
+        anyhow::bail!("source is not a file: {src_label}");
+    }
+    if dst.exists() && !dst.is_file() {
+        anyhow::bail!("destination is not a file: {dst_label}");
+    }
+    if src == dst {
+        return Ok(RenameValidation::NoOp);
+    }
+    if !force && dst.exists() {
+        anyhow::bail!("destination already exists: {dst_label}");
+    }
+    Ok(RenameValidation::Proceed)
+}
+
 pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    // Validate source exists and is a file.
-    if !src.exists() {
-        anyhow::bail!("source file not found: {}", args.from);
-    }
-    if !src.is_file() {
-        anyhow::bail!("source is not a file: {}", args.from);
-    }
-
-    if dst.exists() && !dst.is_file() {
-        anyhow::bail!("destination is not a file: {}", args.to);
-    }
-
-    // If source and destination resolve to the same path, it's a no-op.
-    if src == dst {
+    if validate_rename_paths(&src, &dst, args.force, &args.from, &args.to)?
+        == RenameValidation::NoOp
+    {
         let output = RenameOutput {
             ok: true,
             from: args.from.clone(),
@@ -62,11 +82,6 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("source and destination are the same: {}", args.from);
         }
         return Ok(exit::SUCCESS);
-    }
-
-    // Validate destination does not exist (unless --force).
-    if !args.force && dst.exists() {
-        anyhow::bail!("destination already exists: {}", args.to);
     }
 
     // --check mode: report that rename would happen (no file read needed).
@@ -155,19 +170,14 @@ pub(crate) fn apply_rename(
     force: bool,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
-    if !from.exists() {
-        anyhow::bail!("source file not found: {}", from.display());
-    }
-    if !from.is_file() {
-        anyhow::bail!("source is not a file: {}", from.display());
-    }
-    if to.exists() && !to.is_file() {
-        anyhow::bail!("destination is not a file: {}", to.display());
-    }
-    if !force && to.exists() {
-        anyhow::bail!("destination already exists: {}", to.display());
-    }
-    if from == to {
+    if validate_rename_paths(
+        from,
+        to,
+        force,
+        &from.display().to_string(),
+        &to.display().to_string(),
+    )? == RenameValidation::NoOp
+    {
         return Ok(());
     }
 
@@ -435,6 +445,19 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
+        assert!(file.exists(), "file should still exist");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn apply_rename_same_path_is_noop_without_force() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("same.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        apply_rename(&file, &file, false, dir.path()).unwrap();
+
         assert!(file.exists(), "file should still exist");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
     }
