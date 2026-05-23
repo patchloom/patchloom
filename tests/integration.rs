@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tempfile::TempDir;
 
 /// Convert a path to a string safe for embedding in YAML/TOML values.
@@ -7909,6 +7910,43 @@ fn test_delete_json_apply_output() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["applied"], true);
     assert!(json["path"].as_str().unwrap().contains("doomed.txt"));
+}
+
+#[test]
+fn test_delete_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("confirmed.txt");
+    fs::write(&file, "bye\n").unwrap();
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("delete")
+        .arg(file.to_str().unwrap())
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!file.exists());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], true);
+    assert!(json["path"].as_str().unwrap().contains("confirmed.txt"));
 }
 
 #[test]

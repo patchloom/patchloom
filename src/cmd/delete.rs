@@ -23,6 +23,14 @@ struct DeleteOutput {
     applied: bool,
 }
 
+fn delete_with_backup(path: &std::path::Path, cwd: &std::path::Path) -> anyhow::Result<()> {
+    let mut backup = crate::backup::BackupSession::new(cwd)?;
+    backup.save_before_delete(path)?;
+    std::fs::remove_file(path).with_context(|| format!("failed to delete {}", path.display()))?;
+    backup.finalize()?;
+    Ok(())
+}
+
 /// Delete a file with backup, without writing to stdout.
 /// Used by the MCP server for direct in-process deletes.
 #[cfg(feature = "mcp")]
@@ -33,11 +41,7 @@ pub(crate) fn apply_delete(path: &std::path::Path, cwd: &std::path::Path) -> any
     if !path.is_file() {
         anyhow::bail!("target is not a file: {}", path.display());
     }
-    let mut backup = crate::backup::BackupSession::new(cwd)?;
-    backup.save_before_delete(path)?;
-    std::fs::remove_file(path).with_context(|| format!("failed to delete {}", path.display()))?;
-    backup.finalize()?;
-    Ok(())
+    delete_with_backup(path, cwd)
 }
 
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -64,11 +68,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        backup.save_before_delete(&path)?;
-        std::fs::remove_file(&path)
-            .with_context(|| format!("failed to delete {}", path.display()))?;
-        backup.finalize()?;
+        delete_with_backup(&path, &cwd)?;
         let output = DeleteOutput {
             ok: true,
             path: args.file.clone(),
@@ -77,6 +77,20 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !global.emit_json(&output)? && !global.quiet {
             println!("deleted {}", args.file);
         }
+        return Ok(exit::SUCCESS);
+    }
+
+    if global.confirm && (global.json || global.jsonl) {
+        let applied = global.should_apply();
+        if applied {
+            delete_with_backup(&path, &cwd)?;
+        }
+        let output = DeleteOutput {
+            ok: true,
+            path: args.file.clone(),
+            applied,
+        };
+        global.emit_json(&output)?;
         return Ok(exit::SUCCESS);
     }
 
@@ -92,11 +106,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing preview, then delete if confirmed.
     if global.should_apply() {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        backup.save_before_delete(&path)?;
-        std::fs::remove_file(&path)
-            .with_context(|| format!("failed to delete {}", path.display()))?;
-        backup.finalize()?;
+        delete_with_backup(&path, &cwd)?;
         if global.show_status() {
             eprintln!("deleted {}", args.file);
         }
