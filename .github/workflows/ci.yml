@@ -223,20 +223,7 @@ jobs:
             --export-json "$bench_json" \
             './target/release/patchloom search "hello" /tmp/bench.txt' \
             --max-runs 100
-          python3 - "$bench_json" "search" <<'PY'
-          import json
-          import sys
-
-          bench_json, name = sys.argv[1], sys.argv[2]
-          threshold = 0.05
-          with open(bench_json, encoding="utf-8") as f:
-              mean = json.load(f)["results"][0]["mean"]
-          if mean > threshold:
-              raise SystemExit(
-                  f"{name} benchmark exceeded threshold: {mean * 1000:.2f}ms > {threshold * 1000:.0f}ms"
-              )
-          print(f"{name} benchmark within threshold: {mean * 1000:.2f}ms <= {threshold * 1000:.0f}ms")
-          PY
+          python3 benches/cli/check-threshold.py "$bench_json" "search"
 
       - name: Benchmark doc get (must be under 50ms)
         run: |
@@ -245,20 +232,7 @@ jobs:
             --export-json "$bench_json" \
             './target/release/patchloom --json doc get /tmp/bench.json name' \
             --max-runs 100
-          python3 - "$bench_json" "doc get" <<'PY'
-          import json
-          import sys
-
-          bench_json, name = sys.argv[1], sys.argv[2]
-          threshold = 0.05
-          with open(bench_json, encoding="utf-8") as f:
-              mean = json.load(f)["results"][0]["mean"]
-          if mean > threshold:
-              raise SystemExit(
-                  f"{name} benchmark exceeded threshold: {mean * 1000:.2f}ms > {threshold * 1000:.0f}ms"
-              )
-          print(f"{name} benchmark within threshold: {mean * 1000:.2f}ms <= {threshold * 1000:.0f}ms")
-          PY
+          python3 benches/cli/check-threshold.py "$bench_json" "doc get"
 
       - name: Benchmark replace dry-run (must be under 50ms)
         run: |
@@ -267,20 +241,7 @@ jobs:
             --export-json "$bench_json" \
             './target/release/patchloom replace hello --to world /tmp/bench.txt' \
             --max-runs 100
-          python3 - "$bench_json" "replace dry-run" <<'PY'
-          import json
-          import sys
-
-          bench_json, name = sys.argv[1], sys.argv[2]
-          threshold = 0.05
-          with open(bench_json, encoding="utf-8") as f:
-              mean = json.load(f)["results"][0]["mean"]
-          if mean > threshold:
-              raise SystemExit(
-                  f"{name} benchmark exceeded threshold: {mean * 1000:.2f}ms > {threshold * 1000:.0f}ms"
-              )
-          print(f"{name} benchmark within threshold: {mean * 1000:.2f}ms <= {threshold * 1000:.0f}ms")
-          PY
+          python3 benches/cli/check-threshold.py "$bench_json" "replace dry-run"
 
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
