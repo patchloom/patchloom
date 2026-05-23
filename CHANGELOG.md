@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-05-23
+
 ### Commands
 
 18 commands (plus `mcp-server` with `--features mcp`) covering search, structured editing, batching, and file operations:
@@ -69,3 +71,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - License: MIT OR Apache-2.0
 - CI: fmt, clippy, tests, MSRV check, dependency audit, doc freshness checks, code coverage
 - `make check` runs the full gate locally, including generated doc freshness
+
+[Unreleased]: https://github.com/patchloom/patchloom/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/patchloom/patchloom/releases/tag/v0.1.0

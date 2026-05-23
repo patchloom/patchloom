@@ -150,22 +150,27 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 ## Install
 
 ```bash
-# Core CLI install (requires Rust 1.95+)
+cargo install patchloom                    # crates.io
+brew install patchloom/tap/patchloom       # macOS / Linux (Homebrew)
+```
+
+Or download a prebuilt binary from [GitHub Releases](https://github.com/patchloom/patchloom/releases).
+
+To include the MCP server (`patchloom mcp-server`):
+
+```bash
+cargo install patchloom --features mcp
+```
+
+From source (requires Rust 1.95+):
+
+```bash
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
-
-# Install with MCP support
-cargo install --path . --features mcp
 ```
 
-`cargo install --path .` gives you the core CLI commands. If you also want
-`patchloom mcp-server`, install with `--features mcp`.
-
-Other install channels are planned for public launch, including crates.io,
-GitHub Releases binaries, and Homebrew. See
-[Installation](./docs/getting-started/installation.md) for the current path and
-planned post-launch options.
+See [Installation](./docs/getting-started/installation.md) for shell completions and additional options.
 
 ## Quick start
 
