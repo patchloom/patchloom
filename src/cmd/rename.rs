@@ -31,6 +31,8 @@ struct RenameOutput {
     to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +79,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             from: args.from.clone(),
             to: args.to.clone(),
             diff: None,
+            applied: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("source and destination are the same: {}", args.from);
@@ -91,6 +94,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             from: args.from.clone(),
             to: args.to.clone(),
             diff: None,
+            applied: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("would rename {} -> {}", args.from, args.to);
@@ -116,6 +120,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 from: args.from.clone(),
                 to: args.to.clone(),
                 diff: if global.diff { diff_text.clone() } else { None },
+                applied: None,
             };
             if !global.emit_json(&output)? {
                 if let Some(d) = diff_text {
@@ -132,11 +137,33 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show what would happen (source still exists).
     let diff_text = try_diff(&src, &args.from, &args.to);
+
+    if global.confirm && (global.json || global.jsonl) {
+        let applied = global.should_apply();
+        if applied {
+            let mut backup = crate::backup::BackupSession::new(&cwd)?;
+            backup.save_before_delete(&src)?;
+            backup.save_before_write(&dst)?;
+            do_rename(&src, &dst, &args, &policy)?;
+            backup.finalize()?;
+        }
+        let output = RenameOutput {
+            ok: true,
+            from: args.from.clone(),
+            to: args.to.clone(),
+            diff: diff_text,
+            applied: Some(applied),
+        };
+        global.emit_json(&output)?;
+        return Ok(exit::SUCCESS);
+    }
+
     let output = RenameOutput {
         ok: true,
         from: args.from.clone(),
         to: args.to.clone(),
         diff: diff_text.clone(),
+        applied: None,
     };
     if !global.emit_json(&output)? {
         if let Some(d) = diff_text {

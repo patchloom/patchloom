@@ -58,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing and benchmarks
 
-- 1019 tests (500 unit + 519 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 1021 tests (500 unit + 521 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - Agent integration tests: 19 scenarios with invocation-capture shim
 - CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
 - Agent A/B benchmarks measuring duration, tool calls, and success rate

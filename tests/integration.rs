@@ -3855,11 +3855,51 @@ fn test_create_check_json_output() {
     assert_eq!(json["path"], file.to_str().unwrap());
     // diff field should be absent in --check mode
     assert!(json.get("diff").is_none());
+    assert!(json.get("applied").is_none());
 
     assert!(
         !file.exists(),
         "file should not be created in --check --json mode"
     );
+}
+
+#[test]
+fn test_create_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("confirmed.txt");
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("create")
+        .arg(file.to_str().unwrap())
+        .arg("--content")
+        .arg("hello")
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+hello"));
 }
 
 // ---------------------------------------------------------------------------
@@ -4270,8 +4310,51 @@ fn test_rename_check_json_output() {
     assert_eq!(output.status.code(), Some(2));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
+    assert!(json.get("applied").is_none());
     // Source should still exist in --check mode.
     assert!(src.exists());
+}
+
+#[test]
+fn test_rename_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("rename")
+        .arg(src.to_str().unwrap())
+        .arg(dst.to_str().unwrap())
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dst.to_str().unwrap());
+    assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+content"));
 }
 
 #[test]
