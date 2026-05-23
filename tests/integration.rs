@@ -6882,6 +6882,57 @@ fn test_explain_json_output() {
 }
 
 #[test]
+fn test_explain_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain", "--jsonl"])
+        .arg(&plan)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["operation_count"], 1);
+    assert_eq!(json["operations"][0]["description"], "Delete file x.txt");
+}
+
+#[test]
+fn test_explain_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "explain"])
+        .arg(&plan)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "--quiet should suppress stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
 fn test_explain_invalid_plan_fails() {
     let dir = TempDir::new().unwrap();
     let plan = dir.path().join("bad.json");
@@ -6992,6 +7043,38 @@ fn test_undo_dry_run_by_default() {
 }
 
 #[test]
+fn test_undo_dry_run_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace", "original", "--to", "modified", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "undo", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "--quiet should suppress stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "modified\n");
+}
+
+#[test]
 fn test_undo_list_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -7013,6 +7096,137 @@ fn test_undo_list_json_output() {
         .success()
         .stdout(predicates::str::contains("\"timestamp\""))
         .stdout(predicates::str::contains("\"entries\""));
+}
+
+#[test]
+fn test_undo_list_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--jsonl", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "JSONL output should be one session per line"
+    );
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert!(json["timestamp"].is_string());
+    assert!(json["entries"].is_array());
+    assert_eq!(json["entries"][0]["path"], "test.txt");
+}
+
+#[test]
+fn test_undo_dry_run_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace", "original", "--to", "modified", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--json", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert!(json["session"].is_string());
+    assert_eq!(json["file_count"], 1);
+    assert_eq!(json["entries"][0]["path"], "test.txt");
+    assert_eq!(json["entries"][0]["action"], "restore original");
+}
+
+#[test]
+fn test_undo_dry_run_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace", "original", "--to", "modified", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--jsonl", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["status"], "changes_detected");
+    assert_eq!(json["entries"][0]["path"], "test.txt");
+    assert_eq!(json["entries"][0]["action"], "restore original");
+}
+
+#[test]
+fn test_undo_list_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .success();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(
+        output.stdout.is_empty(),
+        "--quiet should suppress stdout, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 #[test]

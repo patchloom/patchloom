@@ -41,10 +41,10 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
 
-    if global.json {
+    if global.json || global.jsonl {
         let summary = build_json_summary(&plan);
-        println!("{}", serde_json::to_string_pretty(&summary)?);
-    } else {
+        global.emit_json(&summary)?;
+    } else if !global.quiet {
         print_human_summary(&plan);
     }
 

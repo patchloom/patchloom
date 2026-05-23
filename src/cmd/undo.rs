@@ -2,6 +2,7 @@ use crate::backup;
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::Args;
+use serde::Serialize;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -23,6 +24,21 @@ pub struct UndoArgs {
     pub apply: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct UndoPreviewEntry {
+    path: String,
+    action: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UndoPreviewOutput {
+    ok: bool,
+    status: &'static str,
+    session: String,
+    file_count: usize,
+    entries: Vec<UndoPreviewEntry>,
+}
+
 pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
@@ -36,9 +52,12 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         if global.json {
-            let json = serde_json::to_string_pretty(&sessions)?;
-            println!("{json}");
-        } else {
+            println!("{}", serde_json::to_string_pretty(&sessions)?);
+        } else if global.jsonl {
+            for session in &sessions {
+                println!("{}", serde_json::to_string(session)?);
+            }
+        } else if !global.quiet {
             for s in &sessions {
                 let file_count = s.entries.len();
                 let actions: Vec<String> = s
@@ -79,18 +98,38 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .find(|s| s.timestamp == timestamp)
             .ok_or_else(|| anyhow::anyhow!("no backup session found for {timestamp}"))?;
 
-        println!(
-            "Would restore session {} ({} file(s)):",
-            timestamp,
-            session.entries.len()
-        );
-        for entry in &session.entries {
-            let action = match entry.action {
-                backup::FileAction::Modified => "restore original",
-                backup::FileAction::Created => "delete (was created by apply)",
-                backup::FileAction::Deleted => "recreate (was deleted by apply)",
+        let entries: Vec<UndoPreviewEntry> = session
+            .entries
+            .iter()
+            .map(|entry| UndoPreviewEntry {
+                path: entry.path.clone(),
+                action: match entry.action {
+                    backup::FileAction::Modified => "restore original",
+                    backup::FileAction::Created => "delete (was created by apply)",
+                    backup::FileAction::Deleted => "recreate (was deleted by apply)",
+                }
+                .to_string(),
+            })
+            .collect();
+
+        if global.json || global.jsonl {
+            let output = UndoPreviewOutput {
+                ok: true,
+                status: "changes_detected",
+                session: timestamp.clone(),
+                file_count: entries.len(),
+                entries,
             };
-            println!("  {} -> {action}", entry.path);
+            global.emit_json(&output)?;
+        } else if !global.quiet {
+            println!(
+                "Would restore session {} ({} file(s)):",
+                timestamp,
+                session.entries.len()
+            );
+            for entry in &entries {
+                println!("  {} -> {}", entry.path, entry.action);
+            }
         }
         if global.show_status() {
             eprintln!("\nhint: use --apply to actually restore these files");
