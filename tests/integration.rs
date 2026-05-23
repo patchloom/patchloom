@@ -4749,6 +4749,25 @@ fn test_help_flag() {
         );
 }
 
+#[test]
+fn test_patch_help_examples_use_subcommand() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["patch", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("patchloom patch apply") || stdout.contains("patchloom patch check"),
+        "patch help examples must use a subcommand (apply/check), got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("patchloom patch changes.patch"),
+        "patch help examples must not show bare file arguments without a subcommand"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Parse smoke tests: every subcommand name is recognized by clap
 // ---------------------------------------------------------------------------
