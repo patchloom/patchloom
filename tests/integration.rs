@@ -11991,9 +11991,31 @@ fn test_smoke_quickstart_command_flow() {
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
     assert!(quickstart.contains("patchloom batch <<'EOF'"));
     assert!(quickstart.contains("patchloom batch --apply <<'EOF'"));
+    assert!(quickstart.contains("patchloom status"));
+    assert!(quickstart.contains("`patchloom status` is git-backed."));
+    assert!(quickstart.contains("patchloom undo"));
+    assert!(quickstart.contains("patchloom undo --apply"));
 
     let dir = TempDir::new().unwrap();
     seed_docs_smoke_fixture(dir.path());
+    git_ok(dir.path(), &["init"]);
+    git_ok(dir.path(), &["config", "user.email", "test@test.com"]);
+    git_ok(dir.path(), &["config", "user.name", "Test"]);
+    git_ok(
+        dir.path(),
+        &[
+            "add",
+            "Cargo.toml",
+            "src",
+            "README.md",
+            "CHANGELOG.md",
+            "AGENTS.md",
+            "package.json",
+            "config.json",
+            "config.yaml",
+        ],
+    );
+    git_ok(dir.path(), &["commit", "-m", "init"]);
     let lib_path = dir.path().join("src/lib.rs");
 
     patchloom_in(dir.path())
@@ -12106,6 +12128,39 @@ fn test_smoke_quickstart_command_flow() {
     );
     assert!(
         fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v3.0.0")
+    );
+
+    let status_output = patchloom_in(dir.path()).arg("status").output().unwrap();
+    assert_eq!(status_output.status.code(), Some(2));
+    let status_stdout = String::from_utf8_lossy(&status_output.stdout);
+    assert!(status_stdout.contains("README.md"));
+    assert!(status_stdout.contains("package.json"));
+
+    patchloom_in(dir.path())
+        .arg("undo")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("Would restore session"));
+
+    patchloom_in(dir.path())
+        .arg("undo")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let package_after_undo: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_after_undo["version"], "2.0.0");
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v1.0.0")
+    );
+    assert!(
+        !fs::read_to_string(dir.path().join("CHANGELOG.md"))
             .unwrap()
             .contains("- Bumped to v3.0.0")
     );
