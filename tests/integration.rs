@@ -3892,6 +3892,26 @@ fn test_rename_refuses_overwrite_without_force() {
 }
 
 #[test]
+fn test_rename_same_path_without_force_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("same.txt");
+    fs::write(&path, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg(&path)
+        .arg(&path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "source and destination are the same",
+        ));
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "content\n");
+}
+
+#[test]
 fn test_rename_force_overwrites() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");
@@ -4209,6 +4229,29 @@ fn test_rename_check_json_output() {
     assert_eq!(json["ok"], true);
     // Source should still exist in --check mode.
     assert!(src.exists());
+}
+
+#[test]
+fn test_rename_same_path_without_force_json_output() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("same.txt");
+    fs::write(&path, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("rename")
+        .arg(&path)
+        .arg(&path)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], path.to_str().unwrap());
+    assert_eq!(json["to"], path.to_str().unwrap());
+    assert!(json["diff"].is_null());
 }
 
 #[test]

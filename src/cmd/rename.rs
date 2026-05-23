@@ -50,11 +50,6 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("destination is not a file: {}", args.to);
     }
 
-    // Validate destination does not exist (unless --force).
-    if !args.force && dst.exists() {
-        anyhow::bail!("destination already exists: {}", args.to);
-    }
-
     // If source and destination resolve to the same path, it's a no-op.
     if src == dst {
         let output = RenameOutput {
@@ -67,6 +62,11 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("source and destination are the same: {}", args.from);
         }
         return Ok(exit::SUCCESS);
+    }
+
+    // Validate destination does not exist (unless --force).
+    if !args.force && dst.exists() {
+        anyhow::bail!("destination already exists: {}", args.to);
     }
 
     // --check mode: report that rename would happen (no file read needed).
