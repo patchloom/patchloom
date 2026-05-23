@@ -79,6 +79,10 @@ pub(crate) fn apply_create(
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
+    if args.content.is_some() && args.stdin {
+        bail!("--content and --stdin cannot be combined");
+    }
+
     // Resolve content from --content or --stdin.
     let content = if let Some(ref c) = args.content {
         c.clone()
@@ -338,5 +342,26 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("--content or --stdin"));
+    }
+
+    #[test]
+    fn create_rejects_content_and_stdin_together() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("dual_source.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("inline\n".to_string()),
+            stdin: true,
+            force: false,
+            write: Default::default(),
+        };
+        let global = default_global();
+
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--content and --stdin cannot be combined")
+        );
     }
 }

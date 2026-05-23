@@ -240,6 +240,31 @@ fn test_search_jsonl_files_with_matches_output() {
     );
 }
 
+#[test]
+fn test_create_rejects_content_and_stdin_together() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("dual-source.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(&file)
+        .arg("--content")
+        .arg("inline")
+        .arg("--stdin")
+        .write_stdin("stdin-data\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--content and --stdin cannot be combined",
+        ));
+
+    assert!(
+        !file.exists(),
+        "file should not be created on invalid input"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // completions
 // ---------------------------------------------------------------------------
