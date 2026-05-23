@@ -7153,14 +7153,24 @@ fn test_explain_json_output() {
     )
     .unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["explain", "--json"])
         .arg(&plan)
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\"operation_count\": 1"))
-        .stdout(predicates::str::contains("\"strict\": false"));
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["operation_count"], 1);
+    assert_eq!(json["strict"], false);
+    assert!(json["has_write_policy"].is_boolean());
+    assert_eq!(json["format_steps"], 0);
+    assert_eq!(json["validate_steps"], 0);
+    let ops = json["operations"].as_array().unwrap();
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0]["index"], 1);
+    assert!(ops[0]["description"].as_str().unwrap().contains("Replace"));
 }
 
 #[test]
