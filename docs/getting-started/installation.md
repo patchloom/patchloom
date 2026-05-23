@@ -1,59 +1,41 @@
 # Installation
 
-Patchloom is not yet published to crates.io or Homebrew. Install from source
-for now. The sections below describe the planned post-launch channels.
-
-## From source (current)
-
-Install the core CLI from source (requires Rust 1.95+):
-
-```bash
-git clone https://github.com/patchloom/patchloom.git
-cd patchloom
-cargo install --path .
-```
-
-Install with MCP support:
-
-```bash
-git clone https://github.com/patchloom/patchloom.git
-cd patchloom
-cargo install --path . --features mcp
-```
-
-The `mcp-server` command is feature-gated. If you only run `cargo install --path .`, you get the core CLI without MCP.
-
-## From crates.io (after public launch)
-
-Core CLI:
+## From crates.io
 
 ```bash
 cargo install patchloom
 ```
 
-MCP-capable install:
+With MCP server support:
 
 ```bash
 cargo install patchloom --features mcp
 ```
 
-## From GitHub releases (after public launch)
-
-Pre-built binaries for Linux, macOS, and Windows will be available on the
-[Releases](https://github.com/patchloom/patchloom/releases) page. Download
-the archive for your platform, extract, and place `patchloom` on your PATH.
-
-The current planned release pipeline targets the core CLI build. If you need
-`mcp-server`, install from source with `--features mcp`.
-
-## From Homebrew (after public launch)
+## From Homebrew
 
 ```bash
 brew install patchloom/tap/patchloom
 ```
 
-The planned Homebrew formula also targets the core CLI build. If you need
-`mcp-server`, install from source with `--features mcp`.
+## From GitHub Releases
+
+Pre-built binaries for Linux (x64, ARM64), macOS (x64, ARM64), and Windows (x64) are available on the [Releases](https://github.com/patchloom/patchloom/releases) page. Download the archive for your platform, extract, and place `patchloom` on your PATH.
+
+Release binaries include the core CLI. If you need `mcp-server`, install from source or crates.io with `--features mcp`.
+
+## From source
+
+Install from source (requires Rust 1.95+):
+
+```bash
+git clone https://github.com/patchloom/patchloom.git
+cd patchloom
+cargo install --path .
+
+# With MCP support
+cargo install --path . --features mcp
+```
 
 ## Shell completions
 

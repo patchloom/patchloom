@@ -12171,11 +12171,7 @@ fn test_smoke_installation_docs_cover_mcp_feature_paths() {
     );
     assert!(
         content.contains("cargo install patchloom --features mcp"),
-        "installation guide should document MCP-capable crates.io installs after launch"
-    );
-    assert!(
-        content.contains("The `mcp-server` command is feature-gated."),
-        "installation guide should explain that MCP support is optional"
+        "installation guide should document MCP-capable crates.io installs"
     );
 }
 
