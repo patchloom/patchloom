@@ -12687,6 +12687,26 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
 }
 
 #[test]
+fn test_contributing_make_targets_table_covers_key_targets() {
+    let contributing = fs::read_to_string(repo_root().join("CONTRIBUTING.md")).unwrap();
+    for target in [
+        "make check",
+        "make check-fast",
+        "make build",
+        "make fmt",
+        "make test",
+        "make integration-test",
+        "make clippy",
+        "make update-readme",
+    ] {
+        assert!(
+            contributing.contains(&format!("| `{target}`")),
+            "CONTRIBUTING.md make-targets table should list {target}"
+        );
+    }
+}
+
+#[test]
 fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
     let ci = fs::read_to_string(ci_workflow_path()).unwrap();
     let fork_safe_macos_runs_on = r#"runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}"#;

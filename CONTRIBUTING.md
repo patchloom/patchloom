@@ -30,10 +30,12 @@ make check          # must pass before every commit
 |--------|---------|
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Skip doc verification for faster iteration |
+| `make build` | Build all features (`cargo build --all-features`) |
 | `make fmt` | Auto-format with `cargo fmt` |
 | `make test` | Unit tests only |
 | `make integration-test` | Integration tests only |
 | `make clippy` | Lint check |
+| `make update-readme` | Refresh generated test counts in README.md and CHANGELOG.md |
 
 ## Writing tests
 
