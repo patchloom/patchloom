@@ -22,10 +22,10 @@ pub struct SearchArgs {
     /// Paths to search in.
     pub paths: Vec<String>,
     /// Treat pattern as a literal string.
-    #[arg(long, short = 'F')]
+    #[arg(long, short = 'F', conflicts_with = "regex")]
     pub literal: bool,
     /// Treat pattern as a regex (default).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "literal")]
     pub regex: bool,
     /// Lines of context around matches (shorthand for -B N -A N).
     #[arg(long, short = 'C')]
@@ -38,11 +38,11 @@ pub struct SearchArgs {
     pub after_context: Option<usize>,
     // ref:search-mode:files-with-matches
     /// Only print file paths with matches.
-    #[arg(long, short = 'l')]
+    #[arg(long, short = 'l', conflicts_with = "count")]
     pub files_with_matches: bool,
     // ref:search-mode:count
     /// Only print match counts per file.
-    #[arg(long, short = 'c')]
+    #[arg(long, short = 'c', conflicts_with = "files_with_matches")]
     pub count: bool,
     // ref:search-mode:invert-match
     /// Show lines that do NOT match the pattern.

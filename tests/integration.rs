@@ -1087,6 +1087,48 @@ fn test_search_invert_match_multiline_rejected() {
         .stderr(predicate::str::contains("--invert-match and --multiline"));
 }
 
+#[test]
+fn test_search_count_and_files_with_matches_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\nhello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--count")
+        .arg("--files-with-matches")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(predicate::str::contains("--count"))
+                .and(predicate::str::contains("--files-with-matches")),
+        );
+}
+
+#[test]
+fn test_search_literal_and_regex_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--regex")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(predicate::str::contains("--literal"))
+                .and(predicate::str::contains("--regex")),
+        );
+}
+
 // ---------------------------------------------------------------------------
 // replace: invalid regex
 // ---------------------------------------------------------------------------
