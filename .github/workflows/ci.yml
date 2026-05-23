@@ -80,7 +80,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   ci-macos:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 20
     steps:
       - name: Harden Runner
@@ -125,7 +125,7 @@ jobs:
         run: cargo check --all-targets --all-features
 
   msrv-macos:
-    runs-on: [self-hosted, macOS, ARM64]
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner

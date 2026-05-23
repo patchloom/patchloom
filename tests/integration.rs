@@ -12277,6 +12277,18 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
 }
 
 #[test]
+fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    let fork_safe_macos_runs_on = r#"runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}"#;
+
+    assert_eq!(
+        ci.matches(fork_safe_macos_runs_on).count(),
+        2,
+        "ci.yml should route both macOS jobs to GitHub-hosted runners for fork PRs"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
