@@ -13694,12 +13694,28 @@ fn has_mcp_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_mcp_client_opts(cwd, false).await
+}
+
+async fn spawn_mcp_client_with_shell(
+    cwd: &Path,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_mcp_client_opts(cwd, true).await
+}
+
+async fn spawn_mcp_client_opts(
+    cwd: &Path,
+    allow_shell: bool,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     use rmcp::ServiceExt;
     use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);
     cmd.arg("mcp-server").current_dir(cwd);
+    if allow_shell {
+        cmd.arg("--allow-shell");
+    }
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)
@@ -14321,7 +14337,8 @@ async fn test_mcp_tx_with_validate_lifecycle() {
         ]
     });
 
-    let client = spawn_mcp_client(dir.path()).await;
+    // --allow-shell is required for plans with validate steps.
+    let client = spawn_mcp_client_with_shell(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_tx",
@@ -14332,6 +14349,46 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "new\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_tx_rejects_shell_steps_without_flag() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"replace": {"path": "target.txt", "from": "old", "to": "new"}}
+        ],
+        "validate": [
+            {"cmd": "grep -q new target.txt", "required": true}
+        ]
+    });
+
+    // Default client (no --allow-shell) should reject the plan.
+    let client = spawn_mcp_client(dir.path()).await;
+    let result = client
+        .peer()
+        .call_tool(
+            rmcp::model::CallToolRequestParams::new("patchloom_tx").with_arguments(
+                serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+            ),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "tx with shell steps should be rejected without --allow-shell"
+    );
+    // File must remain unchanged.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "old\n"
     );
     client.cancel().await.unwrap();
 }

@@ -28,6 +28,8 @@ Add to `~/.grok/config.toml`:
 [mcp_servers.patchloom]
 command = "/path/to/patchloom"
 args = ["mcp-server"]
+# Add "--allow-shell" to args to enable format/validate lifecycle steps:
+# args = ["mcp-server", "--allow-shell"]
 ```
 
 ### Claude Desktop (JSON)
@@ -114,7 +116,17 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
 
-The `patchloom_batch` tool parses its operations line by line and validates every path before execution. The `patchloom_tx` tool accepts full transaction plans including `format` and `validate` lifecycle steps, which execute shell commands in the working directory. All operation paths and plan-level `cwd` fields are validated for containment before execution.
+The `patchloom_batch` tool parses its operations line by line and validates every path before execution. The `patchloom_tx` tool accepts full transaction plans. All operation paths and plan-level `cwd` fields are validated for containment before execution.
+
+### Shell execution gate
+
+Transaction plans can include `format` and `validate` lifecycle steps that run shell commands (e.g., `cargo fmt`, `cargo test`). Because these execute arbitrary commands, they are **disabled by default** in MCP mode. To enable them, start the server with `--allow-shell`:
+
+```bash
+patchloom mcp-server --allow-shell
+```
+
+Without `--allow-shell`, any plan containing `format` or `validate` steps is rejected with an error. Plans that only contain file operations work without the flag. Enable `--allow-shell` only when the MCP client is trusted.
 
 ## Example tool call
 

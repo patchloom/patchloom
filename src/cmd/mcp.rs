@@ -484,13 +484,17 @@ pub struct PatchloomService {
     #[expect(dead_code)] // Used by tool_router macro-generated code.
     tool_router: ToolRouter<Self>,
     cwd: PathBuf,
+    /// Whether tx plans may include format/validate lifecycle steps that
+    /// execute shell commands. Controlled by `--allow-shell` on startup.
+    allow_shell: bool,
 }
 
 impl PatchloomService {
-    pub fn new(cwd: PathBuf) -> Self {
+    pub fn new(cwd: PathBuf, allow_shell: bool) -> Self {
         Self {
             tool_router: Self::tool_router(),
             cwd,
+            allow_shell,
         }
     }
 }
@@ -1071,6 +1075,25 @@ impl PatchloomService {
                 McpError::invalid_params(format!("failed to parse transaction plan: {e}"), None)
             })?;
 
+        // Gate: format/validate lifecycle steps execute shell commands.
+        // Require --allow-shell on the MCP server to permit them.
+        let has_shell_steps = plan.format.as_ref().is_some_and(|f| !f.is_empty())
+            || plan.validate.as_ref().is_some_and(|v| !v.is_empty());
+        if has_shell_steps && !self.allow_shell {
+            return Err(McpError::invalid_params(
+                "this plan contains format/validate steps that execute shell commands; \
+                 start the MCP server with --allow-shell to permit this"
+                    .to_string(),
+                None,
+            ));
+        }
+        if has_shell_steps {
+            eprintln!(
+                "patchloom mcp: warning: executing shell commands from tx plan \
+                 (format/validate lifecycle steps)"
+            );
+        }
+
         // Validate plan-level cwd for containment.
         if let Some(ref plan_cwd) = plan.cwd {
             let cwd_path = std::path::Path::new(plan_cwd);
@@ -1285,9 +1308,9 @@ impl ServerHandler for PatchloomService {
 }
 
 /// Run the MCP server on stdio.
-pub fn run_mcp_server() -> anyhow::Result<u8> {
+pub fn run_mcp_server(allow_shell: bool) -> anyhow::Result<u8> {
     let cwd = std::env::current_dir()?;
-    let service = PatchloomService::new(cwd);
+    let service = PatchloomService::new(cwd, allow_shell);
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -1315,8 +1338,15 @@ mod tests {
     async fn spawn_test_client(
         cwd: std::path::PathBuf,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+        spawn_test_client_with_shell(cwd, false).await
+    }
+
+    async fn spawn_test_client_with_shell(
+        cwd: std::path::PathBuf,
+        allow_shell: bool,
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
         let (server_transport, client_transport) = tokio::io::duplex(16384);
-        let service = PatchloomService::new(cwd);
+        let service = PatchloomService::new(cwd, allow_shell);
         tokio::spawn(async move {
             let server = service.serve(server_transport).await.unwrap();
             server.waiting().await.unwrap();
