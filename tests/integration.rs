@@ -13041,6 +13041,19 @@ fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle
 }
 
 #[test]
+fn test_reference_doc_describes_create_input_contract() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(reference.contains("Exactly one of `--content` or `--stdin` is required."));
+    assert!(
+        reference
+            .contains("Passing both is rejected with `--content and --stdin cannot be combined`")
+    );
+    assert!(reference.contains(
+        "passing neither is rejected with `either --content or --stdin must be provided`"
+    ));
+}
+
+#[test]
 fn test_reference_doc_requires_use_when_stanza() {
     let reference = fs::read_to_string(reference_path()).unwrap();
     let broken = reference_without_use_when(&reference, "patch-mode:file");
