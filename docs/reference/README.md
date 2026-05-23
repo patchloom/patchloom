@@ -91,7 +91,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 ### `--jsonl`
 
 - **What it does:** Emits one compact JSON value per result line instead of one aggregate document.
-- **Use when:** A command naturally yields multiple result records, or you want compact machine-readable output from single-result commands like `create`, `delete`, `rename`, `status`, or `tx`.
+- **Use when:** A command naturally yields multiple result records, or you want compact machine-readable output from single-result commands like `create`, `delete`, `rename`, `status`, `tx`, `explain`, or `undo`.
 - **Prefer instead:** Use `--json` when you want one aggregate document for the whole command.
 
 <!-- ref:global-flag:quiet -->
@@ -244,10 +244,10 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:undo -->
 ## `undo`
 
-- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. The `undo` command reads the most recent (or a specified) backup and restores all files to their original state.
+- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. The `undo` command reads the most recent (or a specified) backup and restores all files to their original state. In dry-run mode it reports what would be restored, and `--json` or `--jsonl` emit that preview as structured output.
 - **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
 - **Notable flags:**
-  - `--list` shows available backup sessions.
+  - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.
   - `--session <timestamp>` targets a specific session (defaults to most recent).
   - `--apply` actually restores files (dry-run by default, showing what would change).
 - **Prefer instead:** Use `git checkout` or `git stash` when working in a committed git repo.
@@ -256,7 +256,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:explain -->
 ## `explain`
 
-- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` for structured output and `--stdin` for piped input.
+- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` and `--jsonl` for structured output, plus `--stdin` for piped input.
 - **Use when:** A user or agent wants to review what a tx plan will do before running `tx --apply`. Converts machine-readable plan format into plain English descriptions.
 - **Prefer instead:** Use `tx` directly (without `--apply`) to see the actual diff preview. Use `explain` when you want a quick overview without touching any files.
 - **Related:** `tx`, `batch`
