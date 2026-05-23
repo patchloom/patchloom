@@ -236,7 +236,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:status -->
 ## `status`
 
-- **What it does:** Shows which files have uncommitted changes compared to git HEAD.
+- **What it does:** Shows which files have uncommitted changes compared to git HEAD. This command is git-backed, so it must run inside a git repository.
 - **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process. For AI agents, native git status or terminal commands are typically equivalent.
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
@@ -244,7 +244,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:undo -->
 ## `undo`
 
-- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. The `undo` command reads the most recent (or a specified) backup and restores all files to their original state. In dry-run mode it reports what would be restored, and `--json` or `--jsonl` emit that preview as structured output.
+- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`). `--json` or `--jsonl` emit that preview as structured output.
 - **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
 - **Notable flags:**
   - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.

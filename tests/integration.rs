@@ -12704,6 +12704,15 @@ fn test_concepts_doc_mentions_confirm_write_mode() {
 }
 
 #[test]
+fn test_reference_doc_describes_status_and_undo_contracts() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(
+        reference.contains("This command is git-backed, so it must run inside a git repository.")
+    );
+    assert!(reference.contains("In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`)."));
+}
+
+#[test]
 fn test_reference_doc_requires_use_when_stanza() {
     let reference = fs::read_to_string(reference_path()).unwrap();
     let broken = reference_without_use_when(&reference, "patch-mode:file");
