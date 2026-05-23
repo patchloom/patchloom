@@ -11950,6 +11950,28 @@ fn test_md_insert_before_heading_honors_cwd() {
 }
 
 #[test]
+fn test_tx_honors_cwd_for_relative_plan_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("plan.toml"),
+        "version = \"1\"\n\n[[operations]]\nop = \"file.create\"\npath = \"out.txt\"\ncontent = \"hello\\n\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("plan.toml")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("out.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
