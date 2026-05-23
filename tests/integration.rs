@@ -12289,6 +12289,22 @@ fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
 }
 
 #[test]
+fn test_ci_workflow_uses_runner_temp_for_bench_fixtures() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+
+    assert!(
+        ci.contains("\"$RUNNER_TEMP/bench.json\"") || ci.contains("$RUNNER_TEMP/bench.json"),
+        "ci.yml should keep benchmark JSON fixtures under RUNNER_TEMP"
+    );
+    assert!(
+        ci.contains("\"$RUNNER_TEMP/bench.txt\"") || ci.contains("$RUNNER_TEMP/bench.txt"),
+        "ci.yml should keep benchmark text fixtures under RUNNER_TEMP"
+    );
+    assert!(!ci.contains("/tmp/bench.json"));
+    assert!(!ci.contains("/tmp/bench.txt"));
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();

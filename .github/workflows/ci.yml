@@ -213,15 +213,15 @@ jobs:
 
       - name: Create test fixtures
         run: |
-          echo '{"name": "test", "version": "1.0.0"}' > /tmp/bench.json
-          echo "hello world" > /tmp/bench.txt
+          echo '{"name": "test", "version": "1.0.0"}' > "$RUNNER_TEMP/bench.json"
+          echo "hello world" > "$RUNNER_TEMP/bench.txt"
 
       - name: Benchmark search (must be under 50ms)
         run: |
           bench_json="$RUNNER_TEMP/bench-search.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom search "hello" /tmp/bench.txt' \
+            './target/release/patchloom search "hello" "$RUNNER_TEMP/bench.txt"' \
             --max-runs 100
           python3 - "$bench_json" "search" <<'PY'
           import json
@@ -243,7 +243,7 @@ jobs:
           bench_json="$RUNNER_TEMP/bench-doc-get.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom --json doc get /tmp/bench.json name' \
+            './target/release/patchloom --json doc get "$RUNNER_TEMP/bench.json" name' \
             --max-runs 100
           python3 - "$bench_json" "doc get" <<'PY'
           import json
@@ -265,7 +265,7 @@ jobs:
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom replace hello --to world /tmp/bench.txt' \
+            './target/release/patchloom replace hello --to world "$RUNNER_TEMP/bench.txt"' \
             --max-runs 100
           python3 - "$bench_json" "replace dry-run" <<'PY'
           import json
