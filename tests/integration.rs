@@ -12305,6 +12305,18 @@ fn test_ci_workflow_uses_runner_temp_for_bench_fixtures() {
 }
 
 #[test]
+fn test_workflows_disable_persisted_checkout_credentials_by_default() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(ci.matches("persist-credentials: false").count() >= 8);
+
+    let security = fs::read_to_string(repo_root().join(".github/workflows/security.yml")).unwrap();
+    assert_eq!(security.matches("persist-credentials: false").count(), 2);
+
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert_eq!(bench.matches("persist-credentials: false").count(), 1);
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();

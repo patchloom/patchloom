@@ -27,6 +27,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Create isolated Docker config for Trivy
         run: mkdir -p "$RUNNER_TEMP/trivy-docker"
 
@@ -53,6 +55,7 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Install gitleaks
         env:
