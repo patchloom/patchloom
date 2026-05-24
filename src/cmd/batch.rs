@@ -45,7 +45,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   md.dedupe_headings, tidy.fix
 
 EXAMPLES:
-  patchloom batch 'doc.set config.json version "2.0"' 'replace README.md v1 v2'
+  printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
   patchloom batch --apply <<'EOF'
   doc.set package.json version "3.0.0"
   replace README.md "v1.0" "v3.0"
