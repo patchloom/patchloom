@@ -37,7 +37,14 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// Lines starting with `#` are comments. Empty lines are ignored.
 /// Values containing spaces must be quoted with double quotes.
 #[derive(Debug, Args)]
-#[command(after_help = r#"EXAMPLES:
+#[command(after_help = r#"OPERATIONS:
+  doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend,
+  doc.update, doc.move, doc.delete_where, replace, file.create,
+  file.delete, file.rename, md.upsert_bullet, md.table_append,
+  md.replace_section, md.insert_after_heading, md.insert_before_heading,
+  md.dedupe_headings, tidy.fix
+
+EXAMPLES:
   patchloom batch 'doc.set config.json version "2.0"' 'replace README.md v1 v2'
   patchloom batch --apply <<'EOF'
   doc.set package.json version "3.0.0"
