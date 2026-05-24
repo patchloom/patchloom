@@ -558,7 +558,7 @@ impl PatchloomService {
     #[tool(
         description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths (e.g. selector='server.port', value='8080')."
     )]
-    async fn patchloom_doc_set(
+    async fn doc_set(
         &self,
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -576,7 +576,7 @@ impl PatchloomService {
     #[tool(
         description = "Delete a value from a JSON, YAML, or TOML file. Use dot notation for nested paths (e.g. selector='scripts.test')."
     )]
-    async fn patchloom_doc_delete(
+    async fn doc_delete(
         &self,
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -593,7 +593,7 @@ impl PatchloomService {
     #[tool(
         description = "Deep-merge an object into a JSON, YAML, or TOML document. The value is a JSON object that gets recursively merged (e.g. value='{\"server\": {\"port\": 8080}}')."
     )]
-    async fn patchloom_doc_merge(
+    async fn doc_merge(
         &self,
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -610,7 +610,7 @@ impl PatchloomService {
     #[tool(
         description = "Append a value to an array in a JSON, YAML, or TOML file. Specify the array path with selector (e.g. selector='dependencies', value='\"new-pkg\"')."
     )]
-    async fn patchloom_doc_append(
+    async fn doc_append(
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -628,7 +628,7 @@ impl PatchloomService {
     #[tool(
         description = "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0."
     )]
-    async fn patchloom_doc_prepend(
+    async fn doc_prepend(
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -646,7 +646,7 @@ impl PatchloomService {
     #[tool(
         description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if the selector path is present."
     )]
-    async fn patchloom_doc_ensure(
+    async fn doc_ensure(
         &self,
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -664,7 +664,7 @@ impl PatchloomService {
     #[tool(
         description = "Remove array items matching a predicate from JSON/YAML/TOML. Use selector for the array path and predicate as 'field=value' (e.g. selector='users', predicate='role=admin')."
     )]
-    async fn patchloom_doc_delete_where(
+    async fn doc_delete_where(
         &self,
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -682,7 +682,7 @@ impl PatchloomService {
     #[tool(
         description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Use [*] for wildcards (e.g. selector='servers[*].port', value='8080')."
     )]
-    async fn patchloom_doc_update(
+    async fn doc_update(
         &self,
         Parameters(p): Parameters<DocUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -700,7 +700,7 @@ impl PatchloomService {
     #[tool(
         description = "Move/rename a path in a JSON, YAML, or TOML file. Moves the value from one selector to another (e.g. from='old_name', to='new_name')."
     )]
-    async fn patchloom_doc_move(
+    async fn doc_move(
         &self,
         Parameters(p): Parameters<DocMoveParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -718,7 +718,7 @@ impl PatchloomService {
     #[tool(
         description = "Read a value from a JSON, YAML, or TOML file by selector path. Use dot notation for nesting, brackets for arrays (e.g. selector='servers[0].host')."
     )]
-    async fn patchloom_doc_get(
+    async fn doc_get(
         &self,
         Parameters(p): Parameters<DocGetParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -735,7 +735,7 @@ impl PatchloomService {
     #[tool(
         description = "Check whether a selector path exists in a JSON, YAML, or TOML file. Returns true/false."
     )]
-    async fn patchloom_doc_has(
+    async fn doc_has(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -752,7 +752,7 @@ impl PatchloomService {
     #[tool(
         description = "List object keys at a selector path in a JSON, YAML, or TOML file. Returns an array of key names."
     )]
-    async fn patchloom_doc_keys(
+    async fn doc_keys(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -769,7 +769,7 @@ impl PatchloomService {
     #[tool(
         description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file. Returns an integer."
     )]
-    async fn patchloom_doc_len(
+    async fn doc_len(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -786,7 +786,7 @@ impl PatchloomService {
     #[tool(
         description = "Filter array items by selector in a JSON, YAML, or TOML file. Use predicate selectors (e.g. selector='users[role=admin]')."
     )]
-    async fn patchloom_doc_select(
+    async fn doc_select(
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -803,7 +803,7 @@ impl PatchloomService {
     #[tool(
         description = "List all leaf selector paths and values in a JSON, YAML, or TOML file. Returns every path=value pair for exploring unknown file structure."
     )]
-    async fn patchloom_doc_flatten(
+    async fn doc_flatten(
         &self,
         Parameters(p): Parameters<DocFileParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -819,7 +819,7 @@ impl PatchloomService {
     #[tool(
         description = "Compare two structured files (JSON, YAML, or TOML) and show differences. Reports added, removed, and changed keys."
     )]
-    async fn patchloom_doc_diff(
+    async fn doc_diff(
         &self,
         Parameters(p): Parameters<DocDiffParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -839,7 +839,7 @@ impl PatchloomService {
     #[tool(
         description = "Search files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts."
     )]
-    async fn patchloom_search(
+    async fn search_files(
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -897,7 +897,7 @@ impl PatchloomService {
     #[tool(
         description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files."
     )]
-    async fn patchloom_status(
+    async fn git_status(
         &self,
         #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
@@ -915,7 +915,7 @@ impl PatchloomService {
     #[tool(
         description = "Read file contents with optional line range. Use lines='50:120' to read a specific range (1-based inclusive)."
     )]
-    async fn patchloom_read(
+    async fn read_file(
         &self,
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -933,7 +933,7 @@ impl PatchloomService {
     #[tool(
         description = "Replace text in a file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches."
     )]
-    async fn patchloom_replace(
+    async fn replace_text(
         &self,
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -964,7 +964,7 @@ impl PatchloomService {
     #[tool(
         description = "Add a bullet under a markdown heading. Idempotent: skipped if the bullet text already exists under that heading."
     )]
-    async fn patchloom_md_upsert_bullet(
+    async fn md_upsert_bullet(
         &self,
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -982,7 +982,7 @@ impl PatchloomService {
     #[tool(
         description = "Append a row to a markdown table under a heading. The row is a pipe-separated string (e.g. row='| name | value |')."
     )]
-    async fn patchloom_md_table_append(
+    async fn md_table_append(
         &self,
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1000,7 +1000,7 @@ impl PatchloomService {
     #[tool(
         description = "Replace the body of a heading section in a markdown file. Content replaces everything between this heading and the next heading of equal or higher level."
     )]
-    async fn patchloom_md_replace_section(
+    async fn md_replace_section(
         &self,
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1018,7 +1018,7 @@ impl PatchloomService {
     #[tool(
         description = "Insert content immediately after a markdown heading. Preserves existing section body; the new content appears between the heading and the old body."
     )]
-    async fn patchloom_md_insert_after_heading(
+    async fn md_insert_after_heading(
         &self,
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1036,7 +1036,7 @@ impl PatchloomService {
     #[tool(
         description = "Insert content immediately before a markdown heading. The new content appears above the heading line."
     )]
-    async fn patchloom_md_insert_before_heading(
+    async fn md_insert_before_heading(
         &self,
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1054,7 +1054,7 @@ impl PatchloomService {
     #[tool(
         description = "Lint an AGENTS.md (or similar markdown rules file) for common problems: duplicate headings, dangerous git commands outside code fences, and missing final newline. Returns a JSON array of issues found (empty array means clean)."
     )]
-    async fn patchloom_md_lint_agents(
+    async fn md_lint(
         &self,
         Parameters(p): Parameters<MdLintAgentsParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1072,7 +1072,7 @@ impl PatchloomService {
     #[tool(
         description = "Execute a full transaction plan. Accepts a JSON/YAML/TOML plan string with operations, optional format/validate lifecycle steps, strict mode, and write_policy. This is the most powerful tool: use it when you need atomic multi-file edits with post-write formatting (cargo fmt, prettier), validation (tests, lints), and rollback on failure."
     )]
-    async fn patchloom_tx(
+    async fn transaction(
         &self,
         Parameters(p): Parameters<TxParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1149,7 +1149,7 @@ impl PatchloomService {
     #[tool(
         description = "Fix whitespace: ensures file ends with a newline and trims trailing spaces from all lines."
     )]
-    async fn patchloom_tidy(
+    async fn fix_whitespace(
         &self,
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1168,7 +1168,7 @@ impl PatchloomService {
     #[tool(
         description = "Rename (move) a file. Handles binary files. Use force to overwrite an existing destination."
     )]
-    async fn patchloom_rename(
+    async fn move_file(
         &self,
         Parameters(p): Parameters<FileRenameParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1191,7 +1191,7 @@ impl PatchloomService {
     #[tool(
         description = "Create a new file with the given content. Fails if the file already exists unless force=true."
     )]
-    async fn patchloom_create(
+    async fn create_file(
         &self,
         Parameters(p): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1209,7 +1209,7 @@ impl PatchloomService {
     }
 
     #[tool(description = "Delete a file. Fails if the file does not exist.")]
-    async fn patchloom_delete(
+    async fn delete_file(
         &self,
         Parameters(p): Parameters<DeleteFileParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1229,7 +1229,7 @@ impl PatchloomService {
     #[tool(
         description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs."
     )]
-    async fn patchloom_patch(
+    async fn apply_patch(
         &self,
         Parameters(p): Parameters<PatchParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1250,7 +1250,7 @@ impl PatchloomService {
     #[tool(
         description = "Execute multiple operations atomically. Each string is one line in batch format: 'doc.set config.json version \"2.0\"'"
     )]
-    async fn patchloom_batch(
+    async fn batch(
         &self,
         Parameters(p): Parameters<BatchParams>,
     ) -> Result<CallToolResult, McpError> {
@@ -1294,18 +1294,18 @@ impl ServerHandler for PatchloomService {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
                 "Patchloom provides structured file editing and introspection tools for JSON, \
-                     YAML, TOML, and Markdown files. Use patchloom_doc_set/delete/merge/append/\
+                     YAML, TOML, and Markdown files. Use doc_set/delete/merge/append/\
                      prepend/update/move/ensure/delete_where for config file edits, \
-                     patchloom_doc_get/has/keys/len/select/flatten/diff for read-only queries, \
-                     patchloom_md_* for markdown edits (replace_section, insert_after_heading, \
-                     insert_before_heading, upsert_bullet, table_append), \
-                     patchloom_replace for text replacement, \
-                     patchloom_search for file content search, patchloom_read for reading files, \
-                     patchloom_status for git status, patchloom_rename for renaming files, \
-                     patchloom_create for creating files, patchloom_delete for deleting files, \
-                     patchloom_patch for applying unified diffs, \
-                     patchloom_tidy for whitespace fixes, patchloom_batch for multi-op edits, \
-                     and patchloom_tx for full transaction plans with format/validate lifecycle.",
+                     doc_get/has/keys/len/select/flatten/diff for read-only queries, \
+                     md_* for markdown edits (replace_section, insert_after_heading, \
+                     insert_before_heading, upsert_bullet, table_append, lint), \
+                     replace_text for text replacement, \
+                     search_files for file content search, read_file for reading files, \
+                     git_status for uncommitted changes, move_file for renaming files, \
+                     create_file for creating files, delete_file for deleting files, \
+                     apply_patch for applying unified diffs, \
+                     fix_whitespace for whitespace fixes, batch for multi-op edits, \
+                     and transaction for full transaction plans with format/validate lifecycle.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1366,45 +1366,36 @@ mod tests {
         let client = spawn_test_client(dir.path().to_path_buf()).await;
         let tools = client.peer().list_all_tools().await.unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
-        assert!(names.contains(&"patchloom_doc_set"), "missing doc_set tool");
-        assert!(names.contains(&"patchloom_doc_get"), "missing doc_get tool");
-        assert!(names.contains(&"patchloom_doc_has"), "missing doc_has tool");
+        assert!(names.contains(&"doc_set"), "missing doc_set tool");
+        assert!(names.contains(&"doc_get"), "missing doc_get tool");
+        assert!(names.contains(&"doc_has"), "missing doc_has tool");
+        assert!(names.contains(&"doc_keys"), "missing doc_keys tool");
+        assert!(names.contains(&"doc_len"), "missing doc_len tool");
+        assert!(names.contains(&"doc_select"), "missing doc_select tool");
+        assert!(names.contains(&"doc_flatten"), "missing doc_flatten tool");
+        assert!(names.contains(&"doc_diff"), "missing doc_diff tool");
+        assert!(names.contains(&"read_file"), "missing read_file tool");
+        assert!(names.contains(&"search_files"), "missing search_files tool");
+        assert!(names.contains(&"git_status"), "missing git_status tool");
+        assert!(names.contains(&"replace_text"), "missing replace_text tool");
+        assert!(names.contains(&"batch"), "missing batch tool");
         assert!(
-            names.contains(&"patchloom_doc_keys"),
-            "missing doc_keys tool"
+            names.contains(&"fix_whitespace"),
+            "missing fix_whitespace tool"
         );
-        assert!(names.contains(&"patchloom_doc_len"), "missing doc_len tool");
+        assert!(names.contains(&"move_file"), "missing move_file tool");
+        assert!(names.contains(&"create_file"), "missing create_file tool");
+        assert!(names.contains(&"delete_file"), "missing delete_file tool");
+        assert!(names.contains(&"apply_patch"), "missing apply_patch tool");
         assert!(
-            names.contains(&"patchloom_doc_select"),
-            "missing doc_select tool"
-        );
-        assert!(
-            names.contains(&"patchloom_doc_flatten"),
-            "missing doc_flatten tool"
-        );
-        assert!(
-            names.contains(&"patchloom_doc_diff"),
-            "missing doc_diff tool"
-        );
-        assert!(names.contains(&"patchloom_read"), "missing read tool");
-        assert!(names.contains(&"patchloom_search"), "missing search tool");
-        assert!(names.contains(&"patchloom_status"), "missing status tool");
-        assert!(names.contains(&"patchloom_replace"), "missing replace tool");
-        assert!(names.contains(&"patchloom_batch"), "missing batch tool");
-        assert!(names.contains(&"patchloom_tidy"), "missing tidy tool");
-        assert!(names.contains(&"patchloom_rename"), "missing rename tool");
-        assert!(names.contains(&"patchloom_create"), "missing create tool");
-        assert!(names.contains(&"patchloom_delete"), "missing delete tool");
-        assert!(names.contains(&"patchloom_patch"), "missing patch tool");
-        assert!(
-            names.contains(&"patchloom_md_insert_after_heading"),
+            names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
         );
         assert!(
-            names.contains(&"patchloom_md_insert_before_heading"),
+            names.contains(&"md_insert_before_heading"),
             "missing md_insert_before_heading tool"
         );
-        assert!(names.contains(&"patchloom_tx"), "missing tx tool");
+        assert!(names.contains(&"transaction"), "missing transaction tool");
         assert_eq!(names.len(), 33, "expected 33 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
@@ -1422,7 +1413,7 @@ mod tests {
     async fn mcp_path_traversal_rejected_via_protocol() {
         let dir = tempfile::TempDir::new().unwrap();
         let client = spawn_test_client(dir.path().to_path_buf()).await;
-        let params = rmcp::model::CallToolRequestParams::new("patchloom_doc_set").with_arguments(
+        let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "../../etc/passwd",
                 "selector": "root",

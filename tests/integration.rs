@@ -13820,7 +13820,7 @@ async fn test_mcp_doc_set_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
         &client,
-        "patchloom_doc_set",
+        "doc_set",
         serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
     )
     .await;
@@ -13847,7 +13847,7 @@ async fn test_mcp_replace_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
         &client,
-        "patchloom_replace",
+        "replace_text",
         serde_json::json!({"path": "hello.txt", "from": "world", "to": "patchloom"}),
     )
     .await;
@@ -13869,7 +13869,7 @@ async fn test_mcp_read_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_read",
+        "read_file",
         serde_json::json!({"path": "data.txt"}),
     )
     .await;
@@ -13897,7 +13897,7 @@ async fn test_mcp_batch_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
         &client,
-        "patchloom_batch",
+        "batch",
         serde_json::json!({
             "operations": ["doc.set a.json version \"2.0.0\"", "replace b.txt \"old\" \"new\""]
         }),
@@ -13923,7 +13923,7 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
         &client,
-        "patchloom_doc_set",
+        "doc_set",
         serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
     )
     .await;
@@ -13946,7 +13946,7 @@ async fn test_mcp_search_finds_pattern() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_search",
+        "search_files",
         serde_json::json!({"pattern": "needle", "paths": ["haystack.txt"]}),
     )
     .await;
@@ -13969,7 +13969,7 @@ async fn test_mcp_doc_has_existing_key() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_has",
+        "doc_has",
         serde_json::json!({"path": "data.json", "selector": "name"}),
     )
     .await;
@@ -13996,7 +13996,7 @@ async fn test_mcp_doc_get_reads_value() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_get",
+        "doc_get",
         serde_json::json!({"path": "config.json", "selector": "version"}),
     )
     .await;
@@ -14016,7 +14016,7 @@ async fn test_mcp_search_rejects_absolute_path() {
     let dir = TempDir::new().unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("patchloom_search".to_string())
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
         .with_arguments(
             serde_json::from_value(
                 serde_json::json!({"pattern": "secret", "paths": ["/etc/passwd"]}),
@@ -14040,7 +14040,7 @@ async fn test_mcp_search_rejects_conflicting_modes() {
     fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("patchloom_search".to_string())
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
         .with_arguments(
             serde_json::from_value(serde_json::json!({
                 "pattern": "hello",
@@ -14070,12 +14070,8 @@ async fn test_mcp_batch_rejects_oversized_payload() {
     let ops: Vec<String> = (0..10_001)
         .map(|i| format!("doc.set f.json key{i} \"v\""))
         .collect();
-    let (is_error, text) = call_tool_text(
-        &client,
-        "patchloom_batch",
-        serde_json::json!({ "operations": ops }),
-    )
-    .await;
+    let (is_error, text) =
+        call_tool_text(&client, "batch", serde_json::json!({ "operations": ops })).await;
     assert!(is_error, "oversized batch should be rejected: {text}");
     assert!(
         text.contains("Too many operations"),
@@ -14095,7 +14091,7 @@ async fn test_mcp_file_rename_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_rename",
+        "move_file",
         serde_json::json!({"from": "old_name.txt", "to": "new_name.txt"}),
     )
     .await;
@@ -14125,7 +14121,7 @@ async fn test_mcp_create_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_create",
+        "create_file",
         serde_json::json!({"path": "new_file.txt", "content": "hello world\n"}),
     )
     .await;
@@ -14152,7 +14148,7 @@ async fn test_mcp_create_existing_fails_without_force() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
         &client,
-        "patchloom_create",
+        "create_file",
         serde_json::json!({"path": "existing.txt", "content": "new content\n"}),
     )
     .await;
@@ -14179,7 +14175,7 @@ async fn test_mcp_delete_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_delete",
+        "delete_file",
         serde_json::json!({"path": "doomed.txt"}),
     )
     .await;
@@ -14202,12 +14198,8 @@ async fn test_mcp_patch_round_trip() {
     let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1 +1 @@\n-old line\n+new line\n";
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "patchloom_patch",
-        serde_json::json!({"diff": diff}),
-    )
-    .await;
+    let (is_error, text) =
+        call_tool_text(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
     assert!(!is_error, "patch should succeed: {text}");
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
@@ -14228,7 +14220,7 @@ async fn test_mcp_md_insert_after_heading_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_md_insert_after_heading",
+        "md_insert_after_heading",
         serde_json::json!({
             "path": "doc.md",
             "heading": "# Title",
@@ -14266,7 +14258,7 @@ async fn test_mcp_md_insert_before_heading_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_md_insert_before_heading",
+        "md_insert_before_heading",
         serde_json::json!({
             "path": "doc.md",
             "heading": "## Second",
@@ -14311,7 +14303,7 @@ async fn test_mcp_tx_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_tx",
+        "transaction",
         serde_json::json!({"plan": plan.to_string()}),
     )
     .await;
@@ -14344,10 +14336,9 @@ async fn test_mcp_tx_rejects_escaping_cwd() {
     });
 
     let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("patchloom_tx".to_string())
-        .with_arguments(
-            serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
-        );
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+    );
     let result = client.peer().call_tool(params).await;
     assert!(
         result.is_err(),
@@ -14370,7 +14361,7 @@ async fn test_mcp_tx_yaml_format() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_tx",
+        "transaction",
         serde_json::json!({"plan": yaml_plan, "format": "yaml"}),
     )
     .await;
@@ -14391,11 +14382,10 @@ async fn test_mcp_tx_invalid_plan_returns_error() {
     let dir = TempDir::new().unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("patchloom_tx".to_string())
-        .with_arguments(
-            serde_json::from_value(serde_json::json!({"plan": "this is not valid json or yaml"}))
-                .unwrap(),
-        );
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": "this is not valid json or yaml"}))
+            .unwrap(),
+    );
     let result = client.peer().call_tool(params).await;
     assert!(
         result.is_err(),
@@ -14428,7 +14418,7 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     let client = spawn_mcp_client_with_shell(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_tx",
+        "transaction",
         serde_json::json!({"plan": plan.to_string()}),
     )
     .await;
@@ -14463,7 +14453,7 @@ async fn test_mcp_tx_rejects_shell_steps_without_flag() {
     let result = client
         .peer()
         .call_tool(
-            rmcp::model::CallToolRequestParams::new("patchloom_tx").with_arguments(
+            rmcp::model::CallToolRequestParams::new("transaction").with_arguments(
                 serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
             ),
         )
@@ -14492,7 +14482,7 @@ async fn test_mcp_tidy_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_tidy",
+        "fix_whitespace",
         serde_json::json!({"path": "messy.txt"}),
     )
     .await;
@@ -14518,7 +14508,7 @@ async fn test_mcp_md_upsert_bullet_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_md_upsert_bullet",
+        "md_upsert_bullet",
         serde_json::json!({
             "path": "doc.md",
             "heading": "# Rules",
@@ -14555,7 +14545,7 @@ async fn test_mcp_doc_merge_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_merge",
+        "doc_merge",
         serde_json::json!({"path": "config.json", "value": {"debug": true}}),
     )
     .await;
@@ -14586,7 +14576,7 @@ async fn test_mcp_doc_delete_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_delete",
+        "doc_delete",
         serde_json::json!({"path": "config.json", "selector": "debug"}),
     )
     .await;
@@ -14610,7 +14600,7 @@ async fn test_mcp_doc_append_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_append",
+        "doc_append",
         serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
     )
     .await;
@@ -14634,7 +14624,7 @@ async fn test_mcp_doc_prepend_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_prepend",
+        "doc_prepend",
         serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
     )
     .await;
@@ -14659,7 +14649,7 @@ async fn test_mcp_doc_ensure_round_trip() {
     // Ensure a missing key.
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_ensure",
+        "doc_ensure",
         serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
     )
     .await;
@@ -14687,7 +14677,7 @@ async fn test_mcp_doc_update_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_update",
+        "doc_update",
         serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
     )
     .await;
@@ -14711,7 +14701,7 @@ async fn test_mcp_doc_move_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_move",
+        "doc_move",
         serde_json::json!({"path": "config.json", "from": "old_name", "to": "new_name"}),
     )
     .await;
@@ -14739,7 +14729,7 @@ async fn test_mcp_doc_delete_where_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_delete_where",
+        "doc_delete_where",
         serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
     )
     .await;
@@ -14773,7 +14763,7 @@ async fn test_mcp_doc_keys_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_keys",
+        "doc_keys",
         serde_json::json!({"path": "config.json", "selector": "."}),
     )
     .await;
@@ -14800,7 +14790,7 @@ async fn test_mcp_doc_len_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_len",
+        "doc_len",
         serde_json::json!({"path": "config.json", "selector": "tags"}),
     )
     .await;
@@ -14824,7 +14814,7 @@ async fn test_mcp_doc_select_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_select",
+        "doc_select",
         serde_json::json!({"path": "config.json", "selector": "users[role=admin]"}),
     )
     .await;
@@ -14851,7 +14841,7 @@ async fn test_mcp_doc_flatten_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_flatten",
+        "doc_flatten",
         serde_json::json!({"path": "config.json"}),
     )
     .await;
@@ -14887,7 +14877,7 @@ async fn test_mcp_doc_diff_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "patchloom_doc_diff",
+        "doc_diff",
         serde_json::json!({"file_a": "a.json", "file_b": "b.json"}),
     )
     .await;
@@ -14936,7 +14926,7 @@ async fn test_mcp_status_round_trip() {
     fs::write(dir.path().join("tracked.txt"), "modified\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(&client, "patchloom_status", serde_json::json!({})).await;
+    let (is_error, text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
     assert!(!is_error, "status should succeed: {text}");
     assert!(
         text.contains("tracked.txt"),

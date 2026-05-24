@@ -125,9 +125,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
     if show_mcp {
         out.push_str(
-            "**Decision rule: if patchloom MCP tools are available (tool names starting with \
-             `patchloom_`), prefer them over CLI commands.** MCP tools apply changes directly, \
-             accept structured JSON, and enforce path containment.\n\n",
+            "**Decision rule: if patchloom MCP tools are available, prefer them over CLI \
+             commands.** MCP tools apply changes directly, accept structured JSON, and enforce \
+             path containment.\n\n",
         );
     }
     if show_cli {
@@ -151,23 +151,23 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             If patchloom MCP tools are available in your session (tool names starting with \
-             `patchloom_`), prefer them over CLI commands. MCP tools:\n\
+             If patchloom MCP tools are available in your session, prefer them over CLI \
+             commands. MCP tools:\n\
              - Apply changes directly (no `--apply` flag needed)\n\
              - Accept structured JSON parameters (no shell quoting)\n\
              - Enforce path containment (cannot escape working directory)\n\n\
-             Available tools: `patchloom_doc_set`, `patchloom_doc_delete`, `patchloom_doc_merge`, \
-             `patchloom_doc_append`, `patchloom_doc_prepend`, `patchloom_doc_ensure`, \
-             `patchloom_doc_delete_where`, `patchloom_doc_update`, `patchloom_doc_move`, \
-             `patchloom_doc_get`, `patchloom_doc_has`, `patchloom_doc_keys`, \
-             `patchloom_doc_len`, `patchloom_doc_select`, `patchloom_doc_flatten`, \
-             `patchloom_doc_diff`, `patchloom_search`, `patchloom_status`, \
-             `patchloom_replace`, `patchloom_md_upsert_bullet`, \
-             `patchloom_md_table_append`, `patchloom_md_replace_section`, \
-             `patchloom_md_insert_after_heading`, `patchloom_md_insert_before_heading`, \
-             `patchloom_md_lint_agents`, `patchloom_read`, \
-             `patchloom_create`, `patchloom_delete`, `patchloom_rename`, \
-             `patchloom_patch`, `patchloom_tidy`, `patchloom_batch`, `patchloom_tx`.\n\n",
+             Available tools: `doc_set`, `doc_delete`, `doc_merge`, \
+             `doc_append`, `doc_prepend`, `doc_ensure`, \
+             `doc_delete_where`, `doc_update`, `doc_move`, \
+             `doc_get`, `doc_has`, `doc_keys`, \
+             `doc_len`, `doc_select`, `doc_flatten`, \
+             `doc_diff`, `search_files`, `git_status`, \
+             `replace_text`, `md_upsert_bullet`, \
+             `md_table_append`, `md_replace_section`, \
+             `md_insert_after_heading`, `md_insert_before_heading`, \
+             `md_lint`, `read_file`, \
+             `create_file`, `delete_file`, `move_file`, \
+             `apply_patch`, `fix_whitespace`, `batch`, `transaction`.\n\n",
         );
     }
 

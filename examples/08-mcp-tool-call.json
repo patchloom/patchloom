@@ -7,7 +7,7 @@
   "examples": [
     {
       "description": "Set a config value (preserves YAML comments)",
-      "tool": "patchloom_doc_set",
+      "tool": "doc_set",
       "arguments": {
         "path": "config.yaml",
         "selector": "database.port",
@@ -16,7 +16,7 @@
     },
     {
       "description": "Search for a pattern across the repo",
-      "tool": "patchloom_search",
+      "tool": "search_files",
       "arguments": {
         "paths": ["src"],
         "pattern": "TODO|FIXME"
@@ -24,7 +24,7 @@
     },
     {
       "description": "Batch multiple edits in one call",
-      "tool": "patchloom_batch",
+      "tool": "batch",
       "arguments": {
         "operations": [
           "doc.set config.json version \"2.0\"",
@@ -35,14 +35,14 @@
     },
     {
       "description": "Atomic transaction with rollback",
-      "tool": "patchloom_tx",
+      "tool": "transaction",
       "arguments": {
         "plan": "{\"version\":\"1\",\"strict\":true,\"operations\":[{\"op\":\"doc.set\",\"path\":\"package.json\",\"selector\":\"version\",\"value\":\"2.0.0\"},{\"op\":\"replace\",\"path\":\"README.md\",\"from\":\"1.0.0\",\"to\":\"2.0.0\"}],\"validate\":[{\"cmd\":\"npm test\",\"required\":true}]}"
       }
     },
     {
       "description": "Rename a file",
-      "tool": "patchloom_rename",
+      "tool": "move_file",
       "arguments": {
         "from": "old_config.json",
         "to": "config.json"
@@ -50,7 +50,7 @@
     },
     {
       "description": "Append a row to a markdown table",
-      "tool": "patchloom_md_table_append",
+      "tool": "md_table_append",
       "arguments": {
         "path": "README.md",
         "heading": "## API Endpoints",
