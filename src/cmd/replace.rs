@@ -150,6 +150,11 @@ fn collect_replacements(
             }
         });
 
+    // Drop files where the replacement produces identical content (e.g.
+    // replacing "X" with "X").  The match count was non-zero, but there is
+    // no actual change to write, diff, or report.
+    replacements.retain(|r| r.original != r.replaced);
+
     replacements.sort_unstable_by(|a, b| a.path.cmp(&b.path));
     Ok(replacements)
 }
@@ -687,6 +692,47 @@ mod tests {
         // File must not be modified in check mode.
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "hello world\n");
+    }
+
+    #[test]
+    fn identity_replacement_treated_as_no_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        // Replacing "hello" with "hello" should produce no change.
+        let args = make_args(
+            "hello",
+            "hello",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        assert!(
+            replacements.is_empty(),
+            "identity replacement must be filtered out"
+        );
+    }
+
+    #[test]
+    fn identity_replacement_check_returns_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = make_args(
+            "hello",
+            "hello",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        let mut global = default_global();
+        global.check = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::NO_MATCHES,
+            "--check with identity replacement must not report changes"
+        );
     }
 
     #[test]
