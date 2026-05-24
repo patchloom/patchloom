@@ -209,6 +209,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if args.if_exists {
             return Ok(exit::SUCCESS);
         }
+        if global.json {
+            let output = ReplaceOutput {
+                ok: true,
+                match_count: 0,
+                file_count: 0,
+                files: vec![],
+                diff: None,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
         if global.show_status() {
             eprintln!("no matches for '{}'", args.from);
             if !args.regex && crate::files::has_regex_metacharacters(&args.from) {

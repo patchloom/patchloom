@@ -271,6 +271,52 @@ fn test_search_jsonl_files_with_matches_output() {
 }
 
 #[test]
+fn test_search_json_no_match_emits_valid_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("zzz_no_match_zzz")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 0);
+    assert_eq!(parsed["file_count"], 0);
+    assert!(parsed["matches"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_replace_json_no_match_emits_valid_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("replace")
+        .arg("zzz_no_match_zzz")
+        .arg("--to")
+        .arg("replacement")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 0);
+    assert_eq!(parsed["file_count"], 0);
+    assert!(parsed["files"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn test_create_rejects_content_and_stdin_together() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("dual-source.txt");
