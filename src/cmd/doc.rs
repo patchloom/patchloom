@@ -1610,6 +1610,20 @@ mod tests {
         assert_eq!(code, exit::FAILURE);
     }
 
+    #[test]
+    fn prepend_to_non_array_returns_failure() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Prepend {
+            file: path,
+            selector: "name".into(),
+            value: "42".into(),
+        };
+        let ctx = WriteContext::default();
+        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
     // -- flatten ------------------------------------------------------------
 
     #[test]

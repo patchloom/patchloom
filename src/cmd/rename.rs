@@ -543,4 +543,22 @@ mod tests {
         assert!(!src.exists());
         assert_eq!(fs::read_to_string(&dst).unwrap(), "hello\n");
     }
+
+    #[test]
+    fn rename_fails_if_src_is_directory() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("folder");
+        let dst = dir.path().join("new.txt");
+        fs::create_dir(&src).unwrap();
+
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let err = run(args, &global_for(&dir)).unwrap_err();
+        assert!(err.to_string().contains("source is not a file"));
+    }
 }

@@ -1987,6 +1987,10 @@ mod tests {
         GlobalFlags::default()
     }
 
+    fn portable_path_str(p: &std::path::Path) -> String {
+        p.to_str().unwrap().replace('\\', "/")
+    }
+
     #[test]
     fn read_file_content_populates_pending_from_disk() {
         let dir = TempDir::new().unwrap();
@@ -2413,5 +2417,272 @@ mod tests {
 
         // Verify the original file was NOT modified.
         assert_eq!(fs::read_to_string(&existing).unwrap(), "original content\n");
+    }
+
+    #[test]
+    fn validate_operation_rejects_empty_from() {
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "from": "",
+                "to": "x"
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert!(
+            err.to_string().contains("non-empty from"),
+            "expected 'non-empty from' error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_operation_rejects_nth_zero() {
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "from": "hello",
+                "to": "world",
+                "nth": 0
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert!(
+            err.to_string().contains("1-based"),
+            "expected '1-based' error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_operation_rejects_invert_match_with_multiline() {
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "search",
+                "path": "test.txt",
+                "pattern": "foo",
+                "invert_match": true,
+                "multiline": true
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invert_match and multiline cannot be combined"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn tx_file_rename_basic() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("old.txt");
+        fs::write(&src, "content\n").unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "file.rename",
+                "from": portable_path_str(&src),
+                "to": portable_path_str(&dir.path().join("new.txt"))
+            }]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+            "content\n"
+        );
+    }
+
+    #[test]
+    fn tx_file_rename_same_path_noop() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("same.txt");
+        fs::write(&f, "data\n").unwrap();
+
+        let path_str = portable_path_str(&f);
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "file.rename",
+                "from": path_str,
+                "to": path_str
+            }]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(fs::read_to_string(&f).unwrap(), "data\n");
+    }
+
+    #[test]
+    fn tx_file_rename_dst_exists_without_force_rolls_back() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dst = dir.path().join("dst.txt");
+        fs::write(&src, "source\n").unwrap();
+        fs::write(&dst, "dest\n").unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "file.rename",
+                "from": portable_path_str(&src),
+                "to": portable_path_str(&dst)
+            }]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::ROLLBACK);
+        // Both files unchanged.
+        assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "dest\n");
+    }
+
+    #[test]
+    fn tx_file_rename_dst_exists_with_force() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dst = dir.path().join("dst.txt");
+        fs::write(&src, "source\n").unwrap();
+        fs::write(&dst, "dest\n").unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "file.rename",
+                "from": portable_path_str(&src),
+                "to": portable_path_str(&dst),
+                "force": true
+            }]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists());
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "source\n");
+    }
+
+    #[test]
+    fn tx_create_then_rename() {
+        let dir = TempDir::new().unwrap();
+        let created = dir.path().join("created.txt");
+        let renamed = dir.path().join("renamed.txt");
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [
+                {
+                    "op": "file.create",
+                    "path": portable_path_str(&created),
+                    "content": "new file\n"
+                },
+                {
+                    "op": "file.rename",
+                    "from": portable_path_str(&created),
+                    "to": portable_path_str(&renamed)
+                }
+            ]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!created.exists());
+        assert_eq!(fs::read_to_string(&renamed).unwrap(), "new file\n");
+    }
+
+    #[test]
+    fn tx_unsupported_plan_version() {
+        let dir = TempDir::new().unwrap();
+        let plan_json = serde_json::json!({
+            "version": "99",
+            "operations": []
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let global = default_global();
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::PARSE_ERROR);
     }
 }
