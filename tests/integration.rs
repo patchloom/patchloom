@@ -13757,6 +13757,7 @@ async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::Rol
     spawn_mcp_client_opts(cwd, false).await
 }
 
+#[cfg(feature = "mcp")]
 async fn spawn_mcp_client_with_shell(
     cwd: &Path,
 ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
