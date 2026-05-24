@@ -419,6 +419,7 @@ mod tests {
     fn rename_check_reports_changes() {
         let dir = TempDir::new().unwrap();
         let src = dir.path().join("old.txt");
+        let dst = dir.path().join("new.txt");
         fs::write(&src, "hello\n").unwrap();
 
         let mut global = global_for(&dir);
@@ -426,7 +427,7 @@ mod tests {
 
         let args = RenameArgs {
             from: src.to_string_lossy().into_owned(),
-            to: dir.path().join("new.txt").to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
             force: false,
             write: Default::default(),
         };
@@ -435,6 +436,13 @@ mod tests {
         assert_eq!(code, exit::CHANGES_DETECTED);
         // Source should still exist in --check mode.
         assert!(src.exists());
+        assert_eq!(
+            fs::read_to_string(&src).unwrap(),
+            "hello\n",
+            "--check must not modify source content"
+        );
+        // Destination must NOT be created in --check mode.
+        assert!(!dst.exists(), "--check must not create destination file");
     }
 
     #[test]
