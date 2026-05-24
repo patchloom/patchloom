@@ -20,6 +20,11 @@ exclude = [
   ".github/",
   "REPO-SETUP.md",
   "MAINTAINERS.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  "Makefile",
+  "dist-workspace.toml",
 ]
 
 [features]
