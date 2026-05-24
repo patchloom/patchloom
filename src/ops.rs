@@ -1345,18 +1345,14 @@ pub(crate) mod replace {
                 (Cow::Borrowed(content), 0)
             }
             (None, Some(re)) => {
+                let mut count = 0usize;
                 let replaced = re.replace_all(content, |caps: &regex::Captures| {
+                    count += 1;
                     expand_regex_replacement(caps, to)
                 });
                 match replaced {
                     Cow::Borrowed(_) => (Cow::Borrowed(content), 0),
-                    Cow::Owned(s) => {
-                        // Count actual replacements by re-running find_iter.
-                        // This is cheaper than the closure counter since
-                        // replace_all already proved matches exist.
-                        let count = re.find_iter(content).count();
-                        (Cow::Owned(s), count)
-                    }
+                    Cow::Owned(s) => (Cow::Owned(s), count),
                 }
             }
             (None, None) => {
