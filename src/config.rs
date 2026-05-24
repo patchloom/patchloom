@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 /// Project-level configuration loaded from `.patchloom.toml`.
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ProjectConfig {
     pub write_policy: WritePolicy,
     pub exclude: Exclude,
@@ -16,7 +16,7 @@ pub struct ProjectConfig {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WritePolicy {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
@@ -24,14 +24,14 @@ pub struct WritePolicy {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Exclude {
     #[serde(default)]
     pub globs: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Output {
     pub color: Option<String>,
 }
@@ -221,6 +221,19 @@ color = "always"
         assert_eq!(global.glob, vec!["config_glob", "user_glob"]);
         // CLI color wins
         assert!(matches!(global.color, crate::cli::global::ColorMode::Never));
+    }
+
+    #[test]
+    fn find_and_load_rejects_unknown_keys() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensur_final_newline = true\n",
+        )
+        .unwrap();
+
+        // Typo in key name is rejected, not silently ignored.
+        assert!(find_and_load(dir.path()).is_none());
     }
 
     #[test]
