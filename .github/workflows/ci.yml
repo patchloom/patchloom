@@ -101,6 +101,10 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        uses: Swatinem/rust-cache@v2
+
       - name: Run checks
         run: make check
 
@@ -149,6 +153,10 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.95"
+
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        uses: Swatinem/rust-cache@v2
 
       - name: Check MSRV (default features)
         run: cargo check --all-targets
