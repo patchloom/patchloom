@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-1039%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1041%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -229,6 +229,14 @@ patchloom mcp-server
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
+To allow tx plans with format/validate lifecycle steps (shell command execution), add `--allow-shell`:
+
+```bash
+patchloom mcp-server --allow-shell
+```
+
+See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
+
 ## Getting started
 
 | Resource | What you'll learn |
@@ -356,7 +364,7 @@ flowchart LR
 
 ## Status
 
-1039 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1041 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

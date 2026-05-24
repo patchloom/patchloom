@@ -12762,6 +12762,24 @@ fn test_makefile_has_audit_target() {
 }
 
 #[test]
+fn test_readme_documents_allow_shell_flag() {
+    let readme = fs::read_to_string(repo_root().join("README.md")).unwrap();
+    assert!(
+        readme.contains("--allow-shell"),
+        "README should mention --allow-shell for MCP server"
+    );
+}
+
+#[test]
+fn test_mcp_setup_documents_allow_shell_flag() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("--allow-shell"),
+        "mcp-setup.md should document the --allow-shell flag"
+    );
+}
+
+#[test]
 fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
     let ci = fs::read_to_string(ci_workflow_path()).unwrap();
     let fork_safe_macos_runs_on = r#"runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}"#;
