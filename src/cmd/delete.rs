@@ -165,6 +165,11 @@ mod tests {
         let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(file.exists(), "--check should not delete the file");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "content",
+            "--check must not modify file content"
+        );
     }
 
     #[test]
