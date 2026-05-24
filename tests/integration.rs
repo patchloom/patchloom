@@ -14979,6 +14979,141 @@ async fn test_mcp_status_round_trip() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_md_table_append_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Changelog\n\n| Version | Date |\n|---------|------|\n| 0.1.0 | 2024-01-01 |\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "md_table_append",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Changelog",
+            "row": "| 0.2.0 | 2024-06-15 |"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_table_append should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("| 0.2.0 | 2024-06-15 |"),
+        "md_table_append should add the row: {content}"
+    );
+    assert!(
+        content.contains("| 0.1.0 | 2024-01-01 |"),
+        "md_table_append should preserve existing rows: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_replace_section_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\nIntro text.\n\n## API\n\nOld API docs.\n\n## Usage\n\nUsage text.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "md_replace_section",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## API",
+            "content": "New API documentation.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_replace_section should succeed: {text}");
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("New API documentation."),
+        "md_replace_section should insert new content: {content}"
+    );
+    assert!(
+        !content.contains("Old API docs."),
+        "md_replace_section should remove old content: {content}"
+    );
+    assert!(
+        content.contains("## Usage"),
+        "md_replace_section should preserve other sections: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_lint_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Create a file with a duplicate heading (a lint issue).
+    fs::write(
+        dir.path().join("AGENTS.md"),
+        "# Rules\n\nFirst section.\n\n# Rules\n\nDuplicate heading.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "md_lint",
+        serde_json::json!({
+            "path": "AGENTS.md"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_lint should succeed: {text}");
+
+    let issues: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let arr = issues
+        .as_array()
+        .expect("md_lint should return a JSON array");
+    assert!(
+        !arr.is_empty(),
+        "md_lint should find issues in file with duplicate heading"
+    );
+
+    // Also test a clean file returns an empty array.
+    fs::write(
+        dir.path().join("clean.md"),
+        "# Single Heading\n\nContent.\n",
+    )
+    .unwrap();
+    let (is_error2, text2) = call_tool_text(
+        &client,
+        "md_lint",
+        serde_json::json!({
+            "path": "clean.md"
+        }),
+    )
+    .await;
+    assert!(!is_error2, "md_lint should succeed on clean file: {text2}");
+    let clean: serde_json::Value = serde_json::from_str(&text2).unwrap();
+    assert_eq!(
+        clean.as_array().unwrap().len(),
+        0,
+        "md_lint should return empty array for clean file"
+    );
+    client.cancel().await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Backup pruning integration tests (#371)
 // ---------------------------------------------------------------------------
