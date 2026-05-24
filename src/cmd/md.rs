@@ -3,7 +3,7 @@ use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
-    parse_headings, replace_section_in, table_append_in, upsert_bullet_in,
+    non_fenced_lines, parse_headings, replace_section_in, table_append_in, upsert_bullet_in,
 };
 use crate::write::{atomic_write, policy_from_flags};
 use anyhow::Context;
@@ -197,24 +197,7 @@ pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     }
 
     // 2. Dangerous git add commands (skip fenced code blocks and inline code).
-    let mut fence_marker: Option<&str> = None;
-    for (idx, line) in content.lines().enumerate() {
-        if fence_marker.is_none() {
-            if line.starts_with("```") {
-                fence_marker = Some("```");
-                continue;
-            } else if line.starts_with("~~~") {
-                fence_marker = Some("~~~");
-                continue;
-            }
-        } else if line.starts_with(fence_marker.expect("checked is_none above")) {
-            fence_marker = None;
-            continue;
-        }
-        if fence_marker.is_some() {
-            continue;
-        }
-        // Skip lines where the command only appears inside backtick spans.
+    for (idx, line) in non_fenced_lines(content) {
         let stripped = strip_inline_code(line);
         if stripped.contains("git add .") || stripped.contains("git add -A") {
             issues.push(LintIssue {
