@@ -352,7 +352,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
-        Command::McpServer { allow_shell } => mcp::run_mcp_server(allow_shell),
+        Command::McpServer { allow_shell } => {
+            load_project_config(&mut global);
+            mcp::run_mcp_server(&global, allow_shell)
+        }
         Command::AgentRules(args) => {
             let output = generate_agent_rules(&args);
             print!("{output}");

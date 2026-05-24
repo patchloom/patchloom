@@ -1314,8 +1314,8 @@ impl ServerHandler for PatchloomService {
 }
 
 /// Run the MCP server on stdio.
-pub fn run_mcp_server(allow_shell: bool) -> anyhow::Result<u8> {
-    let cwd = std::env::current_dir()?;
+pub fn run_mcp_server(global: &GlobalFlags, allow_shell: bool) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
     let service = PatchloomService::new(cwd, allow_shell);
 
     let rt = tokio::runtime::Runtime::new()?;
