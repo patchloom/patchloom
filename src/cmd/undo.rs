@@ -153,3 +153,145 @@ fn action_label(action: &backup::FileAction) -> &'static str {
         backup::FileAction::Deleted => "deleted",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn quiet_global() -> GlobalFlags {
+        GlobalFlags {
+            quiet: true,
+            ..GlobalFlags::default()
+        }
+    }
+
+    fn create_backup(dir: &Path, filename: &str, content: &str) -> String {
+        let file = dir.join(filename);
+        std::fs::write(&file, content).unwrap();
+        let mut session = backup::BackupSession::new(dir).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap().unwrap()
+    }
+
+    #[test]
+    fn list_empty_exits_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: true,
+            session: None,
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn list_with_sessions_exits_success() {
+        let dir = TempDir::new().unwrap();
+        create_backup(dir.path(), "a.txt", "content");
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: true,
+            session: None,
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn dry_run_exits_changes_detected() {
+        let dir = TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "b.txt", "original");
+        std::fs::write(dir.path().join("b.txt"), "modified").unwrap();
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts),
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
+    fn apply_restores_and_exits_success() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("c.txt");
+        let ts = create_backup(dir.path(), "c.txt", "original");
+        std::fs::write(&file, "modified").unwrap();
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts),
+            apply: true,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+    }
+
+    #[test]
+    fn apply_without_session_uses_most_recent() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("d.txt");
+        create_backup(dir.path(), "d.txt", "v1");
+        std::fs::write(&file, "v1-modified").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let _ts2 = create_backup(dir.path(), "d.txt", "v2");
+        std::fs::write(&file, "v3").unwrap();
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: None,
+            apply: true,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "v2");
+    }
+
+    #[test]
+    fn nonexistent_session_errors() {
+        let dir = TempDir::new().unwrap();
+        create_backup(dir.path(), "e.txt", "content");
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some("99999999".to_string()),
+            apply: false,
+        };
+        let result = run(args, &global);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn no_sessions_without_apply_exits_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let mut global = quiet_global();
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: None,
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn action_label_values() {
+        assert_eq!(action_label(&backup::FileAction::Modified), "modified");
+        assert_eq!(action_label(&backup::FileAction::Created), "created");
+        assert_eq!(action_label(&backup::FileAction::Deleted), "deleted");
+    }
+}
