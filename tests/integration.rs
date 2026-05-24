@@ -1145,6 +1145,18 @@ fn test_search_files_with_matches_no_match_exits_3() {
 }
 
 #[test]
+fn test_search_nonexistent_path_warns_on_stderr() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("hello")
+        .arg("totally_nonexistent_dir/")
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("No such file or directory"));
+}
+
+#[test]
 fn test_quiet_suppresses_tidy_check_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("no_newline.txt");

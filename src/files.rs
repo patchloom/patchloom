@@ -67,6 +67,18 @@ pub(crate) fn collect_file_paths_opts(
             None => PathBuf::from(p),
         }
     };
+    // Warn about nonexistent user-supplied paths so typos are visible
+    // instead of silently producing an empty result set (exit 3).
+    for p in effective {
+        let resolved = resolve(p);
+        if !resolved.exists() {
+            eprintln!(
+                "patchloom: {}: No such file or directory",
+                resolved.display()
+            );
+        }
+    }
+
     let first = resolve(&effective[0]);
     let mut builder = WalkBuilder::new(&first);
     for p in &effective[1..] {
