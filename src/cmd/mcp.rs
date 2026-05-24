@@ -843,6 +843,12 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
+        if p.files_with_matches && p.count {
+            return Err(McpError::invalid_params(
+                "files_with_matches and count cannot be combined",
+                None,
+            ));
+        }
         for path in &p.paths {
             validate_path_contained(path)?;
             validate_path_resolved(path, &self.cwd)?;
