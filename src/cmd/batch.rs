@@ -54,7 +54,7 @@ pub struct BatchArgs {
 
 /// Parse a single line into an Operation.
 pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
-    let tokens = tokenize(line)?;
+    let tokens = tokenize(line).map_err(|e| anyhow::anyhow!("line {line_num}: {e}"))?;
     if tokens.is_empty() {
         anyhow::bail!("line {line_num}: empty operation");
     }
