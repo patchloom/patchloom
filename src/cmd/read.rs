@@ -14,7 +14,7 @@ pub struct ReadArgs {
     /// Paths to the files to read.
     #[arg(required = true, num_args = 1..)]
     pub files: Vec<String>,
-    /// Line range to display (1-based inclusive, e.g. "50:120").
+    /// Line range to display (1-based inclusive, e.g. "50:120" or "50-120").
     #[arg(long)]
     pub lines: Option<String>,
 }
@@ -51,7 +51,18 @@ impl SelectedLines {
 }
 
 pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
-    if let Some((start_str, end_str)) = spec.split_once(':') {
+    // Accept both ':' and '-' as range separators so `--lines 1:10` and
+    // `--lines 1-10` both work (the help examples show the dash form).
+    let sep = if spec.contains(':') {
+        Some(':')
+    } else if spec.contains('-') && !spec.starts_with('-') {
+        Some('-')
+    } else {
+        None
+    };
+    if let Some(sep) = sep
+        && let Some((start_str, end_str)) = spec.split_once(sep)
+    {
         if start_str.is_empty() {
             anyhow::bail!("missing start line in range '{spec}' (expected START:END)");
         }
@@ -225,6 +236,11 @@ mod tests {
     #[test]
     fn parse_range_start_end() {
         assert_eq!(parse_line_range("5:10").unwrap(), (5, Some(10)));
+    }
+
+    #[test]
+    fn parse_range_start_end_dash() {
+        assert_eq!(parse_line_range("5-10").unwrap(), (5, Some(10)));
     }
 
     #[test]
