@@ -1006,7 +1006,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 }
                 update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
             } else {
-                if tx.pending.contains_key(&file_path) || file_path.exists() {
+                let exists_in_tx =
+                    tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
+                if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
                     anyhow::bail!("file already exists: {path}");
                 }
                 update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
@@ -2684,5 +2686,42 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
+    }
+
+    #[test]
+    fn tx_delete_then_create_without_force_succeeds() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("target.txt");
+        fs::write(&f, "original\n").unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [
+                {
+                    "op": "file.delete",
+                    "path": portable_path_str(&f)
+                },
+                {
+                    "op": "file.create",
+                    "path": portable_path_str(&f),
+                    "content": "recreated\n"
+                }
+            ]
+        });
+
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(fs::read_to_string(&f).unwrap(), "recreated\n");
     }
 }
