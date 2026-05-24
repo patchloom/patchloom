@@ -216,6 +216,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2
         with:
