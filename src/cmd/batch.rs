@@ -37,7 +37,14 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// Lines starting with `#` are comments. Empty lines are ignored.
 /// Values containing spaces must be quoted with double quotes.
 #[derive(Debug, Args)]
-#[command(after_help = r#"EXAMPLES:
+#[command(after_help = r#"OPERATIONS:
+  doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend,
+  doc.update, doc.move, doc.delete_where, replace, file.create,
+  file.delete, file.rename, md.upsert_bullet, md.table_append,
+  md.replace_section, md.insert_after_heading, md.insert_before_heading,
+  md.dedupe_headings, tidy.fix
+
+EXAMPLES:
   patchloom batch 'doc.set config.json version "2.0"' 'replace README.md v1 v2'
   patchloom batch --apply <<'EOF'
   doc.set package.json version "3.0.0"
@@ -54,7 +61,7 @@ pub struct BatchArgs {
 
 /// Parse a single line into an Operation.
 pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
-    let tokens = tokenize(line)?;
+    let tokens = tokenize(line).map_err(|e| anyhow::anyhow!("line {line_num}: {e}"))?;
     if tokens.is_empty() {
         anyhow::bail!("line {line_num}: empty operation");
     }
@@ -246,14 +253,11 @@ fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> 
     Ok(())
 }
 
-/// Parse a string as a JSON value. If it fails, treat it as a plain string.
+/// Parse a string as a JSON value. Delegates to `doc::parse_value` which
+/// handles JSON literals, quoted strings, booleans, null, numbers, and
+/// bare-string fallback.
 fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
-    // Try JSON first (handles objects, arrays, numbers, booleans, null, quoted strings).
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-        return Ok(v);
-    }
-    // Fall back to treating the raw text as a JSON string.
-    Ok(serde_json::Value::String(s.to_string()))
+    Ok(crate::cmd::doc::parse_value(s))
 }
 
 /// Tokenize a line using shell-like quoting rules.
@@ -643,6 +647,21 @@ mod tests {
     fn parse_line_extra_args_rejected() {
         let err = parse_line(r#"file.delete old.txt extra"#, 1).unwrap_err();
         assert!(err.to_string().contains("requires exactly 1 arguments"));
+    }
+
+    #[test]
+    fn tokenize_error_includes_line_number() {
+        // Unterminated quote should include the line number from parse_line.
+        let err = parse_line(r#"doc.set f.json key "unterminated"#, 7).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("line 7"),
+            "expected line number in error: {msg}"
+        );
+        assert!(
+            msg.contains("unterminated double quote"),
+            "expected tokenize message in error: {msg}"
+        );
     }
 
     #[test]

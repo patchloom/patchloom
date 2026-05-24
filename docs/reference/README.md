@@ -188,7 +188,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:create -->
 ## `create`
 
-- **What it does:** Creates a file from literal content or stdin. Directory targets are rejected in all modes.
+- **What it does:** Creates a file from literal content or stdin. Exactly one of `--content` or `--stdin` is required. Passing both is rejected with `--content and --stdin cannot be combined`, and passing neither is rejected with `either --content or --stdin must be provided`. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction. For AI agents creating a single file, native file creation tools are typically faster; use `file.create` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `doc`, `md`, or `replace` when the file already exists and only needs edits.
 - **Related:** `delete`, `tx file.create`
@@ -196,7 +196,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:delete -->
 ## `delete`
 
-- **What it does:** Removes a file. Directory targets are rejected in all modes.
+- **What it does:** Removes a file. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file should disappear outright and no other atomic edits are needed. For AI agents deleting a single file, native delete tools are typically faster; use `file.delete` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
 - **Related:** `create`, `tx file.delete`
@@ -204,7 +204,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:rename -->
 ## `rename`
 
-- **What it does:** Moves (renames) a file from one path to another. Source and destination must both be file paths, not directories.
+- **What it does:** Moves (renames) a file from one path to another. Source and destination must both be file paths, not directories. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
 - **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
 - **Related:** `create`, `delete`, `tx file.rename`
@@ -236,7 +236,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:status -->
 ## `status`
 
-- **What it does:** Shows which files have uncommitted changes compared to git HEAD.
+- **What it does:** Shows which files have uncommitted changes compared to git HEAD. This command is git-backed, so it must run inside a git repository.
 - **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process. For AI agents, native git status or terminal commands are typically equivalent.
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
 - **Related:** `search`, `read`
@@ -244,7 +244,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:undo -->
 ## `undo`
 
-- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. The `undo` command reads the most recent (or a specified) backup and restores all files to their original state. In dry-run mode it reports what would be restored, and `--json` or `--jsonl` emit that preview as structured output.
+- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`). `--json` or `--jsonl` emit that preview as structured output.
 - **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
 - **Notable flags:**
   - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.
@@ -256,7 +256,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:explain -->
 ## `explain`
 
-- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` and `--jsonl` for structured output, plus `--stdin` for piped input.
+- **What it does:** Parses a tx plan (JSON, YAML, or TOML) and prints a numbered, human-readable summary of each operation. Supports `--json` and `--jsonl` for structured output, plus `--stdin` for piped input. If both a path and `--stdin` are provided, stdin takes precedence and the path is ignored.
 - **Use when:** A user or agent wants to review what a tx plan will do before running `tx --apply`. Converts machine-readable plan format into plain English descriptions.
 - **Prefer instead:** Use `tx` directly (without `--apply`) to see the actual diff preview. Use `explain` when you want a quick overview without touching any files.
 - **Related:** `tx`, `batch`
@@ -287,6 +287,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Starts an MCP (Model Context Protocol) server on stdio, exposing patchloom operations as structured tool calls. Requires the `mcp` feature flag (`cargo build --features mcp`).
 - **Use when:** An MCP-capable AI agent can call patchloom tools directly via structured tool calls instead of constructing shell commands. This eliminates the shell-syntax construction tax and reduces agent errors.
+- **`--allow-shell`:** By default, the MCP server rejects tx plans that contain `format` or `validate` lifecycle steps (which execute shell commands). Pass `--allow-shell` to permit these steps. This flag has no effect on the CLI `tx` command, which always allows lifecycle steps.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
 

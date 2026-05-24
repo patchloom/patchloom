@@ -25,15 +25,16 @@ For feature-by-feature `Use when` guidance on commands, operations, and notable 
 
 ## Write modes
 
-Every write command supports three modes:
+Every write command supports four modes:
 
 | Flag | Behavior | Use case |
 |------|----------|----------|
 | `--diff` (default) | Print a unified diff of what would change | Preview before applying |
 | `--check` | Exit 0 if clean, exit 2 if changes detected | CI pipelines, dry-run validation |
 | `--apply` | Write changes to disk | Actual mutation |
+| `--confirm` | Show the diff, then prompt before writing | Interactive preview-then-apply |
 
-These modes are mutually exclusive. Patchloom is safe by default: nothing is written unless you pass `--apply`.
+These modes are mutually exclusive. Patchloom is safe by default: nothing is written unless you pass `--apply` or confirm an interactive prompt.
 
 ## Write policy
 

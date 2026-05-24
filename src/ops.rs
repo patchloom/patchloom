@@ -1345,18 +1345,14 @@ pub(crate) mod replace {
                 (Cow::Borrowed(content), 0)
             }
             (None, Some(re)) => {
+                let mut count = 0usize;
                 let replaced = re.replace_all(content, |caps: &regex::Captures| {
+                    count += 1;
                     expand_regex_replacement(caps, to)
                 });
                 match replaced {
                     Cow::Borrowed(_) => (Cow::Borrowed(content), 0),
-                    Cow::Owned(s) => {
-                        // Count actual replacements by re-running find_iter.
-                        // This is cheaper than the closure counter since
-                        // replace_all already proved matches exist.
-                        let count = re.find_iter(content).count();
-                        (Cow::Owned(s), count)
-                    }
+                    Cow::Owned(s) => (Cow::Owned(s), count),
                 }
             }
             (None, None) => {
@@ -1397,26 +1393,34 @@ pub(crate) mod md {
         pub line_end: usize,
     }
 
-    pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
-        let mut headings = Vec::new();
-        let mut total_lines = 0usize;
-        let mut fence_marker: Option<&str> = None;
-
-        for (idx, line) in content.lines().enumerate() {
-            total_lines = idx + 1;
+    /// Iterate over lines that are NOT inside fenced code blocks.
+    /// Yields `(0-based line index, line content)` pairs, skipping lines
+    /// within ```` ``` ```` or `~~~` fenced regions.
+    pub(crate) fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
+        let mut fence_marker: Option<&'static str> = None;
+        content.lines().enumerate().filter(move |(_, line)| {
             if fence_marker.is_none() {
                 if line.starts_with("```") {
                     fence_marker = Some("```");
-                    continue;
+                    return false;
                 } else if line.starts_with("~~~") {
                     fence_marker = Some("~~~");
-                    continue;
+                    return false;
                 }
-            } else if line.starts_with(fence_marker.expect("checked is_none above")) {
+            } else if line.starts_with(fence_marker.unwrap()) {
                 fence_marker = None;
-                continue;
+                return false;
             }
-            if fence_marker.is_some() || !line.starts_with('#') {
+            fence_marker.is_none()
+        })
+    }
+
+    pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
+        let mut headings = Vec::new();
+        let total_lines = content.lines().count();
+
+        for (idx, line) in non_fenced_lines(content) {
+            if !line.starts_with('#') {
                 continue;
             }
             let hashes = line.bytes().take_while(|&b| b == b'#').count();

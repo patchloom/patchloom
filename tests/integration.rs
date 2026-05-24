@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use tempfile::TempDir;
 
 /// Convert a path to a string safe for embedding in YAML/TOML values.
@@ -196,6 +197,35 @@ fn test_search_jsonl_output_has_path_field() {
 }
 
 #[test]
+fn test_search_json_output_reports_line_and_column_without_context() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("positions.txt"),
+        "skip\nalpha needle\nneedle suffix\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("--literal")
+        .arg("needle")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let matches = parsed["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0]["line"], 2);
+    assert_eq!(matches[0]["column"], 7);
+    assert_eq!(matches[1]["line"], 3);
+    assert_eq!(matches[1]["column"], 1);
+}
+
+#[test]
 fn test_search_jsonl_count_output() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.txt"), "aaa\naaa\n").unwrap();
@@ -237,6 +267,77 @@ fn test_search_jsonl_files_with_matches_output() {
     assert!(
         parsed["path"].as_str().unwrap().contains("match.txt"),
         "should contain filename"
+    );
+}
+
+#[test]
+fn test_search_json_no_match_emits_valid_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("zzz_no_match_zzz")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 0);
+    assert_eq!(parsed["file_count"], 0);
+    assert!(parsed["matches"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_replace_json_no_match_emits_valid_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("replace")
+        .arg("zzz_no_match_zzz")
+        .arg("--to")
+        .arg("replacement")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 0);
+    assert_eq!(parsed["file_count"], 0);
+    assert!(parsed["files"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_create_rejects_content_and_stdin_together() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("dual-source.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(&file)
+        .arg("--content")
+        .arg("inline")
+        .arg("--stdin")
+        .write_stdin("stdin-data\n")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--content and --stdin cannot be combined",
+        ));
+
+    assert!(
+        !file.exists(),
+        "file should not be created on invalid input"
     );
 }
 
@@ -717,6 +818,25 @@ fn test_search_multiline_spans_lines() {
         .stdout(predicate::str::contains("}"));
 }
 
+#[test]
+fn test_search_multiline_files_with_matches_and_assert_count_counts_all_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.txt");
+    fs::write(&file, "foo\nbar\nfoo\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--multiline")
+        .arg("--files-with-matches")
+        .arg("--assert-count")
+        .arg("2")
+        .arg("foo")
+        .arg(&file)
+        .assert()
+        .success();
+}
+
 // ---------------------------------------------------------------------------
 // replace
 // ---------------------------------------------------------------------------
@@ -936,6 +1056,29 @@ fn test_quiet_suppresses_search_output() {
 }
 
 #[test]
+fn test_search_json_quiet_still_emits_structured_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("search_quiet_json.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--quiet")
+        .arg("search")
+        .arg("hello")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["match_count"], 1);
+    assert_eq!(parsed["file_count"], 1);
+}
+
+#[test]
 fn test_search_count_returns_success_on_match() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("count_exit.txt");
@@ -1011,6 +1154,48 @@ fn test_search_invert_match_multiline_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("--invert-match and --multiline"));
+}
+
+#[test]
+fn test_search_count_and_files_with_matches_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\nhello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--count")
+        .arg("--files-with-matches")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(predicate::str::contains("--count"))
+                .and(predicate::str::contains("--files-with-matches")),
+        );
+}
+
+#[test]
+fn test_search_literal_and_regex_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--literal")
+        .arg("--regex")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(predicate::str::contains("--literal"))
+                .and(predicate::str::contains("--regex")),
+        );
 }
 
 // ---------------------------------------------------------------------------
@@ -2608,6 +2793,23 @@ fn test_status_clean_repo() {
 }
 
 #[test]
+fn test_status_outside_git_repo_shows_actionable_hint() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("git status failed:"))
+        .stderr(predicate::str::contains(
+            "hint: run `git init` first, or run patchloom status from inside an existing git repository",
+        ));
+}
+
+#[test]
 fn test_status_modified_file() {
     let dir = TempDir::new().unwrap();
     init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
@@ -3793,11 +3995,51 @@ fn test_create_check_json_output() {
     assert_eq!(json["path"], file.to_str().unwrap());
     // diff field should be absent in --check mode
     assert!(json.get("diff").is_none());
+    assert!(json.get("applied").is_none());
 
     assert!(
         !file.exists(),
         "file should not be created in --check --json mode"
     );
+}
+
+#[test]
+fn test_create_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("confirmed.txt");
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("create")
+        .arg(file.to_str().unwrap())
+        .arg("--content")
+        .arg("hello")
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+hello"));
 }
 
 // ---------------------------------------------------------------------------
@@ -3870,6 +4112,26 @@ fn test_rename_refuses_overwrite_without_force() {
     // Both files should remain untouched.
     assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "existing\n");
+}
+
+#[test]
+fn test_rename_same_path_without_force_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("same.txt");
+    fs::write(&path, "content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg(&path)
+        .arg(&path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "source and destination are the same",
+        ));
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), "content\n");
 }
 
 #[test]
@@ -4188,8 +4450,74 @@ fn test_rename_check_json_output() {
     assert_eq!(output.status.code(), Some(2));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
+    assert!(json.get("applied").is_none());
     // Source should still exist in --check mode.
     assert!(src.exists());
+}
+
+#[test]
+fn test_rename_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("rename")
+        .arg(src.to_str().unwrap())
+        .arg(dst.to_str().unwrap())
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dst.to_str().unwrap());
+    assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+content"));
+}
+
+#[test]
+fn test_rename_same_path_without_force_json_output() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("same.txt");
+    fs::write(&path, "content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("rename")
+        .arg(&path)
+        .arg(&path)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], path.to_str().unwrap());
+    assert_eq!(json["to"], path.to_str().unwrap());
+    assert!(json["diff"].is_null());
 }
 
 #[test]
@@ -4465,6 +4793,25 @@ fn test_help_flag() {
                 .and(predicate::str::contains("replace"))
                 .and(predicate::str::contains("doc")),
         );
+}
+
+#[test]
+fn test_patch_help_examples_use_subcommand() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["patch", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("patchloom patch apply") || stdout.contains("patchloom patch check"),
+        "patch help examples must use a subcommand (apply/check), got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("patchloom patch changes.patch"),
+        "patch help examples must not show bare file arguments without a subcommand"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -6871,14 +7218,24 @@ fn test_explain_json_output() {
     )
     .unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["explain", "--json"])
         .arg(&plan)
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("\"operation_count\": 1"))
-        .stdout(predicates::str::contains("\"strict\": false"));
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["operation_count"], 1);
+    assert_eq!(json["strict"], false);
+    assert!(json["has_write_policy"].is_boolean());
+    assert_eq!(json["format_steps"], 0);
+    assert_eq!(json["validate_steps"], 0);
+    let ops = json["operations"].as_array().unwrap();
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0]["index"], 1);
+    assert!(ops[0]["description"].as_str().unwrap().contains("Replace"));
 }
 
 #[test]
@@ -6955,6 +7312,29 @@ fn test_explain_stdin() {
         .assert()
         .success()
         .stdout(predicates::str::contains("Delete file x.txt"));
+}
+
+#[test]
+fn test_explain_stdin_takes_precedence_over_path() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-file.txt"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain", "--stdin"])
+        .arg(&plan)
+        .write_stdin(
+            r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-stdin.txt"}]}"#,
+        )
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Delete file from-stdin.txt"))
+        .stdout(predicates::str::contains("from-file.txt").not());
 }
 
 // ── undo ─────────────────────────────────────────────────────
@@ -7282,6 +7662,23 @@ fn test_undo_no_sessions_exits_3() {
         .arg(dir.path())
         .assert()
         .code(3); // NO_MATCHES
+}
+
+#[test]
+fn test_undo_list_json_empty_emits_array() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(parsed.is_array(), "empty undo --list --json should emit []");
+    assert_eq!(parsed.as_array().unwrap().len(), 0);
 }
 
 #[test]
@@ -7805,6 +8202,43 @@ fn test_delete_json_apply_output() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["applied"], true);
     assert!(json["path"].as_str().unwrap().contains("doomed.txt"));
+}
+
+#[test]
+fn test_delete_json_confirm_output_reports_applied_after_confirmation() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("confirmed.txt");
+    fs::write(&file, "bye\n").unwrap();
+
+    let output = std::process::Command::new("script")
+        .arg("-q")
+        .arg("/dev/null")
+        .arg(env!("CARGO_BIN_EXE_patchloom"))
+        .arg("--json")
+        .arg("delete")
+        .arg(file.to_str().unwrap())
+        .arg("--confirm")
+        .current_dir(repo_root())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!file.exists());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], true);
+    assert!(json["path"].as_str().unwrap().contains("confirmed.txt"));
 }
 
 #[test]
@@ -11160,6 +11594,13 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn concepts_path() -> PathBuf {
+    repo_root()
+        .join("docs")
+        .join("getting-started")
+        .join("concepts.md")
+}
+
 fn ci_workflow_path() -> PathBuf {
     repo_root().join(".github").join("workflows").join("ci.yml")
 }
@@ -11925,6 +12366,53 @@ fn test_doc_get_honors_cwd() {
 }
 
 #[test]
+fn test_md_insert_before_heading_honors_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\n## Section A\n\nBody A\n\n## Section B\n\nBody B\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("md")
+        .arg("insert-before-heading")
+        .arg("doc.md")
+        .arg("--heading")
+        .arg("Section B")
+        .arg("--content")
+        .arg("Inserted before B.")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(content.contains("Inserted before B.\n\n## Section B"));
+}
+
+#[test]
+fn test_tx_honors_cwd_for_relative_plan_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("plan.toml"),
+        "version = \"1\"\n\n[[operations]]\nop = \"file.create\"\npath = \"out.txt\"\ncontent = \"hello\\n\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg("plan.toml")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("out.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -11937,9 +12425,31 @@ fn test_smoke_quickstart_command_flow() {
     assert!(quickstart.contains("patchloom doc set package.json version \"2.0.0\" --apply"));
     assert!(quickstart.contains("patchloom batch <<'EOF'"));
     assert!(quickstart.contains("patchloom batch --apply <<'EOF'"));
+    assert!(quickstart.contains("patchloom status"));
+    assert!(quickstart.contains("`patchloom status` is git-backed."));
+    assert!(quickstart.contains("patchloom undo"));
+    assert!(quickstart.contains("patchloom undo --apply"));
 
     let dir = TempDir::new().unwrap();
     seed_docs_smoke_fixture(dir.path());
+    git_ok(dir.path(), &["init"]);
+    git_ok(dir.path(), &["config", "user.email", "test@test.com"]);
+    git_ok(dir.path(), &["config", "user.name", "Test"]);
+    git_ok(
+        dir.path(),
+        &[
+            "add",
+            "Cargo.toml",
+            "src",
+            "README.md",
+            "CHANGELOG.md",
+            "AGENTS.md",
+            "package.json",
+            "config.json",
+            "config.yaml",
+        ],
+    );
+    git_ok(dir.path(), &["commit", "-m", "init"]);
     let lib_path = dir.path().join("src/lib.rs");
 
     patchloom_in(dir.path())
@@ -12052,6 +12562,39 @@ fn test_smoke_quickstart_command_flow() {
     );
     assert!(
         fs::read_to_string(dir.path().join("CHANGELOG.md"))
+            .unwrap()
+            .contains("- Bumped to v3.0.0")
+    );
+
+    let status_output = patchloom_in(dir.path()).arg("status").output().unwrap();
+    assert_eq!(status_output.status.code(), Some(2));
+    let status_stdout = String::from_utf8_lossy(&status_output.stdout);
+    assert!(status_stdout.contains("README.md"));
+    assert!(status_stdout.contains("package.json"));
+
+    patchloom_in(dir.path())
+        .arg("undo")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("Would restore session"));
+
+    patchloom_in(dir.path())
+        .arg("undo")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let package_after_undo: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
+            .unwrap();
+    assert_eq!(package_after_undo["version"], "2.0.0");
+    assert!(
+        fs::read_to_string(dir.path().join("README.md"))
+            .unwrap()
+            .contains("v1.0.0")
+    );
+    assert!(
+        !fs::read_to_string(dir.path().join("CHANGELOG.md"))
             .unwrap()
             .contains("- Bumped to v3.0.0")
     );
@@ -12176,6 +12719,19 @@ fn test_smoke_installation_docs_cover_mcp_feature_paths() {
 }
 
 #[test]
+fn test_smoke_installation_docs_cover_contributor_verification_loop() {
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains("make check-fast"),
+        "installation guide should mention the fast contributor iteration loop"
+    );
+    assert!(
+        content.contains("make check"),
+        "installation guide should mention the full contributor verification gate"
+    );
+}
+
+#[test]
 fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let rust_version_line = cargo
@@ -12215,6 +12771,193 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
     assert!(
         ci.contains(&format!("toolchain: \"{rust_version}\"")),
         "ci.yml should pin the MSRV job to the same Rust version as Cargo.toml"
+    );
+}
+
+#[test]
+fn test_contributing_make_targets_table_covers_key_targets() {
+    let contributing = fs::read_to_string(repo_root().join("CONTRIBUTING.md")).unwrap();
+    for target in [
+        "make check",
+        "make check-fast",
+        "make build",
+        "make fmt",
+        "make test",
+        "make integration-test",
+        "make clippy",
+        "make update-readme",
+    ] {
+        assert!(
+            contributing.contains(&format!("| `{target}`")),
+            "CONTRIBUTING.md make-targets table should list {target}"
+        );
+    }
+}
+
+#[test]
+fn test_makefile_has_audit_target() {
+    let makefile = fs::read_to_string(repo_root().join("Makefile")).unwrap();
+    assert!(
+        makefile.contains("audit:"),
+        "Makefile should have an audit target for local vulnerability scanning"
+    );
+}
+
+#[test]
+fn test_readme_documents_allow_shell_flag() {
+    let readme = fs::read_to_string(repo_root().join("README.md")).unwrap();
+    assert!(
+        readme.contains("--allow-shell"),
+        "README should mention --allow-shell for MCP server"
+    );
+}
+
+#[test]
+fn test_mcp_setup_documents_allow_shell_flag() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("--allow-shell"),
+        "mcp-setup.md should document the --allow-shell flag"
+    );
+}
+
+#[test]
+fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    let fork_safe_macos_runs_on = r#"runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}"#;
+
+    assert_eq!(
+        ci.matches(fork_safe_macos_runs_on).count(),
+        2,
+        "ci.yml should route both macOS jobs to GitHub-hosted runners for fork PRs"
+    );
+}
+
+#[test]
+fn test_ci_workflow_uses_runner_temp_for_bench_fixtures() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+
+    assert!(
+        ci.contains("\"$RUNNER_TEMP/bench.json\"") || ci.contains("$RUNNER_TEMP/bench.json"),
+        "ci.yml should keep benchmark JSON fixtures under RUNNER_TEMP"
+    );
+    assert!(
+        ci.contains("\"$RUNNER_TEMP/bench.txt\"") || ci.contains("$RUNNER_TEMP/bench.txt"),
+        "ci.yml should keep benchmark text fixtures under RUNNER_TEMP"
+    );
+    assert!(!ci.contains("/tmp/bench.json"));
+    assert!(!ci.contains("/tmp/bench.txt"));
+}
+
+#[test]
+fn test_ci_bench_steps_use_shared_threshold_script() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(
+        ci.contains("benches/ci/check_threshold.py"),
+        "ci.yml bench steps should call the shared check_threshold.py script"
+    );
+    assert!(
+        !ci.contains("python3 - \"$bench_json\""),
+        "ci.yml should not inline the threshold Python snippet"
+    );
+    assert!(
+        repo_root().join("benches/ci/check_threshold.py").exists(),
+        "benches/ci/check_threshold.py must exist on disk"
+    );
+}
+
+#[test]
+fn test_workflows_disable_persisted_checkout_credentials_by_default() {
+    let ci = fs::read_to_string(ci_workflow_path()).unwrap();
+    assert!(ci.matches("persist-credentials: false").count() >= 8);
+
+    let security = fs::read_to_string(repo_root().join(".github/workflows/security.yml")).unwrap();
+    assert_eq!(security.matches("persist-credentials: false").count(), 2);
+
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert_eq!(bench.matches("persist-credentials: false").count(), 1);
+}
+
+#[test]
+fn test_publish_crates_workflow_serializes_publishes_per_ref() {
+    let publish =
+        fs::read_to_string(repo_root().join(".github/workflows/publish-crates.yml")).unwrap();
+    assert!(
+        publish.contains("group: publish-crates-${{ github.ref }}"),
+        "publish-crates workflow should serialize publishes per ref"
+    );
+    assert!(
+        publish.contains("cancel-in-progress: false"),
+        "publish-crates workflow should queue duplicate publishes instead of cancelling them"
+    );
+}
+
+#[test]
+fn test_bench_workflow_limits_artifact_retention() {
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert!(
+        bench.contains("retention-days: 14"),
+        "benchmark artifacts should use a short explicit retention period"
+    );
+}
+
+#[test]
+fn test_bench_workflow_passes_dispatch_scales_via_env() {
+    let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
+    assert!(
+        bench.contains("BENCH_SCALES: ${{ inputs.scales || 'small medium' }}"),
+        "bench workflow should pass dispatch scales through an environment variable"
+    );
+    assert!(
+        bench.contains("bash run.sh \"$BENCH_SCALES\""),
+        "bench workflow should quote BENCH_SCALES when invoking the benchmark runner"
+    );
+    assert!(
+        !bench.contains("bash run.sh ${{ inputs.scales || 'small medium' }}"),
+        "bench workflow should not interpolate workflow inputs directly into the shell command"
+    );
+}
+
+#[test]
+fn test_cli_bench_runner_validates_requested_scales() {
+    let runner = fs::read_to_string(repo_root().join("benches/cli/run.sh")).unwrap();
+    assert!(
+        runner.contains("read -r -a SCALES <<< \"$SCALES_INPUT\""),
+        "bench runner should split requested scales without re-parsing shell syntax"
+    );
+    assert!(
+        runner.contains("small|medium|large"),
+        "bench runner should allow only known benchmark scales"
+    );
+    assert!(
+        runner.contains("invalid scale '$SCALE'"),
+        "bench runner should fail fast on unexpected scale names"
+    );
+}
+
+#[test]
+fn test_readme_agent_test_count_matches_non_benchmark_scenarios() {
+    let count = fs::read_dir(repo_root().join("tests/agent"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("test_") && name.ends_with(".py") && name != "test_bench.py"
+        })
+        .map(|entry| fs::read_to_string(entry.path()).unwrap())
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| line.trim_start().starts_with("def test_"))
+                .count()
+        })
+        .sum::<usize>();
+
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains(&format!("`make agent-test` runs {count} pytest scenarios")),
+        "README should document the non-benchmark agent scenario count run by make agent-test"
     );
 }
 
@@ -12541,6 +13284,42 @@ fn test_reference_doc_covers_meaningful_feature_inventory() {
     let errors = reference_doc_validation_errors(&reference);
 
     assert!(errors.is_empty(), "{}", errors.join("\n\n"));
+}
+
+#[test]
+fn test_concepts_doc_mentions_confirm_write_mode() {
+    let concepts = fs::read_to_string(concepts_path()).unwrap();
+    assert!(concepts.contains("Every write command supports four modes:"));
+    assert!(concepts.contains("| `--confirm` | Show the diff, then prompt before writing |"));
+}
+
+#[test]
+fn test_reference_doc_describes_status_and_undo_contracts() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(
+        reference.contains("This command is git-backed, so it must run inside a git repository.")
+    );
+    assert!(reference.contains("In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`)."));
+}
+
+#[test]
+fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle_commands() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    let contract = "When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.";
+    assert_eq!(reference.matches(contract).count(), 3);
+}
+
+#[test]
+fn test_reference_doc_describes_create_input_contract() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(reference.contains("Exactly one of `--content` or `--stdin` is required."));
+    assert!(
+        reference
+            .contains("Passing both is rejected with `--content and --stdin cannot be combined`")
+    );
+    assert!(reference.contains(
+        "passing neither is rejected with `either --content or --stdin must be provided`"
+    ));
 }
 
 #[test]
@@ -12975,12 +13754,28 @@ fn has_mcp_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_mcp_client_opts(cwd, false).await
+}
+
+async fn spawn_mcp_client_with_shell(
+    cwd: &Path,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_mcp_client_opts(cwd, true).await
+}
+
+async fn spawn_mcp_client_opts(
+    cwd: &Path,
+    allow_shell: bool,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     use rmcp::ServiceExt;
     use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);
     cmd.arg("mcp-server").current_dir(cwd);
+    if allow_shell {
+        cmd.arg("--allow-shell");
+    }
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)
@@ -13231,6 +14026,32 @@ async fn test_mcp_search_rejects_absolute_path() {
     assert!(
         result.is_err(),
         "search with absolute path should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_rejects_conflicting_modes() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("patchloom_search".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "pattern": "hello",
+                "files_with_matches": true,
+                "count": true
+            }))
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with both files_with_matches and count should be rejected"
     );
     client.cancel().await.unwrap();
 }
@@ -13602,7 +14423,8 @@ async fn test_mcp_tx_with_validate_lifecycle() {
         ]
     });
 
-    let client = spawn_mcp_client(dir.path()).await;
+    // --allow-shell is required for plans with validate steps.
+    let client = spawn_mcp_client_with_shell(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
         "patchloom_tx",
@@ -13613,6 +14435,46 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "new\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_tx_rejects_shell_steps_without_flag() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"replace": {"path": "target.txt", "from": "old", "to": "new"}}
+        ],
+        "validate": [
+            {"cmd": "grep -q new target.txt", "required": true}
+        ]
+    });
+
+    // Default client (no --allow-shell) should reject the plan.
+    let client = spawn_mcp_client(dir.path()).await;
+    let result = client
+        .peer()
+        .call_tool(
+            rmcp::model::CallToolRequestParams::new("patchloom_tx").with_arguments(
+                serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+            ),
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "tx with shell steps should be rejected without --allow-shell"
+    );
+    // File must remain unchanged.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "old\n"
     );
     client.cancel().await.unwrap();
 }

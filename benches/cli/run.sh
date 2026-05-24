@@ -30,10 +30,18 @@ echo "Generating benchmark corpora..."
 rm -rf "$CORPUS_DIR"
 python3 "$SCRIPT_DIR/generate_corpus.py"
 
-SCALES="${@:-small medium}"
+SCALES_INPUT="${*:-small medium}"
 mkdir -p "$RESULTS_DIR"
 
-for SCALE in $SCALES; do
+read -r -a SCALES <<< "$SCALES_INPUT"
+for SCALE in "${SCALES[@]}"; do
+    case "$SCALE" in
+        small|medium|large) ;;
+        *)
+            echo "ERROR: invalid scale '$SCALE' (expected small, medium, or large)"
+            exit 1
+            ;;
+    esac
     DIR="$CORPUS_DIR/$SCALE"
     if [ ! -d "$DIR" ]; then
         echo "Corpus $SCALE not found, skipping."

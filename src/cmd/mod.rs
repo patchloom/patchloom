@@ -58,7 +58,13 @@ pub enum Command {
     Init(init::InitArgs),
     /// Start an MCP (Model Context Protocol) server on stdio.
     #[cfg(feature = "mcp")]
-    McpServer,
+    McpServer {
+        /// Allow tx plans to run shell commands via format/validate lifecycle
+        /// steps. Without this flag, plans containing shell commands are
+        /// rejected. Enable only when the MCP client is trusted.
+        #[arg(long)]
+        allow_shell: bool,
+    },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     Completions {
         /// Shell to generate completions for.
@@ -346,7 +352,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
-        Command::McpServer => mcp::run_mcp_server(),
+        Command::McpServer { allow_shell } => {
+            load_project_config(&mut global);
+            mcp::run_mcp_server(&global, allow_shell)
+        }
         Command::AgentRules(args) => {
             let output = generate_agent_rules(&args);
             print!("{output}");

@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-1009%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1057%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -150,27 +150,22 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 ## Install
 
 ```bash
-cargo install patchloom                    # crates.io
-brew install patchloom/tap/patchloom       # macOS / Linux (Homebrew)
-```
-
-Or download a prebuilt binary from [GitHub Releases](https://github.com/patchloom/patchloom/releases).
-
-To include the MCP server (`patchloom mcp-server`):
-
-```bash
-cargo install patchloom --features mcp
-```
-
-From source (requires Rust 1.95+):
-
-```bash
+# Core CLI install (requires Rust 1.95+)
 git clone https://github.com/patchloom/patchloom.git
 cd patchloom
 cargo install --path .
+
+# Install with MCP support
+cargo install --path . --features mcp
 ```
 
-See [Installation](./docs/getting-started/installation.md) for shell completions and additional options.
+`cargo install --path .` gives you the core CLI commands. If you also want
+`patchloom mcp-server`, install with `--features mcp`.
+
+Other install channels are planned for public launch, including crates.io,
+GitHub Releases binaries, and Homebrew. See
+[Installation](./docs/getting-started/installation.md) for the current path and
+planned post-launch options.
 
 ## Quick start
 
@@ -233,6 +228,14 @@ patchloom mcp-server
 ```
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
+
+To allow tx plans with format/validate lifecycle steps (shell command execution), add `--allow-shell`:
+
+```bash
+patchloom mcp-server --allow-shell
+```
+
+See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
 ## Getting started
 
@@ -361,7 +364,7 @@ flowchart LR
 
 ## Status
 
-1009 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1057 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

@@ -1632,20 +1632,28 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let compact = global.jsonl;
 
     // 1. Read plan from file or stdin.
+    let plan_path = if args.plan == "-" {
+        None
+    } else {
+        Some(global.resolve_cwd()?.join(&args.plan))
+    };
     let plan_text = if args.plan == "-" {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        std::fs::read_to_string(&args.plan)
-            .map_err(|e| anyhow::anyhow!("failed to read plan file '{}': {e}", args.plan))?
+        let plan_path = plan_path.as_ref().unwrap();
+        std::fs::read_to_string(plan_path).map_err(|e| {
+            anyhow::anyhow!("failed to read plan file '{}': {e}", plan_path.display())
+        })?
     };
 
     // 2. Parse plan (JSON, YAML, or TOML).
-    let plan_path = if args.plan == "-" {
+    let plan_path_hint = if args.plan == "-" {
         None
     } else {
         Some(args.plan.as_str())
     };
-    let plan = match plan::parse_plan_auto(&plan_text, plan_path, args.plan_format.as_deref()) {
+    let plan = match plan::parse_plan_auto(&plan_text, plan_path_hint, args.plan_format.as_deref())
+    {
         Ok(p) => p,
         Err(e) => {
             if structured {

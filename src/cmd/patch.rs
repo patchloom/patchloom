@@ -9,9 +9,9 @@ use serde::Serialize;
 #[derive(Debug, Args)]
 #[command(after_help = "\
 EXAMPLES:
-  patchloom patch changes.patch
-  patchloom patch changes.patch --apply
-  patchloom patch changes.patch --check")]
+  patchloom patch apply changes.patch
+  patchloom patch apply changes.patch --apply
+  patchloom patch check changes.patch")]
 pub struct PatchArgs {
     #[command(subcommand)]
     pub action: PatchAction,

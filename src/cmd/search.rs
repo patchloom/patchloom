@@ -22,10 +22,10 @@ pub struct SearchArgs {
     /// Paths to search in.
     pub paths: Vec<String>,
     /// Treat pattern as a literal string.
-    #[arg(long, short = 'F')]
+    #[arg(long, short = 'F', conflicts_with = "regex")]
     pub literal: bool,
     /// Treat pattern as a regex (default).
-    #[arg(long)]
+    #[arg(long, conflicts_with = "literal")]
     pub regex: bool,
     /// Lines of context around matches (shorthand for -B N -A N).
     #[arg(long, short = 'C')]
@@ -38,11 +38,11 @@ pub struct SearchArgs {
     pub after_context: Option<usize>,
     // ref:search-mode:files-with-matches
     /// Only print file paths with matches.
-    #[arg(long, short = 'l')]
+    #[arg(long, short = 'l', conflicts_with = "count")]
     pub files_with_matches: bool,
     // ref:search-mode:count
     /// Only print match counts per file.
-    #[arg(long, short = 'c')]
+    #[arg(long, short = 'c', conflicts_with = "files_with_matches")]
     pub count: bool,
     // ref:search-mode:invert-match
     /// Show lines that do NOT match the pattern.
@@ -148,6 +148,33 @@ impl Matcher {
             }
         }
     }
+
+    /// Count matches in `text`, optionally stopping after the first match.
+    fn count_matches(&self, text: &str, stop_after_first: bool) -> usize {
+        match self {
+            Matcher::Regex(re) => {
+                if stop_after_first {
+                    usize::from(re.find(text).is_some())
+                } else {
+                    re.find_iter(text).count()
+                }
+            }
+            Matcher::Literal(finder) => {
+                let bytes = text.as_bytes();
+                if stop_after_first {
+                    return usize::from(finder.find(bytes).is_some());
+                }
+                let needle_len = finder.needle().len();
+                let mut count = 0;
+                let mut start = 0;
+                while let Some(pos) = finder.find(&bytes[start..]) {
+                    count += 1;
+                    start += pos + needle_len;
+                }
+                count
+            }
+        }
+    }
 }
 
 /// Build the right matcher for the search arguments.
@@ -209,24 +236,25 @@ fn search_one_file(
     let mut count = 0usize;
 
     if args.multiline {
-        let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
-        for (start, end) in matcher.find_iter_positions(&content) {
-            count += 1;
-            if count_only {
-                if args.files_with_matches && args.assert_count.is_none() {
-                    break;
-                }
-                continue;
+        if count_only {
+            count = matcher.count_matches(
+                &content,
+                args.files_with_matches && args.assert_count.is_none(),
+            );
+        } else {
+            let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
+            for (start, end) in matcher.find_iter_positions(&content) {
+                count += 1;
+                let (line, column) = line_and_column_for_offset(&newline_offsets, start);
+                file_matches.push(SearchMatch {
+                    path: path_str.clone(),
+                    line,
+                    column,
+                    text: content[start..end].to_string(),
+                    context_before: None,
+                    context_after: None,
+                });
             }
-            let (line, column) = line_and_column_for_offset(&newline_offsets, start);
-            file_matches.push(SearchMatch {
-                path: path_str.clone(),
-                line,
-                column,
-                text: content[start..end].to_string(),
-                context_before: None,
-                context_after: None,
-            });
         }
     } else if count_only {
         // Fast path: no need to collect lines into a Vec for random access.
@@ -248,37 +276,53 @@ fn search_one_file(
         let ctx_before = args.before_context.or(args.context).unwrap_or(0);
         let ctx_after = args.after_context.or(args.context).unwrap_or(0);
         let has_ctx = ctx_before > 0 || ctx_after > 0;
-        let lines: Vec<&str> = content.lines().collect();
-        for (i, line) in lines.iter().copied().enumerate() {
-            let found = matcher.find(line);
-            let is_match = if args.invert_match {
-                found.is_none()
-            } else {
-                found.is_some()
-            };
-            if !is_match {
-                continue;
-            }
-            count += 1;
-            let column = found.map_or(1, |(s, _)| s + 1);
-            let (ctx_b, ctx_a) = if has_ctx {
+
+        if has_ctx {
+            let lines: Vec<&str> = content.lines().collect();
+            for (i, line) in lines.iter().copied().enumerate() {
+                let found = matcher.find(line);
+                let is_match = if args.invert_match {
+                    found.is_none()
+                } else {
+                    found.is_some()
+                };
+                if !is_match {
+                    continue;
+                }
+                count += 1;
+                let column = found.map_or(1, |(s, _)| s + 1);
                 let start = i.saturating_sub(ctx_before);
                 let end = (i + 1 + ctx_after).min(lines.len());
-                (
-                    Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
-                    Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
-                )
-            } else {
-                (None, None)
-            };
-            file_matches.push(SearchMatch {
-                path: path_str.clone(),
-                line: i + 1,
-                column,
-                text: line.to_string(),
-                context_before: ctx_b,
-                context_after: ctx_a,
-            });
+                file_matches.push(SearchMatch {
+                    path: path_str.clone(),
+                    line: i + 1,
+                    column,
+                    text: line.to_string(),
+                    context_before: Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
+                    context_after: Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
+                });
+            }
+        } else {
+            for (i, line) in content.lines().enumerate() {
+                let found = matcher.find(line);
+                let is_match = if args.invert_match {
+                    found.is_none()
+                } else {
+                    found.is_some()
+                };
+                if !is_match {
+                    continue;
+                }
+                count += 1;
+                file_matches.push(SearchMatch {
+                    path: path_str.clone(),
+                    line: i + 1,
+                    column: found.map_or(1, |(s, _)| s + 1),
+                    text: line.to_string(),
+                    context_before: None,
+                    context_after: None,
+                });
+            }
         }
     }
 
@@ -482,6 +526,15 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         !results.matches.is_empty()
     };
     if !has_matches {
+        if global.json {
+            let payload = SearchOutput {
+                ok: true,
+                match_count: 0,
+                file_count: 0,
+                matches: vec![],
+            };
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        }
         if global.show_status() {
             let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
             let path_desc = if paths.is_empty() {
@@ -502,7 +555,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::NO_MATCHES);
     }
 
-    if !global.quiet {
+    if global.json || global.jsonl || !global.quiet {
         let output = format_results(results, &args, global)?;
         print!("{output}");
     }
@@ -668,6 +721,39 @@ mod tests {
             "multiline count should not build SearchMatch objects"
         );
         assert_eq!(results.file_match_counts.values().sum::<usize>(), 1);
+    }
+
+    #[test]
+    fn multiline_files_with_matches_stops_after_first_match() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("multi.txt"), "foo\nbar\nfoo\n").unwrap();
+
+        let mut args = make_args("foo", vec![dir.path().to_string_lossy().into_owned()]);
+        args.multiline = true;
+        args.files_with_matches = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "multiline files-with-matches should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 1);
+    }
+
+    #[test]
+    fn multiline_files_with_matches_with_assert_count_counts_all_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("multi.txt"), "foo\nbar\nfoo\n").unwrap();
+
+        let mut args = make_args("foo", vec![dir.path().to_string_lossy().into_owned()]);
+        args.multiline = true;
+        args.files_with_matches = true;
+        args.assert_count = Some(2);
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "multiline files-with-matches assert-count should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 2);
     }
 
     #[test]

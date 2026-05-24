@@ -5,7 +5,7 @@ This guide takes you from zero to a working multi-file edit in under 5 minutes.
 ## Prerequisites
 
 - Patchloom installed (see [installation.md](installation.md))
-- A git repo to work in (or create a test directory)
+- A git repo to work in, or a test directory you can initialize with `git init` before Step 6
 
 ## Step 0: Set up your project (optional)
 
@@ -127,7 +127,31 @@ If an operation fails, nothing is written. Format and validate lifecycle steps r
 after writes, so use `"strict": true` in the plan if you want those failures to
 roll back all changes too.
 
-## Step 6: Use in CI
+## Step 6: Inspect and undo changes
+
+After any `--apply`, you can ask patchloom what changed and restore the latest backup session.
+
+`patchloom status` is git-backed. If you're using a scratch directory, run `git init`, add the files you want tracked, and make an initial commit before this step.
+
+See pending working-tree changes:
+
+```bash
+patchloom status
+```
+
+Preview what `undo` would restore (exit code `2` means files would be restored):
+
+```bash
+patchloom undo
+```
+
+Restore the most recent backup session:
+
+```bash
+patchloom undo --apply
+```
+
+## Step 7: Use in CI
 
 Check whether a plan would produce changes (exit code 2 = changes pending):
 

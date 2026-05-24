@@ -21,7 +21,7 @@ jobs:
     # Use the self-hosted runner for trusted events (push, workflow_dispatch,
     # and PRs from the same repo). Fork PRs fall back to GitHub-hosted to
     # prevent arbitrary code execution on the self-hosted machine.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -30,6 +30,8 @@ jobs:
           egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -58,6 +60,8 @@ jobs:
         run: git config --global core.autocrlf false
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -79,8 +83,33 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  ci-macos:
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
+    timeout-minutes: 20
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run checks
+        run: make check
+
   msrv:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -89,6 +118,36 @@ jobs:
           egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+
+      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check MSRV (default features)
+        run: cargo check --all-targets
+
+      - name: Check MSRV (all features)
+        run: cargo check --all-targets --all-features
+
+  msrv-macos:
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install MSRV toolchain
         uses: dtolnay/rust-toolchain@master
@@ -106,7 +165,7 @@ jobs:
         run: cargo check --all-targets --all-features
 
   coverage:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -115,6 +174,8 @@ jobs:
           egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -132,13 +193,10 @@ jobs:
 
       - name: Generate coverage
         run: |
-          for brew_prefix in /home/linuxbrew/.linuxbrew /opt/homebrew /usr/local; do
-            if [[ -x "$brew_prefix/bin/llvm-profdata" && -x "$brew_prefix/bin/llvm-cov" ]]; then
-              export LLVM_PROFDATA="$brew_prefix/bin/llvm-profdata"
-              export LLVM_COV="$brew_prefix/bin/llvm-cov"
-              break
-            fi
-          done
+          if [[ -x /home/linuxbrew/.linuxbrew/bin/llvm-profdata && -x /home/linuxbrew/.linuxbrew/bin/llvm-cov ]]; then
+            export LLVM_PROFDATA=/home/linuxbrew/.linuxbrew/bin/llvm-profdata
+            export LLVM_COV=/home/linuxbrew/.linuxbrew/bin/llvm-cov
+          fi
           cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
 
       - name: Upload coverage artifact
@@ -148,7 +206,7 @@ jobs:
           path: lcov.info
 
   bench:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -157,6 +215,8 @@ jobs:
           egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -168,45 +228,45 @@ jobs:
       - name: Install hyperfine
         uses: taiki-e/install-action@v2
         with:
-          tool: hyperfine
+          tool: hyperfine@1.20.0
 
       - name: Build release binary
         run: cargo build --release
 
       - name: Create test fixtures
         run: |
-          echo '{"name": "test", "version": "1.0.0"}' > /tmp/bench.json
-          echo "hello world" > /tmp/bench.txt
+          echo '{"name": "test", "version": "1.0.0"}' > "$RUNNER_TEMP/bench.json"
+          echo "hello world" > "$RUNNER_TEMP/bench.txt"
 
       - name: Benchmark search (must be under 50ms)
         run: |
           bench_json="$RUNNER_TEMP/bench-search.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom search "hello" /tmp/bench.txt' \
+            './target/release/patchloom search "hello" "$RUNNER_TEMP/bench.txt"' \
             --max-runs 100
-          python3 benches/cli/check-threshold.py "$bench_json" "search"
+          python3 benches/ci/check_threshold.py "$bench_json" "search"
 
       - name: Benchmark doc get (must be under 50ms)
         run: |
           bench_json="$RUNNER_TEMP/bench-doc-get.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom --json doc get /tmp/bench.json name' \
+            './target/release/patchloom --json doc get "$RUNNER_TEMP/bench.json" name' \
             --max-runs 100
-          python3 benches/cli/check-threshold.py "$bench_json" "doc get"
+          python3 benches/ci/check_threshold.py "$bench_json" "doc get"
 
       - name: Benchmark replace dry-run (must be under 50ms)
         run: |
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom replace hello --to world /tmp/bench.txt' \
+            './target/release/patchloom replace hello --to world "$RUNNER_TEMP/bench.txt"' \
             --max-runs 100
-          python3 benches/cli/check-threshold.py "$bench_json" "replace dry-run"
+          python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run"
 
   audit:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || fromJson('["self-hosted","Linux","X64"]') }}
     timeout-minutes: 5
     steps:
       - name: Harden Runner
@@ -215,9 +275,8 @@ jobs:
           egress-policy: audit
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        with:
+          persist-credentials: false
 
       - name: Install cargo-audit
         uses: taiki-e/install-action@v2

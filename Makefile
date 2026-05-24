@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test bench-cli bench-agent bench-agent-dry-run bench-agent-report fuzz
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-agent bench-agent-dry-run bench-agent-report fuzz
 
 .DEFAULT_GOAL := help
 
@@ -89,6 +89,9 @@ bench-agent-dry-run: ## Preview agent benchmark prompts without calling the LLM 
 
 bench-agent-report: ## Generate comparison report from saved agent benchmark results
 	@python3 benches/agent/report.py $(if $(FILE),$(FILE),)
+
+audit: ## Run cargo audit for known vulnerabilities (requires cargo-audit)
+	cargo audit
 
 FUZZ_TIME ?= 60
 

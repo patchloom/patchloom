@@ -30,24 +30,54 @@ pub struct DocArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum DocAction {
     /// Read a value at a selector path.
-    Get { file: String, selector: String },
+    Get {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path (e.g. server.port, items[0].name).
+        selector: String,
+    },
     /// Check whether a selector path exists.
-    Has { file: String, selector: String },
+    Has {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path (e.g. server.port, items[0].name).
+        selector: String,
+    },
     /// List object keys at a path.
-    Keys { file: String, selector: String },
+    Keys {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path (e.g. server.port, items[0].name).
+        selector: String,
+    },
     /// Count items in an array or object.
-    Len { file: String, selector: String },
+    Len {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path (e.g. server.port, items[0].name).
+        selector: String,
+    },
     /// Set or create a value at a selector path.
     Set {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path (e.g. server.port, items[0].name).
         selector: String,
+        /// Value (JSON literal or bare string).
         value: String,
     },
     /// Remove a value at a selector path.
-    Delete { file: String, selector: String },
+    Delete {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path (e.g. server.port, items[0].name).
+        selector: String,
+    },
     /// Delete array items matching a predicate.
     DeleteWhere {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path (e.g. server.port, items[0].name).
         selector: String,
         // ref:doc-mode:predicate
         /// Predicate in key=value format.
@@ -56,6 +86,7 @@ pub enum DocAction {
     },
     /// Merge a partial object from stdin or argument.
     Merge {
+        /// File path (JSON, YAML, or TOML).
         file: String,
         // ref:doc-mode:stdin
         #[arg(long)]
@@ -65,40 +96,68 @@ pub enum DocAction {
     },
     /// Append to an array.
     Append {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path to an array (e.g. items, dependencies).
         selector: String,
+        /// Value to append (JSON literal or bare string).
         value: String,
     },
     /// Prepend to an array.
     Prepend {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path to an array (e.g. items, dependencies).
         selector: String,
+        /// Value to prepend (JSON literal or bare string).
         value: String,
     },
     /// Filter array items by predicate.
-    Select { file: String, selector: String },
+    Select {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+        /// Selector path with a predicate (e.g. items[?name=foo]).
+        selector: String,
+    },
     /// Update all matching nodes.
     Update {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path (e.g. server.port, items[*].enabled).
         selector: String,
+        /// New value (JSON literal or bare string).
         value: String,
     },
     /// Move or rename a selector path.
     Move {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Source selector path.
         from: String,
+        /// Destination selector path.
         to: String,
     },
     /// Ensure a value exists (idempotent set).
     Ensure {
+        /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path (e.g. server.port, items[0].name).
         selector: String,
+        /// Value to set if missing (JSON literal or bare string).
         value: String,
     },
     /// List all leaf selector paths and their values.
-    Flatten { file: String },
+    Flatten {
+        /// File path (JSON, YAML, or TOML).
+        file: String,
+    },
     /// Compare two structured files and show differences.
-    Diff { file_a: String, file_b: String },
+    Diff {
+        /// First file to compare.
+        file_a: String,
+        /// Second file to compare.
+        file_b: String,
+    },
 }
 
 impl DocAction {

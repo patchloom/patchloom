@@ -31,6 +31,39 @@ struct RenameOutput {
     to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenameValidation {
+    NoOp,
+    Proceed,
+}
+
+fn validate_rename_paths(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    force: bool,
+    src_label: &str,
+    dst_label: &str,
+) -> anyhow::Result<RenameValidation> {
+    if !src.exists() {
+        anyhow::bail!("source file not found: {src_label}");
+    }
+    if !src.is_file() {
+        anyhow::bail!("source is not a file: {src_label}");
+    }
+    if dst.exists() && !dst.is_file() {
+        anyhow::bail!("destination is not a file: {dst_label}");
+    }
+    if src == dst {
+        return Ok(RenameValidation::NoOp);
+    }
+    if !force && dst.exists() {
+        anyhow::bail!("destination already exists: {dst_label}");
+    }
+    Ok(RenameValidation::Proceed)
 }
 
 pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -38,30 +71,15 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    // Validate source exists and is a file.
-    if !src.exists() {
-        anyhow::bail!("source file not found: {}", args.from);
-    }
-    if !src.is_file() {
-        anyhow::bail!("source is not a file: {}", args.from);
-    }
-
-    if dst.exists() && !dst.is_file() {
-        anyhow::bail!("destination is not a file: {}", args.to);
-    }
-
-    // Validate destination does not exist (unless --force).
-    if !args.force && dst.exists() {
-        anyhow::bail!("destination already exists: {}", args.to);
-    }
-
-    // If source and destination resolve to the same path, it's a no-op.
-    if src == dst {
+    if validate_rename_paths(&src, &dst, args.force, &args.from, &args.to)?
+        == RenameValidation::NoOp
+    {
         let output = RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: args.to.clone(),
             diff: None,
+            applied: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("source and destination are the same: {}", args.from);
@@ -76,6 +94,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             from: args.from.clone(),
             to: args.to.clone(),
             diff: None,
+            applied: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("would rename {} -> {}", args.from, args.to);
@@ -101,6 +120,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 from: args.from.clone(),
                 to: args.to.clone(),
                 diff: if global.diff { diff_text.clone() } else { None },
+                applied: None,
             };
             if !global.emit_json(&output)? {
                 if let Some(d) = diff_text {
@@ -117,11 +137,33 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show what would happen (source still exists).
     let diff_text = try_diff(&src, &args.from, &args.to);
+
+    if global.confirm && (global.json || global.jsonl) {
+        let applied = global.should_apply();
+        if applied {
+            let mut backup = crate::backup::BackupSession::new(&cwd)?;
+            backup.save_before_delete(&src)?;
+            backup.save_before_write(&dst)?;
+            do_rename(&src, &dst, &args, &policy)?;
+            backup.finalize()?;
+        }
+        let output = RenameOutput {
+            ok: true,
+            from: args.from.clone(),
+            to: args.to.clone(),
+            diff: diff_text,
+            applied: Some(applied),
+        };
+        global.emit_json(&output)?;
+        return Ok(exit::SUCCESS);
+    }
+
     let output = RenameOutput {
         ok: true,
         from: args.from.clone(),
         to: args.to.clone(),
         diff: diff_text.clone(),
+        applied: None,
     };
     if !global.emit_json(&output)? {
         if let Some(d) = diff_text {
@@ -155,19 +197,14 @@ pub(crate) fn apply_rename(
     force: bool,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
-    if !from.exists() {
-        anyhow::bail!("source file not found: {}", from.display());
-    }
-    if !from.is_file() {
-        anyhow::bail!("source is not a file: {}", from.display());
-    }
-    if to.exists() && !to.is_file() {
-        anyhow::bail!("destination is not a file: {}", to.display());
-    }
-    if !force && to.exists() {
-        anyhow::bail!("destination already exists: {}", to.display());
-    }
-    if from == to {
+    if validate_rename_paths(
+        from,
+        to,
+        force,
+        &from.display().to_string(),
+        &to.display().to_string(),
+    )? == RenameValidation::NoOp
+    {
         return Ok(());
     }
 
@@ -382,6 +419,7 @@ mod tests {
     fn rename_check_reports_changes() {
         let dir = TempDir::new().unwrap();
         let src = dir.path().join("old.txt");
+        let dst = dir.path().join("new.txt");
         fs::write(&src, "hello\n").unwrap();
 
         let mut global = global_for(&dir);
@@ -389,7 +427,7 @@ mod tests {
 
         let args = RenameArgs {
             from: src.to_string_lossy().into_owned(),
-            to: dir.path().join("new.txt").to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
             force: false,
             write: Default::default(),
         };
@@ -398,6 +436,13 @@ mod tests {
         assert_eq!(code, exit::CHANGES_DETECTED);
         // Source should still exist in --check mode.
         assert!(src.exists());
+        assert_eq!(
+            fs::read_to_string(&src).unwrap(),
+            "hello\n",
+            "--check must not modify source content"
+        );
+        // Destination must NOT be created in --check mode.
+        assert!(!dst.exists(), "--check must not create destination file");
     }
 
     #[test]
@@ -435,6 +480,19 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
+        assert!(file.exists(), "file should still exist");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn apply_rename_same_path_is_noop_without_force() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("same.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        apply_rename(&file, &file, false, dir.path()).unwrap();
+
         assert!(file.exists(), "file should still exist");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
     }

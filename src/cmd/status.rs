@@ -67,8 +67,10 @@ pub(crate) fn collect_status(
         .output()
         .context("failed to run `git status` -- is git installed?")?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git status failed: {stderr}");
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!(
+            "git status failed: {stderr}\nhint: run `git init` first, or run patchloom status from inside an existing git repository"
+        );
     }
 
     let glob_matcher = crate::build_glob_matcher(global)?;

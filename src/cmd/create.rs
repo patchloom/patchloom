@@ -36,6 +36,8 @@ struct CreateOutput {
     path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
 }
 
 fn make_diff_output(path: &str, content: &str) -> String {
@@ -79,6 +81,10 @@ pub(crate) fn apply_create(
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
+    if args.content.is_some() && args.stdin {
+        bail!("--content and --stdin cannot be combined");
+    }
+
     // Resolve content from --content or --stdin.
     let content = if let Some(ref c) = args.content {
         c.clone()
@@ -108,6 +114,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             path: args.file.clone(),
             diff: None,
+            applied: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("would create {}", args.file);
@@ -141,6 +148,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             path: args.file.clone(),
             diff: diff_text.clone(),
+            applied: None,
         };
         if !global.emit_json(&output)? {
             if let Some(d) = diff_text {
@@ -154,10 +162,37 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show unified diff of changes.
     let diff_text = make_diff_output(&args.file, &content);
+
+    if global.confirm && (global.json || global.jsonl) {
+        let applied = global.should_apply();
+        if applied {
+            let policy = policy_from_flags(global, Some(&path));
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                fs::create_dir_all(parent)?;
+            }
+            if args.force {
+                atomic_write(&path, &content, &policy)?;
+            } else {
+                atomic_create_new(&path, &content, &policy)?;
+            }
+        }
+        let output = CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff: Some(diff_text),
+            applied: Some(applied),
+        };
+        global.emit_json(&output)?;
+        return Ok(exit::SUCCESS);
+    }
+
     let output = CreateOutput {
         ok: true,
         path: args.file.clone(),
         diff: Some(diff_text.clone()),
+        applied: None,
     };
     if !global.emit_json(&output)? {
         print!("{diff_text}");
@@ -338,5 +373,26 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("--content or --stdin"));
+    }
+
+    #[test]
+    fn create_rejects_content_and_stdin_together() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("dual_source.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("inline\n".to_string()),
+            stdin: true,
+            force: false,
+            write: Default::default(),
+        };
+        let global = default_global();
+
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--content and --stdin cannot be combined")
+        );
     }
 }
