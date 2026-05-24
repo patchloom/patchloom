@@ -646,6 +646,21 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_error_includes_line_number() {
+        // Unterminated quote should include the line number from parse_line.
+        let err = parse_line(r#"doc.set f.json key "unterminated"#, 7).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("line 7"),
+            "expected line number in error: {msg}"
+        );
+        assert!(
+            msg.contains("unterminated double quote"),
+            "expected tokenize message in error: {msg}"
+        );
+    }
+
+    #[test]
     fn full_batch_parse() {
         let input = r#"
 # Update versions across the project
