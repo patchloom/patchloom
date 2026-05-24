@@ -218,10 +218,8 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
 /// files (images, compiled objects) are rejected without reading the
 /// entire file into memory.
 pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
-    use std::io::Read;
-
-    let mut file = match std::fs::File::open(path) {
-        Ok(f) => f,
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
         Err(e) => {
             if !quiet {
                 eprintln!("{cmd}: skipping {}: {e}", path.display());
@@ -230,35 +228,11 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
         }
     };
 
-    // Read the first 8 KiB for binary detection (same heuristic as Git).
-    let mut probe = vec![0u8; 8192];
-    let n = match file.read(&mut probe) {
-        Ok(n) => n,
-        Err(e) => {
-            if !quiet {
-                eprintln!("{cmd}: skipping {}: {e}", path.display());
-            }
-            return None;
-        }
-    };
-
-    if n == 0 {
-        return None; // empty file
-    }
-    probe.truncate(n);
-    if is_binary(&probe) {
+    if bytes.is_empty() || is_binary(&bytes) {
         return None;
     }
 
-    // Not binary — read the remainder and combine.
-    if let Err(e) = file.read_to_end(&mut probe) {
-        if !quiet {
-            eprintln!("{cmd}: skipping {}: {e}", path.display());
-        }
-        return None;
-    }
-
-    match String::from_utf8(probe) {
+    match String::from_utf8(bytes) {
         Ok(s) => Some(s),
         Err(_) => {
             if !quiet {
