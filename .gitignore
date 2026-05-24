@@ -12,6 +12,9 @@
 # Patchloom backup sessions (created by --apply)
 .patchloom/
 
+# Grok session state
+.grok/
+
 # Fuzz testing artifacts
 fuzz/target/
 fuzz/corpus/

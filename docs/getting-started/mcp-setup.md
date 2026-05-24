@@ -45,11 +45,13 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-### Cursor / VS Code (settings.json)
+### VS Code (.vscode/mcp.json)
+
+Create `.vscode/mcp.json` in your workspace root:
 
 ```json
 {
-  "mcp.servers": {
+  "servers": {
     "patchloom": {
       "command": "/path/to/patchloom",
       "args": ["mcp-server"]
@@ -57,6 +59,23 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   }
 }
 ```
+
+### Cursor (.cursor/mcp.json)
+
+Create `.cursor/mcp.json` in your workspace root:
+
+```json
+{
+  "servers": {
+    "patchloom": {
+      "command": "/path/to/patchloom",
+      "args": ["mcp-server"]
+    }
+  }
+}
+```
+
+Or use the [Patchloom VS Code extension](https://github.com/patchloom/patchloom-vscode) to configure MCP automatically via the `Patchloom: Configure MCP` command.
 
 ### Generic stdio MCP
 

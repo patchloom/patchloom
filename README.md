@@ -386,7 +386,7 @@ All commits must be signed off with `git commit -s`.
 
 ### Agent integration tests
 
-`make agent-test` runs 20 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 11 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
+`make agent-test` runs 19 pytest scenarios that verify AI agents correctly use patchloom when given instructions. `make bench-agent` runs 3-way benchmarks (CLI vs MCP vs native) across 11 tasks. Use `MODEL=X` to switch models and `RUNS=N` for variance reduction. Requires an LLM API key. Not part of `make check`. See [tests/agent/README.md](./tests/agent/README.md) for details.
 
 ## Security
 
