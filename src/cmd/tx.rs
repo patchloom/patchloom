@@ -1387,8 +1387,6 @@ fn rollback_strict(
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
-/// Build a JSON error string without writing to stdout.
-#[cfg(feature = "mcp")]
 /// Apply pending changes to disk: backup originals, write modified files,
 /// delete removed files, finalize backup session.
 fn commit_changes(
@@ -1436,6 +1434,8 @@ fn commit_changes(
     Ok(())
 }
 
+/// Build a JSON error string without writing to stdout.
+#[cfg(feature = "mcp")]
 fn make_error_json(error_kind: &'static str, error: &str) -> String {
     let legacy_error_prefix = if error_kind == "format_failed" {
         "validation_failed"
