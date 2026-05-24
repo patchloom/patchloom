@@ -36,6 +36,8 @@ make check          # must pass before every commit
 | `make integration-test` | Integration tests only |
 | `make clippy` | Lint check |
 | `make update-readme` | Refresh generated test counts in README.md and CHANGELOG.md |
+| `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` |
+| `make audit` | Run `cargo audit` for known vulnerabilities |
 
 ## Writing tests
 
