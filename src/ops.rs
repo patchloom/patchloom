@@ -1320,7 +1320,9 @@ pub(crate) mod replace {
                     if count != n {
                         continue;
                     }
-                    let m = caps.get(0).unwrap();
+                    let Some(m) = caps.get(0) else {
+                        return (Cow::Borrowed(content), 0);
+                    };
                     result.push_str(&content[..m.start()]);
                     result.push_str(&expand_regex_replacement(&caps, to));
                     result.push_str(&content[m.end()..]);
@@ -1407,7 +1409,7 @@ pub(crate) mod md {
                     fence_marker = Some("~~~");
                     return false;
                 }
-            } else if line.starts_with(fence_marker.unwrap()) {
+            } else if fence_marker.is_some_and(|fm| line.starts_with(fm)) {
                 fence_marker = None;
                 return false;
             }

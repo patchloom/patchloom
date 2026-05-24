@@ -1687,7 +1687,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let plan_text = if args.plan == "-" {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        let plan_path = plan_path.as_ref().unwrap();
+        let plan_path = plan_path
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("internal error: plan path missing"))?;
         std::fs::read_to_string(plan_path).map_err(|e| {
             anyhow::anyhow!("failed to read plan file '{}': {e}", plan_path.display())
         })?

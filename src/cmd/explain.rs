@@ -29,7 +29,10 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         (buf, None)
     } else {
-        let p = args.path.as_deref().unwrap();
+        let p = args
+            .path
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("path is required when --stdin is not set"))?;
         let cwd = global.resolve_cwd()?;
         let full = cwd.join(p);
         let content = std::fs::read_to_string(&full)
