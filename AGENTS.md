@@ -220,7 +220,7 @@ pub struct NewToolParams {
 
 ```rust
 #[tool(description = "Short description of what the tool does.")]
-async fn patchloom_new_tool(
+async fn new_tool(
     &self,
     Parameters(p): Parameters<NewToolParams>,
 ) -> Result<CallToolResult, McpError> {
