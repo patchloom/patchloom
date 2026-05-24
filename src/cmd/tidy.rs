@@ -259,7 +259,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             if global.apply {
                 if let Some(b) = backup {
-                    let _ = b.finalize();
+                    b.finalize()?;
                 }
                 Ok(exit::SUCCESS)
             } else if any_changed {
