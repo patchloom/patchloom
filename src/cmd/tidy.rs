@@ -101,11 +101,18 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
     let glob_roots = crate::collect_glob_roots(paths, global, Some(&root))?;
 
+    let quiet = global.quiet;
     let file_issues: Vec<Vec<TidyIssue>> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             match check_file(path) {
                 Ok(issues) if !issues.is_empty() => Some(issues),
-                _ => None,
+                Ok(_) => None,
+                Err(e) => {
+                    if !quiet {
+                        eprintln!("tidy: skipping {}: {e}", path.display());
+                    }
+                    None
+                }
             }
         });
 
@@ -175,12 +182,21 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 fixed: String,
             }
 
+            let quiet = global.quiet;
             let results: Vec<FixResult> = crate::par_process_files(
                 &fix_file_paths,
                 glob_matcher.as_ref(),
                 &glob_roots,
                 |file_path| {
-                    let data = std::fs::read(file_path).ok()?;
+                    let data = match std::fs::read(file_path) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            if !quiet {
+                                eprintln!("tidy: skipping {}: {e}", file_path.display());
+                            }
+                            return None;
+                        }
+                    };
                     if data.is_empty() || is_binary(&data) {
                         return None;
                     }
