@@ -1113,6 +1113,38 @@ fn test_search_files_with_matches_returns_success_on_match() {
 }
 
 #[test]
+fn test_search_count_no_match_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("count_no_match.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--count")
+        .arg("zzz_no_match_zzz")
+        .arg(&file)
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_search_files_with_matches_no_match_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("fwm_no_match.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--files-with-matches")
+        .arg("zzz_no_match_zzz")
+        .arg(&file)
+        .assert()
+        .code(3);
+}
+
+#[test]
 fn test_quiet_suppresses_tidy_check_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("no_newline.txt");
