@@ -1389,6 +1389,53 @@ fn rollback_strict(
 
 /// Build a JSON error string without writing to stdout.
 #[cfg(feature = "mcp")]
+/// Apply pending changes to disk: backup originals, write modified files,
+/// delete removed files, finalize backup session.
+fn commit_changes(
+    changes: &[(PathBuf, String, String)],
+    deletions: &HashSet<PathBuf>,
+    existed_before: &HashSet<PathBuf>,
+    cwd: &Path,
+) -> anyhow::Result<()> {
+    let mut backup = crate::backup::BackupSession::new(cwd)?;
+    for (path, _, _) in changes {
+        if deletions.contains(path) {
+            backup.save_before_delete(path)?;
+        } else {
+            backup.save_before_write(path)?;
+        }
+    }
+    for path in deletions {
+        backup.save_before_delete(path)?;
+    }
+
+    let noop_policy = WritePolicy::default();
+    for (path, _, new_content) in changes {
+        if deletions.contains(path) {
+            std::fs::remove_file(path)?;
+        } else {
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            if !existed_before.contains(path) {
+                atomic_create_new(path, new_content, &noop_policy)?;
+            } else {
+                atomic_write(path, new_content, &noop_policy)?;
+            }
+        }
+    }
+    for path in deletions {
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    }
+    backup.finalize()?;
+    Ok(())
+}
+
 fn make_error_json(error_kind: &'static str, error: &str) -> String {
     let legacy_error_prefix = if error_kind == "format_failed" {
         "validation_failed"
@@ -1806,49 +1853,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
-        // Back up originals before writing.
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        for (path, _, _) in &changes {
-            if deletions.contains(path) {
-                backup.save_before_delete(path)?;
-            } else {
-                backup.save_before_write(path)?;
-            }
-        }
-        for path in &deletions {
-            backup.save_before_delete(path)?;
-        }
-
-        // Write all files atomically (policy already applied).
-        let noop_policy = WritePolicy::default();
-        for (path, _, new_content) in &changes {
-            if deletions.contains(path) {
-                std::fs::remove_file(path)?;
-            } else {
-                // Ensure parent directories exist (needed for file.create).
-                if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty()
-                    && !parent.exists()
-                {
-                    std::fs::create_dir_all(parent)?;
-                }
-                if !existed_before.contains(path) {
-                    // New file: use atomic_create_new for TOCTOU safety.
-                    // Policy already applied, so pass a noop policy.
-                    atomic_create_new(path, new_content, &noop_policy)?;
-                } else {
-                    atomic_write(path, new_content, &noop_policy)?;
-                }
-            }
-        }
-        // Handle deletions not captured in changes (e.g. empty files whose
-        // original == final content == "").
-        for path in &deletions {
-            if path.exists() {
-                std::fs::remove_file(path)?;
-            }
-        }
-        backup.finalize()?;
+        commit_changes(&changes, &deletions, &existed_before, &cwd)?;
 
         // Show diffs if --diff flag is set.
         if global.diff && !changes.is_empty() {
@@ -1924,42 +1929,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
     if !no_effective_changes && global.should_apply() {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        for (path, _, _) in &changes {
-            if deletions.contains(path) {
-                backup.save_before_delete(path)?;
-            } else {
-                backup.save_before_write(path)?;
-            }
-        }
-        for path in &deletions {
-            backup.save_before_delete(path)?;
-        }
-
-        let noop_policy = WritePolicy::default();
-        for (path, _, new_content) in &changes {
-            if deletions.contains(path) {
-                std::fs::remove_file(path)?;
-            } else {
-                if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty()
-                    && !parent.exists()
-                {
-                    std::fs::create_dir_all(parent)?;
-                }
-                if !existed_before.contains(path) {
-                    atomic_create_new(path, new_content, &noop_policy)?;
-                } else {
-                    atomic_write(path, new_content, &noop_policy)?;
-                }
-            }
-        }
-        for path in &deletions {
-            if path.exists() {
-                std::fs::remove_file(path)?;
-            }
-        }
-        backup.finalize()?;
+        commit_changes(&changes, &deletions, &existed_before, &cwd)?;
     }
 
     Ok(exit::SUCCESS)
