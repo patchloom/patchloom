@@ -246,14 +246,11 @@ fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> 
     Ok(())
 }
 
-/// Parse a string as a JSON value. If it fails, treat it as a plain string.
+/// Parse a string as a JSON value. Delegates to `doc::parse_value` which
+/// handles JSON literals, quoted strings, booleans, null, numbers, and
+/// bare-string fallback.
 fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
-    // Try JSON first (handles objects, arrays, numbers, booleans, null, quoted strings).
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-        return Ok(v);
-    }
-    // Fall back to treating the raw text as a JSON string.
-    Ok(serde_json::Value::String(s.to_string()))
+    Ok(crate::cmd::doc::parse_value(s))
 }
 
 /// Tokenize a line using shell-like quoting rules.
