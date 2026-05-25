@@ -21,7 +21,10 @@ make check          # must pass before every commit
 2. Make your changes. Run `make check-fast` during development for rapid feedback.
 3. Run `make check` before committing. This is the full CI gate: formatting,
    clippy, unit tests, integration tests, and doc verification.
-4. Commit with a [DCO sign-off](#dco-sign-off).
+4. If you touched `#[cfg(...)]` attributes or MCP-only code, also run
+   `cargo check --all-targets`. `make check` uses `--all-features`, so it
+   does not exercise the default-feature build.
+5. Commit with a [DCO sign-off](#dco-sign-off).
 5. Open a pull request against `main`.
 
 ### Useful make targets
@@ -38,6 +41,7 @@ make check          # must pass before every commit
 | `make update-readme` | Refresh generated test counts in README.md and CHANGELOG.md |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` |
 | `make audit` | Run `cargo audit` for known vulnerabilities |
+| `cargo check --all-targets` | Catch default-feature build regressions after `#[cfg(...)]` or MCP edits |
 
 ## Writing tests
 

@@ -11975,6 +11975,10 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn agent_test_readme_path() -> PathBuf {
+    repo_root().join("tests").join("agent").join("README.md")
+}
+
 fn concepts_path() -> PathBuf {
     repo_root()
         .join("docs")
@@ -13150,6 +13154,19 @@ fn test_smoke_installation_docs_cover_contributor_verification_loop() {
 }
 
 #[test]
+fn test_agent_test_readme_uses_virtualenv_for_direct_install() {
+    let content = fs::read_to_string(agent_test_readme_path()).unwrap();
+    assert!(
+        content.contains("python3 -m venv .venv"),
+        "agent test readme should create a virtualenv before pip install"
+    );
+    assert!(
+        content.contains(". .venv/bin/activate"),
+        "agent test readme should show how to activate the virtualenv"
+    );
+}
+
+#[test]
 fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let rust_version_line = cargo
@@ -13204,6 +13221,7 @@ fn test_contributing_make_targets_table_covers_key_targets() {
         "make integration-test",
         "make clippy",
         "make update-readme",
+        "cargo check --all-targets",
     ] {
         assert!(
             contributing.contains(&format!("| `{target}`")),
