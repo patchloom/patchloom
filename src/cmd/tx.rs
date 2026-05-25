@@ -1251,6 +1251,16 @@ fn describe_exit_status(status: std::process::ExitStatus) -> String {
     }
 }
 
+fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
+    if cwd == base_cwd {
+        ".".to_string()
+    } else {
+        crate::files::relative_display(cwd, base_cwd)
+            .display()
+            .to_string()
+    }
+}
+
 fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
@@ -1276,16 +1286,22 @@ struct LifecycleError {
     kind: &'static str,
 }
 
-fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), LifecycleError> {
+fn run_format_steps(
+    steps: &[plan::FormatStep],
+    base_cwd: &Path,
+    cwd: &Path,
+) -> Result<(), LifecycleError> {
+    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
         let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
         match result {
             Ok(status) if !status.success() => {
                 let msg = format!(
-                    "format step failed (step {}, {})",
+                    "format step failed (step {}, {}, cwd: {})",
                     index + 1,
-                    describe_exit_status(status)
+                    describe_exit_status(status),
+                    lifecycle_cwd
                 );
                 eprintln!("tx: {msg}");
                 return Err(LifecycleError {
@@ -1294,7 +1310,11 @@ fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), Lifecy
                 });
             }
             Err(e) => {
-                let msg = format!("format step error (step {}): {e}", index + 1);
+                let msg = format!(
+                    "format step error (step {}, cwd: {}): {e}",
+                    index + 1,
+                    lifecycle_cwd
+                );
                 eprintln!("tx: {msg}");
                 return Err(LifecycleError {
                     message: msg,
@@ -1307,7 +1327,12 @@ fn run_format_steps(steps: &[plan::FormatStep], cwd: &Path) -> Result<(), Lifecy
     Ok(())
 }
 
-fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), LifecycleError> {
+fn run_validate_steps(
+    steps: &[plan::ValidationStep],
+    base_cwd: &Path,
+    cwd: &Path,
+) -> Result<(), LifecycleError> {
+    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
         let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
@@ -1315,9 +1340,10 @@ fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), 
             Ok(status) if status.success() => {}
             Ok(status) => {
                 let msg = format!(
-                    "required validation failed (step {}, {})",
+                    "required validation failed (step {}, {}, cwd: {})",
                     index + 1,
-                    describe_exit_status(status)
+                    describe_exit_status(status),
+                    lifecycle_cwd
                 );
                 eprintln!("tx: {msg}");
                 if step.required.unwrap_or(false) {
@@ -1328,7 +1354,11 @@ fn run_validate_steps(steps: &[plan::ValidationStep], cwd: &Path) -> Result<(), 
                 }
             }
             Err(e) => {
-                let msg = format!("validation error (step {}): {e}", index + 1);
+                let msg = format!(
+                    "validation error (step {}, cwd: {}): {e}",
+                    index + 1,
+                    lifecycle_cwd
+                );
                 eprintln!("tx: {msg}");
                 if step.required.unwrap_or(false) {
                     return Err(LifecycleError {
@@ -1476,16 +1506,16 @@ fn execute_and_collect(
 }
 
 /// Run format and validation lifecycle steps. Returns `None` on success.
-fn run_lifecycle(plan: &Plan, cwd: &Path) -> Option<LifecycleError> {
+fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
     plan.format
         .as_deref()
-        .map(|steps| run_format_steps(steps, cwd))
+        .map(|steps| run_format_steps(steps, base_cwd, cwd))
         .unwrap_or(Ok(()))
         .err()
         .or_else(|| {
             plan.validate
                 .as_deref()
-                .and_then(|steps| run_validate_steps(steps, cwd).err())
+                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd).err())
         })
 }
 
@@ -1659,7 +1689,7 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
     )?;
 
     // Run format steps, then validation steps.
-    if let Some(err) = run_lifecycle(&plan, &effective_cwd) {
+    if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
         if plan.strict {
             rollback_strict(
                 &result.changes,
@@ -1842,7 +1872,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         // 6. Run format steps, then validation steps.
-        if let Some(err) = run_lifecycle(&plan, &cwd) {
+        if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
             if plan.strict {
                 rollback_strict(
                     &result.changes,

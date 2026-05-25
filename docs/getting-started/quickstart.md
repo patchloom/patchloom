@@ -124,7 +124,8 @@ patchloom tx bump.json --apply
 
 If an operation fails, nothing is written. Format and validate lifecycle steps run
 after writes, so use `"strict": true` in the plan if you want those failures to
-roll back all changes too.
+roll back all changes too. Lifecycle failure output includes the failing step
+number, exit status, and the `cwd` used for that step.
 
 ## Step 6: Inspect and undo changes
 

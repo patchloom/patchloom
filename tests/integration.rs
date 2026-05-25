@@ -10927,7 +10927,7 @@ fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
 
     assert_eq!(output.status.code(), Some(6));
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("required validation failed (step 1, exit code 1)"));
+    assert!(stderr.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(!stderr.contains(secret));
 }
 
@@ -10970,7 +10970,7 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
     assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
 }
 
@@ -11012,7 +11012,8 @@ fn test_tx_json_output_on_validation_failure() {
     assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
+    assert!(error.contains("cwd: ."));
     assert!(error.contains("exit code 1"));
 }
 
@@ -11056,7 +11057,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -11192,7 +11193,7 @@ fn test_tx_format_failure_redacts_shell_command_in_stderr() {
 
     assert_eq!(output.status.code(), Some(6));
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("format step failed (step 1, exit code 1)"));
+    assert!(stderr.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!stderr.contains(secret));
 }
 
@@ -11234,7 +11235,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert_eq!(json["error_kind"], "format_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
 }
 
@@ -11277,7 +11278,7 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
-    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -12831,6 +12832,49 @@ fn test_tx_relative_plan_cwd_resolves_from_invocation_root() {
 }
 
 #[test]
+fn test_tx_json_output_reports_lifecycle_cwd_for_relative_plan_cwd() {
+    let dir = TempDir::new().unwrap();
+    let repo = dir.path().join("repo");
+    let nested = repo.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "nested",
+        "operations": [{
+            "op": "file.create",
+            "path": "out.txt",
+            "content": "hello\n"
+        }],
+        "validate": [{
+            "cmd": shell_false(),
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = repo.join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(&repo)
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "validation_failed");
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: nested)"));
+    assert_eq!(
+        fs::read_to_string(nested.join("out.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -13766,6 +13810,21 @@ fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle
     let reference = fs::read_to_string(reference_path()).unwrap();
     let contract = "When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.";
     assert_eq!(reference.matches(contract).count(), 3);
+}
+
+#[test]
+fn test_reference_doc_describes_tx_lifecycle_failure_context() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(reference.contains(
+        "Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`)."
+    ));
+}
+
+#[test]
+fn test_quickstart_doc_describes_tx_lifecycle_failure_context() {
+    let quickstart = fs::read_to_string(quickstart_path()).unwrap();
+    assert!(quickstart.contains("Lifecycle failure output includes the failing step"));
+    assert!(quickstart.contains("status, and the `cwd` used for that step."));
 }
 
 #[test]

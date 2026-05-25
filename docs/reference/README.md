@@ -728,7 +728,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **What it does:** Runs shell commands after writes are staged to disk but before validation.
 - **Use when:** Generated or edited files should be normalized by tools like `cargo fmt`, `prettier`, or `black` as part of the same workflow.
 - **Step fields:** Each entry accepts `cmd` (required shell command) and `timeout` (seconds, default `60`).
-- **Failure behavior:** Any non-zero exit or timeout fails the transaction. With `strict: true`, Patchloom rolls back the staged writes.
+- **Failure behavior:** Any non-zero exit or timeout fails the transaction. Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`). With `strict: true`, Patchloom rolls back the staged writes.
 - **Prefer instead:** Run formatting outside `tx` when it does not need to participate in the transaction's success criteria.
 
 <!-- ref:tx-field:validate -->
@@ -737,7 +737,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **What it does:** Runs shell commands that decide whether the transaction should be reported as valid.
 - **Use when:** Build, test, or policy checks are part of the definition of success for the change.
 - **Step fields:** Each entry accepts `cmd` (required shell command), `required` (bool, default `false`), and `timeout` (seconds, default `60`).
-- **Failure behavior:** `required: true` makes the step gate transaction success. `required: false` still reports the validation problem to stderr, but the transaction keeps succeeding.
+- **Failure behavior:** `required: true` makes the step gate transaction success. `required: false` still reports the validation problem to stderr. Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`).
 - **Prefer instead:** Use standalone verification outside `tx` when the mutation and the validation lifecycle should stay separate.
 
 ### Transaction operations
