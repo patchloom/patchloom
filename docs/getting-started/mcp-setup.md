@@ -103,17 +103,17 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `doc_select` | Filter array items by selector (read-only) |
 | `doc_flatten` | List all leaf selector paths and values (read-only) |
 | `doc_diff` | Compare two structured files (read-only) |
-| `search_files` | Search files for a pattern, including literal, case-insensitive, count, file-only, and multiline modes (read-only) |
+| `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, and multiline modes. Binary and invalid UTF-8 files are skipped (read-only) |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `read_file` | Read file contents with optional line range |
-| `replace_text` | Replace text in a file (literal or regex) |
+| `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
 | `md_upsert_bullet` | Add a bullet under a markdown heading |
 | `md_table_append` | Append a row to a markdown table |
 | `md_replace_section` | Replace a markdown section by heading |
 | `md_insert_after_heading` | Insert content after a markdown heading |
 | `md_insert_before_heading` | Insert content before a markdown heading |
 | `md_lint` | Lint an AGENTS.md file for common issues |
-| `fix_whitespace` | Fix whitespace and line endings |
+| `fix_whitespace` | Fix whitespace and line endings in a text file. Binary and invalid UTF-8 files are skipped |
 | `create_file` | Create a new file with content |
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
