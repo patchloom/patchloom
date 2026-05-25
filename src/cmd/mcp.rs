@@ -563,6 +563,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
@@ -581,6 +582,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
@@ -598,6 +600,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocMerge {
                 path: p.path,
@@ -615,6 +618,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
@@ -633,6 +637,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
@@ -651,6 +656,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
@@ -669,6 +675,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
@@ -687,6 +694,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
@@ -705,6 +713,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMoveParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::DocMove {
                 path: p.path,
@@ -938,6 +947,7 @@ impl PatchloomService {
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         let mode = if p.regex {
             Some("regex".to_string())
         } else {
@@ -969,6 +979,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::MdUpsertBullet {
                 path: p.path,
@@ -987,6 +998,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::MdTableAppend {
                 path: p.path,
@@ -1005,6 +1017,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::MdReplaceSection {
                 path: p.path,
@@ -1023,6 +1036,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::MdInsertAfterHeading {
                 path: p.path,
@@ -1041,6 +1055,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::MdInsertBeforeHeading {
                 path: p.path,
@@ -1154,6 +1169,7 @@ impl PatchloomService {
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
         validate_path_contained(&p.path)?;
+        validate_path_resolved(&p.path, &self.cwd)?;
         execute_plan(
             make_plan(vec![Operation::TidyFix {
                 path: p.path,

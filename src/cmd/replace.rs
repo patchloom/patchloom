@@ -2,11 +2,11 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::replace::{
-    ReplaceModeError, replace_content, replacement_text, validate_replace_mode,
+    ReplaceModeError, compile_replace_regex, replace_content, replacement_text,
+    validate_replace_mode,
 };
-use crate::write::{atomic_write, policy_from_flags};
+use crate::write::policy_from_flags;
 use clap::Args;
-use regex::RegexBuilder;
 use serde::Serialize;
 use std::path::Path;
 
@@ -107,22 +107,12 @@ fn collect_replacements(
     let replacement = build_replacement(args);
     let quiet = global.quiet;
 
-    let compiled_re = if args.regex {
-        Some(
-            RegexBuilder::new(&args.from)
-                .dot_matches_new_line(args.multiline)
-                .case_insensitive(args.case_insensitive)
-                .build()?,
-        )
-    } else if args.case_insensitive {
-        Some(
-            RegexBuilder::new(&regex::escape(&args.from))
-                .case_insensitive(true)
-                .build()?,
-        )
-    } else {
-        None
-    };
+    let compiled_re = compile_replace_regex(
+        &args.from,
+        args.regex,
+        args.case_insensitive,
+        args.multiline,
+    )?;
 
     let from = &args.from;
     let nth = args.nth;
@@ -266,15 +256,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write changes using atomic_write with write policy.
     if global.apply {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        for r in &replacements {
-            backup.save_before_write(Path::new(&r.path))?;
-        }
-        for r in &replacements {
-            let policy = policy_from_flags(global, Some(Path::new(&r.path)));
-            atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
-        }
-        backup.finalize()?;
+        let policies: Vec<_> = replacements
+            .iter()
+            .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
+            .collect();
+        let writes: Vec<_> = replacements
+            .iter()
+            .zip(&policies)
+            .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
+            .collect();
+        crate::backup::backup_write_files(&cwd, &writes)?;
 
         let color = global.should_color();
         if global.json {
@@ -330,15 +321,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        for r in &replacements {
-            backup.save_before_write(Path::new(&r.path))?;
-        }
-        for r in &replacements {
-            let policy = policy_from_flags(global, Some(Path::new(&r.path)));
-            atomic_write(Path::new(&r.path), &r.replaced, &policy)?;
-        }
-        backup.finalize()?;
+        let policies: Vec<_> = replacements
+            .iter()
+            .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
+            .collect();
+        let writes: Vec<_> = replacements
+            .iter()
+            .zip(&policies)
+            .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
+            .collect();
+        crate::backup::backup_write_files(&cwd, &writes)?;
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }

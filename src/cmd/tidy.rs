@@ -268,15 +268,12 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 // --confirm: prompt after showing diffs, then apply if confirmed.
                 if global.should_apply() {
-                    let mut backup = crate::backup::BackupSession::new(&root)?;
-                    for r in &results {
-                        backup.save_before_write(&r.path)?;
-                    }
-                    for r in &results {
-                        let noop = WritePolicy::default();
-                        atomic_write(&r.path, &r.fixed, &noop)?;
-                    }
-                    backup.finalize()?;
+                    let noop = WritePolicy::default();
+                    let writes: Vec<_> = results
+                        .iter()
+                        .map(|r| (r.path.as_path(), r.fixed.as_str(), &noop))
+                        .collect();
+                    crate::backup::backup_write_files(&root, &writes)?;
                     return Ok(exit::SUCCESS);
                 }
                 Ok(exit::CHANGES_DETECTED)

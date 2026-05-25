@@ -66,7 +66,14 @@ pub struct SearchArgs {
 struct SearchMatch {
     #[serde(serialize_with = "serialize_arc_str")]
     path: Arc<str>,
+    /// 1-based line number of the match.
     line: usize,
+    /// 1-based byte offset from the start of the line to the match start.
+    ///
+    /// This is a **byte** offset, not a character or grapheme offset. For
+    /// ASCII text (one byte per char), column equals the character position.
+    /// For multi-byte UTF-8, the byte offset may exceed the character count.
+    /// When no match position is available (e.g. inverted match), defaults to 1.
     column: usize,
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,6 +216,11 @@ struct FileResult {
     count: usize,
 }
 
+/// Compute a 1-based (line, column) pair from a byte offset into content.
+///
+/// `newline_offsets` is a list of byte positions where `\n` appears.
+/// `start` is the byte offset of the match. Returns a 1-based line number
+/// and a 1-based byte column within that line.
 fn line_and_column_for_offset(newline_offsets: &[usize], start: usize) -> (usize, usize) {
     let line_index = newline_offsets.partition_point(|&offset| offset < start);
     let line_start = if line_index == 0 {

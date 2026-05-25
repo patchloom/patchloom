@@ -187,6 +187,26 @@ impl BackupSession {
     }
 }
 
+/// Back up files, write new content atomically, and finalize the backup session.
+/// All originals are saved before any writes begin, ensuring consistency.
+///
+/// Each element is `(path, content, policy)` where `path` is the file to write,
+/// `content` is the new file content, and `policy` controls write transformations.
+pub fn backup_write_files(
+    cwd: &Path,
+    files: &[(&Path, &str, &crate::write::WritePolicy)],
+) -> anyhow::Result<()> {
+    let mut session = BackupSession::new(cwd)?;
+    for &(path, _, _) in files {
+        session.save_before_write(path)?;
+    }
+    for &(path, content, policy) in files {
+        crate::write::atomic_write(path, content, policy)?;
+    }
+    session.finalize()?;
+    Ok(())
+}
+
 /// List available backup sessions, most recent first.
 pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
     let backup_dir = project_root.join(BACKUP_DIR);
@@ -228,6 +248,12 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     let mut restored = 0;
     for entry in &manifest.entries {
         let target = resolve_restore_path(project_root, &entry.path);
+
+        // Validate that internal paths (non-external) stay within the project
+        // root. A crafted manifest with `../../etc/passwd` must not escape (#386).
+        if !entry.path.starts_with("__external__/") && !entry.path.starts_with("__external_") {
+            validate_restore_path(&entry.path)?;
+        }
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
@@ -260,6 +286,31 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     }
 
     Ok(restored)
+}
+
+/// Reject internal manifest paths that would escape the project root via
+/// `..` traversal. Uses a syntactic depth check so it works regardless of
+/// whether the target path exists on disk (#386).
+fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
+    let mut depth: i32 = 0;
+    for component in Path::new(entry_path).components() {
+        match component {
+            std::path::Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    anyhow::bail!("restore path escapes project root: {entry_path}");
+                }
+            }
+            std::path::Component::Normal(_) => {
+                depth += 1;
+            }
+            std::path::Component::CurDir => {}
+            _ => {
+                anyhow::bail!("unexpected path component in restore path: {entry_path}");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Resolve the restore target path from a manifest entry.
@@ -587,6 +638,36 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&ext_file).unwrap(),
             "doomed external"
+        );
+    }
+
+    #[test]
+    fn restore_rejects_path_traversal() {
+        let dir = TempDir::new().unwrap();
+        // Manually create a crafted manifest with a path traversal entry.
+        let ts = "999999999";
+        let session_dir = dir.path().join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: vec![ManifestEntry {
+                path: "../../etc/passwd".to_string(),
+                action: FileAction::Modified,
+            }],
+        };
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        std::fs::write(session_dir.join("manifest.json"), json).unwrap();
+
+        let result = restore_session(dir.path(), ts);
+        assert!(
+            result.is_err(),
+            "restore should reject path traversal, got: {:?}",
+            result
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("escapes project root"),
+            "error should mention escaping: {err}"
         );
     }
 }

@@ -2,7 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::ops::patch::{apply_hunks, parse_patch};
-use crate::write::{atomic_write, policy_from_flags};
+use crate::write::policy_from_flags;
 use clap::Args;
 use serde::Serialize;
 
@@ -256,18 +256,21 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // --apply mode: write files to disk.
             if global.apply {
-                let mut backup = crate::backup::BackupSession::new(&root)?;
+                let policies: Vec<_> = file_changes
+                    .iter()
+                    .map(|(p, _)| policy_from_flags(global, Some(p.as_path())))
+                    .collect();
+                let writes: Vec<_> = file_changes
+                    .iter()
+                    .zip(&policies)
+                    .map(|((p, c), pol)| (p.as_path(), c.as_str(), pol))
+                    .collect();
+                crate::backup::backup_write_files(&root, &writes)?;
                 for (file_path, _) in &file_changes {
-                    backup.save_before_write(file_path)?;
-                }
-                for (file_path, patched) in &file_changes {
-                    let policy = policy_from_flags(global, Some(file_path));
-                    atomic_write(file_path, patched, &policy)?;
                     if !global.quiet {
                         eprintln!("patch apply: {} -- written", file_path.display());
                     }
                 }
-                backup.finalize()?;
                 if global.diff {
                     let result = DiffResult {
                         diffs,
@@ -293,15 +296,16 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // --confirm: prompt after showing diff, then apply if confirmed.
             if global.should_apply() {
-                let mut backup = crate::backup::BackupSession::new(&root)?;
-                for (file_path, _) in &file_changes {
-                    backup.save_before_write(file_path)?;
-                }
-                for (file_path, patched) in &file_changes {
-                    let policy = policy_from_flags(global, Some(file_path));
-                    atomic_write(file_path, patched, &policy)?;
-                }
-                backup.finalize()?;
+                let policies: Vec<_> = file_changes
+                    .iter()
+                    .map(|(p, _)| policy_from_flags(global, Some(p.as_path())))
+                    .collect();
+                let writes: Vec<_> = file_changes
+                    .iter()
+                    .zip(&policies)
+                    .map(|((p, c), pol)| (p.as_path(), c.as_str(), pol))
+                    .collect();
+                crate::backup::backup_write_files(&root, &writes)?;
             }
 
             Ok(exit::SUCCESS)

@@ -11,7 +11,8 @@ use crate::ops::md::{
 };
 use crate::ops::patch::apply_patch_with_loader;
 use crate::ops::replace::{
-    ReplaceModeError, replace_content, replacement_text, validate_replace_mode,
+    ReplaceModeError, compile_replace_regex, replace_content, replacement_text,
+    validate_replace_mode,
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
@@ -318,13 +319,13 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     path: &Path,
-    cwd: &Path,
 ) -> anyhow::Result<&'a str> {
     match pending.entry(path.to_path_buf()) {
         Entry::Occupied(entry) => Ok(&entry.into_mut().1),
         Entry::Vacant(entry) => {
-            let abs = cwd.join(path);
-            let content = std::fs::read_to_string(&abs)
+            // Callers pass already-resolved paths (cwd.join(rel_path)),
+            // so read directly without double-joining (#385).
+            let content = std::fs::read_to_string(path)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
             Ok(&entry.insert((content.clone(), content)).1)
         }
@@ -400,7 +401,7 @@ fn get_doc_root<'a>(
 
     // Ensure the document is in the cache.
     if !doc_cache.contains_key(&file_path) {
-        let content = read_file_content(pending, &file_path, cwd)?;
+        let content = read_file_content(pending, &file_path)?;
         let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         let root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
         let old_value = match format {
@@ -471,26 +472,11 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
     let regex_mode = mode.as_deref() == Some("regex");
     let use_regex = regex_mode || *case_insensitive;
     let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
-    let compiled_re = if regex_mode {
-        Some(
-            RegexBuilder::new(from)
-                .case_insensitive(*case_insensitive)
-                .dot_matches_new_line(*multiline)
-                .build()?,
-        )
-    } else if *case_insensitive {
-        Some(
-            RegexBuilder::new(&regex::escape(from))
-                .case_insensitive(true)
-                .build()?,
-        )
-    } else {
-        None
-    };
+    let compiled_re = compile_replace_regex(from, regex_mode, *case_insensitive, *multiline)?;
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
-        let content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+        let content = read_file_content(tx.pending, &file_path)?;
         let (replaced, match_count) =
             replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
         if match_count > 0 {
@@ -545,7 +531,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 
         for file_path in candidate_paths {
             let content = if tx.pending.contains_key(&file_path) {
-                let result = read_file_content(tx.pending, &file_path, tx.cwd);
+                let result = read_file_content(tx.pending, &file_path);
                 match result {
                     Ok(c) => c.to_owned(),
                     Err(e) => {
@@ -583,7 +569,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     // Ensure file is loaded into pending (mutable borrow), then release it.
-    read_file_content(tx.pending, &file_path, tx.cwd)?;
+    read_file_content(tx.pending, &file_path)?;
     // Re-borrow immutably to avoid cloning the entire file content.
     let content = &tx.pending[&file_path].1;
     // Fast path: no line range requested, preserve raw content exactly and avoid
@@ -686,7 +672,7 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
             }
         }
 
-        read_file_content(tx.pending, file_path, tx.cwd)?;
+        read_file_content(tx.pending, file_path)?;
         let content = &tx.pending[file_path].1;
         let lines: Vec<&str> = content.lines().collect();
 
@@ -911,7 +897,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             content,
         } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let new_content = replace_section_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -923,7 +909,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             content,
         } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let new_content = insert_after_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -935,7 +921,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             content,
         } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let new_content = insert_before_heading_in(file_content, heading, content)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -947,7 +933,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             bullet,
         } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let new_content = upsert_bullet_in(file_content, heading, bullet)
                 .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -955,7 +941,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::MdTableAppend { path, heading, row } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let new_content = table_append_for_tx(file_content, heading, row)
                 .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -963,7 +949,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::MdDedupeHeadings { path } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path, tx.cwd)?;
+            let file_content = read_file_content(tx.pending, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
@@ -975,7 +961,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             normalize_eol,
         } => {
             let file_path = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &file_path, tx.cwd)?.to_owned();
+            let content = read_file_content(tx.pending, &file_path)?.to_owned();
             let policy = WritePolicy {
                 ensure_final_newline: ensure_final_newline.unwrap_or(true),
                 trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
@@ -1002,7 +988,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             }
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
+                    let _ = read_file_content(tx.pending, &file_path)?;
                 }
                 update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
             } else {
@@ -1018,7 +1004,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::PatchApply { diff } => {
             let patched_files = apply_patch_with_loader(diff, |path| {
                 let file_path = tx.cwd.join(path);
-                Ok(read_file_content(tx.pending, &file_path, tx.cwd)?.to_string())
+                Ok(read_file_content(tx.pending, &file_path)?.to_string())
             })?;
             for (rel_path, patched_content) in patched_files {
                 let file_path = tx.cwd.join(&rel_path);
@@ -1042,7 +1028,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
-                    let _ = read_file_content(tx.pending, &file_path, tx.cwd)?;
+                    let _ = read_file_content(tx.pending, &file_path)?;
                     false
                 }
             };
@@ -1073,7 +1059,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             }
 
             // Read source content into pending (validates it exists).
-            let content = read_file_content(tx.pending, &src_path, tx.cwd)?.to_string();
+            let content = read_file_content(tx.pending, &src_path)?.to_string();
 
             // Check destination does not already exist (unless force).
             if !force {
@@ -1386,6 +1372,124 @@ fn rollback_strict(
 }
 
 // ---------------------------------------------------------------------------
+// Shared execution core
+// ---------------------------------------------------------------------------
+
+/// Intermediate result from executing all operations in a plan and applying
+/// write policy. Contains everything needed for callers to decide on output
+/// mode, commit changes, and run lifecycle steps.
+struct TxExecResult {
+    changes: Vec<(PathBuf, String, String)>,
+    deletions: HashSet<PathBuf>,
+    existed_before: HashSet<PathBuf>,
+    /// Original pending map, retained for `rollback_strict`.
+    pending: HashMap<PathBuf, (String, String)>,
+    tx_reads: Vec<TxReadResult>,
+    tx_searches: Vec<TxSearchResult>,
+    no_effective_changes: bool,
+    replace_no_matches: bool,
+}
+
+/// Execute all plan operations in memory, apply write policy, and return
+/// the collected results without touching the filesystem.
+///
+/// On operation failure the error message is pre-formatted as
+/// `"operation N (label) failed: ..."` so callers can emit it directly.
+fn execute_and_collect(
+    plan: &Plan,
+    cwd: &Path,
+    global: &GlobalFlags,
+    quiet: bool,
+    structured: bool,
+) -> anyhow::Result<TxExecResult> {
+    let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
+    let mut deletions: HashSet<PathBuf> = HashSet::new();
+    let mut has_non_idempotent_replace = false;
+    let mut total_replace_matches = 0usize;
+    let mut tx_reads: Vec<TxReadResult> = Vec::new();
+    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
+    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
+
+    for (i, op) in plan.operations.iter().enumerate() {
+        if let Operation::Replace { if_exists, .. } = op
+            && !if_exists
+        {
+            has_non_idempotent_replace = true;
+        }
+        if op_needs_doc_flush(op) {
+            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+        }
+        let mut tx = TxState {
+            pending: &mut pending,
+            deletions: &mut deletions,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut tx_reads,
+            tx_searches: &mut tx_searches,
+            cwd,
+            quiet,
+            structured,
+        };
+        match execute_operation(op, &mut tx) {
+            Ok(count) => total_replace_matches += count,
+            Err(e) => {
+                anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+            }
+        }
+    }
+
+    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+
+    let existed_before: HashSet<PathBuf> = pending
+        .keys()
+        .filter(|path| path.exists())
+        .cloned()
+        .collect();
+
+    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
+    for (path, (original, current)) in &pending {
+        let write_policy = build_write_policy(plan, global, path)?;
+        let final_content = apply_policy(current, &write_policy);
+        if *original != *final_content {
+            changes.push((path.clone(), original.clone(), final_content.into_owned()));
+        }
+    }
+    changes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let pending_deletions = deletions
+        .iter()
+        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
+        .count();
+    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
+    let replace_no_matches =
+        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
+
+    Ok(TxExecResult {
+        changes,
+        deletions,
+        existed_before,
+        pending,
+        tx_reads,
+        tx_searches,
+        no_effective_changes,
+        replace_no_matches,
+    })
+}
+
+/// Run format and validation lifecycle steps. Returns `None` on success.
+fn run_lifecycle(plan: &Plan, cwd: &Path) -> Option<LifecycleError> {
+    plan.format
+        .as_deref()
+        .map(|steps| run_format_steps(steps, cwd))
+        .unwrap_or(Ok(()))
+        .err()
+        .or_else(|| {
+            plan.validate
+                .as_deref()
+                .and_then(|steps| run_validate_steps(steps, cwd).err())
+        })
+}
+
+// ---------------------------------------------------------------------------
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
@@ -1509,143 +1613,50 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
         crate::config::apply_config(&mut global, &config);
     }
 
-    // Execute all operations, collecting changes in memory.
-    let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
-    let mut deletions: HashSet<PathBuf> = HashSet::new();
-    let mut has_non_idempotent_replace = false;
-    let mut total_replace_matches = 0usize;
-    let mut tx_reads: Vec<TxReadResult> = Vec::new();
-    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
-    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
-
-    for (i, op) in plan.operations.iter().enumerate() {
-        if let Operation::Replace { if_exists, .. } = op
-            && !if_exists
-        {
-            has_non_idempotent_replace = true;
+    // Execute operations and collect changes in memory.
+    let result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
+        Ok(r) => r,
+        Err(e) => {
+            return Ok((exit::ROLLBACK, make_error_json("rollback", &e.to_string())));
         }
-        if op_needs_doc_flush(op) {
-            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-        }
-        let mut tx = TxState {
-            pending: &mut pending,
-            deletions: &mut deletions,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut tx_reads,
-            tx_searches: &mut tx_searches,
-            cwd: &effective_cwd,
-            quiet: true,
-            structured: true,
-        };
-        match execute_operation(op, &mut tx) {
-            Ok(count) => total_replace_matches += count,
-            Err(e) => {
-                let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
-                return Ok((exit::ROLLBACK, make_error_json("rollback", &msg)));
-            }
-        }
-    }
+    };
 
-    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-
-    let existed_before: HashSet<PathBuf> = pending
-        .keys()
-        .filter(|path| path.exists())
-        .cloned()
-        .collect();
-
-    // Apply write policy and collect actual file changes.
-    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
-    for (path, (original, current)) in &pending {
-        let write_policy = build_write_policy(&plan, &global, path)?;
-        let final_content = apply_policy(current, &write_policy);
-        if *original != *final_content {
-            changes.push((path.clone(), original.clone(), final_content.into_owned()));
-        }
-    }
-    changes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let pending_deletions = deletions
-        .iter()
-        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
-        .count();
-    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
-    let replace_no_matches =
-        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
-
-    if replace_no_matches {
+    if result.replace_no_matches {
         return Ok((exit::NO_MATCHES, String::new()));
     }
 
-    if no_effective_changes {
+    if result.no_effective_changes {
         let mut output = build_tx_output(
             "success",
             true,
-            &changes,
-            &deletions,
-            &existed_before,
+            &result.changes,
+            &result.deletions,
+            &result.existed_before,
             &effective_cwd,
         );
-        output.reads = tx_reads;
-        output.searches = tx_searches;
+        output.reads = result.tx_reads;
+        output.searches = result.tx_searches;
         let json = serde_json::to_string_pretty(&output)?;
         return Ok((exit::SUCCESS, json));
     }
 
-    // Apply: back up originals, write files, run lifecycle.
-    let mut backup = crate::backup::BackupSession::new(&effective_cwd)?;
-    for (path, _, _) in &changes {
-        if deletions.contains(path) {
-            backup.save_before_delete(path)?;
-        } else {
-            backup.save_before_write(path)?;
-        }
-    }
-    for path in &deletions {
-        backup.save_before_delete(path)?;
-    }
-
-    let noop_policy = WritePolicy::default();
-    for (path, _, new_content) in &changes {
-        if deletions.contains(path) {
-            std::fs::remove_file(path)?;
-        } else {
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-                && !parent.exists()
-            {
-                std::fs::create_dir_all(parent)?;
-            }
-            if !existed_before.contains(path) {
-                atomic_create_new(path, new_content, &noop_policy)?;
-            } else {
-                atomic_write(path, new_content, &noop_policy)?;
-            }
-        }
-    }
-    for path in &deletions {
-        if path.exists() {
-            std::fs::remove_file(path)?;
-        }
-    }
-    backup.finalize()?;
+    // Apply: back up originals, write files.
+    commit_changes(
+        &result.changes,
+        &result.deletions,
+        &result.existed_before,
+        &effective_cwd,
+    )?;
 
     // Run format steps, then validation steps.
-    let lifecycle_err = plan
-        .format
-        .as_deref()
-        .map(|steps| run_format_steps(steps, &effective_cwd))
-        .unwrap_or(Ok(()))
-        .err()
-        .or_else(|| {
-            plan.validate
-                .as_deref()
-                .and_then(|steps| run_validate_steps(steps, &effective_cwd).err())
-        });
-
-    if let Some(err) = lifecycle_err {
+    if let Some(err) = run_lifecycle(&plan, &effective_cwd) {
         if plan.strict {
-            rollback_strict(&changes, &pending, &deletions, &existed_before);
+            rollback_strict(
+                &result.changes,
+                &result.pending,
+                &result.deletions,
+                &result.existed_before,
+            );
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
             return Ok((
                 exit::ROLLBACK,
@@ -1661,13 +1672,13 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
     let mut output = build_tx_output(
         "success",
         true,
-        &changes,
-        &deletions,
-        &existed_before,
+        &result.changes,
+        &result.deletions,
+        &result.existed_before,
         &effective_cwd,
     );
-    output.reads = tx_reads;
-    output.searches = tx_searches;
+    output.reads = result.tx_reads;
+    output.searches = result.tx_searches;
     let json = serde_json::to_string_pretty(&output)?;
     Ok((exit::SUCCESS, json))
 }
@@ -1747,93 +1758,44 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     // 4. Execute all operations, collecting changes in memory (no writes).
-    let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
-    let mut deletions: HashSet<PathBuf> = HashSet::new();
-    let mut has_non_idempotent_replace = false;
-    let mut total_replace_matches = 0usize;
-    let mut tx_reads: Vec<TxReadResult> = Vec::new();
-    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
-    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
-
-    for (i, op) in plan.operations.iter().enumerate() {
-        if let Operation::Replace { if_exists, .. } = op
-            && !if_exists
-        {
-            has_non_idempotent_replace = true;
-        }
-        // Flush the doc cache before non-doc operations that work on raw
-        // text, so they see the latest serialized content.
-        if op_needs_doc_flush(op) {
-            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-        }
-        let mut tx = TxState {
-            pending: &mut pending,
-            deletions: &mut deletions,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut tx_reads,
-            tx_searches: &mut tx_searches,
-            cwd: &cwd,
-            quiet: global.quiet,
-            structured,
-        };
-        let result = execute_operation(op, &mut tx);
-        match result {
-            Ok(match_count) => {
-                total_replace_matches += match_count;
+    let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = e.to_string();
+            if structured {
+                emit_error_json("rollback", &msg, compact);
+            } else {
+                eprintln!("tx: {msg}");
             }
-            Err(e) => {
-                let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
-                if structured {
-                    emit_error_json("rollback", &msg, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::ROLLBACK);
-            }
+            return Ok(exit::ROLLBACK);
         }
-    }
+    };
 
-    // Flush any remaining cached docs before the write phase.
-    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-
-    let existed_before: HashSet<PathBuf> = pending
-        .keys()
-        .filter(|path| path.exists())
-        .cloned()
-        .collect();
-
-    // 5. Apply write policy and collect actual file changes.
-    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
-    for (path, (original, current)) in &pending {
-        let write_policy = build_write_policy(&plan, global, path)?;
-        let final_content = apply_policy(current, &write_policy);
-        if *original != *final_content {
-            changes.push((path.clone(), original.clone(), final_content.into_owned()));
-        }
-    }
-    changes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    // 6. Output based on mode.
     // Deletions of empty files won't appear in `changes` (original == final == ""),
     // but they still count as changes for --check reporting.
-    let pending_deletions = deletions
+    let pending_deletions = result
+        .deletions
         .iter()
-        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
+        .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
         .count();
-    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
-    let replace_no_matches =
-        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
 
+    // 5. Output based on mode.
     if global.check {
-        if no_effective_changes {
-            if replace_no_matches {
+        if result.no_effective_changes {
+            if result.replace_no_matches {
                 return Ok(exit::NO_MATCHES);
             }
             if structured {
-                let mut output =
-                    build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
-                output.reads = std::mem::take(&mut tx_reads);
-                output.searches = std::mem::take(&mut tx_searches);
+                let mut output = build_tx_output(
+                    "success",
+                    true,
+                    &result.changes,
+                    &result.deletions,
+                    &result.existed_before,
+                    &cwd,
+                );
+                output.reads = std::mem::take(&mut result.tx_reads);
+                output.searches = std::mem::take(&mut result.tx_searches);
                 emit_output_json(&output, compact);
             }
             return Ok(exit::SUCCESS);
@@ -1842,44 +1804,45 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let mut output = build_tx_output(
                 "changes_detected",
                 true,
-                &changes,
-                &deletions,
-                &existed_before,
+                &result.changes,
+                &result.deletions,
+                &result.existed_before,
                 &cwd,
             );
-            output.reads = std::mem::take(&mut tx_reads);
-            output.searches = std::mem::take(&mut tx_searches);
+            output.reads = std::mem::take(&mut result.tx_reads);
+            output.searches = std::mem::take(&mut result.tx_searches);
             emit_output_json(&output, compact);
         } else if !global.quiet {
-            println!("{} file(s) would change", changes.len() + pending_deletions);
+            println!(
+                "{} file(s) would change",
+                result.changes.len() + pending_deletions
+            );
         }
         return Ok(exit::CHANGES_DETECTED);
     }
 
     if global.apply {
-        commit_changes(&changes, &deletions, &existed_before, &cwd)?;
+        commit_changes(
+            &result.changes,
+            &result.deletions,
+            &result.existed_before,
+            &cwd,
+        )?;
 
         // Show diffs if --diff flag is set.
-        if global.diff && !changes.is_empty() {
-            print_diffs(&changes, &cwd, global.should_color());
+        if global.diff && !result.changes.is_empty() {
+            print_diffs(&result.changes, &cwd, global.should_color());
         }
 
-        // 7. Run format steps, then validation steps.
-        let lifecycle_err = plan
-            .format
-            .as_deref()
-            .map(|steps| run_format_steps(steps, &cwd))
-            .unwrap_or(Ok(()))
-            .err()
-            .or_else(|| {
-                plan.validate
-                    .as_deref()
-                    .and_then(|steps| run_validate_steps(steps, &cwd).err())
-            });
-
-        if let Some(err) = lifecycle_err {
+        // 6. Run format steps, then validation steps.
+        if let Some(err) = run_lifecycle(&plan, &cwd) {
             if plan.strict {
-                rollback_strict(&changes, &pending, &deletions, &existed_before);
+                rollback_strict(
+                    &result.changes,
+                    &result.pending,
+                    &result.deletions,
+                    &result.existed_before,
+                );
                 let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
                 if structured {
                     emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, compact);
@@ -1894,46 +1857,63 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::VALIDATION_FAILED);
         }
 
-        if replace_no_matches {
+        if result.replace_no_matches {
             return Ok(exit::NO_MATCHES);
         }
         if structured {
-            let mut output =
-                build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
-            output.reads = std::mem::take(&mut tx_reads);
-            output.searches = std::mem::take(&mut tx_searches);
+            let mut output = build_tx_output(
+                "success",
+                true,
+                &result.changes,
+                &result.deletions,
+                &result.existed_before,
+                &cwd,
+            );
+            output.reads = std::mem::take(&mut result.tx_reads);
+            output.searches = std::mem::take(&mut result.tx_searches);
             emit_output_json(&output, compact);
         } else if global.show_status() {
-            let n_changed = changes.len();
-            let n_deleted = deletions.len();
+            let n_changed = result.changes.len();
+            let n_deleted = result.deletions.len();
             let total = n_changed + n_deleted;
             eprintln!("applied: {total} file(s) affected");
         }
         return Ok(exit::SUCCESS);
     }
 
-    if replace_no_matches {
+    if result.replace_no_matches {
         return Ok(exit::NO_MATCHES);
     }
 
     // Default / --diff mode: show unified diffs.
     if structured {
-        let mut output =
-            build_tx_output("success", true, &changes, &deletions, &existed_before, &cwd);
-        output.reads = std::mem::take(&mut tx_reads);
-        output.searches = std::mem::take(&mut tx_searches);
+        let mut output = build_tx_output(
+            "success",
+            true,
+            &result.changes,
+            &result.deletions,
+            &result.existed_before,
+            &cwd,
+        );
+        output.reads = std::mem::take(&mut result.tx_reads);
+        output.searches = std::mem::take(&mut result.tx_searches);
         emit_output_json(&output, compact);
-    } else if !changes.is_empty() {
-        print_diffs(&changes, &cwd, global.should_color());
+    } else if !result.changes.is_empty() {
+        print_diffs(&result.changes, &cwd, global.should_color());
     }
-    if !no_effective_changes && global.show_status() {
-        let n = changes.len() + deletions.len();
+    if !result.no_effective_changes && global.show_status() {
+        let n = result.changes.len() + result.deletions.len();
         eprintln!("{n} file(s) changed");
     }
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
-    if !no_effective_changes && global.should_apply() {
-        commit_changes(&changes, &deletions, &existed_before, &cwd)?;
+    if !result.no_effective_changes && global.should_apply() {
+        commit_changes(
+            &result.changes,
+            &result.deletions,
+            &result.existed_before,
+            &cwd,
+        )?;
     }
 
     Ok(exit::SUCCESS)
@@ -2000,7 +1980,7 @@ mod tests {
         fs::write(&path, "hello from disk\n").unwrap();
         let mut pending = HashMap::new();
 
-        let content = read_file_content(&mut pending, &path, dir.path()).unwrap();
+        let content = read_file_content(&mut pending, &path).unwrap();
 
         assert_eq!(content, "hello from disk\n");
         assert_eq!(
@@ -2723,5 +2703,289 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(fs::read_to_string(&f).unwrap(), "recreated\n");
+    }
+
+    // -----------------------------------------------------------------------
+    // #387: Medium-priority test gaps
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn plan_normalize_eol_invalid_value_returns_error() {
+        let result = super::plan_normalize_eol("bogus");
+        assert!(result.is_err(), "invalid eol value should fail");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("invalid normalize_eol"),
+            "error should name the field: {msg}"
+        );
+    }
+
+    #[test]
+    fn rollback_strict_restores_modified_files() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("a.txt");
+        fs::write(&f, "original").unwrap();
+
+        let mut pending = HashMap::new();
+        pending.insert(f.clone(), ("original".to_string(), "changed".to_string()));
+        let deletions = HashSet::new();
+        let existed_before: HashSet<PathBuf> = [f.clone()].into();
+
+        // Simulate the apply phase: write the new content.
+        crate::write::atomic_write(&f, "changed", &WritePolicy::default()).unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "changed");
+
+        // Rollback should restore to original.
+        rollback_strict(
+            &[(f.clone(), "original".to_string(), "changed".to_string())],
+            &pending,
+            &deletions,
+            &existed_before,
+        );
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            "original",
+            "rollback_strict should restore the original content"
+        );
+    }
+
+    #[test]
+    fn tx_doc_append_to_non_array_rolls_back() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.json");
+        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "doc.append", "path": "{}", "selector": "items", "value": 42}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::ROLLBACK,
+            "doc.append to non-array should roll back"
+        );
+    }
+
+    #[test]
+    fn tx_doc_prepend_to_non_array_rolls_back() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.json");
+        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "doc.prepend", "path": "{}", "selector": "items", "value": 99}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::ROLLBACK,
+            "doc.prepend to non-array should roll back"
+        );
+    }
+
+    #[test]
+    fn tx_doc_delete_where_on_non_array_rolls_back() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.json");
+        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "x=1"}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::ROLLBACK,
+            "doc.delete_where on non-array should roll back"
+        );
+    }
+
+    #[test]
+    fn tx_strict_mode_rollback_on_operation_failure() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.txt");
+        fs::write(&f, "original content").unwrap();
+
+        // Operation 1 succeeds (replace), operation 2 fails (read nonexistent).
+        // Strict mode should revert operation 1's changes.
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "strict": true,
+  "operations": [
+    {{"op": "replace", "path": "{}", "from": "original", "to": "modified"}},
+    {{"op": "read", "path": "nonexistent-file.txt"}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::ROLLBACK,
+            "strict plan with failing op should roll back"
+        );
+
+        // File should remain untouched because execution failed before any writes.
+        let content = fs::read_to_string(&f).unwrap();
+        assert_eq!(content, "original content", "file should remain unchanged");
+    }
+
+    #[test]
+    fn tx_invalid_normalize_eol_in_plan() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("file.txt");
+        fs::write(&f, "hello\n").unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "tidy.fix", "path": "{}", "normalize_eol": "bogus"}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            write: Default::default(),
+        };
+        let mut global = default_global();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::ROLLBACK,
+            "invalid normalize_eol should cause rollback"
+        );
+    }
+
+    #[test]
+    fn undo_list_json_output() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        fs::write(&file, "v1").unwrap();
+        let mut session = crate::backup::BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap().unwrap();
+
+        let args = crate::cmd::undo::UndoArgs {
+            list: true,
+            session: None,
+            apply: false,
+        };
+        let mut global = GlobalFlags {
+            json: true,
+            quiet: false,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            ..GlobalFlags::default()
+        };
+        let code = crate::cmd::undo::run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // Also test JSONL mode.
+        global.json = false;
+        global.jsonl = true;
+        let args2 = crate::cmd::undo::UndoArgs {
+            list: true,
+            session: None,
+            apply: false,
+        };
+        let code2 = crate::cmd::undo::run(args2, &global).unwrap();
+        assert_eq!(code2, exit::SUCCESS);
+    }
+
+    #[test]
+    fn undo_dry_run_json_output() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("b.txt");
+        fs::write(&file, "v1").unwrap();
+        let mut session = crate::backup::BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        // Modify file so dry-run shows changes.
+        fs::write(&file, "v2").unwrap();
+
+        let args = crate::cmd::undo::UndoArgs {
+            list: false,
+            session: Some(ts),
+            apply: false,
+        };
+        let global = GlobalFlags {
+            json: true,
+            quiet: false,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            ..GlobalFlags::default()
+        };
+        let code = crate::cmd::undo::run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
     }
 }

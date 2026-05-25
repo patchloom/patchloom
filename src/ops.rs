@@ -1257,6 +1257,35 @@ pub(crate) mod doc {
 pub(crate) mod replace {
     use regex::Regex;
 
+    /// Build an optional compiled regex for replace operations.
+    ///
+    /// Returns `Some(Regex)` when regex mode is active or case-insensitive
+    /// matching is requested (which requires escaping the literal pattern).
+    /// Returns `None` for plain literal, case-sensitive replacements.
+    pub(crate) fn compile_replace_regex(
+        pattern: &str,
+        regex_mode: bool,
+        case_insensitive: bool,
+        multiline: bool,
+    ) -> anyhow::Result<Option<Regex>> {
+        if regex_mode {
+            Ok(Some(
+                regex::RegexBuilder::new(pattern)
+                    .case_insensitive(case_insensitive)
+                    .dot_matches_new_line(multiline)
+                    .build()?,
+            ))
+        } else if case_insensitive {
+            Ok(Some(
+                regex::RegexBuilder::new(&regex::escape(pattern))
+                    .case_insensitive(true)
+                    .build()?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) enum ReplaceModeError {
         MissingMode,
