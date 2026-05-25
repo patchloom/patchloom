@@ -868,7 +868,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines."
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines. Binary and invalid UTF-8 files are skipped."
     )]
     async fn search_files(
         &self,
@@ -960,7 +960,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches."
+        description = "Replace text in a text file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches. Binary and invalid UTF-8 files are skipped."
     )]
     async fn replace_text(
         &self,
@@ -1174,7 +1174,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace: ensures file ends with a newline and trims trailing spaces from all lines."
+        description = "Fix whitespace in a text file: ensures the file ends with a newline and trims trailing spaces from all lines. Binary and invalid UTF-8 files are skipped."
     )]
     async fn fix_whitespace(
         &self,
@@ -1388,6 +1388,10 @@ mod tests {
         let client = spawn_test_client(dir.path().to_path_buf()).await;
         let tools = client.peer().list_all_tools().await.unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        let descriptions = tools
+            .iter()
+            .map(|t| (t.name.as_ref(), t.description.as_deref().unwrap_or("")))
+            .collect::<std::collections::BTreeMap<_, _>>();
         assert!(names.contains(&"doc_set"), "missing doc_set tool");
         assert!(names.contains(&"doc_get"), "missing doc_get tool");
         assert!(names.contains(&"doc_has"), "missing doc_has tool");
@@ -1398,12 +1402,33 @@ mod tests {
         assert!(names.contains(&"doc_diff"), "missing doc_diff tool");
         assert!(names.contains(&"read_file"), "missing read_file tool");
         assert!(names.contains(&"search_files"), "missing search_files tool");
+        assert_eq!(
+            descriptions.get("search_files"),
+            Some(
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines. Binary and invalid UTF-8 files are skipped."
+            ),
+            "search_files description drifted"
+        );
         assert!(names.contains(&"git_status"), "missing git_status tool");
         assert!(names.contains(&"replace_text"), "missing replace_text tool");
+        assert_eq!(
+            descriptions.get("replace_text"),
+            Some(
+                &"Replace text in a text file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches. Binary and invalid UTF-8 files are skipped."
+            ),
+            "replace_text description drifted"
+        );
         assert!(names.contains(&"batch"), "missing batch tool");
         assert!(
             names.contains(&"fix_whitespace"),
             "missing fix_whitespace tool"
+        );
+        assert_eq!(
+            descriptions.get("fix_whitespace"),
+            Some(
+                &"Fix whitespace in a text file: ensures the file ends with a newline and trims trailing spaces from all lines. Binary and invalid UTF-8 files are skipped."
+            ),
+            "fix_whitespace description drifted"
         );
         assert!(names.contains(&"move_file"), "missing move_file tool");
         assert!(names.contains(&"create_file"), "missing create_file tool");
