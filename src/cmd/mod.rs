@@ -26,9 +26,9 @@ pub enum Command {
     Create(create::CreateArgs),
     /// Delete a file.
     Delete(delete::DeleteArgs),
-    /// Fast literal or regex search across a repo.
+    /// Fast literal or regex search across text files.
     Search(search::SearchArgs),
-    /// Mechanical string replacement with diff preview.
+    /// Mechanical string replacement across text files with diff preview.
     Replace(replace::ReplaceArgs),
     /// Show which files have uncommitted changes.
     Status(status::StatusArgs),
@@ -42,7 +42,7 @@ pub enum Command {
     Md(md::MdArgs),
     /// Parser-backed JSON, YAML, and TOML operations.
     Doc(doc::DocArgs),
-    /// Final newline, line ending, and whitespace normalization.
+    /// Text-file newline, line ending, and whitespace normalization.
     Tidy(tidy::TidyArgs),
     /// Execute a multi-operation plan atomically.
     Tx(tx::TxArgs),

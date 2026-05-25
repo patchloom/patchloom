@@ -246,7 +246,7 @@ async fn new_tool(
 
 - Run `cargo fmt` before every commit.
 - `cargo clippy --all-targets --all-features -- -D warnings` must produce zero warnings.
-- `make check` is the full gate: formatting, build, test, clippy. Nothing merges unless it passes.
+- `make check` is the full gate. Nothing merges unless it passes.
 - All commits require a `Signed-off-by` line (DCO). Use `git commit -s`.
 - Keep `main.rs` thin. No business logic in `main.rs` or `lib.rs`.
 - Prefer returning exit codes over panicking. Never use `unwrap()` in non-test code.

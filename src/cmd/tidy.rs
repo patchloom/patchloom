@@ -21,9 +21,9 @@ pub struct TidyArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum TidyAction {
-    /// Report newline, EOL, and whitespace issues.
+    /// Report newline, EOL, and whitespace issues in text files.
     Check { paths: Vec<String> },
-    /// Apply normalization fixes.
+    /// Apply normalization fixes to text files.
     Fix { paths: Vec<String> },
 }
 
@@ -36,15 +36,11 @@ pub struct TidyIssue {
     pub line: Option<usize>,
 }
 
-use crate::is_binary;
-
-/// Check a single file for tidy issues.
-fn check_file(path: &Path) -> anyhow::Result<Vec<TidyIssue>> {
-    let data = std::fs::read(path)?;
-
-    if data.is_empty() || is_binary(&data) {
-        return Ok(Vec::new());
-    }
+fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
+    let Some(text) = crate::read_text_file(path, "tidy", quiet) else {
+        return Vec::new();
+    };
+    let data = text.as_bytes();
 
     let path_str = path.to_string_lossy().into_owned();
     let mut issues = Vec::new();
@@ -59,9 +55,9 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<TidyIssue>> {
     }
 
     // Check mixed line endings: file has both \r\n and bare \n.
-    let has_crlf = memchr::memmem::find(&data, b"\r\n").is_some();
+    let has_crlf = memchr::memmem::find(data, b"\r\n").is_some();
     // A bare \n is any \n not preceded by \r.
-    let has_bare_lf = memchr::memchr_iter(b'\n', &data).any(|i| i == 0 || data[i - 1] != b'\r');
+    let has_bare_lf = memchr::memchr_iter(b'\n', data).any(|i| i == 0 || data[i - 1] != b'\r');
     if has_crlf && has_bare_lf {
         issues.push(TidyIssue {
             path: path_str.clone(),
@@ -89,7 +85,7 @@ fn check_file(path: &Path) -> anyhow::Result<Vec<TidyIssue>> {
         }
     }
 
-    Ok(issues)
+    issues
 }
 
 /// Collect all issues from the given paths, honouring .gitignore and optional
@@ -104,15 +100,11 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     let quiet = global.quiet;
     let file_issues: Vec<Vec<TidyIssue>> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            match check_file(path) {
-                Ok(issues) if !issues.is_empty() => Some(issues),
-                Ok(_) => None,
-                Err(e) => {
-                    if !quiet {
-                        eprintln!("tidy: skipping {}: {e}", path.display());
-                    }
-                    None
-                }
+            let issues = check_file(path, quiet);
+            if issues.is_empty() {
+                None
+            } else {
+                Some(issues)
             }
         });
 
@@ -188,19 +180,10 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 glob_matcher.as_ref(),
                 &glob_roots,
                 |file_path| {
-                    let data = match std::fs::read(file_path) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            if !quiet {
-                                eprintln!("tidy: skipping {}: {e}", file_path.display());
-                            }
-                            return None;
-                        }
+                    let original = match crate::read_text_file(file_path, "tidy", quiet) {
+                        Some(text) => text,
+                        None => return None,
                     };
-                    if data.is_empty() || is_binary(&data) {
-                        return None;
-                    }
-                    let original = String::from_utf8_lossy(&data);
                     let policy = policy_from_flags(global, Some(file_path));
                     let fixed = apply_policy(&original, &policy);
                     if fixed == *original {
@@ -216,7 +199,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     Some(FixResult {
                         path: file_path.to_owned(),
                         rel_path,
-                        original: original.into_owned(),
+                        original,
                         fixed,
                     })
                 },
@@ -304,7 +287,7 @@ mod tests {
         let file = tmp.path().join("no_newline.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         assert!(
             issues.iter().any(|i| i.issue == "missing final newline"),
             "expected missing final newline issue, got: {issues:?}"
@@ -318,7 +301,7 @@ mod tests {
         // First line uses CRLF, second uses bare LF.
         std::fs::write(&file, b"line1\r\nline2\nline3\n").unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         assert!(
             issues.iter().any(|i| i.issue == "mixed line endings"),
             "expected mixed line endings issue, got: {issues:?}"
@@ -331,7 +314,7 @@ mod tests {
         let file = tmp.path().join("trailing.txt");
         std::fs::write(&file, b"hello   \nworld\n").unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         let trailing: Vec<_> = issues
             .iter()
             .filter(|i| i.issue == "trailing whitespace")
@@ -346,7 +329,7 @@ mod tests {
         let file = tmp.path().join("clean.txt");
         std::fs::write(&file, b"hello\nworld\n").unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         assert!(issues.is_empty(), "expected no issues for clean file");
 
         let global = flags_for(tmp.path());
@@ -367,7 +350,7 @@ mod tests {
         // Missing final newline + trailing whitespace on line 1 + mixed endings.
         std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
         assert!(
             issue_types.contains(&"missing final newline"),
@@ -392,10 +375,25 @@ mod tests {
         data.insert(3, 0x00);
         std::fs::write(&file, &data).unwrap();
 
-        let issues = check_file(&file).unwrap();
+        let issues = check_file(&file, true);
         assert!(
             issues.is_empty(),
             "expected no issues for binary file, got: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn large_binary_files_are_skipped_via_header_probe() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("large.bin");
+        let mut data = vec![b'a'; 10_000];
+        data[4096] = 0;
+        std::fs::write(&file, &data).unwrap();
+
+        let issues = check_file(&file, true);
+        assert!(
+            issues.is_empty(),
+            "expected no issues for large binary file, got: {issues:?}"
         );
     }
 

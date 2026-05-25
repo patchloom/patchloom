@@ -25,7 +25,7 @@ make check          # must pass before every commit
    `cargo check --all-targets`. `make check` uses `--all-features`, so it
    does not exercise the default-feature build.
 5. Commit with a [DCO sign-off](#dco-sign-off).
-5. Open a pull request against `main`.
+6. Open a pull request against `main`.
 
 ### Useful make targets
 

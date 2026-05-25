@@ -140,7 +140,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:search -->
 ## `search`
 
-- **What it does:** Searches files with literal or regex matching, optional context, counts, and file only results.
+- **What it does:** Searches text files with literal or regex matching, optional context, counts, and file only results. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files. For AI agents, native search/grep tools are typically faster for simple pattern matching.
 - **Prefer instead:** Use `replace` for actual text mutation, or `doc`, `md`, or `patch` when you already know the structured change you want.
 - **Related:** `--glob`, `--files-from`, `replace`
@@ -148,7 +148,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:replace -->
 ## `replace`
 
-- **What it does:** Performs mechanical string replacement across one or many files, with literal or regex matching.
+- **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
 - **Related:** `search`, `tx`
@@ -180,7 +180,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:tidy -->
 ## `tidy`
 
-- **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines.
+- **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
 - **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
@@ -667,14 +667,14 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tidy-action:check -->
 ### `tidy check`
 
-- **What it does:** Reports missing final newlines, mixed line endings, and trailing whitespace.
+- **What it does:** Reports missing final newlines, mixed line endings, and trailing whitespace in text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You want a non mutating tidy audit for CI or local review.
 - **Prefer instead:** Use `tidy fix` when the goal is to normalize the files immediately.
 
 <!-- ref:tidy-action:fix -->
 ### `tidy fix`
 
-- **What it does:** Applies newline and whitespace normalization.
+- **What it does:** Applies newline and whitespace normalization to text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** Existing files already need cleanup and the cleanup itself is the task.
 - **Prefer instead:** Use write policy flags when normalization should only apply to files already being touched by another write command.
 

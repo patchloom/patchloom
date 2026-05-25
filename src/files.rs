@@ -619,17 +619,14 @@ mod tests {
     fn read_text_file_binary_past_8k_still_read_as_text() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("mostly_text.txt");
-        // 8 KiB of text, then a NUL byte. The binary check only inspects
-        // the first 8 KiB, so this file should be treated as text but
-        // fail UTF-8 validation (NUL is valid UTF-8 but is_binary only
-        // checks the first 8 KiB). Actually NUL IS valid UTF-8, so this
-        // will succeed as text. The real check: is_binary only looks at
-        // the first 8 KiB probe, and the rest is read unconditionally.
+        // 8 KiB of text, then a NUL byte and newline. The binary check only
+        // inspects the first 8 KiB, so the file is still treated as text.
         let mut data = vec![b'a'; 8192];
+        data.push(0);
         data.push(b'\n');
         std::fs::write(&file, &data).unwrap();
         let result = read_text_file(&file, "test", false);
         assert!(result.is_some());
-        assert_eq!(result.unwrap().len(), 8193);
+        assert_eq!(result.unwrap().len(), 8194);
     }
 }

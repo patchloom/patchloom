@@ -13545,6 +13545,12 @@ fn test_mcp_setup_documents_allow_shell_flag() {
 }
 
 #[test]
+fn test_mcp_setup_documents_search_files_modes() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(doc.contains("literal, case-insensitive, count, file-only, and multiline modes"));
+}
+
+#[test]
 fn test_ci_workflow_routes_macos_fork_prs_to_github_hosted_runners() {
     let ci = fs::read_to_string(ci_workflow_path()).unwrap();
     let fork_safe_macos_runs_on = r#"runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}"#;
@@ -14168,6 +14174,42 @@ fn test_search_skips_binary_files() {
 }
 
 #[test]
+fn test_search_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "needle in text\n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    fs::write(&invalid_file, b"needle\xffin invalid").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path().to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("text.txt"),
+        "should find match in text file"
+    );
+    assert!(
+        !stdout.contains("invalid.txt"),
+        "should skip invalid UTF-8 file, got: {stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected search invalid UTF-8 warning, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_replace_skips_binary_files() {
     let dir = TempDir::new().unwrap();
     let text_file = dir.path().join("text.txt");
@@ -14199,6 +14241,45 @@ fn test_replace_skips_binary_files() {
 }
 
 #[test]
+fn test_replace_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "old value\n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    let invalid_content = b"old value\xff trailing".to_vec();
+    fs::write(&invalid_file, &invalid_content).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("old value")
+        .arg("--to")
+        .arg("new value")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "new value\n");
+
+    let invalid_after = fs::read(&invalid_file).unwrap();
+    assert_eq!(
+        invalid_after, invalid_content,
+        "invalid UTF-8 file should not be modified"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected replace invalid UTF-8 warning, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_tidy_skips_binary_files() {
     let dir = TempDir::new().unwrap();
     // Text file with trailing whitespace.
@@ -14225,6 +14306,45 @@ fn test_tidy_skips_binary_files() {
 
     let bin_after = fs::read(&bin_file).unwrap();
     assert_eq!(bin_after, bin_content, "binary file should not be modified");
+}
+
+#[test]
+fn test_tidy_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "hello   \n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    let invalid_content = b"hello\xff   ".to_vec();
+    fs::write(&invalid_file, &invalid_content).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--trim-trailing-whitespace")
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "hello\n");
+
+    let invalid_after = fs::read(&invalid_file).unwrap();
+    assert_eq!(
+        invalid_after, invalid_content,
+        "invalid UTF-8 file should not be modified"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected tidy invalid UTF-8 warning, got: {stderr}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -14737,6 +14857,37 @@ async fn test_mcp_search_finds_pattern() {
         text.contains("needle"),
         "search output should contain the match: {text}"
     );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_multiline_returns_json_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("multi.txt"), "hello\nworld\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "hello.*world",
+            "paths": ["multi.txt"],
+            "multiline": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "multiline search should succeed: {text}");
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["match_count"], 1);
+    assert_eq!(json["file_count"], 1);
+    assert_eq!(json["matches"][0]["path"], "multi.txt");
+    assert_eq!(json["matches"][0]["line"], 1);
+    assert_eq!(json["matches"][0]["column"], 1);
+    assert_eq!(json["matches"][0]["text"], "hello\nworld");
     client.cancel().await.unwrap();
 }
 
