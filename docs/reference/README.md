@@ -106,7 +106,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 
 - **What it does:** Sets the working directory used to resolve relative paths.
 - **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory.
-- **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself.
+- **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself, but keep it inside the invocation root. Relative plan `cwd` values resolve from the caller's working directory (`--cwd` or the process cwd), not from the plan file location.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`
@@ -695,7 +695,8 @@ Use these when newline and whitespace correctness is the main concern.
 ### `cwd`
 
 - **What it does:** Sets the base directory used to resolve relative paths inside the plan.
-- **Use when:** The plan should behave the same no matter where it is invoked from.
+- **Use when:** You need plan operations and lifecycle steps to run from a specific subdirectory under the invocation root.
+- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, the resolved directory must stay inside the server root.
 - **Prefer instead:** Use the CLI `--cwd` flag when the directory choice is a caller concern rather than part of the plan itself.
 
 <!-- ref:tx-field:write_policy -->

@@ -12801,6 +12801,32 @@ fn test_tx_honors_cwd_for_relative_plan_path() {
 }
 
 #[test]
+fn test_tx_relative_plan_cwd_resolves_from_invocation_root() {
+    let dir = TempDir::new().unwrap();
+    let repo = dir.path().join("repo");
+    let nested = repo.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(
+        repo.join("plan.toml"),
+        "version = \"1\"\ncwd = \"nested\"\n\n[[operations]]\nop = \"file.create\"\npath = \"out.txt\"\ncontent = \"hello\\n\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(&repo)
+        .arg("tx")
+        .arg("plan.toml")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(nested.join("out.txt")).unwrap(),
+        "hello\n"
+    );
+    assert!(!repo.join("out.txt").exists());
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -14199,6 +14225,27 @@ async fn spawn_mcp_client_opts(
         .expect("failed to connect MCP client")
 }
 
+#[cfg(feature = "mcp")]
+async fn spawn_mcp_client_process_and_cwd(
+    process_dir: &Path,
+    server_cwd: &Path,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    use rmcp::ServiceExt;
+    use rmcp::transport::TokioChildProcess;
+
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.arg("mcp-server")
+        .arg("--cwd")
+        .arg(server_cwd)
+        .current_dir(process_dir);
+
+    let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
+    ().serve(transport)
+        .await
+        .expect("failed to connect MCP client")
+}
+
 /// Helper: call a tool and return the text content from the first Content item.
 async fn call_tool_text(
     client: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
@@ -14758,6 +14805,44 @@ async fn test_mcp_tx_rejects_escaping_cwd() {
     assert!(
         result.is_err(),
         "tx with escaping cwd should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_rejects_relative_cwd_that_escapes_server_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let process_dir = dir.path().join("sandbox");
+    let repo_dir = dir.path().join("repo");
+    fs::create_dir_all(&process_dir).unwrap();
+    fs::create_dir_all(&repo_dir).unwrap();
+    fs::write(repo_dir.join("inside.txt"), "inside\n").unwrap();
+    fs::write(dir.path().join("outside.txt"), "outside\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "..",
+        "operations": [
+            {"op": "replace", "path": "outside.txt", "from": "outside", "to": "pwned"}
+        ]
+    });
+
+    let client = spawn_mcp_client_process_and_cwd(&process_dir, &repo_dir).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with relative escaping cwd should be rejected"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("outside.txt")).unwrap(),
+        "outside\n"
     );
     client.cancel().await.unwrap();
 }

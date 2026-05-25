@@ -1489,6 +1489,20 @@ fn run_lifecycle(plan: &Plan, cwd: &Path) -> Option<LifecycleError> {
         })
 }
 
+fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
+    match plan_cwd {
+        Some(plan_cwd) => {
+            let path = Path::new(plan_cwd);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                base_cwd.join(path)
+            }
+        }
+        None => base_cwd.to_path_buf(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
@@ -1598,11 +1612,7 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
     }
 
     // Resolve working directory (plan.cwd overrides argument).
-    let effective_cwd: PathBuf = if let Some(ref c) = plan.cwd {
-        PathBuf::from(c)
-    } else {
-        cwd.to_path_buf()
-    };
+    let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
 
     // Load project config so write_policy picks up .patchloom.toml settings.
     let mut global = GlobalFlags {
@@ -1751,11 +1761,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // 3. Resolve working directory (plan.cwd overrides global --cwd).
-    let cwd: PathBuf = if let Some(ref c) = plan.cwd {
-        PathBuf::from(c)
-    } else {
-        global.resolve_cwd()?
-    };
+    let base_cwd = global.resolve_cwd()?;
+    let cwd = resolve_plan_cwd(&base_cwd, plan.cwd.as_deref());
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {

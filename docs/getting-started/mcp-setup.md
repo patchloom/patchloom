@@ -135,7 +135,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
 
-The `batch` tool parses its operations line by line and validates every path before execution. The `transaction` tool accepts full transaction plans. All operation paths and plan-level `cwd` fields are validated for containment before execution.
+The `batch` tool parses its operations line by line and validates every path before execution. The `transaction` tool accepts full transaction plans. All operation paths and plan-level `cwd` fields are validated for containment before execution. A relative transaction `cwd` still resolves from the server invocation root, then must remain inside that root.
 
 ### Shell execution gate
 
