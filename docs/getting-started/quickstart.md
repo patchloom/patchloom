@@ -15,8 +15,7 @@ Run `init` to generate agent rules, get shell completions, and detect MCP setup:
 patchloom init
 ```
 
-This creates or appends to your `AGENTS.md` so AI agents know how to use patchloom.
-Pass `-y` to skip confirmation prompts.
+This creates `AGENTS.md` in a new project or appends the rules to an existing agent instructions file so AI agents know how to use patchloom. Pass `-y` to skip confirmation prompts. If `.vscode/` or `.cursor/` already exists, `init` also prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets.
 
 ## Step 1: Search for something
 

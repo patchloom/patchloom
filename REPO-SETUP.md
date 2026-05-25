@@ -7,7 +7,7 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 | Item | Recommendation | Notes |
 |---|---|---|
 | DCO enforcement | Install the [DCO-2 GitHub App](https://github.com/apps/dco-2) | make its status check required once the repo is public, or on a plan that supports private branch protection |
-| CI | Have at least one required CI workflow | use a single `CI` workflow at the start, and point it at the repo's Linux self-hosted runner once that runner exists |
+| CI | Have at least one required CI workflow | use a single `CI` workflow at the start, and point it at the repo's self-hosted runner once that runner exists |
 | Release workflow | Commit `dist-workspace.toml`, `.github/workflows/release.yml`, and `.github/workflows/publish-crates.yml` together | keep cargo-dist config and release automation in sync, keep release jobs on GitHub-hosted runners at first, and skip crates.io and Homebrew publishing while the repo is private |
 | Homebrew tap repo | create `patchloom/homebrew-tap` before the first stable release | the release workflow pushes formula updates there |
 | Release secrets | add `HOMEBREW_TAP_TOKEN` and `CARGO_REGISTRY_TOKEN` | needed before the first public release |
@@ -68,7 +68,7 @@ Protect only `main`. Outside contributors should work from forks and open pull r
 
 ## Self-Hosted Runner Recovery
 
-If `CI` stays queued on maintainer PRs or pushes to `main`, check the Linux self-hosted runner before retrying workflows. Patchloom currently relies on one runner, `patchloom-1`, for trusted `CI` jobs. The `Security` workflow runs on GitHub-hosted `ubuntu-latest`, so queued Security runs should be debugged via GitHub Actions capacity or workflow state, not the self-hosted runner.
+If `CI` stays queued on maintainer PRs or pushes to `main`, check the self-hosted runner before retrying workflows. Patchloom currently relies on one runner, `patchloom-mac-1`, for trusted `CI` jobs. The `Security` workflow also uses the self-hosted runner for trusted events, and falls back to GitHub-hosted `ubuntu-latest` only for fork PRs.
 
 1. Check runner status in GitHub:
    ```bash
@@ -82,13 +82,13 @@ If `CI` stays queued on maintainer PRs or pushes to `main`, check the Linux self
    gh api repos/patchloom/patchloom/actions/runs/RUN_ID/jobs \
      --jq '.jobs[] | {name,status,conclusion,runner_name,labels,started_at}'
    ```
-3. If `patchloom-1` is offline, restart the service on the runner host:
+3. If `patchloom-mac-1` is offline, restart the service on the runner host:
    ```bash
-   sudo systemctl start actions.runner.patchloom-patchloom.patchloom-1.service
-   systemctl is-active actions.runner.patchloom-patchloom.patchloom-1.service
-   systemctl status actions.runner.patchloom-patchloom.patchloom-1.service --no-pager --lines=20
+   cd ~/actions-runner-patchloom
+   ./svc.sh start
+   ./svc.sh status
    ```
-4. Re-check the `CI` workflow. The queued self-hosted jobs should move to `in_progress` once the runner is back online.
+4. Re-check the `CI` or `Security` workflow. The queued self-hosted jobs should move to `in_progress` once the runner is back online.
 5. Before pushing another commit, confirm the previously queued run finishes green.
 
 This recovery path is intentionally lightweight. It does not replace a second runner or a GitHub-hosted fallback, but it keeps maintainer workflows unblocked when the single runner goes offline.
@@ -105,6 +105,6 @@ allowOverrideAction: false
 
 - DCO keeps contribution friction low.
 - Required checks keep provenance and CI policy explicit.
-- Keeping the day 1 CI job on the Linux self-hosted runner avoids private-repo minute pressure while still keeping release publishing isolated on GitHub-hosted runners.
+- Keeping the day 1 CI job on the self-hosted runner avoids private-repo minute pressure while still keeping release publishing isolated on GitHub-hosted runners.
 - One approval is enough for day 1, while still preventing direct unreviewed merges.
 - Avoiding mandatory signed commits on day 1 reduces contributor friction without giving up provenance, because DCO already records authorship intent.

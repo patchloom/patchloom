@@ -490,22 +490,8 @@ fn write_result(
         };
         let output = diff::format_diff_result_colored(&diff_result, ctx.color);
         // --confirm: show diff, prompt, then apply if confirmed.
-        if ctx.confirm {
-            let apply = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                eprint!("Apply? [Y/n] ");
-                let mut buf = String::new();
-                if std::io::stdin().read_line(&mut buf).is_ok() {
-                    let answer = buf.trim().to_lowercase();
-                    answer.is_empty() || answer == "y" || answer == "yes"
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if apply {
-                write::atomic_write(Path::new(path), new_content, &ctx.write_policy)?;
-            }
+        if ctx.confirm && crate::cli::global::confirm_prompt("Apply?") {
+            write::atomic_write(Path::new(path), new_content, &ctx.write_policy)?;
         }
         Ok((output, exit::SUCCESS))
     } else {
