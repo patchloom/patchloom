@@ -517,69 +517,71 @@ fn write_result(
 // Write-mode execution
 // ---------------------------------------------------------------------------
 
+/// Load a file, run a mutation closure on the parsed value, then serialize and
+/// write. The closure returns `Ok(None)` when the mutation was applied (proceed
+/// to serialize), or `Ok(Some((output, exit_code)))` to short-circuit (e.g.
+/// when no matches are found).
+fn with_doc_mutation<F>(
+    file: &str,
+    ctx: &WriteContext,
+    cwd: &std::path::Path,
+    mutate: F,
+) -> anyhow::Result<(String, u8)>
+where
+    F: FnOnce(&mut serde_json::Value) -> anyhow::Result<Option<(String, u8)>>,
+{
+    let (original, mut root, format) = load_file_with_content(file)?;
+    let old_value = clone_for_preserve(&root, &format);
+
+    if let Some(early) = mutate(&mut root)? {
+        return Ok(early);
+    }
+
+    let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
+    let display_path = crate::files::relative_display(std::path::Path::new(file), cwd)
+        .to_string_lossy()
+        .into_owned();
+    write_result(file, &display_path, &original, &new_content, ctx)
+}
+
 fn execute_write(
     action: &DocAction,
     ctx: &WriteContext,
     cwd: &std::path::Path,
 ) -> anyhow::Result<(String, u8)> {
-    let display = |f: &str| -> String {
-        crate::files::relative_display(std::path::Path::new(f), cwd)
-            .to_string_lossy()
-            .into_owned()
-    };
     match action {
         DocAction::Set {
             file,
             selector,
             value,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-            let parsed = parse_value(value);
+            set_at_path(root, &sel, parse_value(value)).with_context(|| file.clone())?;
+            Ok(None)
+        }),
 
-            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
-
-        DocAction::Delete { file, selector } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        DocAction::Delete { file, selector } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-
-            if !delete_at_selector(&mut root, &sel).with_context(|| file.clone())? {
-                return Ok((String::new(), exit::NO_MATCHES));
+            if !delete_at_selector(root, &sel).with_context(|| file.clone())? {
+                return Ok(Some((String::new(), exit::NO_MATCHES)));
             }
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            Ok(None)
+        }),
 
         DocAction::DeleteWhere {
             file,
             selector,
             predicate,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-
-            let removed = delete_where(&mut root, &sel, predicate).with_context(|| file.clone())?;
-
+            let removed = delete_where(root, &sel, predicate).with_context(|| file.clone())?;
             if removed == 0 {
-                return Ok((String::new(), exit::NO_MATCHES));
+                return Ok(Some((String::new(), exit::NO_MATCHES)));
             }
+            Ok(None)
+        }),
 
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
-
-        DocAction::Merge { file, stdin, value } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
-
+        DocAction::Merge { file, stdin, value } => with_doc_mutation(file, ctx, cwd, |root| {
             let merge_str = if *stdin {
                 std::io::read_to_string(std::io::stdin())?
             } else if let Some(v) = value {
@@ -587,116 +589,79 @@ fn execute_write(
             } else {
                 anyhow::bail!("merge requires --stdin or --value");
             };
-
-            let merge_val = parse_value(&merge_str);
-            deep_merge(&mut root, &merge_val);
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            deep_merge(root, &parse_value(&merge_str));
+            Ok(None)
+        }),
 
         DocAction::Append {
             file,
             selector,
             value,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-            let parsed = parse_value(value);
-
-            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
+            let target = navigate_mut(root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
-                Some(arr) => arr.push(parsed),
+                Some(arr) => arr.push(parse_value(value)),
                 None => {
-                    return Ok((
+                    return Ok(Some((
                         format!("doc append: target at '{selector}' is not an array in {file}"),
                         exit::FAILURE,
-                    ));
+                    )));
                 }
             }
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            Ok(None)
+        }),
 
         DocAction::Prepend {
             file,
             selector,
             value,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-            let parsed = parse_value(value);
-
-            let target = navigate_mut(&mut root, &sel, false).with_context(|| file.clone())?;
+            let target = navigate_mut(root, &sel, false).with_context(|| file.clone())?;
             match target.as_array_mut() {
-                Some(arr) => arr.insert(0, parsed),
+                Some(arr) => arr.insert(0, parse_value(value)),
                 None => {
-                    return Ok((
+                    return Ok(Some((
                         format!("doc prepend: target at '{selector}' is not an array in {file}"),
                         exit::FAILURE,
-                    ));
+                    )));
                 }
             }
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            Ok(None)
+        }),
 
         DocAction::Update {
             file,
             selector,
             value,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-            let parsed = parse_value(value);
-
-            let count = update_matching(&mut root, &sel, &parsed);
-            if count == 0 {
-                return Ok((String::new(), exit::NO_MATCHES));
+            if update_matching(root, &sel, &parse_value(value)) == 0 {
+                return Ok(Some((String::new(), exit::NO_MATCHES)));
             }
+            Ok(None)
+        }),
 
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
-
-        DocAction::Move { file, from, to } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        DocAction::Move { file, from, to } => with_doc_mutation(file, ctx, cwd, |root| {
             let from_sel = selector::parse_anyhow(from)?;
             let to_sel = selector::parse_anyhow(to)?;
-
-            move_at_path(&mut root, &from_sel, &to_sel).with_context(|| file.clone())?;
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            move_at_path(root, &from_sel, &to_sel).with_context(|| file.clone())?;
+            Ok(None)
+        }),
 
         DocAction::Ensure {
             file,
             selector,
             value,
-        } => {
-            let (original, mut root, format) = load_file_with_content(file)?;
-            let old_value = clone_for_preserve(&root, &format);
+        } => with_doc_mutation(file, ctx, cwd, |root| {
             let sel = selector::parse_anyhow(selector)?;
-
-            // If the path already exists, return immediately – no mutation.
-            if !selector::eval(&root, &sel).is_empty() {
-                return Ok((String::new(), exit::SUCCESS));
+            if !selector::eval(root, &sel).is_empty() {
+                return Ok(Some((String::new(), exit::SUCCESS)));
             }
-
-            // Path does not exist – create it (same logic as set).
-            let parsed = parse_value(value);
-            set_at_path(&mut root, &sel, parsed).with_context(|| file.clone())?;
-
-            let new_content = serialize_value_preserving(&original, &old_value, &root, &format)?;
-            write_result(file, &display(file), &original, &new_content, ctx)
-        }
+            set_at_path(root, &sel, parse_value(value)).with_context(|| file.clone())?;
+            Ok(None)
+        }),
 
         // Read-only actions are handled by execute_with_mode().
         _ => anyhow::bail!("not a write action"),
