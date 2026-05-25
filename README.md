@@ -276,6 +276,7 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 | `explain` | Summarize a tx plan in plain English |
 | `undo` | Restore files from a backup created by `--apply` |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
+| `init` | Set up patchloom in a project (agent rules, completions, MCP) |
 | `agent-rules` | Generate agent instructions for your project |
 
 ## How patchloom compares

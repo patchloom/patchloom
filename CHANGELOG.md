@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- Fixed external path traversal bypass in `undo --apply` restore logic: crafted `__external__/../..` manifest entries could overwrite files outside the project root
+
+### Changed
+
+- MCP server: cached canonicalized cwd at startup, eliminating redundant `realpath` syscall per tool invocation
+- MCP server: consolidated `validate_path_contained` + `validate_path_resolved` into single `check_path` method, preventing partial validation
+- Extracted shared tx execution core (`execute_and_collect`, `run_lifecycle`) eliminating ~190 lines of duplication
+- Extracted `backup_write_files` helper, refactored 5 call sites across replace, patch, and tidy commands
+- Extracted `apply_replacements` helper in replace command, deduplicating backup+write block
+- Fixed `read_file_content` double-join bug when transaction cwd is relative
+- Added syntactic path traversal validation to undo restore paths
+- Added `validate_path_resolved` symlink check to all 16 MCP write handlers
+- Extracted `compile_replace_regex` shared helper
+- Improved doc command error messages to list supported file extensions
+
+### Documentation
+
+- Documented column offset semantics in search JSON output
+- Added `init` command to README Commands table
+
+### Testing
+
+- Added 43 tests since 0.1.0 (1049 to 1092)
+
 ## [0.1.0] - 2025-05-23
 
 ### Commands

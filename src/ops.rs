@@ -14,8 +14,12 @@ pub(crate) mod doc {
             Some("json") => Ok(FileFormat::Json),
             Some("yaml" | "yml") => Ok(FileFormat::Yaml),
             Some("toml") => Ok(FileFormat::Toml),
-            Some(ext) => anyhow::bail!("unsupported file extension: .{ext}"),
-            None => anyhow::bail!("file has no extension"),
+            Some(ext) => anyhow::bail!(
+                "unsupported file extension: .{ext} (supported: .json, .yaml, .yml, .toml)"
+            ),
+            None => anyhow::bail!(
+                "file has no extension; doc commands require .json, .yaml, .yml, or .toml"
+            ),
         }
     }
 
