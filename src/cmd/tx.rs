@@ -131,27 +131,69 @@ fn host_shell_command(cmd: &str, cwd: &Path) -> std::process::Command {
     }
 }
 
-/// Run a shell command with a timeout. Returns the exit status,
-/// or an error if the command times out or fails to start.
-fn run_shell_with_timeout(
-    cmd: &str,
-    timeout_secs: u64,
-    cwd: &Path,
-) -> anyhow::Result<std::process::ExitStatus> {
+/// Result of a shell command execution with captured stderr.
+struct ShellResult {
+    status: std::process::ExitStatus,
+    /// First N bytes of stderr output (truncated for safety).
+    stderr_head: String,
+}
+
+/// Maximum bytes of stderr to capture from lifecycle commands.
+const LIFECYCLE_STDERR_MAX: usize = 512;
+
+/// Run a shell command with a timeout. Returns the exit status and
+/// a truncated snippet of stderr, or an error if the command times out
+/// or fails to start.
+fn run_shell_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::Result<ShellResult> {
     let mut child = host_shell_command(cmd, cwd)
         .stdout(std::process::Stdio::null())
-        // Discard stderr so verbose lifecycle steps cannot block on a full pipe.
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()?;
+
+    // Read stderr in a background thread to avoid blocking if the pipe fills.
+    let stderr_handle = child.stderr.take().unwrap();
+    let reader_thread = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut buf = vec![0u8; LIFECYCLE_STDERR_MAX + 1];
+        let mut reader = stderr_handle;
+        let mut total = 0;
+        loop {
+            match reader.read(&mut buf[total..]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    total += n;
+                    if total > LIFECYCLE_STDERR_MAX {
+                        // Drain remaining stderr so the child is not blocked.
+                        let mut discard = [0u8; 4096];
+                        while reader.read(&mut discard).unwrap_or(0) > 0 {}
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let cap = total.min(LIFECYCLE_STDERR_MAX);
+        let text = String::from_utf8_lossy(&buf[..cap]).to_string();
+        if total > LIFECYCLE_STDERR_MAX {
+            format!("{text}... (truncated)")
+        } else {
+            text
+        }
+    });
 
     let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
     loop {
         if let Some(status) = child.try_wait()? {
-            return Ok(status);
+            let stderr_head = reader_thread.join().unwrap_or_default();
+            return Ok(ShellResult {
+                status,
+                stderr_head,
+            });
         }
         if std::time::Instant::now() >= deadline {
             kill_process_tree(&mut child);
-            anyhow::bail!("timed out after {timeout_secs}s");
+            let stderr_head = reader_thread.join().unwrap_or_default();
+            anyhow::bail!("timed out after {timeout_secs}s: {stderr_head}");
         }
         std::thread::sleep(SHELL_POLL_INTERVAL);
     }
@@ -1286,6 +1328,16 @@ struct LifecycleError {
     kind: &'static str,
 }
 
+/// Format a lifecycle step failure message, appending stderr output if available.
+fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        header.to_string()
+    } else {
+        format!("{header}: {trimmed}")
+    }
+}
+
 fn run_format_steps(
     steps: &[plan::FormatStep],
     base_cwd: &Path,
@@ -1296,13 +1348,17 @@ fn run_format_steps(
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
         let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
         match result {
-            Ok(status) if !status.success() => {
-                let msg = format!(
+            Ok(ShellResult {
+                status,
+                stderr_head,
+            }) if !status.success() => {
+                let header = format!(
                     "format step failed (step {}, {}, cwd: {})",
                     index + 1,
                     describe_exit_status(status),
                     lifecycle_cwd
                 );
+                let msg = lifecycle_failure_msg(&header, &stderr_head);
                 eprintln!("tx: {msg}");
                 return Err(LifecycleError {
                     message: msg,
@@ -1337,14 +1393,23 @@ fn run_validate_steps(
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
         let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
         match result {
-            Ok(status) if status.success() => {}
-            Ok(status) => {
-                let msg = format!(
+            Ok(ShellResult {
+                status,
+                stderr_head,
+            }) if status.success() => {
+                let _ = stderr_head; // Discard stderr on success.
+            }
+            Ok(ShellResult {
+                status,
+                stderr_head,
+            }) => {
+                let header = format!(
                     "required validation failed (step {}, {}, cwd: {})",
                     index + 1,
                     describe_exit_status(status),
                     lifecycle_cwd
                 );
+                let msg = lifecycle_failure_msg(&header, &stderr_head);
                 eprintln!("tx: {msg}");
                 if step.required.unwrap_or(false) {
                     return Err(LifecycleError {
@@ -1793,6 +1858,19 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 3. Resolve working directory (plan.cwd overrides global --cwd).
     let base_cwd = global.resolve_cwd()?;
     let cwd = resolve_plan_cwd(&base_cwd, plan.cwd.as_deref());
+
+    if plan.cwd.is_some() && !cwd.is_dir() {
+        let msg = format!(
+            "plan cwd is not a directory: {}",
+            plan.cwd.as_deref().unwrap()
+        );
+        if structured {
+            emit_error_json("parse_error", &msg, compact);
+        } else {
+            eprintln!("tx: {msg}");
+        }
+        return Ok(exit::PARSE_ERROR);
+    }
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {

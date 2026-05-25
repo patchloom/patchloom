@@ -12875,6 +12875,175 @@ fn test_tx_json_output_reports_lifecycle_cwd_for_relative_plan_cwd() {
 }
 
 #[test]
+fn test_tx_cli_rejects_plan_cwd_that_is_a_file() {
+    let dir = TempDir::new().unwrap();
+    let not_a_dir = dir.path().join("not-a-dir");
+    fs::write(&not_a_dir, "nope\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "not-a-dir",
+        "operations": [{
+            "op": "replace",
+            "path": "anything.txt",
+            "from": "a",
+            "to": "b"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .assert()
+        .code(4) // PARSE_ERROR
+        .stderr(predicate::str::contains("plan cwd is not a directory"));
+}
+
+#[test]
+fn test_tx_cli_rejects_plan_cwd_that_is_a_file_json_output() {
+    let dir = TempDir::new().unwrap();
+    let not_a_dir = dir.path().join("not-a-dir");
+    fs::write(&not_a_dir, "nope\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "not-a-dir",
+        "operations": [{
+            "op": "replace",
+            "path": "anything.txt",
+            "from": "a",
+            "to": "b"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "parse_error");
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("plan cwd is not a directory"));
+}
+
+#[test]
+fn test_tx_cli_rejects_plan_cwd_nonexistent() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "does-not-exist",
+        "operations": [{
+            "op": "replace",
+            "path": "anything.txt",
+            "from": "a",
+            "to": "b"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .assert()
+        .code(4) // PARSE_ERROR
+        .stderr(predicate::str::contains("plan cwd is not a directory"));
+}
+
+#[test]
+fn test_tx_lifecycle_stderr_captured_in_validation_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    // Use a command that writes to stderr before failing.
+    let stderr_cmd = "echo 'CUSTOM_ERROR: something went wrong' >&2 && exit 1";
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": stderr_cmd,
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    let error = json["error"].as_str().unwrap();
+    assert!(
+        error.contains("CUSTOM_ERROR: something went wrong"),
+        "lifecycle error should include captured stderr: {error}"
+    );
+}
+
+#[test]
+fn test_tx_lifecycle_stderr_captured_in_format_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let stderr_cmd = "echo 'FMT_FAIL: bad formatting' >&2 && exit 1";
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": stderr_cmd,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("FMT_FAIL: bad formatting"),
+        "format step stderr should include captured output: {stderr}"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -13194,6 +13363,32 @@ fn test_smoke_installation_docs_cover_contributor_verification_loop() {
     assert!(
         content.contains("make check"),
         "installation guide should mention the full contributor verification gate"
+    );
+}
+
+#[test]
+fn test_launch_announcement_command_count_matches_readme() {
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    let launch = fs::read_to_string(launch_announcement_path()).unwrap();
+
+    // Extract core command count from README (e.g., "across 18 core commands").
+    let readme_count: usize = readme
+        .lines()
+        .find(|l| l.contains("core commands"))
+        .and_then(|l| {
+            let idx = l.find("core commands")?;
+            l[..idx]
+                .split_whitespace()
+                .next_back()?
+                .parse::<usize>()
+                .ok()
+        })
+        .expect("README should state the core command count");
+
+    // Launch announcement says "N commands cover".
+    assert!(
+        launch.contains(&format!("{readme_count} commands cover")),
+        "launch announcement command count should match README ({readme_count} core commands)"
     );
 }
 
