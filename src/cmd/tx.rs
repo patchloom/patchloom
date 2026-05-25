@@ -1489,7 +1489,7 @@ fn run_lifecycle(plan: &Plan, cwd: &Path) -> Option<LifecycleError> {
         })
 }
 
-fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
+pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
     match plan_cwd {
         Some(plan_cwd) => {
             let path = Path::new(plan_cwd);

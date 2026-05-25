@@ -14849,6 +14849,37 @@ async fn test_mcp_tx_rejects_relative_cwd_that_escapes_server_root() {
 
 #[cfg(feature = "mcp")]
 #[tokio::test]
+async fn test_mcp_tx_rejects_relative_cwd_that_is_a_file() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let repo_dir = dir.path().join("repo");
+    fs::create_dir_all(&repo_dir).unwrap();
+    fs::write(repo_dir.join("not-a-dir"), "nope\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "not-a-dir",
+        "operations": [
+            {"op": "replace", "path": "anything.txt", "from": "a", "to": "b"}
+        ]
+    });
+
+    let client = spawn_mcp_client(&repo_dir).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with a file-valued relative cwd should be rejected"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
 async fn test_mcp_tx_yaml_format() {
     if !has_mcp_support() {
         return;
