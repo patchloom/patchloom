@@ -275,7 +275,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:init -->
 ## `init`
 
-- **What it does:** Sets up patchloom in the current project: creates or appends agent rules to AGENTS.md, prints shell completion instructions, and detects MCP configuration opportunities.
+- **What it does:** Sets up patchloom in the current project: creates `AGENTS.md` if needed, otherwise appends the rules to an existing agent instructions file, prints shell completion instructions, and detects MCP configuration opportunities. When `.vscode/` or `.cursor/` already exists, it prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets.
 - **Use when:** You just installed patchloom and want a single command to configure a project instead of running `agent-rules`, `completions`, and MCP setup separately.
 - **Notable flags:**
   - `-y, --yes`: Skip confirmation prompts and auto-accept all actions.

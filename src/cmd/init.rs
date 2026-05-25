@@ -1,5 +1,7 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::AGENT_RULES_GENERATED_MARKER;
 use crate::exit;
+use anyhow::Context;
 use clap::Args;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +17,14 @@ pub struct InitArgs {
 }
 
 /// Candidate files where agent instructions may already exist.
-const AGENT_FILES: &[&str] = &["AGENTS.md", "CLAUDE.md", "PATCHLOOM.md"];
+const AGENT_FILES: &[&str] = &[
+    "AGENTS.md",
+    "Agents.md",
+    "AGENT.md",
+    "Claude.md",
+    "CLAUDE.md",
+    "PATCHLOOM.md",
+];
 
 pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
@@ -47,8 +56,9 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if action == "append" {
         // Check if patchloom rules are already present.
-        let content = std::fs::read_to_string(&target_path).unwrap_or_default();
-        if content.contains("patchloom") {
+        let content = std::fs::read_to_string(&target_path)
+            .with_context(|| format!("reading existing {}", target_path.display()))?;
+        if content.contains(AGENT_RULES_GENERATED_MARKER) {
             status!("{rel_target} already contains patchloom rules, skipping.");
         } else if auto_yes || confirm(&format!("Append patchloom rules to {rel_target}?")) {
             let mut content = content;
@@ -72,17 +82,25 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 2. Shell completions: auto-install or hint.
     if let Some(shell) = detect_shell() {
         if let Some(target) = completion_install_path(&shell) {
-            let can_write = target
-                .parent()
-                .map(|p| p.exists() || std::fs::create_dir_all(p).is_ok())
-                .unwrap_or(false);
-            if can_write
-                && (auto_yes
-                    || confirm(&format!(
-                        "Install {} completions to {}?",
-                        shell,
-                        target.display()
-                    )))
+            let parent_ready = target.parent().map_or(Ok(()), |parent| {
+                if parent.exists() {
+                    Ok(())
+                } else {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))
+                }
+            });
+            if let Err(e) = parent_ready {
+                status!("failed to prepare completion directory: {e}");
+                let cmd = completion_command(&shell);
+                status!("\nshell completions ({shell}):");
+                status!("  {cmd}");
+            } else if auto_yes
+                || confirm(&format!(
+                    "Install {} completions to {}?",
+                    shell,
+                    target.display()
+                ))
             {
                 match generate_completions(&shell, &target) {
                     Ok(()) => status!("installed {shell} completions to {}", target.display()),
@@ -107,6 +125,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 3. MCP setup hint.
         eprintln!();
         if cfg!(feature = "mcp") {
+            let mcp_json_hint = r#"    { "servers": { "patchloom": { "command": "patchloom", "args": ["mcp-server"] } } }"#;
             eprintln!("MCP server is available. Add to your agent's config:");
             if cwd.join(".grok").is_dir() || home_file_exists(".grok/config.toml") {
                 eprintln!("  Grok: add to ~/.grok/config.toml:");
@@ -115,10 +134,12 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 eprintln!("    args = [\"mcp-server\"]");
             }
             if cwd.join(".vscode").is_dir() {
-                eprintln!("  VS Code: add to .vscode/settings.json:");
-                eprintln!(
-                    "    \"mcp.servers\": {{ \"patchloom\": {{ \"command\": \"patchloom\", \"args\": [\"mcp-server\"] }} }}"
-                );
+                eprintln!("  VS Code: create .vscode/mcp.json:");
+                eprintln!("{mcp_json_hint}");
+            }
+            if cwd.join(".cursor").is_dir() {
+                eprintln!("  Cursor: create .cursor/mcp.json:");
+                eprintln!("{mcp_json_hint}");
             }
         } else {
             eprintln!("MCP server not available (build with --features mcp to enable).");
@@ -131,10 +152,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 }
 
 fn find_agent_file(cwd: &Path) -> Option<std::path::PathBuf> {
+    let entries: Vec<_> = std::fs::read_dir(cwd)
+        .ok()?
+        .filter_map(Result::ok)
+        .collect();
     for name in AGENT_FILES {
-        let p = cwd.join(name);
-        if p.exists() {
-            return Some(p);
+        for entry in &entries {
+            if entry.file_name() == std::ffi::OsStr::new(name) {
+                return Some(entry.path());
+            }
         }
     }
     None
@@ -239,6 +265,24 @@ mod tests {
         let found = find_agent_file(dir.path());
         assert!(found.is_some());
         assert!(found.unwrap().ends_with("AGENTS.md"));
+    }
+
+    #[test]
+    fn find_agent_file_preserves_claude_md_case() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("Claude.md"), "# Rules\n").unwrap();
+        let found = find_agent_file(dir.path());
+        assert!(found.is_some());
+        assert!(found.unwrap().ends_with("Claude.md"));
+    }
+
+    #[test]
+    fn find_agent_file_supports_agents_md_variant() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("Agents.md"), "# Rules\n").unwrap();
+        let found = find_agent_file(dir.path());
+        assert!(found.is_some());
+        assert!(found.unwrap().ends_with("Agents.md"));
     }
 
     #[test]

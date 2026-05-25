@@ -81,7 +81,7 @@ Set up your project in one command:
 patchloom init
 ```
 
-This generates `AGENTS.md`, offers shell completions, and detects MCP configuration. Or generate just the agent instructions:
+This creates `AGENTS.md` in a new project or appends the rules to an existing agent instructions file, offers shell completions, and detects MCP configuration. If `.vscode/` or `.cursor/` exists, it prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets. Or generate just the agent instructions:
 
 ```bash
 patchloom agent-rules >> AGENTS.md
@@ -98,7 +98,7 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 
 ## By the numbers
 
-- **1060 tests** (513 unit + 547 integration), zero unsafe code
+- **1,100+ tests**, zero unsafe code
 - **18 CLI commands** + MCP server with 33 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
