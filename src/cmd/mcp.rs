@@ -507,6 +507,13 @@ impl PatchloomService {
             allow_shell,
         })
     }
+
+    /// Validate a path for both syntactic containment and symlink resolution.
+    /// Combines the two checks that must always be called together.
+    fn check_path(&self, path: &str) -> Result<(), McpError> {
+        validate_path_contained(path)?;
+        validate_path_resolved(path, &self.cwd, &self.canon_cwd)
+    }
 }
 
 /// Execute a plan by calling the tx engine directly (no subprocess).
@@ -576,8 +583,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
@@ -596,8 +602,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
@@ -615,8 +620,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocMerge {
                 path: p.path,
@@ -634,8 +638,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
@@ -654,8 +657,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
@@ -674,8 +676,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
@@ -694,8 +695,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
@@ -714,8 +714,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
@@ -734,8 +733,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocMoveParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::DocMove {
                 path: p.path,
@@ -754,8 +752,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocGetParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Get {
             file: abs.to_string_lossy().into_owned(),
@@ -771,8 +768,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Has {
             file: abs.to_string_lossy().into_owned(),
@@ -788,8 +784,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Keys {
             file: abs.to_string_lossy().into_owned(),
@@ -805,8 +800,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Len {
             file: abs.to_string_lossy().into_owned(),
@@ -822,8 +816,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocSelectorParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Select {
             file: abs.to_string_lossy().into_owned(),
@@ -839,8 +832,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocFileParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Flatten {
             file: abs.to_string_lossy().into_owned(),
@@ -855,10 +847,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.file_a)?;
-        validate_path_contained(&p.file_b)?;
-        validate_path_resolved(&p.file_a, &self.cwd, &self.canon_cwd)?;
-        validate_path_resolved(&p.file_b, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.file_a)?;
+        self.check_path(&p.file_b)?;
         let abs_a = self.cwd.join(&p.file_a);
         let abs_b = self.cwd.join(&p.file_b);
         let action = crate::cmd::doc::DocAction::Diff {
@@ -882,8 +872,7 @@ impl PatchloomService {
             ));
         }
         for path in &p.paths {
-            validate_path_contained(path)?;
-            validate_path_resolved(path, &self.cwd, &self.canon_cwd)?;
+            self.check_path(path)?;
         }
         let search_args = crate::cmd::search::SearchArgs {
             pattern: p.pattern,
@@ -951,8 +940,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::Read {
                 path: p.path,
@@ -970,8 +958,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let mode = if p.regex {
             Some("regex".to_string())
         } else {
@@ -1003,8 +990,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdUpsertBullet {
                 path: p.path,
@@ -1023,8 +1009,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdTableAppend {
                 path: p.path,
@@ -1043,8 +1028,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdReplaceSection {
                 path: p.path,
@@ -1063,8 +1047,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdInsertAfterHeading {
                 path: p.path,
@@ -1083,8 +1066,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::MdInsertBeforeHeading {
                 path: p.path,
@@ -1103,8 +1085,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdLintAgentsParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
         let content = std::fs::read_to_string(&abs)
             .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
@@ -1163,8 +1144,7 @@ impl PatchloomService {
                     ));
                 }
             } else {
-                validate_path_contained(plan_cwd)?;
-                validate_path_resolved(plan_cwd, &self.cwd, &self.canon_cwd)?;
+                self.check_path(plan_cwd)?;
             }
         }
 
@@ -1196,8 +1176,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
         execute_plan(
             make_plan(vec![Operation::TidyFix {
                 path: p.path,
@@ -1217,10 +1196,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<FileRenameParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.from)?;
-        validate_path_contained(&p.to)?;
-        validate_path_resolved(&p.from, &self.cwd, &self.canon_cwd)?;
-        validate_path_resolved(&p.to, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.from)?;
+        self.check_path(&p.to)?;
 
         let src = self.cwd.join(&p.from);
         let dst = self.cwd.join(&p.to);
@@ -1240,8 +1217,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
 
         let abs = self.cwd.join(&p.path);
         match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
@@ -1258,8 +1234,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DeleteFileParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_path_contained(&p.path)?;
-        validate_path_resolved(&p.path, &self.cwd, &self.canon_cwd)?;
+        self.check_path(&p.path)?;
 
         let abs = self.cwd.join(&p.path);
         match crate::cmd::delete::apply_delete(&abs, &self.cwd) {
@@ -1282,8 +1257,7 @@ impl PatchloomService {
         let patch_files = crate::ops::patch::parse_patch(&p.diff)
             .map_err(|e| McpError::invalid_params(format!("failed to parse diff: {e}"), None))?;
         for pf in &patch_files {
-            validate_path_contained(&pf.path)?;
-            validate_path_resolved(&pf.path, &self.cwd, &self.canon_cwd)?;
+            self.check_path(&pf.path)?;
         }
 
         execute_plan(

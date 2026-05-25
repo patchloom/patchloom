@@ -85,6 +85,24 @@ struct FileReplacement {
     match_count: usize,
 }
 
+/// Build policy+write tuples and write atomically with backup.
+fn apply_replacements(
+    replacements: &[FileReplacement],
+    global: &GlobalFlags,
+    cwd: &Path,
+) -> anyhow::Result<()> {
+    let policies: Vec<_> = replacements
+        .iter()
+        .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
+        .collect();
+    let writes: Vec<_> = replacements
+        .iter()
+        .zip(&policies)
+        .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
+        .collect();
+    crate::backup::backup_write_files(cwd, &writes)
+}
+
 fn build_replacement(args: &ReplaceArgs) -> String {
     replacement_text(
         &args.from,
@@ -256,16 +274,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: write changes using atomic_write with write policy.
     if global.apply {
-        let policies: Vec<_> = replacements
-            .iter()
-            .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
-            .collect();
-        let writes: Vec<_> = replacements
-            .iter()
-            .zip(&policies)
-            .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
-            .collect();
-        crate::backup::backup_write_files(&cwd, &writes)?;
+        apply_replacements(&replacements, global, &cwd)?;
 
         let color = global.should_color();
         if global.json {
@@ -321,16 +330,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {
-        let policies: Vec<_> = replacements
-            .iter()
-            .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
-            .collect();
-        let writes: Vec<_> = replacements
-            .iter()
-            .zip(&policies)
-            .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
-            .collect();
-        crate::backup::backup_write_files(&cwd, &writes)?;
+        apply_replacements(&replacements, global, &cwd)?;
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }
