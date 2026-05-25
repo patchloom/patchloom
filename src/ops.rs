@@ -532,8 +532,7 @@ pub(crate) mod doc {
         current: &serde_json::Value,
         target: &serde_json::Value,
     ) -> anyhow::Result<Option<String>> {
-        let mut diffs: Vec<(Vec<String>, Vec<serde_json::Value>, Vec<serde_json::Value>)> =
-            Vec::new();
+        let mut diffs: Vec<(Vec<String>, &[serde_json::Value], &[serde_json::Value])> = Vec::new();
         find_array_diffs(current, target, &mut Vec::new(), &mut diffs);
         if diffs.is_empty() {
             return Ok(None);
@@ -558,11 +557,15 @@ pub(crate) mod doc {
     /// Recursively find arrays that differ between `current` and `target`.
     /// Each result entry includes the key path, the current array, and the
     /// target array (needed to detect prepend vs append vs general).
-    fn find_array_diffs(
-        current: &serde_json::Value,
-        target: &serde_json::Value,
+    fn find_array_diffs<'a>(
+        current: &'a serde_json::Value,
+        target: &'a serde_json::Value,
         path: &mut Vec<String>,
-        result: &mut Vec<(Vec<String>, Vec<serde_json::Value>, Vec<serde_json::Value>)>,
+        result: &mut Vec<(
+            Vec<String>,
+            &'a [serde_json::Value],
+            &'a [serde_json::Value],
+        )>,
     ) {
         if current == target {
             return;
@@ -578,7 +581,7 @@ pub(crate) mod doc {
                 }
             }
             (serde_json::Value::Array(cur_arr), serde_json::Value::Array(tgt_arr)) => {
-                result.push((path.clone(), cur_arr.clone(), tgt_arr.clone()));
+                result.push((path.clone(), cur_arr.as_slice(), tgt_arr.as_slice()));
             }
             _ => {}
         }
@@ -870,11 +873,16 @@ pub(crate) mod doc {
             return true;
         }
         // Values that look like booleans, null, or numbers.
-        let lower = s.to_lowercase();
-        if matches!(
-            lower.as_str(),
-            "true" | "false" | "yes" | "no" | "on" | "off" | "null" | "~"
-        ) {
+        // Use eq_ignore_ascii_case to avoid allocating a lowercased copy.
+        if s.eq_ignore_ascii_case("true")
+            || s.eq_ignore_ascii_case("false")
+            || s.eq_ignore_ascii_case("yes")
+            || s.eq_ignore_ascii_case("no")
+            || s.eq_ignore_ascii_case("on")
+            || s.eq_ignore_ascii_case("off")
+            || s.eq_ignore_ascii_case("null")
+            || s == "~"
+        {
             return true;
         }
         if s.parse::<f64>().is_ok() {

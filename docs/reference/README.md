@@ -696,7 +696,7 @@ Use these when newline and whitespace correctness is the main concern.
 
 - **What it does:** Sets the base directory used to resolve relative paths inside the plan.
 - **Use when:** You need plan operations and lifecycle steps to run from a specific subdirectory under the invocation root.
-- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, the resolved directory must stay inside the server root.
+- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, the resolved directory must stay inside the server root. If the resolved path does not exist or is not a directory, the plan is rejected with PARSE_ERROR (exit 4).
 - **Prefer instead:** Use the CLI `--cwd` flag when the directory choice is a caller concern rather than part of the plan itself.
 
 <!-- ref:tx-field:write_policy -->

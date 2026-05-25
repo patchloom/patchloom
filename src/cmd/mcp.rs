@@ -518,6 +518,11 @@ impl PatchloomService {
 }
 
 /// Execute a plan by calling the tx engine directly (no subprocess).
+///
+/// Validates all operation paths for containment before execution.
+/// Use [`execute_plan_validated`] when the caller already validated paths
+/// via [`PatchloomService::check_path`] to avoid a redundant `canonicalize`
+/// syscall per path.
 fn execute_plan(
     plan: Plan,
     cwd: &std::path::Path,
@@ -526,6 +531,18 @@ fn execute_plan(
     // Validate all operation paths for containment (syntactic + symlink).
     validate_operation_paths(&plan.operations, cwd, canon_cwd)?;
 
+    execute_plan_inner(plan, cwd)
+}
+
+/// Execute a plan whose paths have already been validated by the caller.
+///
+/// Skips the `validate_operation_paths` check, saving a `canonicalize`
+/// syscall per path that `check_path` already performed.
+fn execute_plan_validated(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
+    execute_plan_inner(plan, cwd)
+}
+
+fn execute_plan_inner(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
     let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd)
         .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
 
@@ -585,14 +602,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -604,13 +620,12 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
                 selector: p.selector,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -622,13 +637,12 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocMerge {
                 path: p.path,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -640,14 +654,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -659,14 +672,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -678,14 +690,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -697,14 +708,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
                 selector: p.selector,
                 predicate: p.predicate,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -716,14 +726,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -735,14 +744,13 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMoveParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::DocMove {
                 path: p.path,
                 from: p.from,
                 to: p.to,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -942,13 +950,12 @@ impl PatchloomService {
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::Read {
                 path: p.path,
                 lines: p.lines,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -965,7 +972,7 @@ impl PatchloomService {
         } else {
             None
         };
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::Replace {
                 glob: None,
                 path: Some(p.path),
@@ -980,7 +987,6 @@ impl PatchloomService {
                 if_exists: p.if_exists,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -992,14 +998,13 @@ impl PatchloomService {
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::MdUpsertBullet {
                 path: p.path,
                 heading: p.heading,
                 bullet: p.bullet,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1011,14 +1016,13 @@ impl PatchloomService {
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::MdTableAppend {
                 path: p.path,
                 heading: p.heading,
                 row: p.row,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1030,14 +1034,13 @@ impl PatchloomService {
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::MdReplaceSection {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1049,14 +1052,13 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::MdInsertAfterHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1068,14 +1070,13 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::MdInsertBeforeHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1180,7 +1181,7 @@ impl PatchloomService {
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::TidyFix {
                 path: p.path,
                 ensure_final_newline: Some(true),
@@ -1188,7 +1189,6 @@ impl PatchloomService {
                 normalize_eol: None,
             }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 
@@ -1263,10 +1263,9 @@ impl PatchloomService {
             self.check_path(&pf.path)?;
         }
 
-        execute_plan(
+        execute_plan_validated(
             make_plan(vec![Operation::PatchApply { diff: p.diff }]),
             &self.cwd,
-            &self.canon_cwd,
         )
     }
 

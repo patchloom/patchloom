@@ -226,12 +226,15 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
 /// Read a file as UTF-8 text, skipping binary files and logging errors.
 /// Returns `None` for binary, empty, unreadable, or non-UTF-8 files.
 ///
-/// Only the first 8 KiB are read for the binary check, so large binary
-/// files (images, compiled objects) are rejected without reading the
-/// entire file into memory.
+/// For files larger than 8 KiB, only the first 8 KiB are read initially
+/// for the binary check. If the file is binary, no further I/O occurs,
+/// avoiding a full read of large binary files (images, compiled objects)
+/// that pass through the directory walker.
 pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
+    use std::io::Read;
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
         Err(e) => {
             if !quiet {
                 eprintln!("{cmd}: skipping {}: {e}", path.display());
@@ -240,7 +243,59 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
         }
     };
 
-    if bytes.is_empty() || is_binary(&bytes) {
+    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0) as usize;
+    if file_len == 0 {
+        return None;
+    }
+
+    // For files larger than the binary-check window, read just the header
+    // first. This avoids allocating megabytes for large binary files that
+    // the walker did not filter out.
+    const BINARY_CHECK_LEN: usize = 8192;
+    if file_len > BINARY_CHECK_LEN {
+        let mut header = [0u8; BINARY_CHECK_LEN];
+        let n = match file.read(&mut header) {
+            Ok(n) => n,
+            Err(e) => {
+                if !quiet {
+                    eprintln!("{cmd}: skipping {}: {e}", path.display());
+                }
+                return None;
+            }
+        };
+        if is_binary(&header[..n]) {
+            return None;
+        }
+        // Header is text; now read the remainder into a single allocation.
+        let mut bytes = Vec::with_capacity(file_len);
+        bytes.extend_from_slice(&header[..n]);
+        if let Err(e) = file.read_to_end(&mut bytes) {
+            if !quiet {
+                eprintln!("{cmd}: skipping {}: {e}", path.display());
+            }
+            return None;
+        }
+        return match String::from_utf8(bytes) {
+            Ok(s) => Some(s),
+            Err(_) => {
+                if !quiet {
+                    eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
+                }
+                None
+            }
+        };
+    }
+
+    // Small file: read all at once (single syscall).
+    let mut bytes = Vec::with_capacity(file_len);
+    if let Err(e) = file.read_to_end(&mut bytes) {
+        if !quiet {
+            eprintln!("{cmd}: skipping {}: {e}", path.display());
+        }
+        return None;
+    }
+
+    if is_binary(&bytes) {
         return None;
     }
 
