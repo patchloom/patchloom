@@ -13044,6 +13044,54 @@ fn test_tx_lifecycle_stderr_captured_in_format_error() {
 }
 
 #[test]
+fn test_tx_lifecycle_stderr_truncated_when_exceeding_limit() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    // Generate >512 bytes of stderr output. Each line is ~80 chars;
+    // 10 lines = ~800 bytes, well over the 512-byte capture limit.
+    let stderr_cmd = "for i in 1 2 3 4 5 6 7 8 9 10; do echo \"LONGLINE_${i}_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" >&2; done && exit 1";
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "hello",
+            "to": "world"
+        }],
+        "validate": [{
+            "cmd": stderr_cmd,
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let error = json["error"].as_str().unwrap();
+    assert!(
+        error.contains("LONGLINE_1_"),
+        "truncated stderr should include the beginning: {error}"
+    );
+    assert!(
+        error.contains("(truncated)"),
+        "long stderr should be marked as truncated: {error}"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -14011,7 +14059,7 @@ fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle
 fn test_reference_doc_describes_tx_lifecycle_failure_context() {
     let reference = fs::read_to_string(reference_path()).unwrap();
     assert!(reference.contains(
-        "Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`)."
+        "Error output reports the failing step number, exit status, the lifecycle working directory (`cwd`), and a truncated snippet of the command's stderr when available."
     ));
 }
 
