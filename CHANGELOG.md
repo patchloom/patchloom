@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Extracted shared tx execution core (`execute_and_collect`, `run_lifecycle`) eliminating ~190 lines of duplication
 - Extracted `backup_write_files` helper, refactored 5 call sites across replace, patch, and tidy commands
 - Extracted `apply_replacements` helper in replace command, deduplicating backup+write block
+- Extracted `with_doc_mutation` helper in doc command, eliminating 9x load/clone/serialize/write boilerplate
 - Fixed `read_file_content` double-join bug when transaction cwd is relative
 - Added syntactic path traversal validation to undo restore paths
 - Added `validate_path_resolved` symlink check to all 16 MCP write handlers
