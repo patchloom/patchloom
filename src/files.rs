@@ -603,6 +603,19 @@ mod tests {
     }
 
     #[test]
+    fn read_text_file_large_binary_rejected_via_header_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("large.bin");
+        // Create a binary file larger than the 8 KiB probe with a NUL
+        // in the header. The two-phase read should detect the NUL in the
+        // first 8 KiB and return None without reading the rest.
+        let mut data = vec![b'a'; 10_000];
+        data[4096] = 0; // NUL in the first 8 KiB
+        std::fs::write(&file, &data).unwrap();
+        assert!(read_text_file(&file, "test", false).is_none());
+    }
+
+    #[test]
     fn read_text_file_binary_past_8k_still_read_as_text() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("mostly_text.txt");

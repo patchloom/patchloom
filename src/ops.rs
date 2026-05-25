@@ -868,7 +868,7 @@ pub(crate) mod doc {
     }
 
     /// Check if a string needs YAML quoting.
-    fn needs_yaml_quoting(s: &str) -> bool {
+    pub(crate) fn needs_yaml_quoting(s: &str) -> bool {
         if s.is_empty() {
             return true;
         }
@@ -2680,6 +2680,77 @@ mod tests {
             let seg = crate::selector::parse("b.c").unwrap();
             let count = update_matching(&mut val, &seg, &json!("x"));
             assert_eq!(count, 0);
+        }
+    }
+
+    // ── needs_yaml_quoting tests ─────────────────────────────────────
+    mod yaml_quoting_tests {
+        use crate::ops::doc::needs_yaml_quoting;
+
+        #[test]
+        fn yaml_booleans_need_quoting() {
+            for kw in ["true", "false", "yes", "no", "on", "off"] {
+                assert!(needs_yaml_quoting(kw), "{kw} should need quoting");
+            }
+        }
+
+        #[test]
+        fn yaml_booleans_case_insensitive() {
+            for kw in ["True", "FALSE", "Yes", "NO", "On", "OFF", "TrUe"] {
+                assert!(needs_yaml_quoting(kw), "{kw} should need quoting");
+            }
+        }
+
+        #[test]
+        fn yaml_null_and_tilde_need_quoting() {
+            assert!(needs_yaml_quoting("null"));
+            assert!(needs_yaml_quoting("Null"));
+            assert!(needs_yaml_quoting("NULL"));
+            assert!(needs_yaml_quoting("~"));
+        }
+
+        #[test]
+        fn yaml_numbers_need_quoting() {
+            assert!(needs_yaml_quoting("42"));
+            assert!(needs_yaml_quoting("3.14"));
+            assert!(needs_yaml_quoting("-1"));
+            assert!(needs_yaml_quoting("0"));
+        }
+
+        #[test]
+        fn yaml_empty_string_needs_quoting() {
+            assert!(needs_yaml_quoting(""));
+        }
+
+        #[test]
+        fn yaml_special_prefix_chars_need_quoting() {
+            assert!(needs_yaml_quoting("#comment"));
+            assert!(needs_yaml_quoting("&anchor"));
+            assert!(needs_yaml_quoting("*alias"));
+            assert!(needs_yaml_quoting("?key"));
+            assert!(needs_yaml_quoting("|literal"));
+            assert!(needs_yaml_quoting(">folded"));
+            assert!(needs_yaml_quoting("{flow}"));
+            assert!(needs_yaml_quoting("[list]"));
+            assert!(needs_yaml_quoting("%directive"));
+            assert!(needs_yaml_quoting("@reserved"));
+            assert!(needs_yaml_quoting("`backtick"));
+            assert!(needs_yaml_quoting("\"quoted"));
+            assert!(needs_yaml_quoting("'squoted"));
+        }
+
+        #[test]
+        fn yaml_colon_space_and_space_hash_need_quoting() {
+            assert!(needs_yaml_quoting("key: value"));
+            assert!(needs_yaml_quoting("hello #comment"));
+        }
+
+        #[test]
+        fn yaml_plain_strings_do_not_need_quoting() {
+            assert!(!needs_yaml_quoting("hello"));
+            assert!(!needs_yaml_quoting("foo-bar"));
+            assert!(!needs_yaml_quoting("some_value_123"));
+            assert!(!needs_yaml_quoting("v1.2.3"));
         }
     }
 
