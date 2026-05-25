@@ -23,11 +23,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added `validate_path_resolved` symlink check to all 16 MCP write handlers
 - Extracted `compile_replace_regex` shared helper
 - Improved doc command error messages to list supported file extensions
+- CLI `tx` validates plan `cwd` is a directory, returning PARSE_ERROR instead of confusing OS errors
+- Lifecycle shell commands (format/validate) now capture first 512 bytes of stderr in error output
+- Relative plan `cwd` values resolve from invocation root, matching MCP behavior
+- Lifecycle failure messages include the working directory (`cwd: .` or `cwd: nested`)
+- MCP `transaction` validates relative `cwd` resolves to a directory, not a file
+- Shared `resolve_plan_cwd` function deduplicates CLI and MCP cwd resolution
 
 ### Documentation
 
 - Documented column offset semantics in search JSON output
 - Added `init` command to README Commands table
+- Documented stderr capture and cwd context in lifecycle failure output (reference docs, quickstart)
+- Added `cargo check --all-targets` to CONTRIBUTING.md for default-feature build verification
+- Added launch announcement blog post command count freshness guard
 
 ### Testing
 
