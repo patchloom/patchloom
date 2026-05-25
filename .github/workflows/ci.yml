@@ -240,28 +240,31 @@ jobs:
 
       - name: Benchmark search (must be under 50ms)
         run: |
+          bench_txt="$RUNNER_TEMP/bench.txt"
           bench_json="$RUNNER_TEMP/bench-search.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom search "hello" "$RUNNER_TEMP/bench.txt"' \
+            "./target/release/patchloom search hello $bench_txt" \
             --max-runs 100
           python3 benches/ci/check_threshold.py "$bench_json" "search"
 
       - name: Benchmark doc get (must be under 50ms)
         run: |
+          bench_json_file="$RUNNER_TEMP/bench.json"
           bench_json="$RUNNER_TEMP/bench-doc-get.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom --json doc get "$RUNNER_TEMP/bench.json" name' \
+            "./target/release/patchloom --json doc get $bench_json_file name" \
             --max-runs 100
           python3 benches/ci/check_threshold.py "$bench_json" "doc get"
 
       - name: Benchmark replace dry-run (must be under 50ms)
         run: |
+          bench_txt="$RUNNER_TEMP/bench.txt"
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            './target/release/patchloom replace hello --to world "$RUNNER_TEMP/bench.txt"' \
+            "./target/release/patchloom replace hello --to world $bench_txt" \
             --max-runs 100
           python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run"
 
