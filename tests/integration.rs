@@ -97,16 +97,29 @@ fn shell_test_exists(path: &Path) -> String {
 }
 
 #[cfg(unix)]
-fn run_patchloom_confirm_in_pty(args: &[&str], input: &str) -> std::process::Output {
+fn run_patchloom_confirm_in_pty_with_env(
+    args: &[&str],
+    input: &str,
+    env: &[(&str, &str)],
+) -> std::process::Output {
     let python = r#"
 import json, os, pty, subprocess, sys
 
 args = json.loads(os.environ["PATCHLOOM_PTY_ARGS"])
 cwd = os.environ["PATCHLOOM_PTY_CWD"]
 input_data = os.environ["PATCHLOOM_PTY_INPUT"].encode()
+child_env = os.environ.copy()
+child_env.update(json.loads(os.environ["PATCHLOOM_PTY_ENV"]))
 
 master_fd, slave_fd = pty.openpty()
-proc = subprocess.Popen(args, cwd=cwd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd)
+proc = subprocess.Popen(
+    args,
+    cwd=cwd,
+    stdin=slave_fd,
+    stdout=slave_fd,
+    stderr=slave_fd,
+    env=child_env,
+)
 os.close(slave_fd)
 if input_data:
     os.write(master_fd, input_data)
@@ -129,6 +142,10 @@ sys.exit(status)
     let full_args = std::iter::once(env!("CARGO_BIN_EXE_patchloom").to_string())
         .chain(args.iter().map(|arg| (*arg).to_string()))
         .collect::<Vec<_>>();
+    let env_json = env
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     std::process::Command::new("python3")
         .arg("-c")
@@ -139,8 +156,17 @@ sys.exit(status)
         )
         .env("PATCHLOOM_PTY_CWD", repo_root())
         .env("PATCHLOOM_PTY_INPUT", input)
+        .env(
+            "PATCHLOOM_PTY_ENV",
+            serde_json::to_string(&env_json).unwrap(),
+        )
         .output()
         .unwrap()
+}
+
+#[cfg(unix)]
+fn run_patchloom_confirm_in_pty(args: &[&str], input: &str) -> std::process::Output {
+    run_patchloom_confirm_in_pty_with_env(args, input, &[])
 }
 
 fn assert_patch_apply_error_object(
@@ -577,6 +603,24 @@ fn test_init_quiet_suppresses_output() {
     // But stderr should be empty
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.is_empty(), "stderr should be empty with --quiet");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_init_confirm_eof_skips_agents_creation() {
+    let dir = TempDir::new().unwrap();
+    let output = run_patchloom_confirm_in_pty_with_env(
+        &["init", "--cwd", dir.path().to_str().unwrap()],
+        "\u{4}",
+        &[("SHELL", "unknown")],
+    );
+
+    assert!(output.status.success());
+    assert!(!dir.path().join("AGENTS.md").exists());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Create AGENTS.md? [Y/n]"));
+    assert!(stdout.contains("skipped AGENTS.md"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1559,6 +1603,34 @@ fn test_doc_set_apply() {
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(v["version"], serde_json::json!("2.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_doc_set_confirm_eof_does_not_modify_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "doc",
+            "set",
+            file.to_str().unwrap(),
+            "version",
+            "\"2.0\"",
+            "--confirm",
+        ],
+        "\u{4}",
+    );
+
+    assert!(output.status.success());
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["version"], serde_json::json!("1.0"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Apply? [Y/n]"));
 }
 
 #[test]

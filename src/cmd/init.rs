@@ -205,21 +205,8 @@ fn home_file_exists(rel: &str) -> bool {
     false
 }
 
-fn atty_stdin() -> bool {
-    std::io::IsTerminal::is_terminal(&std::io::stdin())
-}
-
 fn confirm(prompt: &str) -> bool {
-    if !atty_stdin() {
-        return false;
-    }
-    eprint!("{prompt} [Y/n] ");
-    let mut buf = String::new();
-    if std::io::stdin().read_line(&mut buf).is_err() {
-        return false;
-    }
-    let answer = buf.trim().to_lowercase();
-    answer.is_empty() || answer == "y" || answer == "yes"
+    crate::cli::global::confirm_prompt(prompt)
 }
 
 #[cfg(test)]

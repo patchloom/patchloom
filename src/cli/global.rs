@@ -119,6 +119,21 @@ pub struct WriteFlags {
     pub confirm: bool,
 }
 
+pub(crate) fn confirm_prompt(prompt: &str) -> bool {
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return false;
+    }
+    eprint!("{prompt} [Y/n] ");
+    let mut buf = String::new();
+    match std::io::stdin().read_line(&mut buf) {
+        Ok(0) | Err(_) => false,
+        Ok(_) => {
+            let answer = buf.trim().to_lowercase();
+            answer.is_empty() || answer == "y" || answer == "yes"
+        }
+    }
+}
+
 impl GlobalFlags {
     /// Copy write-only flags from a [`WriteFlags`] into this struct.
     pub fn merge_write(&mut self, w: &WriteFlags) {
@@ -141,20 +156,7 @@ impl GlobalFlags {
         if self.apply {
             return true;
         }
-        if self.confirm {
-            if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                return false;
-            }
-            eprint!("Apply? [Y/n] ");
-            let mut buf = String::new();
-            match std::io::stdin().read_line(&mut buf) {
-                Ok(0) | Err(_) => return false,
-                Ok(_) => {}
-            }
-            let answer = buf.trim().to_lowercase();
-            return answer.is_empty() || answer == "y" || answer == "yes";
-        }
-        false
+        self.confirm && confirm_prompt("Apply?")
     }
 
     /// Whether to emit ANSI color codes to stdout.
