@@ -13547,7 +13547,7 @@ fn test_mcp_setup_documents_allow_shell_flag() {
 #[test]
 fn test_mcp_setup_documents_search_files_modes() {
     let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
-    assert!(doc.contains("literal, count, file-only, and multiline modes"));
+    assert!(doc.contains("literal, case-insensitive, count, file-only, and multiline modes"));
 }
 
 #[test]
