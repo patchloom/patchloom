@@ -15,11 +15,13 @@
       }
     },
     {
-      "description": "Search for a pattern across the repo",
+      "description": "Search for a multi-line function signature",
       "tool": "search_files",
       "arguments": {
-        "paths": ["src"],
-        "pattern": "TODO|FIXME"
+        "paths": ["src/cmd"],
+        "pattern": "async fn search_files\\(.*?\\{",
+        "multiline": true,
+        "context": 1
       }
     },
     {

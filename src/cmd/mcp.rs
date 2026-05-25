@@ -868,7 +868,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts."
+        description = "Search files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines."
     )]
     async fn search_files(
         &self,
