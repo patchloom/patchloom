@@ -2,7 +2,6 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use tempfile::TempDir;
 
 /// Convert a path to a string safe for embedding in YAML/TOML values.
@@ -95,6 +94,53 @@ fn shell_test_exists(path: &Path) -> String {
         let path = path.display();
         format!("test -f '{path}'")
     }
+}
+
+#[cfg(unix)]
+fn run_patchloom_confirm_in_pty(args: &[&str], input: &str) -> std::process::Output {
+    let python = r#"
+import json, os, pty, subprocess, sys
+
+args = json.loads(os.environ["PATCHLOOM_PTY_ARGS"])
+cwd = os.environ["PATCHLOOM_PTY_CWD"]
+input_data = os.environ["PATCHLOOM_PTY_INPUT"].encode()
+
+master_fd, slave_fd = pty.openpty()
+proc = subprocess.Popen(args, cwd=cwd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd)
+os.close(slave_fd)
+if input_data:
+    os.write(master_fd, input_data)
+
+output = bytearray()
+while True:
+    try:
+        chunk = os.read(master_fd, 4096)
+        if not chunk:
+            break
+        output.extend(chunk)
+    except OSError:
+        break
+
+status = proc.wait()
+os.close(master_fd)
+sys.stdout.buffer.write(output)
+sys.exit(status)
+"#;
+    let full_args = std::iter::once(env!("CARGO_BIN_EXE_patchloom").to_string())
+        .chain(args.iter().map(|arg| (*arg).to_string()))
+        .collect::<Vec<_>>();
+
+    std::process::Command::new("python3")
+        .arg("-c")
+        .arg(python)
+        .env(
+            "PATCHLOOM_PTY_ARGS",
+            serde_json::to_string(&full_args).unwrap(),
+        )
+        .env("PATCHLOOM_PTY_CWD", repo_root())
+        .env("PATCHLOOM_PTY_INPUT", input)
+        .output()
+        .unwrap()
 }
 
 fn assert_patch_apply_error_object(
@@ -4047,32 +4093,23 @@ fn test_create_check_json_output() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn test_create_json_confirm_output_reports_applied_after_confirmation() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("confirmed.txt");
 
-    let output = std::process::Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg(env!("CARGO_BIN_EXE_patchloom"))
-        .arg("--json")
-        .arg("create")
-        .arg(file.to_str().unwrap())
-        .arg("--content")
-        .arg("hello")
-        .arg("--confirm")
-        .current_dir(repo_root())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
-            child.wait_with_output()
-        })
-        .unwrap();
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "--json",
+            "create",
+            file.to_str().unwrap(),
+            "--content",
+            "hello",
+            "--confirm",
+        ],
+        "y\n",
+    );
 
     assert!(output.status.success());
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello");
@@ -4083,6 +4120,39 @@ fn test_create_json_confirm_output_reports_applied_after_confirmation() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["path"], file.to_str().unwrap());
     assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+hello"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_create_json_confirm_output_reports_applied_false_on_tty_eof() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("declined.txt");
+
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "--json",
+            "create",
+            file.to_str().unwrap(),
+            "--content",
+            "hello",
+            "--confirm",
+        ],
+        "\u{4}",
+    );
+
+    assert!(output.status.success());
+    assert!(
+        !file.exists(),
+        "file should not be created when confirmation input ends at EOF"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["path"], file.to_str().unwrap());
+    assert_eq!(json["applied"], false);
     assert!(json["diff"].as_str().unwrap().contains("+hello"));
 }
 
@@ -4499,6 +4569,7 @@ fn test_rename_check_json_output() {
     assert!(src.exists());
 }
 
+#[cfg(unix)]
 #[test]
 fn test_rename_json_confirm_output_reports_applied_after_confirmation() {
     let dir = TempDir::new().unwrap();
@@ -4506,26 +4577,16 @@ fn test_rename_json_confirm_output_reports_applied_after_confirmation() {
     let dst = dir.path().join("new.txt");
     fs::write(&src, "content\n").unwrap();
 
-    let output = std::process::Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg(env!("CARGO_BIN_EXE_patchloom"))
-        .arg("--json")
-        .arg("rename")
-        .arg(src.to_str().unwrap())
-        .arg(dst.to_str().unwrap())
-        .arg("--confirm")
-        .current_dir(repo_root())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
-            child.wait_with_output()
-        })
-        .unwrap();
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "--json",
+            "rename",
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+            "--confirm",
+        ],
+        "y\n",
+    );
 
     assert!(output.status.success());
     assert!(!src.exists());
@@ -4538,6 +4599,45 @@ fn test_rename_json_confirm_output_reports_applied_after_confirmation() {
     assert_eq!(json["from"], src.to_str().unwrap());
     assert_eq!(json["to"], dst.to_str().unwrap());
     assert_eq!(json["applied"], true);
+    assert!(json["diff"].as_str().unwrap().contains("+content"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_rename_json_confirm_output_reports_applied_false_on_tty_eof() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dst = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "--json",
+            "rename",
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+            "--confirm",
+        ],
+        "\u{4}",
+    );
+
+    assert!(output.status.success());
+    assert!(
+        src.exists(),
+        "source should remain when confirmation input ends at EOF"
+    );
+    assert!(
+        !dst.exists(),
+        "destination should not be created when confirmation input ends at EOF"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["from"], src.to_str().unwrap());
+    assert_eq!(json["to"], dst.to_str().unwrap());
+    assert_eq!(json["applied"], false);
     assert!(json["diff"].as_str().unwrap().contains("+content"));
 }
 
@@ -8248,31 +8348,17 @@ fn test_delete_json_apply_output() {
     assert!(json["path"].as_str().unwrap().contains("doomed.txt"));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_delete_json_confirm_output_reports_applied_after_confirmation() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("confirmed.txt");
     fs::write(&file, "bye\n").unwrap();
 
-    let output = std::process::Command::new("script")
-        .arg("-q")
-        .arg("/dev/null")
-        .arg(env!("CARGO_BIN_EXE_patchloom"))
-        .arg("--json")
-        .arg("delete")
-        .arg(file.to_str().unwrap())
-        .arg("--confirm")
-        .current_dir(repo_root())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child.stdin.as_mut().unwrap().write_all(b"y\n")?;
-            child.wait_with_output()
-        })
-        .unwrap();
+    let output = run_patchloom_confirm_in_pty(
+        &["--json", "delete", file.to_str().unwrap(), "--confirm"],
+        "y\n",
+    );
 
     assert!(output.status.success());
     assert!(!file.exists());
@@ -8283,6 +8369,33 @@ fn test_delete_json_confirm_output_reports_applied_after_confirmation() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["applied"], true);
     assert!(json["path"].as_str().unwrap().contains("confirmed.txt"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_delete_json_confirm_output_reports_applied_false_on_tty_eof() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("declined.txt");
+    fs::write(&file, "bye\n").unwrap();
+
+    let output = run_patchloom_confirm_in_pty(
+        &["--json", "delete", file.to_str().unwrap(), "--confirm"],
+        "\u{4}",
+    );
+
+    assert!(output.status.success());
+    assert!(
+        file.exists(),
+        "file should remain when confirmation input ends at EOF"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "bye\n");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json_start = stdout.find('{').expect("script output should contain JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout[json_start..]).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], false);
+    assert!(json["path"].as_str().unwrap().contains("declined.txt"));
 }
 
 #[test]

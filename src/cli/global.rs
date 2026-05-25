@@ -147,8 +147,9 @@ impl GlobalFlags {
             }
             eprint!("Apply? [Y/n] ");
             let mut buf = String::new();
-            if std::io::stdin().read_line(&mut buf).is_err() {
-                return false;
+            match std::io::stdin().read_line(&mut buf) {
+                Ok(0) | Err(_) => return false,
+                Ok(_) => {}
             }
             let answer = buf.trim().to_lowercase();
             return answer.is_empty() || answer == "y" || answer == "yes";
