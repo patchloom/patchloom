@@ -106,7 +106,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 
 - **What it does:** Sets the working directory used to resolve relative paths.
 - **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory.
-- **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself.
+- **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself, but keep it inside the invocation root. Relative plan `cwd` values resolve from the caller's working directory (`--cwd` or the process cwd), not from the plan file location.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`
@@ -695,7 +695,8 @@ Use these when newline and whitespace correctness is the main concern.
 ### `cwd`
 
 - **What it does:** Sets the base directory used to resolve relative paths inside the plan.
-- **Use when:** The plan should behave the same no matter where it is invoked from.
+- **Use when:** You need plan operations and lifecycle steps to run from a specific subdirectory under the invocation root.
+- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, the resolved directory must stay inside the server root.
 - **Prefer instead:** Use the CLI `--cwd` flag when the directory choice is a caller concern rather than part of the plan itself.
 
 <!-- ref:tx-field:write_policy -->
@@ -727,7 +728,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **What it does:** Runs shell commands after writes are staged to disk but before validation.
 - **Use when:** Generated or edited files should be normalized by tools like `cargo fmt`, `prettier`, or `black` as part of the same workflow.
 - **Step fields:** Each entry accepts `cmd` (required shell command) and `timeout` (seconds, default `60`).
-- **Failure behavior:** Any non-zero exit or timeout fails the transaction. With `strict: true`, Patchloom rolls back the staged writes.
+- **Failure behavior:** Any non-zero exit or timeout fails the transaction. Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`). With `strict: true`, Patchloom rolls back the staged writes.
 - **Prefer instead:** Run formatting outside `tx` when it does not need to participate in the transaction's success criteria.
 
 <!-- ref:tx-field:validate -->
@@ -736,7 +737,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **What it does:** Runs shell commands that decide whether the transaction should be reported as valid.
 - **Use when:** Build, test, or policy checks are part of the definition of success for the change.
 - **Step fields:** Each entry accepts `cmd` (required shell command), `required` (bool, default `false`), and `timeout` (seconds, default `60`).
-- **Failure behavior:** `required: true` makes the step gate transaction success. `required: false` still reports the validation problem to stderr, but the transaction keeps succeeding.
+- **Failure behavior:** `required: true` makes the step gate transaction success. `required: false` still reports the validation problem to stderr. Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`).
 - **Prefer instead:** Use standalone verification outside `tx` when the mutation and the validation lifecycle should stay separate.
 
 ### Transaction operations

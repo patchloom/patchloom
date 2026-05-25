@@ -14,6 +14,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::cli::global::GlobalFlags;
+use crate::cmd::tx::resolve_plan_cwd;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 
@@ -1129,6 +1130,7 @@ impl PatchloomService {
         // Validate plan-level cwd for containment.
         if let Some(ref plan_cwd) = plan.cwd {
             let cwd_path = std::path::Path::new(plan_cwd);
+            let resolved_plan_cwd = resolve_plan_cwd(&self.cwd, Some(plan_cwd));
             if cwd_path.is_absolute() {
                 // Absolute cwd must be inside the server's working directory.
                 let canon_plan_cwd = cwd_path.canonicalize().map_err(|e| {
@@ -1144,18 +1146,19 @@ impl PatchloomService {
                     ));
                 }
             } else {
-                self.check_path(plan_cwd)?;
+                validate_path_resolved(plan_cwd, &self.cwd, &self.canon_cwd)?;
+                if !resolved_plan_cwd.is_dir() {
+                    return Err(McpError::invalid_params(
+                        format!("plan cwd is not a directory: {plan_cwd}"),
+                        None,
+                    ));
+                }
             }
         }
 
         // Resolve effective cwd for path validation.
         let (effective_cwd, effective_canon_cwd) = if let Some(ref plan_cwd) = plan.cwd {
-            let p = std::path::Path::new(plan_cwd);
-            let eff = if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                self.cwd.join(p)
-            };
+            let eff = resolve_plan_cwd(&self.cwd, Some(plan_cwd));
             let canon = eff.canonicalize().map_err(|e| {
                 McpError::internal_error(format!("failed to canonicalize effective cwd: {e}"), None)
             })?;
@@ -1508,6 +1511,13 @@ mod tests {
     #[test]
     fn path_rejects_single_parent() {
         assert!(validate_path_contained("..").is_err());
+    }
+
+    #[test]
+    fn path_resolution_matches_tx_relative_cwd_rules() {
+        let base = std::path::Path::new("/workspace");
+        assert_eq!(resolve_plan_cwd(base, Some("nested")), base.join("nested"));
+        assert_eq!(resolve_plan_cwd(base, Some("a/../b")), base.join("a/../b"));
     }
 
     #[test]

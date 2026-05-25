@@ -147,6 +147,6 @@ What this means in practice:
 
 - **Plans can execute arbitrary shell commands.** The `format` and `validate` lifecycle steps pass their `cmd` field to `sh -c` (or `cmd /C` on Windows) with the user's full privileges. Only load plans you trust.
 - **File operations are unrestricted.** `create`, `delete`, `read`, `replace`, `patch`, and all `tx` operations accept any path the invoking user can access. There is no sandbox, chroot, or path restriction.
-- **Plan `cwd` overrides the working directory.** A plan's `cwd` field changes the process working directory for all subsequent operations and lifecycle steps. This is intentional for self-contained plans, but means a malicious plan can resolve relative paths from any directory.
+- **Plan `cwd` overrides the working directory.** A plan's `cwd` field changes the working directory for all subsequent operations and lifecycle steps. Relative values resolve from the invocation root, not from the plan file location. In normal CLI use this still runs with the invoking user's filesystem access; in MCP mode the resolved directory must stay under the server root.
 
 **For AI agent authors:** Do not construct plans from untrusted conversational input without validation. A plan is equivalent to a shell script. Treat plan files with the same care you would treat a Makefile or a bash script from an unknown source.

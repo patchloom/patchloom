@@ -10927,7 +10927,7 @@ fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
 
     assert_eq!(output.status.code(), Some(6));
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("required validation failed (step 1, exit code 1)"));
+    assert!(stderr.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(!stderr.contains(secret));
 }
 
@@ -10970,7 +10970,7 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
     assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
 }
 
@@ -11012,7 +11012,8 @@ fn test_tx_json_output_on_validation_failure() {
     assert_eq!(json["error_kind"], "validation_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
+    assert!(error.contains("cwd: ."));
     assert!(error.contains("exit code 1"));
 }
 
@@ -11056,7 +11057,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
-    assert!(error.contains("required validation failed (step 1, exit code 1)"));
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: .)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -11192,7 +11193,7 @@ fn test_tx_format_failure_redacts_shell_command_in_stderr() {
 
     assert_eq!(output.status.code(), Some(6));
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("format step failed (step 1, exit code 1)"));
+    assert!(stderr.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!stderr.contains(secret));
 }
 
@@ -11234,7 +11235,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert_eq!(json["error_kind"], "format_failed");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("validation_failed"));
-    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
 }
 
@@ -11277,7 +11278,7 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("rollback"));
     assert!(error.contains("strict mode -- all changes reverted"));
-    assert!(error.contains("format step failed (step 1, exit code 1)"));
+    assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(error.contains("exit code 1"));
 }
 
@@ -11973,6 +11974,10 @@ fn installation_path() -> PathBuf {
         .join("docs")
         .join("getting-started")
         .join("installation.md")
+}
+
+fn agent_test_readme_path() -> PathBuf {
+    repo_root().join("tests").join("agent").join("README.md")
 }
 
 fn concepts_path() -> PathBuf {
@@ -12801,6 +12806,75 @@ fn test_tx_honors_cwd_for_relative_plan_path() {
 }
 
 #[test]
+fn test_tx_relative_plan_cwd_resolves_from_invocation_root() {
+    let dir = TempDir::new().unwrap();
+    let repo = dir.path().join("repo");
+    let nested = repo.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(
+        repo.join("plan.toml"),
+        "version = \"1\"\ncwd = \"nested\"\n\n[[operations]]\nop = \"file.create\"\npath = \"out.txt\"\ncontent = \"hello\\n\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(&repo)
+        .arg("tx")
+        .arg("plan.toml")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(nested.join("out.txt")).unwrap(),
+        "hello\n"
+    );
+    assert!(!repo.join("out.txt").exists());
+}
+
+#[test]
+fn test_tx_json_output_reports_lifecycle_cwd_for_relative_plan_cwd() {
+    let dir = TempDir::new().unwrap();
+    let repo = dir.path().join("repo");
+    let nested = repo.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "nested",
+        "operations": [{
+            "op": "file.create",
+            "path": "out.txt",
+            "content": "hello\n"
+        }],
+        "validate": [{
+            "cmd": shell_false(),
+            "required": true,
+            "timeout": 5
+        }]
+    });
+    let plan_file = repo.join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(&repo)
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "validation_failed");
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("required validation failed (step 1, exit code 1, cwd: nested)"));
+    assert_eq!(
+        fs::read_to_string(nested.join("out.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
 fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
@@ -13124,6 +13198,19 @@ fn test_smoke_installation_docs_cover_contributor_verification_loop() {
 }
 
 #[test]
+fn test_agent_test_readme_uses_virtualenv_for_direct_install() {
+    let content = fs::read_to_string(agent_test_readme_path()).unwrap();
+    assert!(
+        content.contains("python3 -m venv .venv"),
+        "agent test readme should create a virtualenv before pip install"
+    );
+    assert!(
+        content.contains(". .venv/bin/activate"),
+        "agent test readme should show how to activate the virtualenv"
+    );
+}
+
+#[test]
 fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let rust_version_line = cargo
@@ -13178,6 +13265,7 @@ fn test_contributing_make_targets_table_covers_key_targets() {
         "make integration-test",
         "make clippy",
         "make update-readme",
+        "cargo check --all-targets",
     ] {
         assert!(
             contributing.contains(&format!("| `{target}`")),
@@ -13725,6 +13813,21 @@ fn test_reference_doc_describes_confirm_json_applied_contract_for_file_lifecycle
 }
 
 #[test]
+fn test_reference_doc_describes_tx_lifecycle_failure_context() {
+    let reference = fs::read_to_string(reference_path()).unwrap();
+    assert!(reference.contains(
+        "Error output reports the failing step number, exit status, and the lifecycle working directory (`cwd`)."
+    ));
+}
+
+#[test]
+fn test_quickstart_doc_describes_tx_lifecycle_failure_context() {
+    let quickstart = fs::read_to_string(quickstart_path()).unwrap();
+    assert!(quickstart.contains("Lifecycle failure output includes the failing step"));
+    assert!(quickstart.contains("status, and the `cwd` used for that step."));
+}
+
+#[test]
 fn test_reference_doc_describes_create_input_contract() {
     let reference = fs::read_to_string(reference_path()).unwrap();
     assert!(reference.contains("Exactly one of `--content` or `--stdin` is required."));
@@ -14192,6 +14295,27 @@ async fn spawn_mcp_client_opts(
     if allow_shell {
         cmd.arg("--allow-shell");
     }
+
+    let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
+    ().serve(transport)
+        .await
+        .expect("failed to connect MCP client")
+}
+
+#[cfg(feature = "mcp")]
+async fn spawn_mcp_client_process_and_cwd(
+    process_dir: &Path,
+    server_cwd: &Path,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    use rmcp::ServiceExt;
+    use rmcp::transport::TokioChildProcess;
+
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.arg("mcp-server")
+        .arg("--cwd")
+        .arg(server_cwd)
+        .current_dir(process_dir);
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)
@@ -14758,6 +14882,75 @@ async fn test_mcp_tx_rejects_escaping_cwd() {
     assert!(
         result.is_err(),
         "tx with escaping cwd should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_rejects_relative_cwd_that_escapes_server_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let process_dir = dir.path().join("sandbox");
+    let repo_dir = dir.path().join("repo");
+    fs::create_dir_all(&process_dir).unwrap();
+    fs::create_dir_all(&repo_dir).unwrap();
+    fs::write(repo_dir.join("inside.txt"), "inside\n").unwrap();
+    fs::write(dir.path().join("outside.txt"), "outside\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "..",
+        "operations": [
+            {"op": "replace", "path": "outside.txt", "from": "outside", "to": "pwned"}
+        ]
+    });
+
+    let client = spawn_mcp_client_process_and_cwd(&process_dir, &repo_dir).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with relative escaping cwd should be rejected"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("outside.txt")).unwrap(),
+        "outside\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_tx_rejects_relative_cwd_that_is_a_file() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let repo_dir = dir.path().join("repo");
+    fs::create_dir_all(&repo_dir).unwrap();
+    fs::write(repo_dir.join("not-a-dir"), "nope\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": "not-a-dir",
+        "operations": [
+            {"op": "replace", "path": "anything.txt", "from": "a", "to": "b"}
+        ]
+    });
+
+    let client = spawn_mcp_client(&repo_dir).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
+        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with a file-valued relative cwd should be rejected"
     );
     client.cancel().await.unwrap();
 }
