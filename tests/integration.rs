@@ -14741,6 +14741,37 @@ async fn test_mcp_search_finds_pattern() {
 }
 
 #[tokio::test]
+async fn test_mcp_search_multiline_returns_json_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("multi.txt"), "hello\nworld\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "hello.*world",
+            "paths": ["multi.txt"],
+            "multiline": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "multiline search should succeed: {text}");
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["match_count"], 1);
+    assert_eq!(json["file_count"], 1);
+    assert_eq!(json["matches"][0]["path"], "multi.txt");
+    assert_eq!(json["matches"][0]["line"], 1);
+    assert_eq!(json["matches"][0]["column"], 1);
+    assert_eq!(json["matches"][0]["text"], "hello\nworld");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_has_existing_key() {
     if !has_mcp_support() {
         return;
