@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-1132%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1136%20passing-brightgreen)](#)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
@@ -269,15 +269,15 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 | `doc` | Parser-backed JSON/YAML/TOML edits | Changing config values without breaking syntax |
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
-| `tidy` | Whitespace and newline normalization | CI checks for text tidiness |
+| `tidy` | Text-file whitespace and newline normalization | CI checks for text tidiness |
 | `mcp-server` | MCP protocol server (requires `--features mcp`) | MCP-capable agents (no shell syntax) |
 
 ### General-purpose (also useful in scripts and CI)
 
 | Command | Description |
 |---|---|
-| `search` | Fast literal or regex search across a repo |
-| `replace` | Mechanical string replacement with diff preview |
+| `search` | Fast literal or regex search across text files |
+| `replace` | Mechanical string replacement across text files with diff preview |
 | `create` | Create a new file with content |
 | `delete` | Delete a file |
 | `rename` | Move (rename) a file |
@@ -375,7 +375,7 @@ flowchart LR
 
 ## Status
 
-1132 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1136 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

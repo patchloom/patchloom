@@ -14174,6 +14174,42 @@ fn test_search_skips_binary_files() {
 }
 
 #[test]
+fn test_search_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "needle in text\n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    fs::write(&invalid_file, b"needle\xffin invalid").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path().to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("text.txt"),
+        "should find match in text file"
+    );
+    assert!(
+        !stdout.contains("invalid.txt"),
+        "should skip invalid UTF-8 file, got: {stdout}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected search invalid UTF-8 warning, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_replace_skips_binary_files() {
     let dir = TempDir::new().unwrap();
     let text_file = dir.path().join("text.txt");
@@ -14205,6 +14241,45 @@ fn test_replace_skips_binary_files() {
 }
 
 #[test]
+fn test_replace_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "old value\n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    let invalid_content = b"old value\xff trailing".to_vec();
+    fs::write(&invalid_file, &invalid_content).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("old value")
+        .arg("--to")
+        .arg("new value")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "new value\n");
+
+    let invalid_after = fs::read(&invalid_file).unwrap();
+    assert_eq!(
+        invalid_after, invalid_content,
+        "invalid UTF-8 file should not be modified"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected replace invalid UTF-8 warning, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_tidy_skips_binary_files() {
     let dir = TempDir::new().unwrap();
     // Text file with trailing whitespace.
@@ -14231,6 +14306,45 @@ fn test_tidy_skips_binary_files() {
 
     let bin_after = fs::read(&bin_file).unwrap();
     assert_eq!(bin_after, bin_content, "binary file should not be modified");
+}
+
+#[test]
+fn test_tidy_skips_invalid_utf8_files() {
+    let dir = TempDir::new().unwrap();
+    let text_file = dir.path().join("text.txt");
+    fs::write(&text_file, "hello   \n").unwrap();
+
+    let invalid_file = dir.path().join("invalid.txt");
+    let invalid_content = b"hello\xff   ".to_vec();
+    fs::write(&invalid_file, &invalid_content).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(dir.path().to_str().unwrap())
+        .arg("--trim-trailing-whitespace")
+        .arg("--ensure-final-newline")
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let text_content = fs::read_to_string(&text_file).unwrap();
+    assert_eq!(text_content, "hello\n");
+
+    let invalid_after = fs::read(&invalid_file).unwrap();
+    assert_eq!(
+        invalid_after, invalid_content,
+        "invalid UTF-8 file should not be modified"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid.txt (invalid UTF-8)"),
+        "expected tidy invalid UTF-8 warning, got: {stderr}"
+    );
 }
 
 // ---------------------------------------------------------------------------

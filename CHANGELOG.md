@@ -40,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
-- 1132 tests (554 unit + 578 integration)
+- 1136 tests (555 unit + 581 integration)
 
 ## [0.1.0] - 2025-05-23
 
