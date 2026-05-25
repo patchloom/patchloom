@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
-- 1120 tests (545 unit + 575 integration)
+- 1121 tests (545 unit + 576 integration)
 
 ## [0.1.0] - 2025-05-23
 
