@@ -2836,6 +2836,43 @@ mod tests {
             assert_eq!(count, 0);
             assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
         }
+
+        #[test]
+        fn compile_regex_mode_returns_some() {
+            let re = compile_replace_regex(r"\d+", true, false, false).unwrap();
+            assert!(re.is_some());
+            assert!(re.unwrap().is_match("abc123"));
+        }
+
+        #[test]
+        fn compile_regex_multiline_dot_matches_newline() {
+            let re = compile_replace_regex("a.b", true, false, true)
+                .unwrap()
+                .unwrap();
+            assert!(
+                re.is_match("a\nb"),
+                "multiline should make dot match newline"
+            );
+        }
+
+        #[test]
+        fn compile_invalid_regex_returns_error() {
+            let result = compile_replace_regex("(unclosed", true, false, false);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn compile_literal_case_insensitive_returns_some() {
+            let re = compile_replace_regex("hello", false, true, false).unwrap();
+            assert!(re.is_some());
+            assert!(re.unwrap().is_match("HELLO"));
+        }
+
+        #[test]
+        fn compile_plain_literal_returns_none() {
+            let re = compile_replace_regex("hello", false, false, false).unwrap();
+            assert!(re.is_none());
+        }
     }
 
     // ── md module tests ───────────────────────────────────────────────

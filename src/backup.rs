@@ -249,11 +249,12 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     for entry in &manifest.entries {
         let target = resolve_restore_path(project_root, &entry.path);
 
-        // Validate that internal paths (non-external) stay within the project
-        // root. A crafted manifest with `../../etc/passwd` must not escape (#386).
-        if !entry.path.starts_with("__external__/") && !entry.path.starts_with("__external_") {
-            validate_restore_path(&entry.path)?;
-        }
+        // Validate that path components never escape upward. This catches both
+        // internal paths (`../../etc/passwd`) and crafted external prefixes
+        // (`__external__/../../../etc/shadow`) that abuse the prefix to skip
+        // validation. The `__external__/` prefix itself counts as a Normal
+        // component (+1 depth), so legitimate external paths pass.
+        validate_restore_path(&entry.path)?;
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
@@ -669,5 +670,55 @@ mod tests {
             err.contains("escapes project root"),
             "error should mention escaping: {err}"
         );
+    }
+
+    #[test]
+    fn restore_rejects_traversal_in_external_prefix() {
+        let dir = TempDir::new().unwrap();
+        let ts = "888888888";
+        let session_dir = dir.path().join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: vec![ManifestEntry {
+                path: "__external__/../../../etc/shadow".to_string(),
+                action: FileAction::Modified,
+            }],
+        };
+        std::fs::write(
+            session_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let result = restore_session(dir.path(), ts);
+        assert!(
+            result.is_err(),
+            "external path with .. should be rejected, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn backup_write_files_backs_up_before_writing() {
+        let dir = TempDir::new().unwrap();
+        let f1 = dir.path().join("a.txt");
+        let f2 = dir.path().join("b.txt");
+        std::fs::write(&f1, "original-a").unwrap();
+        std::fs::write(&f2, "original-b").unwrap();
+
+        let policy = crate::write::WritePolicy::default();
+        let files: Vec<(&Path, &str, &crate::write::WritePolicy)> =
+            vec![(&f1, "new-a", &policy), (&f2, "new-b", &policy)];
+        backup_write_files(dir.path(), &files).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&f1).unwrap(), "new-a");
+        assert_eq!(std::fs::read_to_string(&f2).unwrap(), "new-b");
+
+        // Undo should restore originals, proving backup happened before writes.
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 1);
+        restore_session(dir.path(), &sessions[0].timestamp).unwrap();
+        assert_eq!(std::fs::read_to_string(&f1).unwrap(), "original-a");
+        assert_eq!(std::fs::read_to_string(&f2).unwrap(), "original-b");
     }
 }
