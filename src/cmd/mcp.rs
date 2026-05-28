@@ -297,6 +297,11 @@ pub struct SearchParams {
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[serde(default)]
     pub multiline: bool,
+    /// Show lines that do NOT match the pattern.
+    #[serde(default)]
+    pub invert_match: bool,
+    /// Assert that the total match count equals N. Returns exit code 0 if exact, 2 otherwise.
+    pub assert_count: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -868,7 +873,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines. Binary and invalid UTF-8 files are skipped."
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, multiline=true to let '.' span newlines, invert_match=true to show non-matching lines, or assert_count=N to verify exact match count. Binary and invalid UTF-8 files are skipped."
     )]
     async fn search_files(
         &self,
@@ -877,6 +882,12 @@ impl PatchloomService {
         if p.files_with_matches && p.count {
             return Err(McpError::invalid_params(
                 "files_with_matches and count cannot be combined",
+                None,
+            ));
+        }
+        if p.invert_match && p.multiline {
+            return Err(McpError::invalid_params(
+                "invert_match and multiline cannot be combined",
                 None,
             ));
         }
@@ -897,10 +908,10 @@ impl PatchloomService {
             after_context: p.after_context,
             files_with_matches: p.files_with_matches,
             count: p.count,
-            invert_match: false,
+            invert_match: p.invert_match,
             multiline: p.multiline,
             case_insensitive: p.case_insensitive,
-            assert_count: None,
+            assert_count: p.assert_count,
         };
         let global = GlobalFlags {
             json: true,
@@ -909,6 +920,32 @@ impl PatchloomService {
         };
         let results = crate::cmd::search::collect_matches(&search_args, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+        // --assert-count mode: return count comparison instead of matches.
+        if let Some(expected) = p.assert_count {
+            let actual: usize = results.file_match_counts.values().sum();
+            let matched = actual == expected;
+            let status = if matched {
+                "success"
+            } else {
+                "changes_detected"
+            };
+            let code = if matched {
+                exit::SUCCESS
+            } else {
+                exit::CHANGES_DETECTED
+            };
+            let output = serde_json::json!({
+                "ok": true,
+                "status": status,
+                "assert_count": {
+                    "expected": expected,
+                    "actual": actual,
+                    "matched": matched,
+                }
+            });
+            return exit_code_to_result(code, &output.to_string(), "");
+        }
 
         let has_matches = if search_args.count || search_args.files_with_matches {
             !results.file_match_counts.is_empty()
@@ -1405,7 +1442,7 @@ mod tests {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, or multiline=true to let '.' span newlines. Binary and invalid UTF-8 files are skipped."
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, multiline=true to let '.' span newlines, invert_match=true to show non-matching lines, or assert_count=N to verify exact match count. Binary and invalid UTF-8 files are skipped."
             ),
             "search_files description drifted"
         );
