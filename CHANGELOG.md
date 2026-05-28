@@ -29,6 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Lifecycle failure messages include the working directory (`cwd: .` or `cwd: nested`)
 - MCP `transaction` validates relative `cwd` resolves to a directory, not a file
 - Shared `resolve_plan_cwd` function deduplicates CLI and MCP cwd resolution
+- MCP `search_files` tool now exposes `invert_match` and `assert_count` parameters, matching CLI and tx feature parity
+- MCP `search_files`, `replace_text`, and `fix_whitespace` tool descriptions now document text-file semantics (binary and invalid UTF-8 files are skipped)
 
 ### Documentation
 
