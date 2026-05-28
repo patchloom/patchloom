@@ -7272,6 +7272,43 @@ fn test_tx_glob_replace_matches_nested_relative_pattern() {
     );
 }
 
+#[test]
+fn test_tx_glob_replace_no_matching_files_exits_3() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.rs"), "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "replace", "glob": "*.nonexistent", "from": "hello", "to": "bye"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "glob matching zero files should exit 3 (NO_MATCHES)"
+    );
+
+    // Source file should be untouched.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("only.rs")).unwrap(),
+        "hello\n"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // tx: md operations in plan
 // ---------------------------------------------------------------------------
@@ -13547,7 +13584,7 @@ fn test_mcp_setup_documents_allow_shell_flag() {
 #[test]
 fn test_mcp_setup_documents_search_files_modes() {
     let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
-    assert!(doc.contains("literal, case-insensitive, count, file-only, and multiline modes"));
+    assert!(doc.contains("literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes"));
 }
 
 #[test]
@@ -14894,6 +14931,94 @@ async fn test_mcp_search_multiline_returns_json_matches() {
     assert_eq!(json["matches"][0]["line"], 1);
     assert_eq!(json["matches"][0]["column"], 1);
     assert_eq!(json["matches"][0]["text"], "hello\nworld");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_invert_match_returns_non_matching_lines() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lines.txt"), "alpha\nbeta\ngamma\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "beta",
+            "paths": ["lines.txt"],
+            "invert_match": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "invert_match search should succeed: {text}");
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["match_count"], 2);
+    assert_eq!(json["matches"][0]["text"], "alpha");
+    assert_eq!(json["matches"][1]["text"], "gamma");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_assert_count_match() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "foo",
+            "paths": ["rep.txt"],
+            "assert_count": 2
+        }),
+    )
+    .await;
+    assert!(!is_error, "assert_count=2 should succeed: {text}");
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["assert_count"]["expected"], 2);
+    assert_eq!(json["assert_count"]["actual"], 2);
+    assert_eq!(json["assert_count"]["matched"], true);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_assert_count_mismatch() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "foo",
+            "paths": ["rep.txt"],
+            "assert_count": 5
+        }),
+    )
+    .await;
+    // assert_count mismatch is a "changes_detected" result, reported as is_error=true
+    assert!(
+        is_error,
+        "assert_count mismatch should signal error: {text}"
+    );
+
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(json["assert_count"]["expected"], 5);
+    assert_eq!(json["assert_count"]["actual"], 2);
+    assert_eq!(json["assert_count"]["matched"], false);
     client.cancel().await.unwrap();
 }
 
