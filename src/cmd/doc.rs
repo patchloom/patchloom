@@ -116,7 +116,7 @@ pub enum DocAction {
     Select {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path with a predicate (e.g. items[?name=foo]).
+        /// Selector path with a predicate (e.g. items[name=foo]).
         selector: String,
     },
     /// Update all matching nodes.
