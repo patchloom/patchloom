@@ -98,7 +98,10 @@ pub(crate) fn collect_file_paths_opts(
     impl Drop for FlushOnDrop<'_> {
         fn drop(&mut self) {
             if !self.batch.is_empty() {
-                self.target.lock().unwrap().append(&mut self.batch);
+                self.target
+                    .lock()
+                    .expect("file list mutex")
+                    .append(&mut self.batch);
             }
         }
     }
@@ -114,13 +117,17 @@ pub(crate) fn collect_file_paths_opts(
             {
                 state.batch.push(entry.into_path());
                 if state.batch.len() >= 256 {
-                    state.target.lock().unwrap().append(&mut state.batch);
+                    state
+                        .target
+                        .lock()
+                        .expect("file list mutex")
+                        .append(&mut state.batch);
                 }
             }
             WalkState::Continue
         })
     });
-    Ok(collected.into_inner().unwrap())
+    Ok(collected.into_inner().expect("all walkers done"))
 }
 
 /// Build a compiled glob matcher from `--glob`, or `None` if no globs given.

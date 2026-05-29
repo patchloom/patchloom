@@ -1862,7 +1862,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if plan.cwd.is_some() && !cwd.is_dir() {
         let msg = format!(
             "plan cwd is not a directory: {}",
-            plan.cwd.as_deref().unwrap()
+            plan.cwd.as_deref().expect("plan.cwd checked above")
         );
         if structured {
             emit_error_json("parse_error", &msg, compact);
