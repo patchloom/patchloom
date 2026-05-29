@@ -901,4 +901,50 @@ mod tests {
         assert_eq!(results.matches.len(), 1);
         assert!(results.matches[0].text.contains("foo(BAR)"));
     }
+
+    #[test]
+    fn invert_match_count_counts_non_matching_lines() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.count = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        // count mode should not build SearchMatch objects
+        assert!(results.matches.is_empty());
+        // hello.txt: 3 lines, 2 match "Hello", so 1 non-matching.
+        // code.rs: 3 lines, 0 match, so 3 non-matching.
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 4);
+    }
+
+    #[test]
+    fn invert_match_files_with_matches_lists_files_with_non_matching_lines() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.files_with_matches = true;
+        let results = collect_matches(&args, &default_global()).unwrap();
+        assert!(results.matches.is_empty());
+        // Both files have non-matching lines.
+        assert_eq!(results.file_match_counts.len(), 2);
+    }
+
+    #[test]
+    fn invert_match_assert_count_exact() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.assert_count = Some(4); // 1 from hello.txt + 3 from code.rs
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn invert_match_assert_count_mismatch() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.assert_count = Some(99);
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+    }
 }
