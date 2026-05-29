@@ -205,6 +205,15 @@ jobs:
           name: coverage-report
           path: lcov.info
 
+      - name: Upload to Codecov
+        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
   bench:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     timeout-minutes: 10
@@ -267,6 +276,18 @@ jobs:
             "./target/release/patchloom replace hello --to world $bench_txt" \
             --max-runs 100
           python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run"
+
+      - name: Benchmark summary
+        if: always()
+        run: python3 benches/ci/bench_summary.py "$RUNNER_TEMP"
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-results
+          path: ${{ runner.temp }}/bench-*.json
+          retention-days: 90
 
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
