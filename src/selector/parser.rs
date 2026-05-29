@@ -56,6 +56,11 @@ pub fn parse(input: &str) -> Result<Selector, String> {
                 if key.is_empty() {
                     return Err("empty predicate key".to_string());
                 }
+                if let Some(stripped) = key.strip_prefix('?') {
+                    return Err(format!(
+                        "predicate key starts with '?'; use [{stripped}={value}] instead of [{key}={value}]"
+                    ));
+                }
                 segments.push(Segment::Predicate { key, value });
             } else if let Ok(idx) = content.parse::<usize>() {
                 segments.push(Segment::Index(idx));
@@ -148,6 +153,15 @@ mod tests {
         assert!(
             err.contains("empty predicate key"),
             "expected 'empty predicate key', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_question_mark_prefix_in_predicate_returns_error() {
+        let err = parse("items[?name=foo]").unwrap_err();
+        assert!(
+            err.contains("use [name=foo]"),
+            "expected helpful suggestion, got: {err}"
         );
     }
 
