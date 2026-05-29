@@ -46,6 +46,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added fuzz targets for batch tokenizer (`fuzz_batch_tokenize`) and selector evaluator (`fuzz_selector_eval`), bringing the total to 5 fuzz targets
 - CI: added Codecov upload to coverage job and coverage badge to README
 - CI: added benchmark summary table and 90-day artifact retention for regression tracking
+- CI: added cross-run benchmark comparison that detects gradual regressions by comparing against the latest main baseline (20% threshold with 2ms minimum absolute change)
 
 ## [0.1.0] - 2025-05-23
 

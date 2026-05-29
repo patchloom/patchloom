@@ -15,6 +15,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   ci:
@@ -239,6 +240,17 @@ jobs:
         with:
           tool: hyperfine@1.20.0
 
+      - name: Download baseline
+        id: baseline
+        continue-on-error: true
+        run: |
+          run_id=$(gh run list --branch main --workflow ci.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" -n benchmark-results -D "$RUNNER_TEMP/baseline" && echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Build release binary
         run: cargo build --release
 
@@ -288,6 +300,10 @@ jobs:
           name: benchmark-results
           path: ${{ runner.temp }}/bench-*.json
           retention-days: 90
+
+      - name: Compare against baseline
+        if: always() && steps.baseline.outputs.found == 'true'
+        run: python3 benches/ci/bench_compare.py "$RUNNER_TEMP/baseline" "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
 
   audit:
     runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
