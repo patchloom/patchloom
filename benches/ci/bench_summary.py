@@ -37,12 +37,11 @@ def main() -> None:
             result["stddev"] * 1000,
         ))
 
-    print("\n=== Benchmark Summary ===")
-    print(f"{'Command':<20} {'Mean':>8} {'Median':>8} {'Min':>8} {'Max':>8} {'StdDev':>8}")
-    print("-" * 72)
+    print("## Benchmark Summary\n")
+    print("| Command | Mean | Median | Min | Max | StdDev |")
+    print("|---------|------|--------|-----|-----|--------|")
     for name, mean, median, mn, mx, sd in rows:
-        print(f"{name:<20} {mean:>7.2f}ms {median:>7.2f}ms {mn:>7.2f}ms {mx:>7.2f}ms {sd:>7.2f}ms")
-    print()
+        print(f"| {name} | {mean:.2f}ms | {median:.2f}ms | {mn:.2f}ms | {mx:.2f}ms | {sd:.2f}ms |")
 
 
 if __name__ == "__main__":

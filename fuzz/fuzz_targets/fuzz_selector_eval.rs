@@ -2,7 +2,7 @@
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use patchloom::selector::{Segment, eval, parse};
+use patchloom::selector::{eval, parse};
 
 #[derive(Debug, Arbitrary)]
 struct FuzzInput {

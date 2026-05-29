@@ -279,7 +279,7 @@ jobs:
 
       - name: Benchmark summary
         if: always()
-        run: python3 benches/ci/bench_summary.py "$RUNNER_TEMP"
+        run: python3 benches/ci/bench_summary.py "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
         if: always()
