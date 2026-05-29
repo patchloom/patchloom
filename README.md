@@ -8,6 +8,7 @@
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
 [![Tests](https://img.shields.io/badge/tests-1145%20passing-brightgreen)](#)
+[![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
