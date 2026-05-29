@@ -13,8 +13,6 @@ pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
     path.strip_prefix(base).unwrap_or(path)
 }
 
-/// Returns `true` if the buffer looks like binary content (contains a NUL byte
-/// in the first 8 KiB, the same heuristic Git uses).
 /// Check if a string contains common regex metacharacters that suggest
 /// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
 pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
