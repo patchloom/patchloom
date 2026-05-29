@@ -151,7 +151,7 @@ fn run_shell_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::R
         .spawn()?;
 
     // Read stderr in a background thread to avoid blocking if the pipe fills.
-    let stderr_handle = child.stderr.take().unwrap();
+    let stderr_handle = child.stderr.take().expect("stderr piped");
     let reader_thread = std::thread::spawn(move || {
         use std::io::Read;
         let mut buf = vec![0u8; LIFECYCLE_STDERR_MAX + 1];

@@ -233,7 +233,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         if global.show_status() {
-            eprintln!("no matches for '{}'", args.from);
+            let path_desc = if args.paths.is_empty() {
+                ".".to_string()
+            } else {
+                args.paths.join(", ")
+            };
+            eprintln!("no matches for '{}' in {path_desc}", args.from);
             if !args.regex && crate::files::has_regex_metacharacters(&args.from) {
                 eprintln!("hint: pattern contains regex characters, try --regex");
             }
