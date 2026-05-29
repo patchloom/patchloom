@@ -14,6 +14,9 @@ arbitrary = { version = "1", features = ["derive"] }
 [dependencies.patchloom]
 path = ".."
 
+[dependencies.serde_json]
+version = "1"
+
 [[bin]]
 name = "fuzz_selector_parse"
 path = "fuzz_targets/fuzz_selector_parse.rs"
@@ -27,4 +30,14 @@ doc = false
 [[bin]]
 name = "fuzz_patch_apply"
 path = "fuzz_targets/fuzz_patch_apply.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_batch_tokenize"
+path = "fuzz_targets/fuzz_batch_tokenize.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_selector_eval"
+path = "fuzz_targets/fuzz_selector_eval.rs"
 doc = false

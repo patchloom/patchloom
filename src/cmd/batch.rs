@@ -263,7 +263,7 @@ fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
 /// Tokenize a line using shell-like quoting rules.
 /// - Whitespace separates tokens
 /// - Double-quoted strings preserve spaces and allow escapes (\", \\)
-fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
+pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
     let mut current = String::new();
