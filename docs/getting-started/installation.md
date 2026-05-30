@@ -62,10 +62,10 @@ The planned Homebrew formula also targets the core CLI build. If you need
 After installing, generate shell completions:
 
 ```bash
-# bash
+# bash (system-wide; may require sudo and /etc/bash_completion.d in your setup)
 patchloom completions bash > /etc/bash_completion.d/patchloom
 
-# zsh
+# zsh (ensure ~/.zfunc is in $fpath, e.g. via oh-my-zsh custom or compinit)
 patchloom completions zsh > ~/.zfunc/_patchloom
 
 # fish
