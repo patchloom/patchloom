@@ -33,6 +33,22 @@ pub(crate) fn is_binary(data: &[u8]) -> bool {
     memchr::memchr(0, &data[..check_len]).is_some()
 }
 
+/// Returns whether the file at `path` appears to be binary by reading only its
+/// first 8 KiB (streaming, no full allocation for large files). Returns false
+/// on open/read errors (the subsequent content read will surface the real error).
+pub(crate) fn is_binary_file(path: &Path) -> bool {
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut buf = [0u8; 8192];
+    let n = match std::io::Read::read(&mut file, &mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    is_binary(&buf[..n])
+}
+
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set

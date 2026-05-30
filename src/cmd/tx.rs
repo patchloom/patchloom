@@ -704,14 +704,11 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     let mut all_matches = Vec::new();
 
     for file_path in &file_paths {
-        // Skip binary files when walking directories.
-        if file_paths.len() > 1 {
-            let probe = std::fs::read(file_path)
-                .map(|d| d[..d.len().min(8192)].to_vec())
-                .unwrap_or_default();
-            if crate::files::is_binary(&probe) {
-                continue;
-            }
+        // Skip binary files when walking directories. Uses streaming probe to
+        // avoid full read + large allocation for big binaries (e.g. in node_modules
+        // or build dirs that are not fully gitignored).
+        if file_paths.len() > 1 && crate::files::is_binary_file(file_path) {
+            continue;
         }
 
         read_file_content(tx.pending, file_path)?;
