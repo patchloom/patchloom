@@ -10030,6 +10030,30 @@ fn test_tx_read_operation_in_plan() {
 }
 
 #[test]
+fn test_tx_read_nonexistent_file_returns_error_json() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{"op": "read", "path": nonexistent_path("missing.txt")}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert!(json["error"].as_str().unwrap().contains("failed to read"));
+}
+
+#[test]
 fn test_tx_read_empty_file_without_lines_matches_read_contract() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("empty.txt");

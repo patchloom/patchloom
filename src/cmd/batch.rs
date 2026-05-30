@@ -654,6 +654,27 @@ mod tests {
         assert!(err.to_string().contains("unknown operation"));
     }
 
+    // Batch intentionally does not support read, search, and patch.apply.
+    // These are tx-only operations. The tests below document this as deliberate.
+
+    #[test]
+    fn parse_line_rejects_read() {
+        let err = parse_line("read path.txt", 1).unwrap_err();
+        assert!(err.to_string().contains("unknown operation"));
+    }
+
+    #[test]
+    fn parse_line_rejects_search() {
+        let err = parse_line("search path.txt hello", 1).unwrap_err();
+        assert!(err.to_string().contains("unknown operation"));
+    }
+
+    #[test]
+    fn parse_line_rejects_patch_apply() {
+        let err = parse_line("patch.apply diff-text", 1).unwrap_err();
+        assert!(err.to_string().contains("unknown operation"));
+    }
+
     #[test]
     fn parse_line_too_few_args() {
         let err = parse_line("doc.set config.json", 1).unwrap_err();

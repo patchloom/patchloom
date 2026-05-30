@@ -403,8 +403,13 @@ fn read_and_probe(
     if crate::files::is_binary(&bytes) {
         return Ok(false);
     }
-    let content = String::from_utf8(bytes)
-        .map_err(|e| anyhow::anyhow!("failed to decode {}: {e}", path.display()))?;
+    // Skip files that pass the binary check but contain invalid UTF-8
+    // (e.g., bare continuation bytes without NUL). This matches standalone
+    // search/replace behavior which silently skips such files.
+    let content = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return Ok(false),
+    };
     pending.insert(path.to_path_buf(), (content.clone(), content));
     Ok(true)
 }
@@ -2186,6 +2191,20 @@ mod tests {
         fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
         let mut pending = HashMap::new();
 
+        assert!(!read_and_probe(&mut pending, &path).unwrap());
+        assert!(!pending.contains_key(&path));
+    }
+
+    #[test]
+    fn read_and_probe_returns_false_for_invalid_utf8() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.txt");
+        // Bare continuation bytes: invalid UTF-8 but no NUL (passes binary check)
+        fs::write(&path, [0x80, 0x81, 0x82]).unwrap();
+        let mut pending = HashMap::new();
+
+        // Should skip gracefully (false) instead of erroring,
+        // matching standalone search/replace behavior.
         assert!(!read_and_probe(&mut pending, &path).unwrap());
         assert!(!pending.contains_key(&path));
     }
