@@ -255,6 +255,8 @@ async fn new_tool(
 
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
+- Internal refactors and performance optimizations (no user-visible behavior change) still require a targeted unit or integration test on the changed helper or code path. Existing higher-level tests may provide coverage, but a focused test prevents silent regression of the optimization or guard in future refactors.
+
 ## Safety rules
 
 - Never use `git add .` or `git add -A`. Stage only the files you changed.

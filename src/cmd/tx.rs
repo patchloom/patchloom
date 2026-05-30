@@ -41,6 +41,8 @@ struct TxOutput {
     reads: Vec<TxReadResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     searches: Vec<TxSearchResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    lints: Vec<TxLintResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,6 +85,14 @@ struct TxReadResult {
     start_line: usize,
     end_line: usize,
     total_lines: usize,
+}
+
+/// A lint result in the tx output.
+#[derive(Serialize)]
+struct TxLintResult {
+    path: String,
+    issue_count: usize,
+    issues: Vec<crate::cmd::md::LintIssue>,
 }
 
 #[derive(Debug, Args)]
@@ -267,6 +277,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::PatchApply { .. } => "patch.apply",
         Operation::Read { .. } => "read",
         Operation::Search { .. } => "search",
+        Operation::MdLintAgents { .. } => "md.lint_agents",
     }
 }
 
@@ -327,6 +338,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }
         | Operation::Read { .. }
+        | Operation::MdLintAgents { .. }
         | Operation::PatchApply { .. } => Ok(()),
         Operation::Search {
             invert_match,
@@ -372,6 +384,29 @@ fn read_file_content<'a>(
             Ok(&entry.insert((content.clone(), content)).1)
         }
     }
+}
+
+/// Read file bytes from disk, check for binary content, and if text, populate
+/// the pending map. Returns `Ok(true)` if the file is text (content stored in
+/// pending), `Ok(false)` if binary (skipped). This avoids the double-read that
+/// occurs when `is_binary_file` probes 8 KiB and then `read_file_content`
+/// re-reads the full file.
+fn read_and_probe(
+    pending: &mut HashMap<PathBuf, (String, String)>,
+    path: &Path,
+) -> anyhow::Result<bool> {
+    if pending.contains_key(path) {
+        return Ok(true); // already loaded, not binary
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+    if crate::files::is_binary(&bytes) {
+        return Ok(false);
+    }
+    let content = String::from_utf8(bytes)
+        .map_err(|e| anyhow::anyhow!("failed to decode {}: {e}", path.display()))?;
+    pending.insert(path.to_path_buf(), (content.clone(), content));
+    Ok(true)
 }
 
 /// Update the current content for a file in the pending map.
@@ -488,6 +523,7 @@ struct TxState<'a> {
     doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
     tx_reads: &'a mut Vec<TxReadResult>,
     tx_searches: &'a mut Vec<TxSearchResult>,
+    tx_lints: &'a mut Vec<TxLintResult>,
     cwd: &'a Path,
     quiet: bool,
     structured: bool,
@@ -704,14 +740,16 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     let mut all_matches = Vec::new();
 
     for file_path in &file_paths {
-        // Skip binary files when walking directories. Uses streaming probe to
-        // avoid full read + large allocation for big binaries (e.g. in node_modules
-        // or build dirs that are not fully gitignored).
-        if file_paths.len() > 1 && crate::files::is_binary_file(file_path) {
-            continue;
+        // For directory walks, read the file once and check for binary content
+        // in the same buffer (avoids double-reading text files: 8 KiB probe +
+        // full re-read). For single-file paths, skip the binary check.
+        if file_paths.len() > 1 {
+            if !read_and_probe(tx.pending, file_path)? {
+                continue; // binary file, skip
+            }
+        } else {
+            read_file_content(tx.pending, file_path)?;
         }
-
-        read_file_content(tx.pending, file_path)?;
         let content = &tx.pending[file_path].1;
         let lines: Vec<&str> = content.lines().collect();
 
@@ -816,6 +854,7 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::PatchApply { .. }
             | Operation::Read { .. }
             | Operation::Search { .. }
+            | Operation::MdLintAgents { .. }
             | Operation::TidyFix { .. }
     )
 }
@@ -1059,6 +1098,17 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             execute_search_op(op, tx)?;
         }
 
+        Operation::MdLintAgents { path } => {
+            let file_path = tx.cwd.join(path);
+            let content = read_file_content(tx.pending, &file_path)?;
+            let issues = crate::cmd::md::lint_agents_content(content);
+            tx.tx_lints.push(TxLintResult {
+                path: path.clone(),
+                issue_count: issues.len(),
+                issues,
+            });
+        }
+
         Operation::FileDelete { path } => {
             let file_path = tx.cwd.join(path);
             if file_path.exists() && !file_path.is_file() {
@@ -1237,6 +1287,7 @@ fn build_tx_output(
         changes: tx_changes,
         reads: Vec::new(),
         searches: Vec::new(),
+        lints: Vec::new(),
         error_kind: None,
         error: None,
     }
@@ -1268,6 +1319,7 @@ fn emit_error_json_with_prefix(
         changes: Vec::new(),
         reads: Vec::new(),
         searches: Vec::new(),
+        lints: Vec::new(),
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
     };
@@ -1478,6 +1530,7 @@ struct TxExecResult {
     pending: HashMap<PathBuf, (String, String)>,
     tx_reads: Vec<TxReadResult>,
     tx_searches: Vec<TxSearchResult>,
+    tx_lints: Vec<TxLintResult>,
     no_effective_changes: bool,
     replace_no_matches: bool,
 }
@@ -1500,6 +1553,7 @@ fn execute_and_collect(
     let mut total_replace_matches = 0usize;
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
     let mut tx_searches: Vec<TxSearchResult> = Vec::new();
+    let mut tx_lints: Vec<TxLintResult> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
 
     for (i, op) in plan.operations.iter().enumerate() {
@@ -1517,6 +1571,7 @@ fn execute_and_collect(
             doc_cache: &mut doc_cache,
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
+            tx_lints: &mut tx_lints,
             cwd,
             quiet,
             structured,
@@ -1562,6 +1617,7 @@ fn execute_and_collect(
         pending,
         tx_reads,
         tx_searches,
+        tx_lints,
         no_effective_changes,
         replace_no_matches,
     })
@@ -1673,6 +1729,7 @@ fn make_error_json_with_prefix(
         changes: Vec::new(),
         reads: Vec::new(),
         searches: Vec::new(),
+        lints: Vec::new(),
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
     };
@@ -1738,6 +1795,7 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
         );
         output.reads = result.tx_reads;
         output.searches = result.tx_searches;
+        output.lints = result.tx_lints;
         let json = serde_json::to_string_pretty(&output)?;
         return Ok((exit::SUCCESS, json));
     }
@@ -1781,6 +1839,7 @@ pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8,
     );
     output.reads = result.tx_reads;
     output.searches = result.tx_searches;
+    output.lints = result.tx_lints;
     let json = serde_json::to_string_pretty(&output)?;
     Ok((exit::SUCCESS, json))
 }
@@ -1908,6 +1967,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 );
                 output.reads = std::mem::take(&mut result.tx_reads);
                 output.searches = std::mem::take(&mut result.tx_searches);
+                output.lints = std::mem::take(&mut result.tx_lints);
                 emit_output_json(&output, compact);
             }
             return Ok(exit::SUCCESS);
@@ -1923,6 +1983,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             );
             output.reads = std::mem::take(&mut result.tx_reads);
             output.searches = std::mem::take(&mut result.tx_searches);
+            output.lints = std::mem::take(&mut result.tx_lints);
             emit_output_json(&output, compact);
         } else if !global.quiet {
             println!(
@@ -1983,6 +2044,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             );
             output.reads = std::mem::take(&mut result.tx_reads);
             output.searches = std::mem::take(&mut result.tx_searches);
+            output.lints = std::mem::take(&mut result.tx_lints);
             emit_output_json(&output, compact);
         } else if global.show_status() {
             let n_changed = result.changes.len();
@@ -2009,6 +2071,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         );
         output.reads = std::mem::take(&mut result.tx_reads);
         output.searches = std::mem::take(&mut result.tx_searches);
+        output.lints = std::mem::take(&mut result.tx_lints);
         emit_output_json(&output, compact);
     } else if !result.changes.is_empty() {
         print_diffs(&result.changes, &cwd, global.should_color());
@@ -2102,6 +2165,29 @@ mod tests {
                 "hello from disk\n".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn read_and_probe_returns_true_for_text() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("text.rs");
+        fs::write(&path, "fn main() {}\n").unwrap();
+        let mut pending = HashMap::new();
+
+        assert!(read_and_probe(&mut pending, &path).unwrap());
+        assert!(pending.contains_key(&path));
+        assert_eq!(pending[&path].1, "fn main() {}\n");
+    }
+
+    #[test]
+    fn read_and_probe_returns_false_for_binary() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("data.bin");
+        fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
+        let mut pending = HashMap::new();
+
+        assert!(!read_and_probe(&mut pending, &path).unwrap());
+        assert!(!pending.contains_key(&path));
     }
 
     #[test]

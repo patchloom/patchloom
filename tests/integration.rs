@@ -9278,6 +9278,116 @@ fn test_tx_md_dedupe_headings_in_plan() {
 }
 
 #[test]
+fn test_tx_md_lint_agents_reports_issues() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    // Duplicate heading + dangerous command outside code fence
+    fs::write(
+        &file,
+        "# Rules\nRun git add . to stage\n# Rules\nMore stuff\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "md.lint_agents",
+            "path": portable_path_str(&file)
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lints = json["lints"].as_array().unwrap();
+    assert_eq!(lints.len(), 1);
+    assert!(lints[0]["issue_count"].as_u64().unwrap() >= 2);
+    // Should find duplicate heading and dangerous command
+    let issues = lints[0]["issues"].as_array().unwrap();
+    let issue_types: Vec<&str> = issues
+        .iter()
+        .map(|i| i["issue"].as_str().unwrap())
+        .collect();
+    assert!(
+        issue_types.iter().any(|t| t.contains("duplicate")),
+        "expected duplicate heading issue: {issue_types:?}"
+    );
+    assert!(
+        issue_types.iter().any(|t| t.contains("dangerous")),
+        "expected dangerous command issue: {issue_types:?}"
+    );
+}
+
+#[test]
+fn test_tx_md_lint_agents_clean_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# Rules\nUse explicit staging.\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "md.lint_agents",
+            "path": portable_path_str(&file)
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lints = json["lints"].as_array().unwrap();
+    assert_eq!(lints.len(), 1);
+    assert_eq!(lints[0]["issue_count"], 0);
+}
+
+#[test]
+fn test_batch_md_lint_agents() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# Rules\nfoo\n# Rules\nbar\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .args(["batch", "-"])
+        .write_stdin(format!("md.lint_agents {}", portable_path_str(&file)))
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lints = json["lints"].as_array().unwrap();
+    assert_eq!(lints.len(), 1);
+    assert!(lints[0]["issue_count"].as_u64().unwrap() >= 1);
+}
+
+#[test]
 fn test_tx_md_insert_after_heading_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");
@@ -10189,6 +10299,50 @@ fn test_tx_search_directory_path() {
     assert!(
         texts.iter().any(|t| t.contains("main.rs:")),
         "expected path prefix in multi-file text: {texts:?}"
+    );
+}
+
+#[test]
+fn test_tx_search_directory_skips_binary_files() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("mixed");
+    fs::create_dir_all(&sub).unwrap();
+    // Text file containing the search pattern
+    fs::write(sub.join("code.rs"), "fn hello() {}\n").unwrap();
+    // Binary file: embed a NUL byte so is_binary_file detects it
+    let mut binary_content = b"fn hello() {}\n".to_vec();
+    binary_content.insert(5, 0x00);
+    fs::write(sub.join("data.bin"), &binary_content).unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{"op": "search", "path": portable_path_str(&sub), "pattern": "hello"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let searches = json["searches"].as_array().unwrap();
+    assert_eq!(searches.len(), 1);
+    // Should only find the match in code.rs, not the binary file
+    assert_eq!(searches[0]["match_count"], 1);
+    let text = searches[0]["matches"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("code.rs:"),
+        "expected match from code.rs only, got: {text}"
     );
 }
 
@@ -13470,9 +13624,9 @@ fn test_launch_announcement_command_count_matches_readme() {
         })
         .expect("README should state the core command count");
 
-    // Launch announcement says "N commands cover".
+    // Launch announcement says "N core commands cover".
     assert!(
-        launch.contains(&format!("{readme_count} commands cover")),
+        launch.contains(&format!("{readme_count} core commands cover")),
         "launch announcement command count should match README ({readme_count} core commands)"
     );
 }

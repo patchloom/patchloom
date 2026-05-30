@@ -25,7 +25,7 @@ file.create VERSION "2.0.0"
 EOF
 ```
 
-18 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, and file lifecycle operations. An optional MCP server mode exposes everything as structured tool calls for MCP-capable agents.
+18 core commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, and file lifecycle operations. Building with `--features mcp` adds a 19th command (`mcp-server`) that exposes everything as structured tool calls for MCP-capable agents.
 
 ## The honest benchmark
 

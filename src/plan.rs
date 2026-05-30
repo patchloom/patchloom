@@ -191,6 +191,8 @@ pub enum Operation {
         /// Optional line range (e.g., "10:25").
         lines: Option<String>,
     },
+    #[serde(rename = "md.lint_agents")]
+    MdLintAgents { path: String },
 }
 
 /// A validation step to run after applying operations.

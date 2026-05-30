@@ -31,6 +31,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.insert_after_heading <path> <heading> <content>
 /// md.insert_before_heading <path> <heading> <content>
 /// md.dedupe_headings <path>
+/// md.lint_agents <path>
 /// tidy.fix <path>
 /// ```
 ///
@@ -42,7 +43,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   doc.update, doc.move, doc.delete_where, replace, file.create,
   file.delete, file.rename, md.upsert_bullet, md.table_append,
   md.replace_section, md.insert_after_heading, md.insert_before_heading,
-  md.dedupe_headings, tidy.fix
+  md.dedupe_headings, md.lint_agents, tidy.fix
 
 EXAMPLES:
   printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
@@ -226,6 +227,12 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "md.dedupe_headings" => {
             require_args(op, args, 1, line_num)?;
             Ok(Operation::MdDedupeHeadings {
+                path: args[0].clone(),
+            })
+        }
+        "md.lint_agents" => {
+            require_args(op, args, 1, line_num)?;
+            Ok(Operation::MdLintAgents {
                 path: args[0].clone(),
             })
         }
@@ -628,6 +635,16 @@ mod tests {
             op,
             Operation::MdDedupeHeadings { path }
             if path == "CHANGELOG.md"
+        ));
+    }
+
+    #[test]
+    fn parse_line_md_lint_agents() {
+        let op = parse_line("md.lint_agents AGENTS.md", 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::MdLintAgents { path }
+            if path == "AGENTS.md"
         ));
     }
 

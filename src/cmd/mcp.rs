@@ -448,7 +448,8 @@ fn validate_operation_paths(
             | Operation::FileCreate { path, .. }
             | Operation::FileDelete { path, .. }
             | Operation::Read { path, .. }
-            | Operation::Search { path, .. } => vec![path.as_str()],
+            | Operation::Search { path, .. }
+            | Operation::MdLintAgents { path, .. } => vec![path.as_str()],
             Operation::DocMerge { path, .. } => vec![path.as_str()],
             Operation::Replace { path, glob, .. } => {
                 let mut p = Vec::new();

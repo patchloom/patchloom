@@ -253,6 +253,9 @@ fn describe_operation(op: &Operation) -> String {
             Some(range) => format!("Read {path} lines {range}"),
             None => format!("Read {path}"),
         },
+        Operation::MdLintAgents { path } => {
+            format!("Lint {path} for AGENTS.md issues")
+        }
     }
 }
 

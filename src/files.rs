@@ -36,6 +36,7 @@ pub(crate) fn is_binary(data: &[u8]) -> bool {
 /// Returns whether the file at `path` appears to be binary by reading only its
 /// first 8 KiB (streaming, no full allocation for large files). Returns false
 /// on open/read errors (the subsequent content read will surface the real error).
+#[cfg(test)]
 pub(crate) fn is_binary_file(path: &Path) -> bool {
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,

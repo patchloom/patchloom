@@ -221,7 +221,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 20 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.dedupe_headings, tidy.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 21 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.dedupe_headings, md.lint_agents, tidy.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
@@ -859,6 +859,13 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Removes duplicate markdown headings inside a transaction.
 - **Use when:** Cleanup of generated docs should stay atomic with the rest of the plan.
 - **Related:** top level `md dedupe-headings`
+
+<!-- ref:tx-op:md.lint_agents -->
+### `md.lint_agents`
+
+- **What it does:** Lints an AGENTS.md file for common problems (duplicate headings, dangerous commands outside code fences, missing final newline) inside a transaction.
+- **Use when:** Agent rules validation should be part of a larger plan, e.g., lint before and after markdown edits to confirm no new issues.
+- **Related:** top level `md lint-agents`, MCP `md_lint`
 
 <!-- ref:tx-op:tidy.fix -->
 ### `tidy.fix`
