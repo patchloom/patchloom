@@ -450,6 +450,25 @@ mod tests {
         assert!(!is_binary(&data));
     }
 
+    // ── is_binary_file ────────────────────────────────────────────────
+
+    #[test]
+    fn is_binary_file_detects_nul_in_real_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("bin.dat");
+        std::fs::write(&p, b"hello\x00world").unwrap();
+        assert!(is_binary_file(&p));
+    }
+
+    #[test]
+    fn is_binary_file_returns_false_for_text_and_nonexistent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("text.txt");
+        std::fs::write(&p, b"hello world\n").unwrap();
+        assert!(!is_binary_file(&p));
+        assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
+    }
+
     // ── matches_glob ──────────────────────────────────────────────────
 
     #[test]
