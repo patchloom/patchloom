@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.jpg" alt="Patchloom logo" width="200">
+  <img src="assets/logo.svg" alt="Patchloom logo" width="200">
 </p>
 
 # Patchloom

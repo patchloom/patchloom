@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640">
+  <rect width="1280" height="640" fill="#0d1b2a"/>
+
+  <!-- Logo grid centered at x=440, scaled to fit ~280px -->
+  <g font-family="'SF Mono','Fira Code','Consolas','Courier New',monospace" font-weight="bold" font-size="24" text-anchor="middle" transform="translate(270, 140)">
+    <!-- Row 1 -->
+    <text x="0"   y="0"  fill="#5b8db8">+</text>
+    <text x="34"  y="0"  fill="#5b8db8">+</text>
+    <text x="68"  y="0"  fill="#5b8db8">+</text>
+    <text x="102" y="0"  fill="#5b8db8">+</text>
+    <text x="136" y="0"  fill="#5b8db8">+</text>
+    <text x="170" y="0"  fill="#5b8db8">+</text>
+    <text x="204" y="0"  fill="#5b8db8">+</text>
+    <text x="238" y="0"  fill="#5b8db8">+</text>
+    <!-- Row 2 -->
+    <text x="0"   y="38" fill="#5b8db8">+</text>
+    <text x="34"  y="38" fill="#5b8db8">+</text>
+    <text x="68"  y="38" fill="#5b8db8">-</text>
+    <text x="102" y="38" fill="#c9a84c">@</text>
+    <text x="136" y="38" fill="#5b8db8">+</text>
+    <text x="170" y="38" fill="#c9a84c">-</text>
+    <text x="204" y="38" fill="#5b8db8">+</text>
+    <text x="238" y="38" fill="#5b8db8">+</text>
+    <!-- Row 3 -->
+    <text x="0"   y="76" fill="#5b8db8">-</text>
+    <text x="34"  y="76" fill="#5b8db8">+</text>
+    <text x="68"  y="76" fill="#5b8db8">+</text>
+    <text x="102" y="76" fill="#5b8db8">+</text>
+    <text x="136" y="76" fill="#5b8db8">+</text>
+    <text x="170" y="76" fill="#5b8db8">+</text>
+    <text x="204" y="76" fill="#5b8db8">+</text>
+    <text x="238" y="76" fill="#5b8db8">-</text>
+    <!-- Row 4 -->
+    <text x="0"   y="114" fill="#5b8db8">+</text>
+    <text x="34"  y="114" fill="#c9a84c">-</text>
+    <text x="68"  y="114" fill="#c9a84c">+</text>
+    <text x="102" y="114" fill="#5b8db8">+</text>
+    <text x="136" y="114" fill="#c9a84c">-</text>
+    <text x="170" y="114" fill="#c9a84c">@</text>
+    <text x="204" y="114" fill="#5b8db8">+</text>
+    <text x="238" y="114" fill="#5b8db8">-</text>
+    <!-- Row 5 -->
+    <text x="0"   y="152" fill="#c9a84c">+</text>
+    <text x="34"  y="152" fill="#c9a84c">-</text>
+    <text x="68"  y="152" fill="#c9a84c">@</text>
+    <text x="102" y="152" fill="#c9a84c">@</text>
+    <text x="136" y="152" fill="#5b8db8">+</text>
+    <text x="170" y="152" fill="#c9a84c">+</text>
+    <text x="204" y="152" fill="#5b8db8">-</text>
+    <text x="238" y="152" fill="#5b8db8">+</text>
+    <!-- Row 6 -->
+    <text x="0"   y="190" fill="#5b8db8">-</text>
+    <text x="34"  y="190" fill="#c9a84c">@</text>
+    <text x="68"  y="190" fill="#c9a84c">@</text>
+    <text x="102" y="190" fill="#5b8db8">-</text>
+    <text x="136" y="190" fill="#c9a84c">+</text>
+    <text x="170" y="190" fill="#5b8db8">+</text>
+    <text x="204" y="190" fill="#c9a84c">-</text>
+    <text x="238" y="190" fill="#5b8db8">+</text>
+    <!-- Row 7 -->
+    <text x="0"   y="228" fill="#5b8db8">+</text>
+    <text x="34"  y="228" fill="#5b8db8">+</text>
+    <text x="68"  y="228" fill="#5b8db8">+</text>
+    <text x="102" y="228" fill="#c9a84c">@</text>
+    <text x="136" y="228" fill="#5b8db8">-</text>
+    <text x="170" y="228" fill="#c9a84c">@</text>
+    <text x="204" y="228" fill="#5b8db8">+</text>
+    <text x="238" y="228" fill="#5b8db8">+</text>
+    <!-- Row 8 -->
+    <text x="0"   y="266" fill="#5b8db8">+</text>
+    <text x="34"  y="266" fill="#5b8db8">-</text>
+    <text x="68"  y="266" fill="#5b8db8">+</text>
+    <text x="102" y="266" fill="#5b8db8">+</text>
+    <text x="136" y="266" fill="#5b8db8">+</text>
+    <text x="170" y="266" fill="#5b8db8">+</text>
+    <text x="204" y="266" fill="#5b8db8">-</text>
+    <text x="238" y="266" fill="#5b8db8">+</text>
+  </g>
+
+  <!-- Project name -->
+  <text x="780" y="290" font-family="'SF Mono','Fira Code','Consolas','Courier New',monospace"
+        font-size="72" font-weight="bold" fill="#e0e0e0" text-anchor="middle">patchloom</text>
+
+  <!-- Tagline -->
+  <text x="780" y="345" font-family="'SF Mono','Fira Code','Consolas','Courier New',monospace"
+        font-size="20" fill="#5b8db8" text-anchor="middle">safe, structured file editing for AI agents</text>
+</svg>
