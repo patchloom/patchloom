@@ -1,0 +1,13 @@
+cache = true
+
+exclude = [
+  "medium\\.com",
+  "linkedin\\.com",
+  "twitter\\.com",
+  "x\\.com",
+  "localhost",
+  "127\\.0\\.0\\.1",
+  "0\\.0\\.0\\.0",
+]
+
+accept = [200, 429]

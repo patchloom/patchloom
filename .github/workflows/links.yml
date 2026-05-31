@@ -1,0 +1,44 @@
+name: Links
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "lychee.toml"
+      - ".github/workflows/links.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "lychee.toml"
+      - ".github/workflows/links.yml"
+  schedule:
+    - cron: "0 12 * * 1"  # Monday noon UTC
+  workflow_dispatch:
+
+concurrency:
+  group: links-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: Check Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: "--config lychee.toml '**/*.md'"
+          fail: true

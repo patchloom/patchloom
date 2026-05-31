@@ -13827,7 +13827,7 @@ fn test_workflows_disable_persisted_checkout_credentials_by_default() {
     assert!(ci.matches("persist-credentials: false").count() >= 8);
 
     let security = fs::read_to_string(repo_root().join(".github/workflows/security.yml")).unwrap();
-    assert_eq!(security.matches("persist-credentials: false").count(), 2);
+    assert_eq!(security.matches("persist-credentials: false").count(), 4);
 
     let bench = fs::read_to_string(repo_root().join(".github/workflows/bench.yml")).unwrap();
     assert_eq!(bench.matches("persist-credentials: false").count(), 1);

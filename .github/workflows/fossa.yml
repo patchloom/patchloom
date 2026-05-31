@@ -1,0 +1,48 @@
+name: FOSSA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: fossa-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  license-scan:
+    name: License Scan
+    # Requires FOSSA_API_KEY secret (https://app.fossa.com).
+    # Skips Dependabot PRs (no access to repo secrets).
+    # Skips private repos (set up FOSSA after going public).
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !github.event.repository.private
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install FOSSA CLI
+        run: |
+          curl -H 'Cache-Control: no-cache' \
+            https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
+      - name: Run FOSSA analysis
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: fossa analyze
+      - name: Check FOSSA status
+        if: github.event_name == 'pull_request'
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: fossa test
