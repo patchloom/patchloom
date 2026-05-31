@@ -1,86 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- V1: Flat grid - faithful to logo.jpg, no ellipse -->
-  <rect width="512" height="512" fill="#0d1b2a"/>
+  <!-- V2: 4x4 extra bold, larger rounding -->
+  <rect width="512" height="512" rx="80" ry="80" fill="#0d1b2a"/>
 
-  <g font-family="'SF Mono','Fira Code','Consolas','Courier New',monospace" font-weight="bold" font-size="38" text-anchor="middle">
+  <g font-family="'SF Mono','Fira Code','Consolas','Courier New',monospace" font-weight="900" font-size="90" text-anchor="middle" dominant-baseline="central">
     <!-- Row 1 -->
-    <text x="96"  y="95"  fill="#5b8db8">+</text>
-    <text x="144" y="95"  fill="#5b8db8">+</text>
-    <text x="192" y="95"  fill="#5b8db8">+</text>
-    <text x="240" y="95"  fill="#5b8db8">+</text>
-    <text x="288" y="95"  fill="#5b8db8">+</text>
-    <text x="336" y="95"  fill="#5b8db8">+</text>
-    <text x="384" y="95"  fill="#5b8db8">+</text>
-    <text x="432" y="95"  fill="#5b8db8">+</text>
-
+    <text x="121" y="121" fill="#5b8db8">+</text>
+    <text x="211" y="121" fill="#5b8db8">-</text>
+    <text x="301" y="121" fill="#c9a84c">@</text>
+    <text x="391" y="121" fill="#5b8db8">+</text>
     <!-- Row 2 -->
-    <text x="96"  y="143" fill="#5b8db8">+</text>
-    <text x="144" y="143" fill="#5b8db8">+</text>
-    <text x="192" y="143" fill="#5b8db8">-</text>
-    <text x="240" y="143" fill="#c9a84c">@</text>
-    <text x="288" y="143" fill="#5b8db8">+</text>
-    <text x="336" y="143" fill="#c9a84c">-</text>
-    <text x="384" y="143" fill="#5b8db8">+</text>
-    <text x="432" y="143" fill="#5b8db8">+</text>
-
+    <text x="121" y="211" fill="#c9a84c">-</text>
+    <text x="211" y="211" fill="#c9a84c">+</text>
+    <text x="301" y="211" fill="#5b8db8">+</text>
+    <text x="391" y="211" fill="#5b8db8">-</text>
     <!-- Row 3 -->
-    <text x="96"  y="191" fill="#5b8db8">-</text>
-    <text x="144" y="191" fill="#5b8db8">+</text>
-    <text x="192" y="191" fill="#5b8db8">+</text>
-    <text x="240" y="191" fill="#5b8db8">+</text>
-    <text x="288" y="191" fill="#5b8db8">+</text>
-    <text x="336" y="191" fill="#5b8db8">+</text>
-    <text x="384" y="191" fill="#5b8db8">+</text>
-    <text x="432" y="191" fill="#5b8db8">-</text>
-
+    <text x="121" y="301" fill="#5b8db8">+</text>
+    <text x="211" y="301" fill="#c9a84c">@</text>
+    <text x="301" y="301" fill="#c9a84c">-</text>
+    <text x="391" y="301" fill="#5b8db8">+</text>
     <!-- Row 4 -->
-    <text x="96"  y="239" fill="#5b8db8">+</text>
-    <text x="144" y="239" fill="#c9a84c">-</text>
-    <text x="192" y="239" fill="#c9a84c">+</text>
-    <text x="240" y="239" fill="#5b8db8">+</text>
-    <text x="288" y="239" fill="#c9a84c">-</text>
-    <text x="336" y="239" fill="#c9a84c">@</text>
-    <text x="384" y="239" fill="#5b8db8">+</text>
-    <text x="432" y="239" fill="#5b8db8">-</text>
-
-    <!-- Row 5 - center -->
-    <text x="96"  y="287" fill="#c9a84c">+</text>
-    <text x="144" y="287" fill="#c9a84c">-</text>
-    <text x="192" y="287" fill="#c9a84c">@</text>
-    <text x="240" y="287" fill="#c9a84c">@</text>
-    <text x="288" y="287" fill="#5b8db8">+</text>
-    <text x="336" y="287" fill="#c9a84c">+</text>
-    <text x="384" y="287" fill="#5b8db8">-</text>
-    <text x="432" y="287" fill="#5b8db8">+</text>
-
-    <!-- Row 6 -->
-    <text x="96"  y="335" fill="#5b8db8">-</text>
-    <text x="144" y="335" fill="#c9a84c">@</text>
-    <text x="192" y="335" fill="#c9a84c">@</text>
-    <text x="240" y="335" fill="#5b8db8">-</text>
-    <text x="288" y="335" fill="#c9a84c">+</text>
-    <text x="336" y="335" fill="#5b8db8">+</text>
-    <text x="384" y="335" fill="#c9a84c">-</text>
-    <text x="432" y="335" fill="#5b8db8">+</text>
-
-    <!-- Row 7 -->
-    <text x="96"  y="383" fill="#5b8db8">+</text>
-    <text x="144" y="383" fill="#5b8db8">+</text>
-    <text x="192" y="383" fill="#5b8db8">+</text>
-    <text x="240" y="383" fill="#c9a84c">@</text>
-    <text x="288" y="383" fill="#5b8db8">-</text>
-    <text x="336" y="383" fill="#c9a84c">@</text>
-    <text x="384" y="383" fill="#5b8db8">+</text>
-    <text x="432" y="383" fill="#5b8db8">+</text>
-
-    <!-- Row 8 -->
-    <text x="96"  y="431" fill="#5b8db8">+</text>
-    <text x="144" y="431" fill="#5b8db8">-</text>
-    <text x="192" y="431" fill="#5b8db8">+</text>
-    <text x="240" y="431" fill="#5b8db8">+</text>
-    <text x="288" y="431" fill="#5b8db8">+</text>
-    <text x="336" y="431" fill="#5b8db8">+</text>
-    <text x="384" y="431" fill="#5b8db8">-</text>
-    <text x="432" y="431" fill="#5b8db8">+</text>
+    <text x="121" y="391" fill="#5b8db8">-</text>
+    <text x="211" y="391" fill="#5b8db8">+</text>
+    <text x="301" y="391" fill="#5b8db8">+</text>
+    <text x="391" y="391" fill="#c9a84c">-</text>
   </g>
 </svg>
