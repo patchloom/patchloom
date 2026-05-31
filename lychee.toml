@@ -8,6 +8,8 @@ exclude = [
   "localhost",
   "127\\.0\\.0\\.1",
   "0\\.0\\.0\\.0",
+  # Own-repo URLs 404 while private. Remove this line when public.
+  "github\\.com/patchloom/",
 ]
 
 accept = [200, 429]
