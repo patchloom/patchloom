@@ -42,7 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
-- 1172 tests (581 unit + 591 integration)
+- 1174 tests (582 unit + 592 integration)
 - Added fuzz targets for batch tokenizer (`fuzz_batch_tokenize`) and selector evaluator (`fuzz_selector_eval`), bringing the total to 5 fuzz targets
 - CI: added Codecov upload to coverage job and coverage badge to README
 - CI: added benchmark summary table and 90-day artifact retention for regression tracking
