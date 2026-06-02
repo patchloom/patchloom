@@ -33,6 +33,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
         run: |
           for sha in $(git rev-list "${BASE_SHA}"..HEAD); do
+            # Skip merge commits (e.g. GitHub's auto-created PR merge ref)
+            parents=$(git log -1 --format='%P' "$sha")
+            if [[ "$parents" == *" "* ]]; then
+              continue
+            fi
             author=$(git log -1 --format='%an' "$sha")
             if [[ "$author" == *"[bot]" ]]; then
               continue

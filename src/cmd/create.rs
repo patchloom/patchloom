@@ -1,3 +1,4 @@
+use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::exit;
@@ -48,6 +49,24 @@ fn make_diff_output(path: &str, content: &str) -> String {
         total_files_changed,
     };
     format_diff_result(&diff_result)
+}
+
+fn create_with_backup(
+    path: &std::path::Path,
+    content: &str,
+    force: bool,
+    cwd: &std::path::Path,
+    policy: &crate::write::WritePolicy,
+) -> anyhow::Result<()> {
+    let mut backup = BackupSession::new(cwd)?;
+    backup.save_before_write(path)?;
+    if force {
+        atomic_write(path, content, policy)?;
+    } else {
+        atomic_create_new(path, content, policy)?;
+    }
+    backup.finalize()?;
+    Ok(())
 }
 
 /// Create a file, without writing to stdout.
@@ -133,11 +152,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             fs::create_dir_all(parent)?;
         }
 
-        if args.force {
-            atomic_write(&path, &content, &policy)?;
-        } else {
-            atomic_create_new(&path, &content, &policy)?;
-        }
+        create_with_backup(&path, &content, args.force, &cwd, &policy)?;
 
         let diff_text = if global.diff {
             Some(make_diff_output(&args.file, &content))
@@ -172,11 +187,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             {
                 fs::create_dir_all(parent)?;
             }
-            if args.force {
-                atomic_write(&path, &content, &policy)?;
-            } else {
-                atomic_create_new(&path, &content, &policy)?;
-            }
+            create_with_backup(&path, &content, args.force, &cwd, &policy)?;
         }
         let output = CreateOutput {
             ok: true,
@@ -206,11 +217,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         {
             fs::create_dir_all(parent)?;
         }
-        if args.force {
-            atomic_write(&path, &content, &policy)?;
-        } else {
-            atomic_create_new(&path, &content, &policy)?;
-        }
+        create_with_backup(&path, &content, args.force, &cwd, &policy)?;
     }
 
     Ok(exit::SUCCESS)
@@ -373,6 +380,74 @@ mod tests {
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("--content or --stdin"));
+    }
+
+    #[test]
+    fn create_apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("new.txt");
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("backup test\n".to_string()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            apply: true,
+            ..GlobalFlags::default()
+        };
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // A backup session should exist.
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(backup_dir.exists(), "backup directory should be created");
+
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert_eq!(sessions.len(), 1, "exactly one backup session expected");
+    }
+
+    #[test]
+    fn create_force_apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("existing.txt");
+        fs::write(&file, "original\n").unwrap();
+
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("overwritten\n".to_string()),
+            stdin: false,
+            force: true,
+            write: Default::default(),
+        };
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            apply: true,
+            ..GlobalFlags::default()
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        // Backup session should exist with the original content.
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(backup_dir.exists(), "backup directory should be created");
+
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert_eq!(sessions.len(), 1, "exactly one backup session expected");
     }
 
     #[test]

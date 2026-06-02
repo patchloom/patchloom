@@ -1266,6 +1266,101 @@ fn test_quiet_suppresses_create_output() {
 }
 
 #[test]
+fn test_create_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("backup_test.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(file.to_str().unwrap())
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    // A backup session directory should exist.
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(backup_dir.exists(), "backup directory should be created");
+
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert_eq!(sessions.len(), 1, "exactly one backup session expected");
+}
+
+#[test]
+fn test_create_apply_undo_removes_created_file() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("undoable.txt")
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(dir.path().join("undoable.txt").exists());
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(
+        !dir.path().join("undoable.txt").exists(),
+        "undo should remove the newly created file"
+    );
+}
+
+#[test]
+fn test_create_force_apply_undo_restores_overwritten() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("overwrite.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("overwrite.txt")
+        .arg("--content")
+        .arg("replaced\n")
+        .arg("--force")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "replaced\n");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "original\n",
+        "undo should restore the original content"
+    );
+}
+
+#[test]
 fn test_quiet_suppresses_search_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("search_quiet.txt");
@@ -6488,6 +6583,43 @@ fn test_doc_get_unsupported_extension_fails() {
 }
 
 #[test]
+fn test_doc_get_nonexistent_file_json_envelope() {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", "/nonexistent/file_xyz.json", "key", "--json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"].is_string(),
+        "envelope should contain error field"
+    );
+}
+
+#[test]
+fn test_doc_get_unsupported_extension_json_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.ini");
+    fs::write(&file, "key=value\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", &file.to_string_lossy(), "key", "--json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert!(json["error"].is_string());
+}
+
+#[test]
 fn test_patch_malformed_file_fails() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -7172,6 +7304,120 @@ fn test_tidy_fix_check_exits_2_no_write() {
         content, "trailing whitespace   ",
         "file should be unchanged in --check mode"
     );
+}
+
+#[test]
+fn test_tidy_fix_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "trailing   \nno final newline").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "tidy",
+            "fix",
+            ".",
+            "--ensure-final-newline",
+            "--trim-trailing-whitespace",
+            "--json",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "expected exit 2 (changes detected)"
+    );
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], true);
+    assert!(json["files_changed"].as_u64().unwrap() >= 1);
+    assert!(!json["files"].as_array().unwrap().is_empty());
+    // In diff mode, diff should be present
+    assert!(
+        json["diff"].is_string(),
+        "diff field should be present in default mode"
+    );
+}
+
+#[test]
+fn test_tidy_fix_jsonl_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "trailing   \n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--trim-trailing-whitespace", "--jsonl"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert!(!lines.is_empty(), "expected at least one JSONL line");
+    for line in &lines {
+        let v: serde_json::Value =
+            serde_json::from_str(line).expect("each JSONL line should be valid JSON");
+        assert!(v["path"].is_string());
+    }
+}
+
+#[test]
+fn test_tidy_fix_json_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("dirty.txt");
+    fs::write(&file, "no newline").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "tidy",
+            "fix",
+            ".",
+            "--ensure-final-newline",
+            "--check",
+            "--json",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], true);
+    assert!(json["files_changed"].as_u64().unwrap() >= 1);
+    // In --check mode, diff should not be present
+    assert!(
+        json["diff"].is_null(),
+        "diff should be absent in --check mode"
+    );
+}
+
+#[test]
+fn test_tidy_fix_json_no_changes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("clean.txt");
+    fs::write(&file, "already clean\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--ensure-final-newline", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["files_changed"], 0);
+    assert!(json["files"].as_array().unwrap().is_empty());
 }
 
 // ---------------------------------------------------------------------------
