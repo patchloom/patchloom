@@ -60,12 +60,12 @@ fn create_with_backup(
 ) -> anyhow::Result<()> {
     let mut backup = BackupSession::new(cwd)?;
     backup.save_before_write(path)?;
-    backup.finalize()?;
     if force {
         atomic_write(path, content, policy)?;
     } else {
         atomic_create_new(path, content, policy)?;
     }
+    backup.finalize()?;
     Ok(())
 }
 
