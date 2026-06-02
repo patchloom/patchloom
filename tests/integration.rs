@@ -13953,6 +13953,14 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
     assert!(launch.contains("1,167 tests"));
+    assert!(
+        launch.contains("18 CLI commands"),
+        "launch announcement CLI command count drifted"
+    );
+    assert!(
+        launch.contains("33 structured tool calls"),
+        "launch announcement MCP tool count drifted"
+    );
     let merge_value = r#"{"settings": {"debug": true}}"#;
 
     let dir = TempDir::new().unwrap();
