@@ -200,10 +200,13 @@ pub fn backup_write_files(
     for &(path, _, _) in files {
         session.save_before_write(path)?;
     }
+    // Finalize (write manifest) BEFORE performing writes so the backup is
+    // discoverable even if a write fails mid-batch, allowing `patchloom undo`
+    // to restore the partially-modified files.
+    session.finalize()?;
     for &(path, content, policy) in files {
         crate::write::atomic_write(path, content, policy)?;
     }
-    session.finalize()?;
     Ok(())
 }
 
@@ -720,5 +723,32 @@ mod tests {
         restore_session(dir.path(), &sessions[0].timestamp).unwrap();
         assert_eq!(std::fs::read_to_string(&f1).unwrap(), "original-a");
         assert_eq!(std::fs::read_to_string(&f2).unwrap(), "original-b");
+    }
+
+    #[test]
+    fn backup_write_files_manifest_survives_write_failure() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        std::fs::write(&real, "original").unwrap();
+
+        // Target a file whose parent directory does not exist so atomic_write fails.
+        let bad = dir.path().join("no_such_dir").join("fail.txt");
+
+        let policy = crate::write::WritePolicy::default();
+        let files: Vec<(&Path, &str, &crate::write::WritePolicy)> =
+            vec![(&real, "updated", &policy), (&bad, "x", &policy)];
+        let result = backup_write_files(dir.path(), &files);
+        assert!(result.is_err(), "write to missing dir should fail");
+
+        // The manifest must exist because finalize() runs before writes.
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 1, "backup session must be finalized");
+
+        // The first file was written before the second failed.
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "updated");
+
+        // Undo restores the first file despite partial failure.
+        restore_session(dir.path(), &sessions[0].timestamp).unwrap();
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "original");
     }
 }

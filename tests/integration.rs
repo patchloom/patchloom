@@ -3983,6 +3983,54 @@ fn test_patch_check_exits_0_when_clean() {
 }
 
 #[test]
+fn test_patch_apply_check_counts_only_changed_files() {
+    let dir = TempDir::new().unwrap();
+    // File with a real change.
+    let changed = dir.path().join("changed.txt");
+    fs::write(&changed, "line1\nold line\nline3\n").unwrap();
+    // File where the patch is a no-op (replace "same" with "same").
+    let same = dir.path().join("same.txt");
+    fs::write(&same, "same\n").unwrap();
+
+    let patch_file = dir.path().join("multi.patch");
+    fs::write(
+        &patch_file,
+        "--- a/changed.txt\n\
+         +++ b/changed.txt\n\
+         @@ -1,3 +1,3 @@\n\
+         \x20line1\n\
+         -old line\n\
+         +new line\n\
+         \x20line3\n\
+         --- a/same.txt\n\
+         +++ b/same.txt\n\
+         @@ -1 +1 @@\n\
+         -same\n\
+         +same\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--check")
+        .assert()
+        .code(2) // CHANGES_DETECTED
+        .get_output()
+        .clone();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("1 file(s) would change"),
+        "should count only files with actual changes, got: {stdout}"
+    );
+}
+
+#[test]
 fn test_patch_check_json_output_clean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -13952,7 +14000,15 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,100+ tests"));
+    assert!(launch.contains("1,174 tests"));
+    assert!(
+        launch.contains("18 CLI commands"),
+        "launch announcement CLI command count drifted"
+    );
+    assert!(
+        launch.contains("33 structured tool calls"),
+        "launch announcement MCP tool count drifted"
+    );
     let merge_value = r#"{"settings": {"debug": true}}"#;
 
     let dir = TempDir::new().unwrap();

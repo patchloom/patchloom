@@ -1440,21 +1440,33 @@ pub(crate) mod md {
     /// Yields `(0-based line index, line content)` pairs, skipping lines
     /// within ```` ``` ```` or `~~~` fenced regions.
     pub(crate) fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
-        let mut fence_marker: Option<&'static str> = None;
+        // Track the fence character and minimum length required to close.
+        let mut fence: Option<(u8, usize)> = None;
         content.lines().enumerate().filter(move |(_, line)| {
-            if fence_marker.is_none() {
-                if line.starts_with("```") {
-                    fence_marker = Some("```");
-                    return false;
-                } else if line.starts_with("~~~") {
-                    fence_marker = Some("~~~");
-                    return false;
+            // CommonMark: fences can be indented 0-3 spaces.
+            let trimmed = line.trim_start_matches(' ');
+            let indent = line.len() - trimmed.len();
+            if indent <= 3 {
+                if let Some((ch, min_len)) = fence {
+                    let count = trimmed.bytes().take_while(|&b| b == ch).count();
+                    if count >= min_len {
+                        fence = None;
+                        return false;
+                    }
+                } else {
+                    let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();
+                    if backticks >= 3 {
+                        fence = Some((b'`', backticks));
+                        return false;
+                    }
+                    let tildes = trimmed.bytes().take_while(|&b| b == b'~').count();
+                    if tildes >= 3 {
+                        fence = Some((b'~', tildes));
+                        return false;
+                    }
                 }
-            } else if fence_marker.is_some_and(|fm| line.starts_with(fm)) {
-                fence_marker = None;
-                return false;
             }
-            fence_marker.is_none()
+            fence.is_none()
         })
     }
 
@@ -2982,6 +2994,47 @@ mod tests {
             assert_eq!(headings.len(), 2);
             assert_eq!(headings[0].text, "Real");
             assert_eq!(headings[1].text, "Also Real");
+        }
+
+        #[test]
+        fn parse_headings_skips_indented_fenced_code_blocks() {
+            // CommonMark allows up to 3 spaces of indentation before fence markers.
+            let content = "# Real\n   ```\n# Fake inside indented fence\n   ```\n## Also Real\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Real");
+            assert_eq!(headings[1].text, "Also Real");
+
+            // 4 spaces is NOT a fence opener (indented code block instead)
+            let content4 = "# Real\n    ```\n# Still Real\n    ```\n";
+            let headings4 = parse_headings(content4);
+            assert_eq!(headings4.len(), 2);
+            assert_eq!(headings4[0].text, "Real");
+            assert_eq!(headings4[1].text, "Still Real");
+
+            // Indented tilde fences
+            let tilde = "# Top\n  ~~~\n# Fake\n  ~~~\n# Bottom\n";
+            let headings_tilde = parse_headings(tilde);
+            assert_eq!(headings_tilde.len(), 2);
+            assert_eq!(headings_tilde[0].text, "Top");
+            assert_eq!(headings_tilde[1].text, "Bottom");
+        }
+
+        #[test]
+        fn parse_headings_longer_fence_requires_matching_length() {
+            // A 4-backtick fence is only closed by 4+ backticks, not 3.
+            let content = "# Top\n````\n```\n# Fake\n```\n````\n# Bottom\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Top");
+            assert_eq!(headings[1].text, "Bottom");
+
+            // A 5-tilde fence requires 5+ tildes to close
+            let tilde5 = "# Top\n~~~~~\n~~~\n# Fake\n~~~\n~~~~~\n# Bottom\n";
+            let headings5 = parse_headings(tilde5);
+            assert_eq!(headings5.len(), 2);
+            assert_eq!(headings5[0].text, "Top");
+            assert_eq!(headings5[1].text, "Bottom");
         }
 
         #[test]

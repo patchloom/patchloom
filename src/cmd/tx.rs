@@ -1309,13 +1309,12 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
-fn emit_error_json_with_prefix(
+fn build_error_output(
     error_kind: &'static str,
-    legacy_error_prefix: &'static str,
+    legacy_error_prefix: &str,
     error: &str,
-    compact: bool,
-) {
-    let output = TxOutput {
+) -> TxOutput {
+    TxOutput {
         ok: false,
         status: "error",
         files_changed: 0,
@@ -1327,17 +1326,31 @@ fn emit_error_json_with_prefix(
         lints: Vec::new(),
         error_kind: Some(error_kind),
         error: Some(format!("{legacy_error_prefix}: {error}")),
-    };
-    emit_output_json(&output, compact);
+    }
 }
 
-fn emit_error_json(error_kind: &'static str, error: &str, compact: bool) {
-    let legacy_error_prefix = if error_kind == "format_failed" {
+fn legacy_error_prefix(error_kind: &str) -> &str {
+    if error_kind == "format_failed" {
         "validation_failed"
     } else {
         error_kind
-    };
-    emit_error_json_with_prefix(error_kind, legacy_error_prefix, error, compact);
+    }
+}
+
+fn emit_error_json_with_prefix(
+    error_kind: &'static str,
+    legacy_error_prefix: &'static str,
+    error: &str,
+    compact: bool,
+) {
+    emit_output_json(
+        &build_error_output(error_kind, legacy_error_prefix, error),
+        compact,
+    );
+}
+
+fn emit_error_json(error_kind: &'static str, error: &str, compact: bool) {
+    emit_error_json_with_prefix(error_kind, legacy_error_prefix(error_kind), error, compact);
 }
 
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
@@ -1710,35 +1723,18 @@ fn commit_changes(
 /// Build a JSON error string without writing to stdout.
 #[cfg(feature = "mcp")]
 fn make_error_json(error_kind: &'static str, error: &str) -> String {
-    let legacy_error_prefix = if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    };
-    make_error_json_with_prefix(error_kind, legacy_error_prefix, error)
+    make_error_json_with_prefix(error_kind, legacy_error_prefix(error_kind), error)
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
 #[cfg(feature = "mcp")]
 fn make_error_json_with_prefix(
     error_kind: &'static str,
-    legacy_error_prefix: &'static str,
+    legacy_error_prefix: &str,
     error: &str,
 ) -> String {
-    let output = TxOutput {
-        ok: false,
-        status: "error",
-        files_changed: 0,
-        files_created: 0,
-        files_deleted: 0,
-        changes: Vec::new(),
-        reads: Vec::new(),
-        searches: Vec::new(),
-        lints: Vec::new(),
-        error_kind: Some(error_kind),
-        error: Some(format!("{legacy_error_prefix}: {error}")),
-    };
-    serde_json::to_string_pretty(&output).unwrap_or_default()
+    serde_json::to_string_pretty(&build_error_output(error_kind, legacy_error_prefix, error))
+        .unwrap_or_default()
 }
 
 /// Execute a parsed [`Plan`] directly and return the exit code and JSON
@@ -2357,6 +2353,23 @@ mod tests {
 
         // Verify no files were modified.
         assert_eq!(fs::read_to_string(&txt).unwrap(), "hello world\n");
+    }
+
+    #[test]
+    fn legacy_error_prefix_maps_format_failed() {
+        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
+        assert_eq!(legacy_error_prefix("rollback"), "rollback");
+        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
+    }
+
+    #[test]
+    fn build_error_output_produces_expected_shape() {
+        let output = build_error_output("rollback", "rollback", "disk full");
+        assert!(!output.ok);
+        assert_eq!(output.status, "error");
+        assert_eq!(output.error_kind, Some("rollback"));
+        assert_eq!(output.error, Some("rollback: disk full".to_string()));
+        assert_eq!(output.files_changed, 0);
     }
 
     #[test]
