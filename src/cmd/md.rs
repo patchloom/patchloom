@@ -5,7 +5,7 @@ use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
     non_fenced_lines, parse_headings, replace_section_in, table_append_in, upsert_bullet_in,
 };
-use crate::write::{atomic_write, policy_from_flags};
+use crate::write::policy_from_flags;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
@@ -112,6 +112,7 @@ fn apply_mutation(
     original: &str,
     new_content: &str,
     global: &GlobalFlags,
+    cwd: &Path,
 ) -> anyhow::Result<u8> {
     let policy = policy_from_flags(global, Some(path));
     let final_content = crate::write::apply_policy(new_content, &policy);
@@ -136,7 +137,8 @@ fn apply_mutation(
     }
 
     if global.apply || (global.confirm && has_changes && global.should_apply()) {
-        atomic_write(path, new_content, &policy)?;
+        let writes = [(path, new_content, &policy)];
+        crate::backup::backup_write_files(cwd, &writes)?;
     }
 
     Ok(exit::SUCCESS)
@@ -232,7 +234,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let read = |file: &str| read_markdown_file(&cwd.join(file), file);
     let apply = |file: &str, original: &str, new_content: &str| {
         let path = cwd.join(file);
-        apply_mutation(&path, file, original, new_content, global)
+        apply_mutation(&path, file, original, new_content, global, &cwd)
     };
 
     match args.action {
