@@ -1,0 +1,45 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO Sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check DCO sign-off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+        run: |
+          for sha in $(git rev-list "${BASE_SHA}"..HEAD); do
+            author=$(git log -1 --format='%an' "$sha")
+            if [[ "$author" == *"[bot]" ]]; then
+              continue
+            fi
+            if ! git log -1 --format='%B' "$sha" | grep -qi '^Signed-off-by:'; then
+              echo "::error::Commit $sha by $author is missing Signed-off-by"
+              exit 1
+            fi
+          done
+          echo "All commits have DCO sign-off"
