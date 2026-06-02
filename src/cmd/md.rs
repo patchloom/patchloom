@@ -199,7 +199,10 @@ pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     // 2. Dangerous git add commands (skip fenced code blocks and inline code).
     for (idx, line) in non_fenced_lines(content) {
         let stripped = strip_inline_code(line);
-        if stripped.contains("git add .") || stripped.contains("git add -A") {
+        if stripped.contains("git add .")
+            || stripped.contains("git add -A")
+            || stripped.contains("git add --all")
+        {
             issues.push(LintIssue {
                 issue: "dangerous command",
                 line: Some(idx + 1),
@@ -594,6 +597,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("AGENTS.md");
         fs::write(&file, "# Rules\nRun git add . to stage\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
+    fn lint_agents_finds_dangerous_git_add_all_long_form() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(&file, "# Rules\nRun git add --all to stage\n").unwrap();
 
         let args = MdArgs {
             action: MdAction::LintAgents {
