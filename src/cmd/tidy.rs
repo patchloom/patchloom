@@ -119,6 +119,22 @@ struct TidyCheckOutput {
     issues: Vec<TidyIssue>,
 }
 
+/// Per-file result for tidy fix structured output.
+#[derive(Debug, Serialize)]
+struct TidyFixFileResult {
+    path: String,
+}
+
+/// JSON wrapper for tidy fix output.
+#[derive(Debug, Serialize)]
+struct TidyFixOutput {
+    ok: bool,
+    files_changed: usize,
+    files: Vec<TidyFixFileResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+}
+
 /// Render issues to stdout.
 fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
     if global.json {
@@ -219,13 +235,13 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
             for r in &results {
                 if global.check {
-                    if !global.quiet {
+                    if !global.quiet && !global.json && !global.jsonl {
                         println!("{}", r.rel_path);
                     }
                 } else if global.apply {
                     let noop = WritePolicy::default();
                     atomic_write(&r.path, &r.fixed, &noop)?;
-                } else if !global.quiet {
+                } else if !global.quiet && !global.json && !global.jsonl {
                     let diff = unified_diff(&r.rel_path, &r.original, &r.fixed);
                     if diff.has_changes {
                         let result = crate::diff::DiffResult {
@@ -236,6 +252,49 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             "{}",
                             crate::diff::format_diff_result_colored(&result, global.should_color())
                         );
+                    }
+                }
+            }
+
+            // Structured JSON/JSONL output for tidy fix.
+            if global.json || global.jsonl {
+                let fix_files: Vec<TidyFixFileResult> = results
+                    .iter()
+                    .map(|r| TidyFixFileResult {
+                        path: r.rel_path.clone(),
+                    })
+                    .collect();
+
+                if global.json {
+                    let diff_text = if !global.check && !global.apply && !results.is_empty() {
+                        let mut buf = String::new();
+                        for r in &results {
+                            let d = unified_diff(&r.rel_path, &r.original, &r.fixed);
+                            if d.has_changes {
+                                let dr = crate::diff::DiffResult {
+                                    diffs: vec![d],
+                                    total_files_changed: 1,
+                                };
+                                buf.push_str(&crate::diff::format_diff_result_colored(&dr, false));
+                            }
+                        }
+                        if buf.is_empty() { None } else { Some(buf) }
+                    } else {
+                        None
+                    };
+                    let output = TidyFixOutput {
+                        ok: true,
+                        files_changed: fix_files.len(),
+                        files: fix_files,
+                        diff: diff_text,
+                    };
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&output).unwrap_or_default()
+                    );
+                } else {
+                    for f in &fix_files {
+                        println!("{}", serde_json::to_string(f).unwrap_or_default());
                     }
                 }
             }
