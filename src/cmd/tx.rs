@@ -2356,6 +2356,23 @@ mod tests {
     }
 
     #[test]
+    fn legacy_error_prefix_maps_format_failed() {
+        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
+        assert_eq!(legacy_error_prefix("rollback"), "rollback");
+        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
+    }
+
+    #[test]
+    fn build_error_output_produces_expected_shape() {
+        let output = build_error_output("rollback", "rollback", "disk full");
+        assert!(!output.ok);
+        assert_eq!(output.status, "error");
+        assert_eq!(output.error_kind, Some("rollback"));
+        assert_eq!(output.error, Some("rollback: disk full".to_string()));
+        assert_eq!(output.files_changed, 0);
+    }
+
+    #[test]
     fn validation_pass() {
         let dir = TempDir::new().unwrap();
 
