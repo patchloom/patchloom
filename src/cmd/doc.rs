@@ -1584,6 +1584,38 @@ mod tests {
     // -- flatten ------------------------------------------------------------
 
     #[test]
+    fn set_apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"version": "1.0"}"#);
+        let action = DocAction::Set {
+            file: path.clone(),
+            selector: "version".into(),
+            value: "\"2.0\"".into(),
+        };
+        let ctx = WriteContext {
+            apply: true,
+            ..WriteContext::default()
+        };
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after doc set --apply"
+        );
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
+
+    #[test]
     fn flatten_enumerates_leaf_paths() {
         let dir = TempDir::new().unwrap();
         let path = write_file(

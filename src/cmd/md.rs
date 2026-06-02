@@ -379,6 +379,47 @@ mod tests {
         }
     }
 
+    // -- backup ------------------------------------------------------------
+
+    #[test]
+    fn replace_section_apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\nold content\n# Other\nkept\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::ReplaceSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Title".into(),
+                stdin: false,
+                content: Some("new content".into()),
+            },
+            write: Default::default(),
+        };
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            apply: true,
+            ..GlobalFlags::default()
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after md replace-section --apply"
+        );
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
+
     // -- replace-section ----------------------------------------------------
 
     #[test]
