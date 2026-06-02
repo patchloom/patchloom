@@ -247,7 +247,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 let has_changes = diffs.iter().any(|d| d.has_changes);
                 if has_changes {
                     if !global.quiet {
-                        println!("{} file(s) would change", file_changes.len());
+                        let changed = diffs.iter().filter(|d| d.has_changes).count();
+                        println!("{changed} file(s) would change");
                     }
                     return Ok(exit::CHANGES_DETECTED);
                 }
@@ -272,9 +273,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }
                 }
                 if global.diff {
+                    let changed = diffs.iter().filter(|d| d.has_changes).count();
                     let result = DiffResult {
                         diffs,
-                        total_files_changed: patch_files.len(),
+                        total_files_changed: changed,
                     };
                     print!("{}", format_diff_result(&result));
                 }
@@ -282,9 +284,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
 
             // Default / --diff mode: show unified diffs without writing.
+            let changed = diffs.iter().filter(|d| d.has_changes).count();
             let result = DiffResult {
                 diffs,
-                total_files_changed: patch_files.len(),
+                total_files_changed: changed,
             };
             print!(
                 "{}",
