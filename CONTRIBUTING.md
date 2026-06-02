@@ -55,6 +55,15 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 - `unsafe_code = "deny"` is enforced in `Cargo.toml`.
 - All commits require a `Signed-off-by` line ([DCO](https://developercertificate.org/)). Use `git commit -s`.
 
+## Troubleshooting `make check` failures
+
+| Failure | Fix |
+|---------|-----|
+| `make fmt-check` | Run `make fmt` to auto-format, then re-run `make check`. |
+| `make clippy` | Address the specific warning shown in the output. Clippy treats all warnings as errors (`-D warnings`). |
+| `make check-patchloom-md` | The agent-rules output changed. Run `make sync-patchloom-md` to regenerate `PATCHLOOM.md`. |
+| `make check-readme` | Test counts drifted. Run `make update-readme` to refresh `README.md` and `CHANGELOG.md`. |
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the same dual license as the project: MIT or Apache-2.0, at the user's option.
