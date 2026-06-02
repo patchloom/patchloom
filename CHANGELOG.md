@@ -31,6 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Shared `resolve_plan_cwd` function deduplicates CLI and MCP cwd resolution
 - MCP `search_files` tool now exposes `invert_match` and `assert_count` parameters, matching CLI and tx feature parity
 - MCP `search_files`, `replace_text`, and `fix_whitespace` tool descriptions now document text-file semantics (binary and invalid UTF-8 files are skipped)
+- `create` command now creates backup sessions before writing, enabling `undo --apply` to remove or restore files created with `create --apply`
+- `tidy fix` now emits structured JSON/JSONL output when `--json` or `--jsonl` is active, matching other write commands
+
+### Fixed
+
+- `create` command: backup finalize was called before the atomic write, producing a backup for a change that had not yet happened; finalize now runs after the write succeeds
 
 ### Documentation
 
