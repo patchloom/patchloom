@@ -1,0 +1,28 @@
+name: Auto-approve
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+concurrency:
+  group: auto-approve-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-approve:
+    name: Auto-approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >
+      github.actor == 'SebTardif' ||
+      github.actor == 'dependabot[bot]'
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Auto-approve PR
+        uses: hmarr/auto-approve-action@v4
