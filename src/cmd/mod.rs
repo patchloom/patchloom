@@ -190,7 +190,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\"\n\
                  EOF\n\
                  ```\n\n\
-                 One line per operation. Double-quote values with spaces.\n\n",
+                 One line per operation. Double-quote values with spaces.\n\n\
+                 **Note:** Values are parsed as JSON. A quoted `\"1.0\"` produces the JSON number `1.0`, not the string `\"1.0\"`. To set a string that looks numeric, omit the outer quotes: `doc.set config.json version 1.0`.\n\n",
             );
         }
 
@@ -207,7 +208,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             );
             if !show_linux {
                 out.push_str(
-                    "One line per operation in the file. Double-quote values with spaces.\n\n",
+                    "One line per operation in the file. Double-quote values with spaces.\n\n\
+                     **Note:** Values are parsed as JSON. A quoted `\"1.0\"` produces the JSON number `1.0`, not the string `\"1.0\"`. To set a string that looks numeric, omit the outer quotes: `doc.set config.json version 1.0`.\n\n",
                 );
             }
         }
