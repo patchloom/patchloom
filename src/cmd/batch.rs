@@ -649,6 +649,66 @@ mod tests {
     }
 
     #[test]
+    fn parse_line_doc_delete() {
+        let op = parse_line("doc.delete config.json old_key", 1).unwrap();
+        assert!(matches!(op, Operation::DocDelete { ref path, ref selector }
+            if path == "config.json" && selector == "old_key"));
+    }
+
+    #[test]
+    fn parse_line_doc_merge() {
+        let op = parse_line(r#"doc.merge config.json "{\"debug\":true}""#, 1).unwrap();
+        assert!(matches!(op, Operation::DocMerge { ref path, ref value }
+                if path == "config.json" && value == &serde_json::json!({"debug": true})));
+    }
+
+    #[test]
+    fn parse_line_doc_ensure() {
+        let op = parse_line(r#"doc.ensure config.json version "beta""#, 1).unwrap();
+        assert!(
+            matches!(op, Operation::DocEnsure { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "version" && value == &serde_json::json!("beta"))
+        );
+    }
+
+    #[test]
+    fn parse_line_doc_append() {
+        let op = parse_line(r#"doc.append config.json tags "new""#, 1).unwrap();
+        assert!(
+            matches!(op, Operation::DocAppend { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "tags" && value == &serde_json::json!("new"))
+        );
+    }
+
+    #[test]
+    fn parse_line_doc_prepend() {
+        let op = parse_line(r#"doc.prepend config.json items "first""#, 1).unwrap();
+        assert!(
+            matches!(op, Operation::DocPrepend { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "items" && value == &serde_json::json!("first"))
+        );
+    }
+
+    #[test]
+    fn parse_line_md_table_append() {
+        let input = "md.table_append README.md \"## Commands\" \"| new | desc |\"";
+        let op = parse_line(input, 1).unwrap();
+        assert!(
+            matches!(op, Operation::MdTableAppend { ref path, ref heading, ref row }
+            if path == "README.md" && heading == "## Commands" && row == "| new | desc |")
+        );
+    }
+
+    #[test]
+    fn parse_line_file_rename() {
+        let op = parse_line("file.rename old.txt new.txt", 1).unwrap();
+        assert!(
+            matches!(op, Operation::FileRename { ref from, ref to, force }
+            if from == "old.txt" && to == "new.txt" && !force)
+        );
+    }
+
+    #[test]
     fn parse_line_unknown_op() {
         let err = parse_line("unknown.op foo bar", 1).unwrap_err();
         assert!(err.to_string().contains("unknown operation"));
