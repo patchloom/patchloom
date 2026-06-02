@@ -13952,7 +13952,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,100+ tests"));
+    assert!(launch.contains("1,167 tests"));
     let merge_value = r#"{"settings": {"debug": true}}"#;
 
     let dir = TempDir::new().unwrap();

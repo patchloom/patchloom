@@ -145,6 +145,6 @@ dependencies[name=react].version # predicate filter
 | 2 | Changes detected (`--check` mode found pending changes) |
 | 3 | No matches (search/replace found nothing matching the pattern) |
 | 4 | Parse error (malformed input file or plan) |
-| 5 | Ambiguous (replacement matched multiple locations; use `--nth` to disambiguate) |
+| 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |
 | 6 | Validation failed (tx plan validation step returned non-zero) |
 | 7 | Rollback (tx apply failed partway; changes were rolled back) |

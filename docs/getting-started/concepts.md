@@ -121,7 +121,7 @@ Every command returns a specific exit code:
 | 2 | Changes detected (with `--check`) |
 | 3 | No matches found |
 | 4 | Parse error in input |
-| 5 | Ambiguous or stale patch context |
+| 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
 | 7 | Rollback (strict mode, no writes remain) |
 
