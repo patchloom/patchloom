@@ -63,6 +63,7 @@ src/
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
   cmd/explain.rs       Parse a tx plan and print a human-readable summary
   cmd/undo.rs          Restore files from backup sessions created by --apply
+  cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
   config.rs            Project config file (.patchloom.toml) loading and merging
   backup.rs            Backup session management for undo safety net
   selector/mod.rs      Re-exports selector parser and evaluator

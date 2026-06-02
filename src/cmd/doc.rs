@@ -464,12 +464,14 @@ struct WriteContext {
 ///
 /// `path` is the absolute (IO) path used for writing.
 /// `display_path` is the relative path shown in diff headers.
+/// `cwd` is the project root for backup session creation.
 fn write_result(
     path: &str,
     display_path: &str,
     original: &str,
     new_content: &str,
     ctx: &WriteContext,
+    cwd: &Path,
 ) -> anyhow::Result<(String, u8)> {
     if ctx.check {
         if original != new_content {
@@ -478,7 +480,9 @@ fn write_result(
         return Ok((String::new(), exit::SUCCESS));
     }
     if ctx.apply {
-        write::atomic_write(Path::new(path), new_content, &ctx.write_policy)?;
+        let p = Path::new(path);
+        let writes = [(p, new_content, &ctx.write_policy)];
+        crate::backup::backup_write_files(cwd, &writes)?;
         return Ok((String::new(), exit::SUCCESS));
     }
     // Default or explicit --diff: show unified diff.
@@ -491,7 +495,9 @@ fn write_result(
         let output = diff::format_diff_result_colored(&diff_result, ctx.color);
         // --confirm: show diff, prompt, then apply if confirmed.
         if ctx.confirm && crate::cli::global::confirm_prompt("Apply?") {
-            write::atomic_write(Path::new(path), new_content, &ctx.write_policy)?;
+            let p = Path::new(path);
+            let writes = [(p, new_content, &ctx.write_policy)];
+            crate::backup::backup_write_files(cwd, &writes)?;
         }
         Ok((output, exit::SUCCESS))
     } else {
@@ -527,7 +533,7 @@ where
     let display_path = crate::files::relative_display(std::path::Path::new(file), cwd)
         .to_string_lossy()
         .into_owned();
-    write_result(file, &display_path, &original, &new_content, ctx)
+    write_result(file, &display_path, &original, &new_content, ctx, cwd)
 }
 
 fn execute_write(
@@ -1134,7 +1140,7 @@ mod tests {
             value: "42".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         // Default: shows diff containing the new key.
         assert!(output.contains("+"));
@@ -1151,7 +1157,7 @@ mod tests {
             value: "world".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("world"));
     }
@@ -1167,7 +1173,7 @@ mod tests {
             selector: "age".into(),
         };
         let ctx = WriteContext::default();
-        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.contains("-"));
         assert!(output.contains("age"));
@@ -1192,7 +1198,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1216,7 +1222,7 @@ mod tests {
             predicate: "name=nobody".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -1237,7 +1243,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1255,7 +1261,7 @@ mod tests {
             selector: "nonexistent".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -1274,7 +1280,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1294,7 +1300,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1344,7 +1350,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1368,7 +1374,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (output, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(output.is_empty());
         // File should be unchanged.
@@ -1389,7 +1395,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1412,7 +1418,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1435,7 +1441,7 @@ mod tests {
             apply: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let content = fs::read_to_string(&path).unwrap();
         let val: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1457,7 +1463,7 @@ mod tests {
             check: true,
             ..WriteContext::default()
         };
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -1557,7 +1563,7 @@ mod tests {
             value: "42".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
 
@@ -1571,11 +1577,43 @@ mod tests {
             value: "42".into(),
         };
         let ctx = WriteContext::default();
-        let (_, code) = execute_write(&action, &ctx, std::path::Path::new("")).unwrap();
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
 
     // -- flatten ------------------------------------------------------------
+
+    #[test]
+    fn set_apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"version": "1.0"}"#);
+        let action = DocAction::Set {
+            file: path.clone(),
+            selector: "version".into(),
+            value: "\"2.0\"".into(),
+        };
+        let ctx = WriteContext {
+            apply: true,
+            ..WriteContext::default()
+        };
+        let (_, code) = execute_write(&action, &ctx, dir.path()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after doc set --apply"
+        );
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
 
     #[test]
     fn flatten_enumerates_leaf_paths() {

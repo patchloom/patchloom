@@ -762,4 +762,52 @@ index abc1234..def5678 100644
         assert_eq!(h.old_count, 1);
         assert_eq!(h.new_count, 1);
     }
+
+    #[test]
+    fn apply_creates_backup_session() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("hello.txt");
+        std::fs::write(&file, "line1\nold line\nline3\n").unwrap();
+
+        let diff_path = tmp.path().join("change.patch");
+        std::fs::write(
+            &diff_path,
+            "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,3 +1,3 @@
+ line1
+-old line
++new line
+ line3
+",
+        )
+        .unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.apply = true;
+        let args = PatchArgs {
+            action: PatchAction::Apply {
+                file: Some(diff_path.to_string_lossy().into_owned()),
+                stdin: false,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let backup_dir = tmp.path().join(".patchloom").join("backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after patch --apply"
+        );
+        let sessions: Vec<_> = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
 }

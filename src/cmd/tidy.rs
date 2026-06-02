@@ -646,4 +646,38 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
+
+    #[test]
+    fn fix_apply_creates_backup_session() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("no_nl.txt");
+        std::fs::write(&file, b"hello").unwrap();
+
+        let mut global = flags_for(tmp.path());
+        global.ensure_final_newline = true;
+        global.apply = true;
+
+        let args = TidyArgs {
+            action: TidyAction::Fix {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let backup_dir = tmp.path().join(".patchloom").join("backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after tidy fix --apply"
+        );
+        let sessions: Vec<_> = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
 }
