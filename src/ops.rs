@@ -1442,17 +1442,22 @@ pub(crate) mod md {
     pub(crate) fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
         let mut fence_marker: Option<&'static str> = None;
         content.lines().enumerate().filter(move |(_, line)| {
-            if fence_marker.is_none() {
-                if line.starts_with("```") {
-                    fence_marker = Some("```");
-                    return false;
-                } else if line.starts_with("~~~") {
-                    fence_marker = Some("~~~");
+            // CommonMark: fences can be indented 0-3 spaces.
+            let trimmed = line.trim_start_matches(' ');
+            let indent = line.len() - trimmed.len();
+            if indent <= 3 {
+                if fence_marker.is_none() {
+                    if trimmed.starts_with("```") {
+                        fence_marker = Some("```");
+                        return false;
+                    } else if trimmed.starts_with("~~~") {
+                        fence_marker = Some("~~~");
+                        return false;
+                    }
+                } else if fence_marker.is_some_and(|fm| trimmed.starts_with(fm)) {
+                    fence_marker = None;
                     return false;
                 }
-            } else if fence_marker.is_some_and(|fm| line.starts_with(fm)) {
-                fence_marker = None;
-                return false;
             }
             fence_marker.is_none()
         })
@@ -2982,6 +2987,30 @@ mod tests {
             assert_eq!(headings.len(), 2);
             assert_eq!(headings[0].text, "Real");
             assert_eq!(headings[1].text, "Also Real");
+        }
+
+        #[test]
+        fn parse_headings_skips_indented_fenced_code_blocks() {
+            // CommonMark allows up to 3 spaces of indentation before fence markers.
+            let content = "# Real\n   ```\n# Fake inside indented fence\n   ```\n## Also Real\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Real");
+            assert_eq!(headings[1].text, "Also Real");
+
+            // 4 spaces is NOT a fence opener (indented code block instead)
+            let content4 = "# Real\n    ```\n# Still Real\n    ```\n";
+            let headings4 = parse_headings(content4);
+            assert_eq!(headings4.len(), 2);
+            assert_eq!(headings4[0].text, "Real");
+            assert_eq!(headings4[1].text, "Still Real");
+
+            // Indented tilde fences
+            let tilde = "# Top\n  ~~~\n# Fake\n  ~~~\n# Bottom\n";
+            let headings_tilde = parse_headings(tilde);
+            assert_eq!(headings_tilde.len(), 2);
+            assert_eq!(headings_tilde[0].text, "Top");
+            assert_eq!(headings_tilde[1].text, "Bottom");
         }
 
         #[test]

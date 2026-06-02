@@ -98,7 +98,7 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 
 ## By the numbers
 
-- **1,167 tests**, zero unsafe code
+- **1,168 tests**, zero unsafe code
 - **18 CLI commands** + MCP server with 33 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
