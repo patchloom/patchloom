@@ -200,10 +200,13 @@ pub fn backup_write_files(
     for &(path, _, _) in files {
         session.save_before_write(path)?;
     }
+    // Finalize (write manifest) BEFORE performing writes so the backup is
+    // discoverable even if a write fails mid-batch, allowing `patchloom undo`
+    // to restore the partially-modified files.
+    session.finalize()?;
     for &(path, content, policy) in files {
         crate::write::atomic_write(path, content, policy)?;
     }
-    session.finalize()?;
     Ok(())
 }
 
