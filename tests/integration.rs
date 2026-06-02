@@ -1266,6 +1266,101 @@ fn test_quiet_suppresses_create_output() {
 }
 
 #[test]
+fn test_create_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("backup_test.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(file.to_str().unwrap())
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    // A backup session directory should exist.
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(backup_dir.exists(), "backup directory should be created");
+
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert_eq!(sessions.len(), 1, "exactly one backup session expected");
+}
+
+#[test]
+fn test_create_apply_undo_removes_created_file() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("undoable.txt")
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(dir.path().join("undoable.txt").exists());
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert!(
+        !dir.path().join("undoable.txt").exists(),
+        "undo should remove the newly created file"
+    );
+}
+
+#[test]
+fn test_create_force_apply_undo_restores_overwritten() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("overwrite.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg("overwrite.txt")
+        .arg("--content")
+        .arg("replaced\n")
+        .arg("--force")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "replaced\n");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "original\n",
+        "undo should restore the original content"
+    );
+}
+
+#[test]
 fn test_quiet_suppresses_search_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("search_quiet.txt");

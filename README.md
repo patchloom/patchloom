@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-1174%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1179%20passing-brightgreen)](#)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![codecov](https://codecov.io/gh/patchloom/patchloom/graph/badge.svg)](https://codecov.io/gh/patchloom/patchloom)
 
@@ -377,7 +377,7 @@ flowchart LR
 
 ## Status
 
-1174 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1179 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 
