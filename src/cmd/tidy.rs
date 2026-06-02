@@ -487,6 +487,23 @@ mod tests {
     }
 
     #[test]
+    fn check_returns_changes_detected_for_dirty_file() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("no_newline.txt");
+        std::fs::write(&file, b"hello").unwrap();
+
+        let global = flags_for(tmp.path());
+        let args = TidyArgs {
+            action: TidyAction::Check {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
     fn fix_adds_missing_newline() {
         let tmp = TempDir::new().unwrap();
         let file = tmp.path().join("no_nl.txt");

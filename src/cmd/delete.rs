@@ -192,6 +192,33 @@ mod tests {
     }
 
     #[test]
+    fn apply_creates_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("target.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            apply: true,
+            ..GlobalFlags::default()
+        };
+        let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!file.exists());
+
+        // A backup session should exist.
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(backup_dir.exists(), "backup directory should be created");
+
+        let sessions: Vec<_> = std::fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert_eq!(sessions.len(), 1, "exactly one backup session expected");
+    }
+
+    #[test]
     fn nonexistent_file_returns_error() {
         let result = run(
             make_args("/tmp/nonexistent_patchloom_test_file_xyz.txt"),
