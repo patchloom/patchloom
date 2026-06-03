@@ -11,6 +11,7 @@ readme = "README.md"
 keywords = ["cli", "agents", "patch", "markdown", "config"]
 categories = ["command-line-utilities", "development-tools", "config"]
 documentation = "https://docs.rs/patchloom"
+authors = ["Sebastien Tardif"]
 exclude = [
   "benches/",
   "tests/agent/",
