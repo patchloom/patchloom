@@ -106,11 +106,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: perform the rename.
     if global.apply {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        backup.save_before_delete(&src)?;
-        backup.save_before_write(&dst)?;
-        do_rename(&src, &dst, &args, &policy)?;
-        backup.finalize()?;
+        rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
 
         if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.
@@ -141,11 +137,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if global.confirm && (global.json || global.jsonl) {
         let applied = global.should_apply();
         if applied {
-            let mut backup = crate::backup::BackupSession::new(&cwd)?;
-            backup.save_before_delete(&src)?;
-            backup.save_before_write(&dst)?;
-            do_rename(&src, &dst, &args, &policy)?;
-            backup.finalize()?;
+            rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
         }
         let output = RenameOutput {
             ok: true,
@@ -175,17 +167,28 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing preview, then rename if confirmed.
     if global.should_apply() {
-        let mut backup = crate::backup::BackupSession::new(&cwd)?;
-        backup.save_before_delete(&src)?;
-        backup.save_before_write(&dst)?;
-        do_rename(&src, &dst, &args, &policy)?;
-        backup.finalize()?;
+        rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
         if global.show_status() {
             eprintln!("renamed {} -> {}", args.from, args.to);
         }
     }
 
     Ok(exit::SUCCESS)
+}
+
+fn rename_with_backup(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    args: &RenameArgs,
+    policy: &crate::write::WritePolicy,
+    cwd: &std::path::Path,
+) -> anyhow::Result<()> {
+    let mut backup = crate::backup::BackupSession::new(cwd)?;
+    backup.save_before_delete(src)?;
+    backup.save_before_write(dst)?;
+    do_rename(src, dst, args, policy)?;
+    backup.finalize()?;
+    Ok(())
 }
 
 /// Perform a rename with backup, without writing to stdout.
