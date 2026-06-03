@@ -21,8 +21,8 @@ jobs:
       github.actor == 'dependabot[bot]'
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
         with:
           egress-policy: audit
       - name: Auto-approve PR
-        uses: hmarr/auto-approve-action@v4
+        uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363 # v4
