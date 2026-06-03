@@ -1,40 +1,22 @@
 # Governance
 
-## Project Lead
+Patchloom is maintained by [Sebastien Tardif](https://github.com/SebTardif)
+as a single-maintainer project (BDFL model).
 
-[@SebTardif](https://github.com/SebTardif) is the sole maintainer of Patchloom,
-with final decision authority on features, releases, architecture, and community
-matters.
+## Decision-making
 
-## Decision Process
-
-- **Bug fixes and small improvements**: Maintainer discretion.
-- **New features**: GitHub issue discussion before implementation.
-- **Breaking changes**: Documented in CHANGELOG.md and announced in release
-  notes.
-- **Architecture changes**: Design discussion in GitHub issues or discussions.
-
-## Release Authority
-
-Only the project lead can create releases. Releases follow
-[Semantic Versioning](https://semver.org/) and the release process is automated
-via cargo-dist.
+All design and release decisions are made by the maintainer. Community input
+is welcome via issues and discussions, and contributions are accepted through
+pull requests reviewed by the maintainer.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. All
-contributions require DCO sign-off (`git commit -s`).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting procedures.
+See [SECURITY.md](SECURITY.md) for how to report vulnerabilities.
 
-## Escalation
+## Code of Conduct
 
-If a contributor disagrees with a decision, they can open a GitHub Discussion.
-The project lead commits to responding within 7 days.
-
-## Future Governance
-
-If the project grows to include multiple regular contributors, governance will
-evolve to include a maintainers group with documented consensus rules.
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The maintainer enforces it.

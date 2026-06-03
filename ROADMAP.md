@@ -1,29 +1,25 @@
 # Roadmap
 
-## Near-term (next release)
+This roadmap tracks planned work for patchloom. Items are tracked as GitHub
+issues with the `enhancement` label.
 
-- Ship v0.1.0 and go public ([#344](https://github.com/patchloom/patchloom/issues/344))
-- Upload social preview image ([#414](https://github.com/patchloom/patchloom/issues/414))
-- Enable public-only CI tools (CodeQL, Dependency Review, FOSSA, Scorecard)
+## Current priorities
 
-## Medium-term (next 2-3 releases)
+- [Ship v0.1.0 and go public](https://github.com/patchloom/patchloom/issues/344)
 
-- Expand MCP tool coverage with more structured operations
-- Performance optimizations for large repos (parallel file processing)
-- Plugin/extension system for custom operations
-- Editor integrations (VS Code extension)
+## Distribution channels
 
-## Long-term (6+ months)
+After the initial release, expand availability to additional package managers.
+See [issue #344](https://github.com/patchloom/patchloom/issues/344) for the
+full distribution plan.
 
-- Language-aware operations (AST-based search/replace)
-- Git-aware operations (blame-informed editing)
-- Remote file support (edit files over SSH/HTTP)
-- Ecosystem packages (Homebrew formula, cargo-binstall, Nix flake)
+## Post-launch
 
-## Non-goals
+- [OpenSSF Best Practices badge](https://github.com/patchloom/patchloom/issues/9)
+- [OpenTofu Registry](https://github.com/patchloom/patchloom/issues/10)
+- [Social preview image](https://github.com/patchloom/patchloom/issues/414)
 
-Patchloom intentionally does **not** aim to be:
+## How to suggest features
 
-- A general-purpose text editor
-- A version control system
-- A build tool
+Open a [feature request](https://github.com/patchloom/patchloom/issues/new?template=feature-request.yml)
+on GitHub.
