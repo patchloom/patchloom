@@ -805,7 +805,10 @@ fn test_glob_filters_nested_relative_pattern() {
         .arg(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("sub/keep.txt"))
+        .stdout(predicate::str::contains(format!(
+            "sub{}keep.txt",
+            std::path::MAIN_SEPARATOR
+        )))
         .stdout(predicate::str::contains("other.txt").not());
 }
 
@@ -13560,6 +13563,9 @@ fn test_tx_lifecycle_stderr_truncated_when_exceeding_limit() {
 
     // Generate >512 bytes of stderr output. Each line is ~80 chars;
     // 10 lines = ~800 bytes, well over the 512-byte capture limit.
+    #[cfg(windows)]
+    let stderr_cmd = r#"powershell -NoProfile -Command "1..10 | ForEach-Object { [Console]::Error.WriteLine('LONGLINE_' + $_ + '_' + ('A' * 60)) }; exit 1""#;
+    #[cfg(not(windows))]
     let stderr_cmd = "for i in 1 2 3 4 5 6 7 8 9 10; do echo \"LONGLINE_${i}_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" >&2; done && exit 1";
     let plan = serde_json::json!({
         "version": "1",
@@ -16023,13 +16029,17 @@ async fn test_mcp_tx_with_validate_lifecycle() {
     fs::write(dir.path().join("target.txt"), "old\n").unwrap();
 
     // Plan with operations + a validate step that checks the file content.
+    #[cfg(windows)]
+    let validate_cmd = "findstr new target.txt >nul";
+    #[cfg(not(windows))]
+    let validate_cmd = "grep -q new target.txt";
     let plan = serde_json::json!({
         "version": "1",
         "operations": [
             {"op": "replace", "path": "target.txt", "from": "old", "to": "new"}
         ],
         "validate": [
-            {"cmd": "grep -q new target.txt", "required": true}
+            {"cmd": validate_cmd, "required": true}
         ]
     });
 
@@ -16747,8 +16757,22 @@ fn test_replace_apply_prunes_old_backup_sessions() {
     let eight_days_ago =
         std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
     let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
-    let f = std::fs::File::open(&old_session).unwrap();
-    f.set_times(times).unwrap();
+    // On Windows, opening a directory requires FILE_FLAG_BACKUP_SEMANTICS.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
+            .open(&old_session)
+            .unwrap();
+        f.set_times(times).unwrap();
+    }
+    #[cfg(not(windows))]
+    {
+        let f = std::fs::File::open(&old_session).unwrap();
+        f.set_times(times).unwrap();
+    }
 
     // Now run a replace --apply, which creates a new session and prunes old ones.
     Command::cargo_bin("patchloom")
