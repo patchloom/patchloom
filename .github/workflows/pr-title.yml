@@ -3,6 +3,7 @@ name: PR Title
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
+  workflow_dispatch: {}
 
 concurrency:
   group: pr-title-${{ github.event.pull_request.number }}

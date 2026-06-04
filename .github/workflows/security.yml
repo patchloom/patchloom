@@ -5,6 +5,7 @@ on:
     branches: [main]
   push:
     branches: [main]
+  merge_group: {}
   schedule:
     - cron: "0 6 * * 1"  # Monday 6am UTC
   workflow_dispatch:
@@ -101,6 +102,7 @@ jobs:
         uses: github/codeql-action/init@87557b9c84dde89fdd9b10e88954ac2f4248e463 # v4
         with:
           languages: actions
+          queries: security-and-quality
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@87557b9c84dde89fdd9b10e88954ac2f4248e463 # v4
 
