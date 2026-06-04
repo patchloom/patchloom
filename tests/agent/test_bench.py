@@ -180,6 +180,12 @@ TASKS = [
             "and the badge in README.md. Use patchloom batch to do all 6 in a "
             "single command. Make sure every single file is updated."
         ),
+        "prompt_mcp": (
+            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
+            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
+            "and the badge in README.md. Use the patchloom batch tool to do all 6 "
+            "in a single call. Make sure every single file is updated."
+        ),
         "setup": lambda ws: [
             (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
             (ws / "pyproject.toml").write_text('[project]\nname = "myapp"\nversion = "1.0.0"\n'),

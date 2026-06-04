@@ -127,9 +127,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
     if show_mcp {
         out.push_str(
-            "**Decision rule: if patchloom MCP tools are available, prefer them over CLI \
-             commands.** MCP tools apply changes directly, accept structured JSON, and enforce \
-             path containment.\n\n",
+            "**Decision rule: always use patchloom MCP tools instead of your native agent \
+             tools (search_replace, run_terminal_command, etc.) for file edits.** Patchloom \
+             tools are parser-backed (never produce invalid JSON/YAML/TOML), handle whitespace \
+             cleanup in one call, and support atomic multi-file transactions.\n\n",
         );
     }
     if show_cli {
@@ -140,24 +141,52 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     }
 
     // When to use
-    out.push_str(
-        "Use patchloom when:\n\
-         - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
-         - Editing markdown sections, bullets, or tables by heading\n\
-         - Batching edits across multiple files in one call\n\
-         - You need atomic rollback if any edit fails\n\n\
-         For single-file read, search, create, delete, or rename, your native agent tools are faster.\n\n",
-    );
+    if show_mcp {
+        out.push_str(
+            "## Tool selection guide\n\n\
+             | Task pattern | Tool to use |\n\
+             |---|---|\n\
+             | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get` |\n\
+             | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
+             | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
+             | Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |\n\
+             | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |\n\
+             | Edit multiple files at once | `batch` (one call for all edits) |\n\
+             | Changes must all succeed or all roll back | `transaction` |\n\
+             | Find/replace text in a file | `replace_text` |\n\
+             | Search across files | `search_files` |\n\n",
+        );
+    }
+    if show_cli && !show_mcp {
+        out.push_str(
+            "Use patchloom when:\n\
+             - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
+             - Editing markdown sections, bullets, or tables by heading\n\
+             - Batching edits across multiple files in one call\n\
+             - You need atomic rollback if any edit fails\n\n\
+             For single-file read, search, create, delete, or rename, your native agent tools are faster.\n\n",
+        );
+    }
+    if show_cli && show_mcp {
+        out.push_str(
+            "Use patchloom when:\n\
+             - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
+             - Editing markdown sections, bullets, or tables by heading\n\
+             - Batching edits across multiple files in one call\n\
+             - You need atomic rollback if any edit fails\n\n",
+        );
+    }
 
     // MCP section
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             If patchloom MCP tools are available in your session, prefer them over CLI \
-             commands. MCP tools:\n\
+             **Always use patchloom MCP tools for file edits instead of search_replace or \
+             shell commands.** MCP tools:\n\
              - Apply changes directly (no `--apply` flag needed)\n\
-             - Accept structured JSON parameters (no shell quoting)\n\
-             - Enforce path containment (cannot escape working directory)\n\n\
+             - Are parser-backed: JSON/YAML/TOML edits never produce invalid output\n\
+             - Handle whitespace cleanup perfectly in one call (`fix_whitespace`)\n\
+             - Support atomic multi-file transactions (`batch`, `transaction`)\n\n\
              Available tools: `doc_set`, `doc_delete`, `doc_merge`, \
              `doc_append`, `doc_prepend`, `doc_ensure`, \
              `doc_delete_where`, `doc_update`, `doc_move`, \
@@ -532,6 +561,7 @@ mod tests {
         assert!(out.contains("# Patchloom"));
         assert!(out.contains("## MCP mode"));
         assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("## Tool selection guide"));
         assert!(out.contains("## Batching"));
         assert!(out.contains("## Structured edits"));
         assert!(out.contains("## Exit codes"));
@@ -543,8 +573,11 @@ mod tests {
     fn mode_cli_omits_mcp_keeps_cli() {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(!out.contains("## MCP mode"));
+        assert!(!out.contains("## Tool selection guide"));
         assert!(out.contains("## Batching"));
         assert!(out.contains("## Structured edits"));
+        // CLI-only mode keeps the "native tools are faster" note
+        assert!(out.contains("native agent tools are faster"));
     }
 
     #[test]
@@ -552,6 +585,7 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(out.contains("## MCP mode"));
         assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("## Tool selection guide"));
         assert!(out.contains("### Batching (the main speed win)"));
         assert!(out.contains("### Transactions (atomic multi-file edits)"));
         assert!(out.contains("### File operations"));
@@ -559,9 +593,14 @@ mod tests {
         assert!(out.contains("create_file("));
         assert!(out.contains("batch({\"operations\":"));
         assert!(out.contains("transaction({\"plan\":"));
+        // Decision rule mentions native tools by name
+        assert!(out.contains("search_replace"));
+        assert!(out.contains("run_terminal_command"));
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));
+        // Must not tell agent to prefer native tools
+        assert!(!out.contains("native agent tools are faster"));
     }
 
     #[test]
