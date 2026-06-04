@@ -22,8 +22,7 @@ jobs:
     # Skips private repos (set up FOSSA after going public).
     if: >-
       github.event.pull_request.user.login != 'dependabot[bot]' &&
-      !github.event.repository.private &&
-      secrets.FOSSA_API_KEY != ''
+      !github.event.repository.private
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -34,16 +33,27 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+      - name: Check FOSSA API key
+        id: check-key
+        run: |
+          if [ -z "$FOSSA_API_KEY" ]; then
+            echo "FOSSA_API_KEY not configured, skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
       - name: Install FOSSA CLI
+        if: steps.check-key.outputs.skip != 'true'
         run: |
           curl -H 'Cache-Control: no-cache' \
             https://raw.githubusercontent.com/fossas/fossa-cli/master/install-latest.sh | bash
       - name: Run FOSSA analysis
+        if: steps.check-key.outputs.skip != 'true'
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         run: fossa analyze
       - name: Check FOSSA status
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.check-key.outputs.skip != 'true'
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         run: fossa test
