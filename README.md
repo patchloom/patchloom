@@ -10,6 +10,7 @@
 [![Tests](https://img.shields.io/badge/tests-1191%20passing-brightgreen)](#)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![codecov](https://codecov.io/gh/patchloom/patchloom/graph/badge.svg)](https://codecov.io/gh/patchloom/patchloom)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
