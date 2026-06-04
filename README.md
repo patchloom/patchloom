@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 [![Tests](https://img.shields.io/badge/tests-1195%20passing-brightgreen)](#)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
@@ -390,7 +390,7 @@ Every command, flag, transaction operation, and exit code is documented in the *
 
 Licensed under either of:
 
-- MIT license ([LICENSE-MIT](./LICENSE-MIT))
+- MIT license ([LICENSE](./LICENSE))
 - Apache License, Version 2.0 ([LICENSE-APACHE](./LICENSE-APACHE))
 
 at your option.
