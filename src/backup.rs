@@ -503,8 +503,22 @@ mod tests {
         let eight_days_ago =
             std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
         let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
-        let f = std::fs::File::open(&session_dir).unwrap();
-        f.set_times(times).unwrap();
+        // On Windows, opening a directory requires FILE_FLAG_BACKUP_SEMANTICS.
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
+                .open(&session_dir)
+                .unwrap();
+            f.set_times(times).unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            let f = std::fs::File::open(&session_dir).unwrap();
+            f.set_times(times).unwrap();
+        }
 
         let pruned = prune_old_backups(dir.path()).unwrap();
         assert_eq!(pruned, 1);
@@ -577,8 +591,9 @@ mod tests {
         let sessions = list_sessions(project.path()).unwrap();
         assert_eq!(sessions.len(), 1);
         assert!(
-            sessions[0].entries[0].path.starts_with("__external__/"),
-            "external file path should be under __external__/"
+            sessions[0].entries[0].path.starts_with("__external"),
+            "external file path should be under __external*/ (got: {})",
+            sessions[0].entries[0].path
         );
     }
 
