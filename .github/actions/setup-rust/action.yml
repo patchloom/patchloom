@@ -7,6 +7,18 @@ inputs:
   components:
     description: Comma-separated list of components (e.g. rustfmt, clippy)
     default: ""
+  cache-workspaces:
+    description: >-
+      Whitespace-separated list of workspace paths for rust-cache.
+      Each entry may use "path -> target-dir" syntax.
+      Example: ". fuzz" to cache both the root and fuzz workspaces.
+    default: ""
+  shared-key:
+    description: Shared cache key for rust-cache (useful for matrix jobs that should share a build cache)
+    default: ""
+  cache-on-failure:
+    description: Whether to save the cache even when the job fails (useful for fuzz targets)
+    default: "false"
 runs:
   using: composite
   steps:
@@ -15,3 +27,7 @@ runs:
         toolchain: ${{ inputs.toolchain }}
         components: ${{ inputs.components }}
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        workspaces: ${{ inputs.cache-workspaces || '.' }}
+        shared-key: ${{ inputs.shared-key || '' }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}
