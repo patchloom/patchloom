@@ -6,12 +6,17 @@
 
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
+[![crates.io](https://img.shields.io/crates/v/patchloom?logo=rust)](https://crates.io/crates/patchloom)
+[![Release](https://img.shields.io/github/v/release/patchloom/patchloom?logo=github&sort=semver)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
+
 [![Tests](https://img.shields.io/badge/tests-1195%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
 [![FOSSA Status](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml)
+
+[![crates.io downloads](https://img.shields.io/crates/d/patchloom?logo=rust)](https://crates.io/crates/patchloom)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
