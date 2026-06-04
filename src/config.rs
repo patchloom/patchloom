@@ -266,6 +266,24 @@ color = "always"
     }
 
     #[test]
+    fn apply_config_crlf_eol() {
+        let config = ProjectConfig {
+            write_policy: WritePolicy {
+                normalize_eol: Some("crlf".into()),
+                ..WritePolicy::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+
+        assert!(matches!(
+            global.normalize_eol,
+            Some(crate::cli::global::EolMode::Crlf)
+        ));
+    }
+
+    #[test]
     fn apply_config_unknown_color_value_stays_auto() {
         let config = ProjectConfig {
             output: Output {

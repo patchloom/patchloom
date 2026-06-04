@@ -8618,6 +8618,28 @@ fn test_replace_insert_before_nth() {
 }
 
 #[test]
+fn test_replace_insert_after_nth() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "x a x a x\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("a")
+        .arg("--insert-after")
+        .arg("]")
+        .arg("--nth")
+        .arg("2")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "x a x a] x\n");
+}
+
+#[test]
 fn test_replace_insert_before_and_to_conflict() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");
