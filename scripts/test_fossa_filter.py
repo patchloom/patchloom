@@ -47,6 +47,16 @@ def test_r_efi_filtered():
     assert rc == 0, f"Expected 0, got {rc}: {out}"
 
 
+def test_unknown_crate_llvm_exception_not_filtered():
+    """An unknown crate with llvm-exception license should NOT be filtered."""
+    issues = [
+        {"revisionId": "cargo+mystery-crate$0.1.0", "license": "apache-2.0 WITH llvm-exception", "type": "policy_conflict"},
+    ]
+    rc, out = run_filter(issues)
+    assert rc == 1, f"Expected 1, got {rc}: {out}"
+    assert "mystery-crate" in out
+
+
 def test_genuine_issue_not_filtered():
     issues = [
         {"revisionId": "cargo+shady-crate$0.1.0", "license": "GPL-3.0", "type": "policy_conflict"},

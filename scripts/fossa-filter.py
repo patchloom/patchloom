@@ -41,7 +41,7 @@ LLVM_EXCEPTION_LICENSES = {
 def is_false_positive(pkg: str, license_id: str, issue_type: str = "") -> bool:
     """Return True if the (package, license, type) tuple is a documented false positive."""
     # Rust compiler infrastructure: apache-2.0 WITH llvm-exception
-    if license_id in LLVM_EXCEPTION_LICENSES:
+    if pkg in LLVM_EXCEPTION_CRATES and license_id in LLVM_EXCEPTION_LICENSES:
         return True
 
     # r-efi: pure type definitions, transitively pulled by std
