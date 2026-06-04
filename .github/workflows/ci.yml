@@ -315,6 +315,41 @@ jobs:
         if: always() && steps.baseline.outputs.found == 'true'
         run: python3 benches/ci/bench_compare.py "$RUNNER_TEMP/baseline" "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_selector_parse
+          - fuzz_patch_parse
+          - fuzz_patch_apply
+          - fuzz_batch_tokenize
+          - fuzz_selector_eval
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@25435dc8dd3baed7417e0c96d3fe89013a5b2e09 # v2
+        with:
+          tool: cargo-fuzz
+
+      - name: Fuzz ${{ matrix.target }}
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60
+
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 5
