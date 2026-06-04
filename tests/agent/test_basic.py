@@ -62,7 +62,7 @@ def test_replace(agent, workspace, patchloom_shim):
         "    assert calculate_total([]) == 0\n"
     )
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -118,7 +118,7 @@ def test_replace_regex(agent, workspace, patchloom_shim):
         "    pass\n"
     )
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -148,7 +148,7 @@ def test_replace_insert(agent, workspace, patchloom_shim):
         "import os\n\ndef helper():\n    return 42\n"
     )
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,

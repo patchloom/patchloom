@@ -23,7 +23,7 @@ def test_batch_replace(agent, workspace, patchloom_shim):
         '[project]\nname = "myapp"\nversion = "1.0.0"\n'
     )
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,

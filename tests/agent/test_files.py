@@ -12,7 +12,7 @@ from conftest import run_scenario
 @pytest.mark.timeout(180)
 def test_create(agent, workspace, patchloom_shim):
     """Agent should use patchloom create to make a new file."""
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -38,7 +38,7 @@ def test_delete(agent, workspace, patchloom_shim):
     (workspace / "config.old.json").write_text('{"deprecated": true}\n')
     (workspace / "config.json").write_text('{"active": true}\n')
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -111,7 +111,7 @@ def test_patch(agent, workspace, patchloom_shim):
         " print(greet('World'))\n"
     )
 
-    _result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
