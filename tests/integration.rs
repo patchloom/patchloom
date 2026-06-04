@@ -13913,16 +13913,20 @@ fn test_smoke_shell_completion_docs_include_elvish() {
 fn test_smoke_source_install_docs_use_cargo_install_path() {
     let source_install_flow = "git clone https://github.com/patchloom/patchloom.git\ncd patchloom\ncargo install --path .";
 
-    for (path, label) in [
-        (installation_path(), "installation guide"),
-        (readme_path(), "README"),
-    ] {
-        let content = fs::read_to_string(path).unwrap();
-        assert!(
-            content.contains(source_install_flow),
-            "{label} should document the first-run source install flow"
-        );
-    }
+    // Source install flow lives in the installation guide (not README,
+    // which leads with Homebrew/crates.io and links to the guide).
+    let content = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        content.contains(source_install_flow),
+        "installation guide should document the source install flow"
+    );
+
+    // README should reference the installation guide for details.
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains("[Installation](./docs/getting-started/installation.md)"),
+        "README should link to the full installation guide"
+    );
 }
 
 #[test]

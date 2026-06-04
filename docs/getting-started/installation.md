@@ -1,31 +1,15 @@
 # Installation
 
-Patchloom is not yet published to crates.io or Homebrew. Install from source
-for now. The sections below describe the planned post-launch channels.
-
-## From source (current)
-
-Install the core CLI from source (requires Rust 1.95+):
+## From Homebrew (macOS and Linux)
 
 ```bash
-git clone https://github.com/patchloom/patchloom.git
-cd patchloom
-cargo install --path .
+brew install patchloom/tap/patchloom
 ```
 
-Install with MCP support:
+This installs the core CLI from a pre-built binary. If you need
+`mcp-server`, install from source with `--features mcp` (see below).
 
-```bash
-git clone https://github.com/patchloom/patchloom.git
-cd patchloom
-cargo install --path . --features mcp
-```
-
-The `mcp-server` command is feature-gated. If you only run `cargo install --path .`, you get the core CLI without MCP.
-
-If you're contributing from a source checkout, use `make check-fast` while iterating and `make check` before committing. `make check` is the full local CI gate.
-
-## From crates.io (after public launch)
+## From crates.io
 
 Core CLI:
 
@@ -33,29 +17,54 @@ Core CLI:
 cargo install patchloom
 ```
 
-MCP-capable install:
+With MCP support:
 
 ```bash
 cargo install patchloom --features mcp
 ```
 
-## From GitHub releases (after public launch)
+## From GitHub Releases
 
-Pre-built binaries for Linux, macOS, and Windows will be available on the
-[Releases](https://github.com/patchloom/patchloom/releases) page. Download
-the archive for your platform, extract, and place `patchloom` on your PATH.
+Pre-built binaries for Linux (x64, ARM64), macOS (x64, ARM64), and Windows
+(x64) are available on the
+[Releases](https://github.com/patchloom/patchloom/releases/latest) page.
+Download the archive for your platform, extract, and place `patchloom` on
+your PATH.
 
-The current planned release pipeline targets the core CLI build. If you need
-`mcp-server`, install from source with `--features mcp`.
-
-## From Homebrew (after public launch)
+Shell and PowerShell installer scripts are also available:
 
 ```bash
-brew install patchloom/tap/patchloom
+# Unix (Linux/macOS)
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/patchloom/patchloom/releases/latest/download/patchloom-installer.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/patchloom/patchloom/releases/latest/download/patchloom-installer.ps1 | iex"
 ```
 
-The planned Homebrew formula also targets the core CLI build. If you need
-`mcp-server`, install from source with `--features mcp`.
+Pre-built binaries include the core CLI only. If you need `mcp-server`,
+install from source with `--features mcp`.
+
+## From source
+
+Install from source (requires Rust 1.95+):
+
+```bash
+git clone https://github.com/patchloom/patchloom.git
+cd patchloom
+cargo install --path .
+```
+
+With MCP support:
+
+```bash
+cargo install --path . --features mcp
+```
+
+The `mcp-server` command is feature-gated. If you only run
+`cargo install --path .`, you get the core CLI without MCP.
+
+If you're contributing from a source checkout, use `make check-fast`
+while iterating and `make check` before committing.
 
 ## Shell completions
 
