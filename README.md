@@ -12,7 +12,7 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B62499%2Fgithub.com%2Fpatchloom%2Fpatchloom.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B62499%2Fgithub.com%2Fpatchloom%2Fpatchloom?ref=badge_shield&issueType=license)
+[![FOSSA Status](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml)
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
