@@ -16,6 +16,8 @@ exclude = [
   "github\\.com/patchloom/patchloom-vscode",
   # FOSSA badge SVG may 404 briefly between analysis runs
   "app\\.fossa\\.com/api/projects/.*\\.svg",
+  # Scorecard viewer is slow and times out intermittently in CI
+  "securityscorecards\\.dev",
 ]
 
 accept = [200, 429]
