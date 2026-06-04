@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls
+from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, try_parse_json
 
 
 class GrokDriver(AgentDriver):
@@ -63,7 +63,7 @@ class GrokDriver(AgentDriver):
             )
         duration = time.monotonic() - start
 
-        output_json = _try_parse_json(proc.stdout)
+        output_json = try_parse_json(proc.stdout)
 
         return AgentResult(
             stdout=proc.stdout,
@@ -113,9 +113,5 @@ class GrokDriver(AgentDriver):
         )
 
 
-def _try_parse_json(text: str) -> dict | None:
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return None
+
 
