@@ -344,7 +344,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ needs.plan.outputs.tag }}" \
-            patchloom/bom.json#patchloom-sbom.cdx.json \
+            patchloom.cdx.json#patchloom-sbom.cdx.json \
             --clobber
 
   publish-homebrew-formula:
