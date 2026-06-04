@@ -19,10 +19,7 @@ permissions:
 
 jobs:
   ci:
-    # Use the self-hosted runner for trusted events (push, workflow_dispatch,
-    # and PRs from the same repo). Fork PRs fall back to GitHub-hosted to
-    # prevent arbitrary code execution on the self-hosted machine.
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -39,17 +36,13 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run checks
         run: make check
 
   ci-windows:
-    # GitHub-hosted Windows runners are unavailable while this repo stays
-    # private and hosted-runner billing is blocked.
-    if: ${{ !github.event.repository.private }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -85,7 +78,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   ci-macos:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - name: Harden Runner
@@ -102,15 +95,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run checks
         run: make check
 
   msrv:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -127,8 +119,7 @@ jobs:
         with:
           toolchain: "1.95"
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Check MSRV (default features)
@@ -138,7 +129,7 @@ jobs:
         run: cargo check --all-targets --all-features
 
   msrv-macos:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'macos-latest' || fromJson('["self-hosted","macOS","ARM64"]') }}
+    runs-on: macos-latest
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -155,8 +146,7 @@ jobs:
         with:
           toolchain: "1.95"
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Check MSRV (default features)
@@ -166,7 +156,7 @@ jobs:
         run: cargo check --all-targets --all-features
 
   coverage:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Harden Runner
@@ -183,8 +173,7 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install cargo-llvm-cov
@@ -193,12 +182,7 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Generate coverage
-        run: |
-          if [[ -x /home/linuxbrew/.linuxbrew/bin/llvm-profdata && -x /home/linuxbrew/.linuxbrew/bin/llvm-cov ]]; then
-            export LLVM_PROFDATA=/home/linuxbrew/.linuxbrew/bin/llvm-profdata
-            export LLVM_COV=/home/linuxbrew/.linuxbrew/bin/llvm-cov
-          fi
-          cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
+        run: cargo llvm-cov --all-features --lib --test integration --lcov --output-path lcov.info
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -216,7 +200,7 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   bench:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -231,8 +215,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
-      - name: Cache Rust dependencies (fork PRs on GitHub-hosted runners)
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install hyperfine
@@ -306,7 +289,7 @@ jobs:
         run: python3 benches/ci/bench_compare.py "$RUNNER_TEMP/baseline" "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
 
   audit:
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Harden Runner

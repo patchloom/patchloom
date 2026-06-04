@@ -19,7 +19,7 @@ permissions:
 jobs:
   trivy:
     name: Trivy
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Harden Runner
@@ -46,7 +46,7 @@ jobs:
 
   gitleaks:
     name: Gitleaks
-    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Harden Runner
