@@ -1,0 +1,36 @@
+name: Update PR branches
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: update-branches-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-branches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2
+        with:
+          egress-policy: audit
+      - name: Update open PR branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --state open --json number --jq '.[].number')
+          for pr in $prs; do
+            echo "Updating PR #$pr..."
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/update-branch" \
+              -X PUT -f update_method=merge 2>&1 || echo "  Skipped PR #$pr (conflicts or already up to date)"
+          done

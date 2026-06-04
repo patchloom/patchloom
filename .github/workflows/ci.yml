@@ -376,7 +376,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        run: pip install -r tests/agent/requirements.txt
+        run: pip install --require-hashes -r tests/agent/requirements.txt
 
       - name: Agent benchmark dry run
         run: cd tests/agent && pytest test_bench.py::test_dry_run_prompts -v -s --dry-run-prompts
