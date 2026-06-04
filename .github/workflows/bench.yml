@@ -15,10 +15,12 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write  # upload release assets
+  contents: read
 
 jobs:
   cli-bench:
+    permissions:
+      contents: write  # upload release assets
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

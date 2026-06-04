@@ -1,0 +1,17 @@
+name: Setup Rust Toolchain
+description: Install Rust toolchain and enable dependency caching
+inputs:
+  toolchain:
+    description: Rust toolchain version (stable, nightly, or specific like 1.95)
+    default: stable
+  components:
+    description: Comma-separated list of components (e.g. rustfmt, clippy)
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
