@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::Context;
@@ -110,16 +110,20 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.
-            let diff_text = try_diff(&dst, &args.from, &args.to);
+            let diff_for_json = if global.diff {
+                try_diff(&dst, &args.from, &args.to, false)
+            } else {
+                None
+            };
             let output = RenameOutput {
                 ok: true,
                 from: args.from.clone(),
                 to: args.to.clone(),
-                diff: if global.diff { diff_text.clone() } else { None },
+                diff: diff_for_json,
                 applied: None,
             };
             if !global.emit_json(&output)? {
-                if let Some(d) = diff_text {
+                if let Some(d) = try_diff(&dst, &args.from, &args.to, global.should_color()) {
                     print!("{d}");
                 } else if !global.quiet {
                     println!("renamed {} -> {} (binary)", args.from, args.to);
@@ -132,7 +136,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show what would happen (source still exists).
-    let diff_text = try_diff(&src, &args.from, &args.to);
+    let diff_text = try_diff(&src, &args.from, &args.to, false);
 
     if global.confirm && (global.json || global.jsonl) {
         let applied = global.should_apply();
@@ -154,11 +158,11 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         ok: true,
         from: args.from.clone(),
         to: args.to.clone(),
-        diff: diff_text.clone(),
+        diff: diff_text,
         applied: None,
     };
     if !global.emit_json(&output)? {
-        if let Some(d) = diff_text {
+        if let Some(d) = try_diff(&src, &args.from, &args.to, global.should_color()) {
             print!("{d}");
         } else if !global.quiet {
             println!("would rename {} -> {} (binary)", args.from, args.to);
@@ -264,9 +268,14 @@ fn do_rename(
 
 /// Try to read `path` as text and produce a rename diff. Returns `None` for
 /// binary files (non-UTF-8 content) or if the file cannot be read.
-fn try_diff(path: &std::path::Path, from_label: &str, to_label: &str) -> Option<String> {
+fn try_diff(
+    path: &std::path::Path,
+    from_label: &str,
+    to_label: &str,
+    color: bool,
+) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
-    Some(make_diff_output(from_label, to_label, &content))
+    Some(make_diff_output(from_label, to_label, &content, color))
 }
 
 /// Rename a file, falling back to copy+delete when the source and destination
@@ -302,7 +311,7 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     }
 }
 
-fn make_diff_output(from: &str, to: &str, content: &str) -> String {
+fn make_diff_output(from: &str, to: &str, content: &str, color: bool) -> String {
     let del_diff = unified_diff(from, content, "");
     let add_diff = unified_diff(to, "", content);
     let diffs: Vec<_> = [del_diff, add_diff]
@@ -314,7 +323,7 @@ fn make_diff_output(from: &str, to: &str, content: &str) -> String {
         diffs,
         total_files_changed: total,
     };
-    format_diff_result(&result)
+    format_diff_result_colored(&result, color)
 }
 
 #[cfg(test)]

@@ -494,6 +494,18 @@ mod tests {
     }
 
     #[test]
+    fn trim_trailing_whitespace_crlf_endings() {
+        let result = trim_trailing_whitespace("hello  \r\nworld\t\r\n");
+        assert_eq!(result, "hello\r\nworld\r\n");
+    }
+
+    #[test]
+    fn trim_trailing_whitespace_eof_without_newline() {
+        let result = trim_trailing_whitespace("hello  ");
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
     fn noop_policy_detected() {
         assert!(WritePolicy::default().is_noop());
     }

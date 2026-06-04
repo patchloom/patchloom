@@ -1,6 +1,6 @@
 use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, unified_diff};
+use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::bail;
@@ -41,14 +41,14 @@ struct CreateOutput {
     applied: Option<bool>,
 }
 
-fn make_diff_output(path: &str, content: &str) -> String {
+fn make_diff_output(path: &str, content: &str, color: bool) -> String {
     let diff = unified_diff(path, "", content);
     let total_files_changed = usize::from(diff.has_changes);
     let diff_result = DiffResult {
         diffs: vec![diff],
         total_files_changed,
     };
-    format_diff_result(&diff_result)
+    format_diff_result_colored(&diff_result, color)
 }
 
 fn create_with_backup(
@@ -155,19 +155,22 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         create_with_backup(&path, &content, args.force, &cwd, &policy)?;
 
         let diff_text = if global.diff {
-            Some(make_diff_output(&args.file, &content))
+            Some(make_diff_output(&args.file, &content, false))
         } else {
             None
         };
         let output = CreateOutput {
             ok: true,
             path: args.file.clone(),
-            diff: diff_text.clone(),
+            diff: diff_text,
             applied: None,
         };
         if !global.emit_json(&output)? {
-            if let Some(d) = diff_text {
-                print!("{d}");
+            if global.diff {
+                print!(
+                    "{}",
+                    make_diff_output(&args.file, &content, global.should_color())
+                );
             } else if !global.quiet {
                 println!("created {}", args.file);
             }
@@ -176,7 +179,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show unified diff of changes.
-    let diff_text = make_diff_output(&args.file, &content);
+    let diff_text = make_diff_output(&args.file, &content, false);
 
     if global.confirm && (global.json || global.jsonl) {
         let applied = global.should_apply();
@@ -202,11 +205,14 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let output = CreateOutput {
         ok: true,
         path: args.file.clone(),
-        diff: Some(diff_text.clone()),
+        diff: Some(diff_text),
         applied: None,
     };
     if !global.emit_json(&output)? {
-        print!("{diff_text}");
+        print!(
+            "{}",
+            make_diff_output(&args.file, &content, global.should_color())
+        );
     }
 
     // --confirm: prompt after showing diff, then apply if confirmed.

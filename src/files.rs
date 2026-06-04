@@ -657,6 +657,19 @@ mod tests {
     }
 
     #[test]
+    fn read_text_file_large_file_invalid_utf8_past_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bad_tail.txt");
+        // First 8 KiB is valid ASCII; byte 9000 is invalid UTF-8.
+        let mut data = vec![b'a'; 10_000];
+        data[9000] = 0xff;
+        std::fs::write(&file, &data).unwrap();
+        // The two-phase read should detect invalid UTF-8 in the second
+        // phase (read_to_end) and return None.
+        assert!(read_text_file(&file, "test", false).is_none());
+    }
+
+    #[test]
     fn read_text_file_binary_past_8k_still_read_as_text() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("mostly_text.txt");

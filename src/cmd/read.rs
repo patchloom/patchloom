@@ -361,6 +361,13 @@ mod tests {
     }
 
     #[test]
+    fn select_lines_start_beyond_file_returns_empty() {
+        let content = "line1\nline2\n";
+        let result = select_lines(content, (100, Some(200)));
+        assert_eq!(result, SelectedLines::empty(2));
+    }
+
+    #[test]
     fn select_lines_crlf_content_normalizes_to_lf() {
         // .lines() strips both \n and \r\n, then join("\n") always uses LF.
         // This documents the intentional behavior.

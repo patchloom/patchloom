@@ -292,7 +292,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             ..
         } => {
             if from.is_empty() {
-                anyhow::bail!("replace operation requires a non-empty from field");
+                anyhow::bail!("replace operation requires a non-empty search pattern");
             }
             if *nth == Some(0) {
                 anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
@@ -2647,8 +2647,8 @@ mod tests {
 
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
-            err.to_string().contains("non-empty from"),
-            "expected 'non-empty from' error, got: {}",
+            err.to_string().contains("non-empty search pattern"),
+            "expected 'non-empty search pattern' error, got: {}",
             err
         );
     }

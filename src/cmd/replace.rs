@@ -192,7 +192,7 @@ fn make_diff_output(replacements: &[FileReplacement], color: bool) -> String {
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.from.is_empty() {
-        anyhow::bail!("--from must not be empty");
+        anyhow::bail!("search pattern must not be empty");
     }
     if args.nth == Some(0) {
         anyhow::bail!("--nth is 1-based; use --nth 1 for the first occurrence");
