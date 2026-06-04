@@ -14,6 +14,8 @@ exclude = [
   "github\\.com/patchloom/patchloom/releases/tag/v",
   # Repos not yet created
   "github\\.com/patchloom/patchloom-vscode",
+  # FOSSA badge SVG may 404 briefly between analysis runs
+  "app\\.fossa\\.com/api/projects/.*\\.svg",
 ]
 
 accept = [200, 429]
