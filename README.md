@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
 [![Tests](https://img.shields.io/badge/tests-1191%20passing-brightgreen)](#)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
-[![Coverage](https://img.shields.io/badge/coverage-GitHub%20native-brightgreen)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 
 **One binary. Every platform. Structured file edits for AI agents.**

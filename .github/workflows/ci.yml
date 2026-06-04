@@ -188,6 +188,46 @@ jobs:
           language: Rust
           label: code-coverage/rust
 
+      - name: Extract coverage percentage
+        id: cov
+        run: |
+          pct=$(python3 -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          rate = float(tree.getroot().get('line-rate', 0))
+          print(f'{rate * 100:.1f}')
+          ")
+          echo "percentage=$pct" >> "$GITHUB_OUTPUT"
+
+      - name: Determine badge color
+        id: color
+        run: |
+          pct="${{ steps.cov.outputs.percentage }}"
+          # Compare as integer (strip decimal)
+          int_pct=${pct%.*}
+          if [ "$int_pct" -ge 90 ]; then
+            echo "color=brightgreen" >> "$GITHUB_OUTPUT"
+          elif [ "$int_pct" -ge 80 ]; then
+            echo "color=green" >> "$GITHUB_OUTPUT"
+          elif [ "$int_pct" -ge 70 ]; then
+            echo "color=yellowgreen" >> "$GITHUB_OUTPUT"
+          elif [ "$int_pct" -ge 60 ]; then
+            echo "color=yellow" >> "$GITHUB_OUTPUT"
+          else
+            echo "color=red" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 6a26adf6bfae45f530465f626c9154f4
+          filename: coverage.json
+          label: coverage
+          message: ${{ steps.cov.outputs.percentage }}%
+          color: ${{ steps.color.outputs.color }}
+
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 10

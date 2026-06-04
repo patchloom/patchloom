@@ -59,31 +59,30 @@ class AgentDriver(ABC):
 
 
 def create_driver(agent_name: str, model: str) -> AgentDriver:
-    """Factory: create the right driver for the given agent name."""
-    if agent_name == "grok":
-        from .grok import GrokDriver
+    """Factory: create the right driver for the given agent name.
 
-        return GrokDriver(model=model)
-    if agent_name == "claude":
-        from .claude import ClaudeDriver
+    Uses importlib to avoid static cyclic imports between base.py and
+    the individual driver modules (each driver imports from base).
+    """
+    import importlib
 
-        return ClaudeDriver(model=model)
-    if agent_name == "aider":
-        from .aider import AiderDriver
-
-        return AiderDriver(model=model)
-    if agent_name == "codex":
-        from .codex import CodexDriver
-
-        return CodexDriver(model=model)
-    if agent_name == "cline":
-        from .cline import ClineDriver
-
-        return ClineDriver(model=model)
-    raise ValueError(
-        f"Unknown agent: {agent_name!r}. "
-        f"Available: grok, claude, aider, codex, cline"
-    )
+    _DRIVER_MAP: dict[str, tuple[str, str]] = {
+        "grok": ("grok", "GrokDriver"),
+        "claude": ("claude", "ClaudeDriver"),
+        "aider": ("aider", "AiderDriver"),
+        "codex": ("codex", "CodexDriver"),
+        "cline": ("cline", "ClineDriver"),
+    }
+    entry = _DRIVER_MAP.get(agent_name)
+    if entry is None:
+        available = ", ".join(sorted(_DRIVER_MAP))
+        raise ValueError(
+            f"Unknown agent: {agent_name!r}. Available: {available}"
+        )
+    module_name, class_name = entry
+    module = importlib.import_module(f".{module_name}", package=__package__)
+    driver_cls = getattr(module, class_name)
+    return driver_cls(model=model)
 
 
 # ---------------------------------------------------------------------------
