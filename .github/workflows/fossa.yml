@@ -59,7 +59,21 @@ jobs:
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         run: fossa analyze
-      # fossa test disabled: default policy flags apache-2.0 WITH
-      # llvm-exception (7 crates) and LGPL-2.1-or-later on r-efi.
-      # All are false positives. Re-enable with a filter script when
-      # the free tier supports persistent ignore rules or policy edits.
+      - name: Run FOSSA license check
+        if: steps.check-key.outputs.skip != 'true'
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: |
+          set +e
+          fossa test --format json > fossa-results.json 2>fossa-stderr.txt
+          TEST_EXIT=$?
+          set -e
+
+          if [ "$TEST_EXIT" -eq 0 ]; then
+            echo "FOSSA test passed with no issues."
+            exit 0
+          fi
+
+          echo "FOSSA test found issues. Filtering known false positives..."
+          head -c 2000 fossa-stderr.txt
+          python3 scripts/fossa-filter.py fossa-results.json

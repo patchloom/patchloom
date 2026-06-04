@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, try_parse_json
+from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, parse_last_json_line, try_parse_json
 
 
 class GrokDriver(AgentDriver):
@@ -51,6 +50,7 @@ class GrokDriver(AgentDriver):
                 text=True,
                 timeout=timeout_secs,
                 env=env,
+                cwd=str(cwd),
             )
         except subprocess.TimeoutExpired as exc:
             return AgentResult(
@@ -99,10 +99,9 @@ class GrokDriver(AgentDriver):
                  "--max-turns", "1"],
                 capture_output=True, text=True, timeout=30,
             )
-            data = json.loads(proc.stdout)
+            data = parse_last_json_line(proc.stdout) or {}
             model_name = data.get("text", "unknown").strip()
-        except (subprocess.TimeoutExpired, FileNotFoundError,
-                json.JSONDecodeError, KeyError):
+        except (subprocess.TimeoutExpired, FileNotFoundError):
             pass  # model query failed; use default
 
         return AgentMetadata(
