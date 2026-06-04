@@ -348,6 +348,8 @@ jobs:
           tool: cargo-fuzz
 
       - name: Fuzz ${{ matrix.target }}
+        env:
+          RUSTUP_TOOLCHAIN: nightly
         run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60
 
   agent-dry-run:
