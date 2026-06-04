@@ -341,6 +341,11 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
+          cache-workspaces: |
+            .
+            fuzz
+          shared-key: fuzz
+          cache-on-failure: "true"
 
       - name: Install cargo-fuzz
         uses: taiki-e/install-action@25435dc8dd3baed7417e0c96d3fe89013a5b2e09 # v2
