@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: write
       pull-requests: write
     if: >
       github.actor == 'SebTardif' ||
@@ -29,3 +30,7 @@ jobs:
           egress-policy: audit
       - name: Auto-approve PR
         uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363 # v4
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
