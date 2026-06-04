@@ -180,6 +180,14 @@ def load_shim_calls(extra_env: dict | None) -> list[dict]:
     return parse_shim_log(Path(log_path))
 
 
+def try_parse_json(text: str) -> dict | None:
+    """Try to parse a string as JSON, returning None on failure."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def parse_last_json_line(text: str) -> dict | None:
     """Parse the last valid JSON line from JSONL/NDJSON output."""
     for line in reversed(text.splitlines()):

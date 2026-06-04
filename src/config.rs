@@ -248,4 +248,35 @@ color = "always"
         // Malformed TOML returns None but prints a warning to stderr.
         assert!(find_and_load(dir.path()).is_none());
     }
+
+    #[test]
+    fn apply_config_unknown_eol_value_ignored() {
+        let config = ProjectConfig {
+            write_policy: WritePolicy {
+                normalize_eol: Some("CRLF".into()), // uppercase: not recognized
+                ..WritePolicy::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+
+        // Unrecognized normalize_eol value is silently ignored (stays None).
+        assert!(global.normalize_eol.is_none());
+    }
+
+    #[test]
+    fn apply_config_unknown_color_value_stays_auto() {
+        let config = ProjectConfig {
+            output: Output {
+                color: Some("yes".into()), // not "always" or "never"
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+
+        // Unrecognized color value falls through to Auto.
+        assert!(matches!(global.color, crate::cli::global::ColorMode::Auto));
+    }
 }
