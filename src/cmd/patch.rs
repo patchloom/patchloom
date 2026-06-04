@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result, format_diff_result_colored, unified_diff};
+use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::ops::patch::{apply_hunks, parse_patch};
 use crate::write::policy_from_flags;
@@ -278,7 +278,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         diffs,
                         total_files_changed: changed,
                     };
-                    print!("{}", format_diff_result(&result));
+                    print!(
+                        "{}",
+                        format_diff_result_colored(&result, global.should_color())
+                    );
                 }
                 return Ok(exit::SUCCESS);
             }
