@@ -9,10 +9,6 @@ on:
       - ".github/workflows/links.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "**/*.md"
-      - "lychee.toml"
-      - ".github/workflows/links.yml"
   schedule:
     - cron: "0 12 * * 1"  # Monday noon UTC
   workflow_dispatch:
