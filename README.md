@@ -7,7 +7,7 @@
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE-MIT)
-[![Tests](https://img.shields.io/badge/tests-1194%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1195%20passing-brightgreen)](#)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue)](https://doc.rust-lang.org/cargo/reference/manifest.html#the-rust-version-field)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
@@ -378,7 +378,7 @@ flowchart LR
 
 ## Status
 
-1194 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1195 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 
