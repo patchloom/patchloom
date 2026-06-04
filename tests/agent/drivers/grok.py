@@ -26,7 +26,8 @@ class GrokDriver(AgentDriver):
         timeout_secs: int = 120,
         extra_env: dict | None = None,
     ) -> AgentResult:
-        env = {**os.environ, **(extra_env or {})}
+        shim_env = extra_env or {}
+        env = {**os.environ, **shim_env}
         cmd = [
             "grok",
             "-p",
@@ -59,7 +60,7 @@ class GrokDriver(AgentDriver):
                 exit_code=-1,
                 output_json=None,
                 duration_secs=time.monotonic() - start,
-                patchloom_calls=load_shim_calls(extra_env),
+                patchloom_calls=load_shim_calls(shim_env),
             )
         duration = time.monotonic() - start
 
@@ -71,7 +72,7 @@ class GrokDriver(AgentDriver):
             exit_code=proc.returncode,
             output_json=output_json,
             duration_secs=duration,
-            patchloom_calls=load_shim_calls(extra_env),
+            patchloom_calls=load_shim_calls(shim_env),
         )
 
     def is_available(self) -> bool:
@@ -110,7 +111,4 @@ class GrokDriver(AgentDriver):
             model_name=model_name,
             cli_version=cli_version,
         )
-
-
-
 
