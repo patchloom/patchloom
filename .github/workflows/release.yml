@@ -351,17 +351,17 @@ jobs:
               --repo "${{ github.repository }}" 2>/dev/null; then
               for bundle in *.jsonl; do
                 [ -f "$bundle" ] || continue
-                cp "$bundle" "$OLDPWD/attestation-bundles/${name}.sigstore.jsonl"
+                cp "$bundle" "$OLDPWD/attestation-bundles/${name}.intoto.jsonl"
                 break
               done
             fi
             popd > /dev/null
             rm -rf "$tmpdir"
           done
-          # Upload all bundle files to the release (Scorecard recognizes .sigstore files)
-          if ls attestation-bundles/*.sigstore.jsonl 1>/dev/null 2>&1; then
+          # Upload all bundle files to the release (Scorecard recognizes .intoto.jsonl)
+          if ls attestation-bundles/*.intoto.jsonl 1>/dev/null 2>&1; then
             gh release upload "${{ needs.plan.outputs.tag }}" \
-              attestation-bundles/*.sigstore.jsonl \
+              attestation-bundles/*.intoto.jsonl \
               --clobber
           fi
       - name: Install cargo-cyclonedx
