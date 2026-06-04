@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-agent bench-agent-dry-run bench-agent-report fuzz
+.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
 
 .DEFAULT_GOAL := help
 
@@ -74,6 +74,9 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 
 bench-cli: build ## Run CLI benchmarks vs native tools (requires hyperfine)
 	cd benches/cli && bash run.sh
+
+bench-mcp: ## Run MCP benchmarks: per-call latency vs CLI (no extra tools needed)
+	cd benches/mcp && bash run.sh
 
 bench-agent: build ## Run LLM agent A/B benchmarks (requires API key). Use MODEL=X RUNS=N to configure.
 	@cd tests/agent && \

@@ -1,14 +1,17 @@
 # Benchmarks
 
-Patchloom ships two benchmark suites: **CLI benchmarks** (patchloom vs native
-tools) and **agent benchmarks** (AI agent task completion with and without
-patchloom).
+Patchloom ships three benchmark suites: **CLI benchmarks** (patchloom vs native
+tools), **MCP benchmarks** (MCP per-call latency vs CLI process spawn), and
+**agent benchmarks** (AI agent task completion with and without patchloom).
 
 ## Quick start
 
 ```bash
 # CLI benchmarks (requires hyperfine, jq, yq)
 make bench-cli
+
+# MCP benchmarks (no extra tools needed)
+make bench-mcp
 
 # Agent benchmarks (requires grok CLI + API key)
 make bench-agent MODEL=sxs-claude-opus-4-6
@@ -100,6 +103,69 @@ C program doing one thing). The value proposition is:
 2. **Batched operations**: patchloom wins dramatically (6-7x) because one
    process invocation replaces N tool spawns. For AI agents, this means one
    tool call instead of N round-trips.
+
+---
+
+## MCP benchmarks
+
+**Location:** `benches/mcp/` + `tests/bench_mcp.rs`
+
+Measures the per-call latency advantage of MCP (JSON-RPC over stdio) compared
+to spawning a new CLI process for each operation. MCP amortizes process startup:
+one long-running server handles all tool calls, eliminating the cost of process
+spawn + arg parse + exit for every operation.
+
+### What is measured
+
+| Dimension | Description |
+|-----------|-------------|
+| Server startup | Time from process spawn to first tool call ready |
+| Per-call latency | Same operation via MCP (server running) vs CLI (new process) |
+| Burst throughput | 50 sequential doc_set calls: MCP vs 50 CLI process spawns |
+
+### Benchmark list
+
+- search_files (literal): `patchloom search` (MCP) vs CLI
+- search_files (regex): `patchloom search --regex` (MCP) vs CLI
+- doc_set (JSON): single key mutation (MCP) vs CLI
+- doc_set (YAML): comment-preserving edit (MCP) vs CLI
+- replace_text: string replacement (MCP) vs CLI
+- read_file: file read (MCP) vs CLI
+- fix_whitespace: tidy single file (MCP) vs CLI
+- batch (6 ops): 6-file version bump (MCP) vs CLI
+- transaction (4 ops): atomic multi-file edit (MCP) vs CLI
+
+### Prerequisites
+
+- patchloom built with MCP support (done automatically by `make bench-mcp`)
+- No extra tools needed (pure Rust benchmark using the `rmcp` client library)
+
+### Running
+
+```bash
+make bench-mcp
+```
+
+Results are printed to stdout and saved to `benches/mcp/results/`.
+
+### Methodology
+
+- Each operation runs 50 iterations after 3 warmup iterations.
+- MCP calls go through a single server instance (amortized startup).
+- CLI calls spawn a new `patchloom` process each time (full startup cost).
+- Both use the release binary for fair comparison.
+- Timing uses `std::time::Instant` for sub-microsecond precision.
+- File state is reset between iterations for write operations.
+
+### Interpreting results
+
+MCP should win on every operation because it eliminates process startup
+(~3-5ms per call on macOS). The advantage is largest for fast operations
+(read_file, doc_set) where startup dominates execution time, and smallest
+for expensive operations (multi-file search) where execution dominates.
+
+The **burst test** shows the cumulative advantage: 50 MCP calls should
+complete in roughly the time of 5-10 CLI invocations.
 
 ---
 
