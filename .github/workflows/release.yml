@@ -335,6 +335,35 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: artifacts/*
+      - name: Download attestation bundles and upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p attestation-bundles
+          for artifact in artifacts/*; do
+            [ -f "$artifact" ] || continue
+            name=$(basename "$artifact")
+            # gh attestation download writes to cwd with digest-based names;
+            # run it in a temp dir, then rename the output.
+            tmpdir=$(mktemp -d)
+            pushd "$tmpdir" > /dev/null
+            if gh attestation download "$OLDPWD/$artifact" \
+              --repo "${{ github.repository }}" 2>/dev/null; then
+              for bundle in *.jsonl; do
+                [ -f "$bundle" ] || continue
+                cp "$bundle" "$OLDPWD/attestation-bundles/${name}.sigstore.jsonl"
+                break
+              done
+            fi
+            popd > /dev/null
+            rm -rf "$tmpdir"
+          done
+          # Upload all bundle files to the release (Scorecard recognizes .sigstore files)
+          if ls attestation-bundles/*.sigstore.jsonl 1>/dev/null 2>&1; then
+            gh release upload "${{ needs.plan.outputs.tag }}" \
+              attestation-bundles/*.sigstore.jsonl \
+              --clobber
+          fi
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked
       - name: Generate SBOM
