@@ -359,4 +359,15 @@ mod tests {
         let result = read_one_file("/tmp/does-not-exist-patchloom-test.txt", None);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn select_lines_crlf_content_normalizes_to_lf() {
+        // .lines() strips both \n and \r\n, then join("\n") always uses LF.
+        // This documents the intentional behavior.
+        let content = "alpha\r\nbeta\r\ngamma\r\n";
+        let result = select_lines(content, (2, Some(3)));
+        assert_eq!(result.content, "beta\ngamma\n");
+        assert_eq!(result.start_line, 2);
+        assert_eq!(result.end_line, 3);
+    }
 }
