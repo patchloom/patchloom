@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/github/v/release/patchloom/patchloom?logo=github&sort=semver)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-1195%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1197%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -159,22 +159,20 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 ## Install
 
 ```bash
-# Core CLI install (requires Rust 1.95+)
-git clone https://github.com/patchloom/patchloom.git
-cd patchloom
-cargo install --path .
+# Homebrew (macOS/Linux)
+brew install patchloom/tap/patchloom
 
-# Install with MCP support
-cargo install --path . --features mcp
+# crates.io (requires Rust 1.95+)
+cargo install patchloom
+
+# With MCP support
+cargo install patchloom --features mcp
 ```
 
-`cargo install --path .` gives you the core CLI commands. If you also want
-`patchloom mcp-server`, install with `--features mcp`.
-
-Other install channels are planned for public launch, including crates.io,
-GitHub Releases binaries, and Homebrew. See
-[Installation](./docs/getting-started/installation.md) for the current path and
-planned post-launch options.
+Pre-built binaries for Linux, macOS, and Windows are on the
+[Releases](https://github.com/patchloom/patchloom/releases/latest) page.
+See [Installation](./docs/getting-started/installation.md) for shell
+installer scripts, source builds, and shell completion setup.
 
 ## Quick start
 
@@ -384,7 +382,7 @@ flowchart LR
 
 ## Status
 
-1195 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1197 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 
