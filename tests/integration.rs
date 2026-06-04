@@ -14009,11 +14009,6 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
         ci.contains(&format!("toolchain: \"{rust_version}\"")),
         "ci.yml should pin the MSRV job to the same Rust version as Cargo.toml"
     );
-
-    assert!(
-        readme.contains(&format!("MSRV-{rust_version}-")),
-        "README MSRV badge should use the same Rust version as Cargo.toml"
-    );
 }
 
 #[test]

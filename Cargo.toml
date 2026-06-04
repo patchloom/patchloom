@@ -10,7 +10,7 @@ homepage = "https://github.com/patchloom/patchloom"
 readme = "README.md"
 keywords = ["cli", "agents", "patch", "markdown", "config"]
 categories = ["command-line-utilities", "development-tools", "config"]
-documentation = "https://docs.rs/patchloom"
+documentation = "https://github.com/patchloom/patchloom"
 authors = ["Sebastien Tardif"]
 exclude = [
   "benches/",
@@ -75,6 +75,9 @@ redundant_else = "warn"
 semicolon_if_nothing_returned = "warn"
 
 # The profile that 'dist' will build with
+[package.metadata.docs.rs]
+targets = []
+
 [profile.release]
 strip = true
 lto = "thin"
