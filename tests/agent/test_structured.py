@@ -7,7 +7,7 @@ import json
 import pytest
 
 from conftest import run_scenario
-from drivers.base import assert_patchloom_used, report_raw_tool_usage
+from drivers.base import assert_patchloom_used
 
 
 @pytest.mark.timeout(180)

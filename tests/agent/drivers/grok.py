@@ -87,7 +87,7 @@ class GrokDriver(AgentDriver):
             )
             cli_version = proc.stdout.strip()
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+            pass  # CLI not installed or too slow; use default
 
         # Model name (ask the model to self-identify)
         model_name = "unknown"
@@ -103,7 +103,7 @@ class GrokDriver(AgentDriver):
             model_name = data.get("text", "unknown").strip()
         except (subprocess.TimeoutExpired, FileNotFoundError,
                 json.JSONDecodeError, KeyError):
-            pass
+            pass  # model query failed; use default
 
         return AgentMetadata(
             agent_name=self.name,

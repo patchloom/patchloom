@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import run_scenario
-from drivers.base import assert_patchloom_used, report_raw_tool_usage
+from drivers.base import report_raw_tool_usage
 
 
 @pytest.mark.timeout(180)
@@ -62,7 +62,7 @@ def test_replace(agent, workspace, patchloom_shim):
         "    assert calculate_total([]) == 0\n"
     )
 
-    result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -118,7 +118,7 @@ def test_replace_regex(agent, workspace, patchloom_shim):
         "    pass\n"
     )
 
-    result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -148,7 +148,7 @@ def test_replace_insert(agent, workspace, patchloom_shim):
         "import os\n\ndef helper():\n    return 42\n"
     )
 
-    result = run_scenario(
+    run_scenario(
         agent,
         workspace,
         patchloom_shim,

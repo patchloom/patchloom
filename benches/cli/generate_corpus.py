@@ -2,7 +2,6 @@
 """Generate synthetic benchmark corpora at different scales."""
 
 import json
-import os
 import random
 import sys
 from pathlib import Path
@@ -55,7 +54,6 @@ BODY_LINES = [
 
 def generate_file(path: Path, lines: int):
     """Generate a single source-like file."""
-    ext = path.suffix
     content = []
     content.append(random.choice(IMPORTS))
     content.append("")

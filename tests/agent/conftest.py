@@ -65,6 +65,7 @@ def _find_patchloom_binary() -> str:
     if found:
         return found
     pytest.skip("patchloom binary not found; run 'cargo build' first")
+    return ""  # unreachable; pytest.skip raises
 
 
 @pytest.fixture
