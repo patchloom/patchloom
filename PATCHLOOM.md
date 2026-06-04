@@ -22,6 +22,100 @@ If patchloom MCP tools are available in your session, prefer them over CLI comma
 
 Available tools: `doc_set`, `doc_delete`, `doc_merge`, `doc_append`, `doc_prepend`, `doc_ensure`, `doc_delete_where`, `doc_update`, `doc_move`, `doc_get`, `doc_has`, `doc_keys`, `doc_len`, `doc_select`, `doc_flatten`, `doc_diff`, `search_files`, `git_status`, `replace_text`, `md_upsert_bullet`, `md_table_append`, `md_replace_section`, `md_insert_after_heading`, `md_insert_before_heading`, `md_lint`, `read_file`, `create_file`, `delete_file`, `move_file`, `apply_patch`, `fix_whitespace`, `batch`, `transaction`.
 
+## Tool usage examples
+
+### Structured edits (JSON, YAML, TOML)
+
+```json
+// Set a key in any config file (preserves comments in YAML/TOML)
+doc_set({"path": "config.json", "selector": "version", "value": "2.0.0"})
+doc_set({"path": "config.yaml", "selector": "app.version", "value": "2.0.0"})
+
+// Read a key
+doc_get({"path": "config.json", "selector": "version"})
+```
+
+### Markdown operations
+
+```json
+// Append a row to a table under a heading
+md_table_append({"path": "README.md", "heading": "## API", "row": "| new | row |"})
+
+// Add or update a bullet under a heading
+md_upsert_bullet({"path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- Added feature X"})
+
+// Insert text after a heading (without replacing existing content)
+md_insert_after_heading({"path": "CHANGELOG.md", "heading": "## v2.0.0", "content": "Released on 2026-01-15.\n"})
+```
+
+### Search and replace
+
+```json
+// Search for a pattern across files
+search_files({"pattern": "TODO", "paths": ["src/"], "literal": true})
+search_files({"pattern": "fn \\w+\\(", "paths": ["src/"]})
+
+// Replace text in a file
+replace_text({"path": "src/app.py", "from": "old_name", "to": "new_name"})
+```
+
+### File operations
+
+```json
+// Create a file
+create_file({"path": "hello.txt", "content": "Hello, World!"})
+
+// Rename (move) a file
+move_file({"from": "old_name.json", "to": "new_name.json"})
+
+// Delete a file
+delete_file({"path": "obsolete.txt"})
+
+// Read a file
+read_file({"path": "config.json"})
+
+// Fix whitespace (trailing spaces + missing final newline)
+fix_whitespace({"path": "src/main.py"})
+```
+
+### Batching (the main speed win)
+
+Use `batch` to make multiple edits in one call. Each operation is a string in patchloom's line-oriented format:
+
+```json
+batch({"operations": [
+"doc.set config.json version \"2.0.0\"",
+"doc.set config.yaml app.version \"2.0.0\"",
+"replace README.md \"1.0.0\" \"2.0.0\"",
+"file.create hello.txt \"Hello, World!\"",
+"file.rename old.txt new.txt",
+"md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\""
+]})
+```
+
+### Transactions (atomic multi-file edits)
+
+Use `transaction` for atomic operations that roll back on failure. The `plan` parameter is a JSON string:
+
+```json
+transaction({"plan": "{\"version\": \"1\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}, {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}]}"})
+```
+
+All operations succeed together or roll back.
+
+### Workflow: bump version across 6 files
+
+```json
+batch({"operations": [
+"doc.set package.json version \"2.0.0\"",
+"doc.set config.yaml app.version \"2.0.0\"",
+"doc.set config.json version \"2.0.0\"",
+"doc.set pyproject.toml project.version \"2.0.0\"",
+"replace version.txt \"1.0.0\" \"2.0.0\"",
+"replace README.md \"1.0.0\" \"2.0.0\""
+]})
+```
+
 ## Batching (the main speed win)
 
 Six file edits via native tools = six round-trips. One `batch` call = one round-trip:

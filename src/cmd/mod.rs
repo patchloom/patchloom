@@ -169,7 +169,81 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `md_insert_after_heading`, `md_insert_before_heading`, \
              `md_lint`, `read_file`, \
              `create_file`, `delete_file`, `move_file`, \
-             `apply_patch`, `fix_whitespace`, `batch`, `transaction`.\n\n",
+             `apply_patch`, `fix_whitespace`, `batch`, `transaction`.\n\n\
+             ## Tool usage examples\n\n\
+             ### Structured edits (JSON, YAML, TOML)\n\n\
+             ```json\n\
+             // Set a key in any config file (preserves comments in YAML/TOML)\n\
+             doc_set({\"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"})\n\
+             doc_set({\"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"})\n\n\
+             // Read a key\n\
+             doc_get({\"path\": \"config.json\", \"selector\": \"version\"})\n\
+             ```\n\n\
+             ### Markdown operations\n\n\
+             ```json\n\
+             // Append a row to a table under a heading\n\
+             md_table_append({\"path\": \"README.md\", \"heading\": \"## API\", \"row\": \"| new | row |\"})\n\n\
+             // Add or update a bullet under a heading\n\
+             md_upsert_bullet({\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added feature X\"})\n\n\
+             // Insert text after a heading (without replacing existing content)\n\
+             md_insert_after_heading({\"path\": \"CHANGELOG.md\", \"heading\": \"## v2.0.0\", \"content\": \"Released on 2026-01-15.\\n\"})\n\
+             ```\n\n\
+             ### Search and replace\n\n\
+             ```json\n\
+             // Search for a pattern across files\n\
+             search_files({\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true})\n\
+             search_files({\"pattern\": \"fn \\\\w+\\\\(\", \"paths\": [\"src/\"]})\n\n\
+             // Replace text in a file\n\
+             replace_text({\"path\": \"src/app.py\", \"from\": \"old_name\", \"to\": \"new_name\"})\n\
+             ```\n\n\
+             ### File operations\n\n\
+             ```json\n\
+             // Create a file\n\
+             create_file({\"path\": \"hello.txt\", \"content\": \"Hello, World!\"})\n\n\
+             // Rename (move) a file\n\
+             move_file({\"from\": \"old_name.json\", \"to\": \"new_name.json\"})\n\n\
+             // Delete a file\n\
+             delete_file({\"path\": \"obsolete.txt\"})\n\n\
+             // Read a file\n\
+             read_file({\"path\": \"config.json\"})\n\n\
+             // Fix whitespace (trailing spaces + missing final newline)\n\
+             fix_whitespace({\"path\": \"src/main.py\"})\n\
+             ```\n\n\
+             ### Batching (the main speed win)\n\n\
+             Use `batch` to make multiple edits in one call. Each operation is a string \
+             in patchloom's line-oriented format:\n\n\
+             ```json\n\
+             batch({\"operations\": [\n\
+               \"doc.set config.json version \\\"2.0.0\\\"\",\n\
+               \"doc.set config.yaml app.version \\\"2.0.0\\\"\",\n\
+               \"replace README.md \\\"1.0.0\\\" \\\"2.0.0\\\"\",\n\
+               \"file.create hello.txt \\\"Hello, World!\\\"\",\n\
+               \"file.rename old.txt new.txt\",\n\
+               \"md.upsert_bullet CHANGELOG.md \\\"## Changes\\\" \\\"- Bumped to 2.0.0\\\"\"\n\
+             ]})\n\
+             ```\n\n\
+             ### Transactions (atomic multi-file edits)\n\n\
+             Use `transaction` for atomic operations that roll back on failure. \
+             The `plan` parameter is a JSON string:\n\n\
+             ```json\n\
+             transaction({\"plan\": \"{\\\"version\\\": \\\"1\\\", \\\"operations\\\": [\
+             {\\\"op\\\": \\\"doc.set\\\", \\\"path\\\": \\\"config.json\\\", \\\"selector\\\": \\\"version\\\", \\\"value\\\": \\\"2.0.0\\\"}, \
+             {\\\"op\\\": \\\"replace\\\", \\\"path\\\": \\\"README.md\\\", \\\"from\\\": \\\"1.0.0\\\", \\\"to\\\": \\\"2.0.0\\\"}, \
+             {\\\"op\\\": \\\"file.create\\\", \\\"path\\\": \\\"hello.txt\\\", \\\"content\\\": \\\"Hello!\\\"}\
+             ]}\"})\n\
+             ```\n\n\
+             All operations succeed together or roll back.\n\n\
+             ### Workflow: bump version across 6 files\n\n\
+             ```json\n\
+             batch({\"operations\": [\n\
+               \"doc.set package.json version \\\"2.0.0\\\"\",\n\
+               \"doc.set config.yaml app.version \\\"2.0.0\\\"\",\n\
+               \"doc.set config.json version \\\"2.0.0\\\"\",\n\
+               \"doc.set pyproject.toml project.version \\\"2.0.0\\\"\",\n\
+               \"replace version.txt \\\"1.0.0\\\" \\\"2.0.0\\\"\",\n\
+               \"replace README.md \\\"1.0.0\\\" \\\"2.0.0\\\"\"\n\
+             ]})\n\
+             ```\n\n",
         );
     }
 
@@ -457,6 +531,7 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
         assert!(out.contains("# Patchloom"));
         assert!(out.contains("## MCP mode"));
+        assert!(out.contains("## Tool usage examples"));
         assert!(out.contains("## Batching"));
         assert!(out.contains("## Structured edits"));
         assert!(out.contains("## Exit codes"));
@@ -476,8 +551,17 @@ mod tests {
     fn mode_mcp_omits_cli_keeps_mcp() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(out.contains("## MCP mode"));
-        assert!(!out.contains("## Batching"));
-        assert!(!out.contains("## Structured edits"));
+        assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("### Batching (the main speed win)"));
+        assert!(out.contains("### Transactions (atomic multi-file edits)"));
+        assert!(out.contains("### File operations"));
+        assert!(out.contains("fix_whitespace("));
+        assert!(out.contains("create_file("));
+        assert!(out.contains("batch({\"operations\":"));
+        assert!(out.contains("transaction({\"plan\":"));
+        // CLI-only sections must be absent (check for h2 headings, not h3)
+        assert!(!out.contains("\n## Batching"));
+        assert!(!out.contains("\n## Structured edits"));
     }
 
     #[test]
@@ -485,9 +569,11 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Linux));
         assert!(out.contains("<<'EOF'"));
         assert!(!out.contains("batch ops.txt"));
-        // Single-quote syntax present, double-quote escaping absent
+        // Single-quote syntax present in CLI section
         assert!(out.contains("'\"2.0.0\"'"));
-        assert!(!out.contains("\\\"2.0.0\\\""));
+        // Windows-only double-quote escaping in CLI section absent
+        // (MCP section has its own escaped quotes but that's platform-independent)
+        assert!(!out.contains("patchloom doc set config.json version \"\\\"2.0.0\\\"\""));
     }
 
     #[test]
@@ -495,8 +581,9 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::Windows));
         assert!(!out.contains("<<'EOF'"));
         assert!(out.contains("batch ops.txt"));
-        // Double-quote escaping present, single-quote syntax absent
-        assert!(out.contains("\\\"2.0.0\\\""));
+        // Windows escaping present in CLI section
+        assert!(out.contains("patchloom doc set config.json version \"\\\"2.0.0\\\"\""));
+        // Linux single-quote syntax absent
         assert!(!out.contains("'\"2.0.0\"'"));
     }
 
@@ -528,7 +615,10 @@ mod tests {
     fn mcp_and_windows_compose_to_minimal() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::Windows));
         assert!(out.contains("## MCP mode"));
-        assert!(!out.contains("## Batching"));
+        assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("batch({\"operations\":"));
+        // CLI-only content must be absent (check for h2 headings, not h3)
+        assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("batch ops.txt"));
         assert!(!out.contains("<<'EOF'"));
     }
