@@ -8,6 +8,12 @@ exclude = [
   "localhost",
   "127\\.0\\.0\\.1",
   "0\\.0\\.0\\.0",
+  # Release-please compare/tag URLs for versions not yet released
+  "github\\.com/patchloom/patchloom/compare/v.*\\.\\.\\.v",
+  "github\\.com/patchloom/patchloom/compare/v.*\\.\\.\\.HEAD",
+  "github\\.com/patchloom/patchloom/releases/tag/v",
+  # Repos not yet created
+  "github\\.com/patchloom/patchloom-vscode",
 ]
 
 accept = [200, 429]
