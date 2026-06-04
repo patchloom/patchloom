@@ -53,6 +53,7 @@ def _find_patchloom_binary() -> str:
     if found:
         return found
     pytest.skip("patchloom binary not found")
+    return ""  # unreachable; pytest.skip raises
 
 
 def _has_mcp_support(binary: str) -> bool:
@@ -358,7 +359,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
                 out = json.loads(proc.stdout)
                 session_id = out.get("sessionId")
             except (json.JSONDecodeError, TypeError):
-                pass
+                pass  # first-run output may not be valid JSON
 
         # Parse shim log for call count and per-call durations
         new_calls = 0
@@ -376,7 +377,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
                     if isinstance(d, (int, float)) and d > 0:
                         pl_duration_ms += int(d)
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    pass  # skip malformed shim log entries
 
         try:
             success = task["check"](ws)
@@ -571,7 +572,6 @@ def _print_comparison(all_runs, modes, n_runs):
     """Print side-by-side comparison table for 2 or 3 modes."""
     aggs = {m: _aggregate_runs(all_runs[m]) for m in modes}
     model = all_runs[modes[0]][0].model
-    stat_label = "median" if n_runs > 1 else "time"
 
     # Build header
     n_modes = len(modes)

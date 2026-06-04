@@ -7,13 +7,12 @@ import subprocess
 import pytest
 
 from conftest import run_scenario
-from drivers.base import assert_patchloom_used
 
 
 @pytest.mark.timeout(180)
 def test_create(agent, workspace, patchloom_shim):
     """Agent should use patchloom create to make a new file."""
-    result = run_scenario(
+    _result = run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -39,7 +38,7 @@ def test_delete(agent, workspace, patchloom_shim):
     (workspace / "config.old.json").write_text('{"deprecated": true}\n')
     (workspace / "config.json").write_text('{"active": true}\n')
 
-    result = run_scenario(
+    _result = run_scenario(
         agent,
         workspace,
         patchloom_shim,
@@ -112,7 +111,7 @@ def test_patch(agent, workspace, patchloom_shim):
         " print(greet('World'))\n"
     )
 
-    result = run_scenario(
+    _result = run_scenario(
         agent,
         workspace,
         patchloom_shim,

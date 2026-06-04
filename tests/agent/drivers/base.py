@@ -167,7 +167,7 @@ def parse_shim_log(path: Path) -> list[dict]:
             try:
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
-                pass
+                pass  # skip malformed JSONL lines
     return entries
 
 

@@ -84,7 +84,7 @@ class ClaudeDriver(AgentDriver):
             )
             cli_version = proc.stdout.strip()
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+            pass  # CLI not installed or too slow; use default
 
         return AgentMetadata(
             agent_name=self.name,

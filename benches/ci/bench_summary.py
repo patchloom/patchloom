@@ -7,7 +7,6 @@ markdown-style table with mean, median, min, max, and stddev.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 

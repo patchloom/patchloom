@@ -7,11 +7,7 @@ import json
 import pytest
 
 from conftest import run_scenario
-from drivers.base import (
-    assert_patchloom_used,
-    assert_patchloom_used_any,
-    report_raw_tool_usage,
-)
+from drivers.base import assert_patchloom_used
 
 
 @pytest.mark.timeout(180)
@@ -27,7 +23,7 @@ def test_batch_replace(agent, workspace, patchloom_shim):
         '[project]\nname = "myapp"\nversion = "1.0.0"\n'
     )
 
-    result = run_scenario(
+    _result = run_scenario(
         agent,
         workspace,
         patchloom_shim,
