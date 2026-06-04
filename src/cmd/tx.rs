@@ -2647,8 +2647,8 @@ mod tests {
 
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
-            err.to_string().contains("non-empty from"),
-            "expected 'non-empty from' error, got: {}",
+            err.to_string().contains("non-empty search pattern"),
+            "expected 'non-empty search pattern' error, got: {}",
             err
         );
     }
