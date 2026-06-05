@@ -300,8 +300,7 @@ TASKS = [
         ),
         "prompt_mcp": (
             "Fix whitespace issues in all .txt files: trim trailing whitespace and ensure "
-            "each file ends with a newline. Use the patchloom fix_whitespace tool on each file. "
-            "Don't modify files that are already clean."
+            "each file ends with a newline. Use the fix_whitespace tool on each .txt file."
         ),
         "setup": lambda ws: [
             (ws / "clean.txt").write_text("This file is clean\n"),

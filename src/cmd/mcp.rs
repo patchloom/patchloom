@@ -1135,7 +1135,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute a transaction: all operations succeed or all roll back. Pass operations as a JSON array (recommended) or as a plan string. Example: {\"operations\": [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}]}"
+        description = "Execute a transaction: all operations succeed or all roll back. Pass an array of operation objects. Example: {\"operations\": [{\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}, {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}]}"
     )]
     async fn transaction(
         &self,
@@ -1261,7 +1261,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace: ensures final newline and trims trailing spaces. Example: {\"path\": \"src/main.rs\"}"
+        description = "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
     )]
     async fn fix_whitespace(
         &self,
@@ -1543,7 +1543,7 @@ mod tests {
         assert_eq!(
             descriptions.get("fix_whitespace"),
             Some(
-                &"Fix whitespace: ensures final newline and trims trailing spaces. Example: {\"path\": \"src/main.rs\"}"
+                &"Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
             ),
             "fix_whitespace description drifted"
         );
