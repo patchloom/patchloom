@@ -127,8 +127,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
     if show_mcp && !show_cli {
         out.push_str(
-            "You have patchloom MCP tools. Use them for ALL file reads, edits, and searches. \
-             Do not call patchloom from the command line.\n\n",
+            "You have MCP tools for file reads, edits, and searches. \
+             Use them for ALL file operations.\n\n",
         );
     }
     if show_mcp && show_cli {
@@ -187,7 +187,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **ALWAYS use patchloom MCP tools for ALL file edits.** For multi-file edits, \
+             **ALWAYS use MCP tools for ALL file edits.** For multi-file edits, \
              use `batch`. When atomicity is required, use `transaction`.\n\n\
              ### batch and transaction examples\n\n\
              ```json\n\
@@ -544,7 +544,8 @@ mod tests {
         // MCP-only mode must not mention CLI or native tools
         assert!(!out.contains("search_replace"));
         assert!(!out.contains("run_terminal_command"));
-        assert!(out.contains("Do not call patchloom from the command line"));
+        assert!(!out.contains("command line"));
+        assert!(out.contains("Use them for ALL file operations"));
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));

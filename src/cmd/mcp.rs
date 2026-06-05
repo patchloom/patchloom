@@ -1433,8 +1433,7 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "ALWAYS use these MCP tools for ALL file operations. \
-                 NEVER call patchloom from the command line or shell.\n\
+                "ALWAYS use these MCP tools for ALL file operations.\n\
                  \n\
                  For multi-file edits, call the batch tool.\n\
                  For atomic changes (all-or-nothing), call the transaction tool.\n\

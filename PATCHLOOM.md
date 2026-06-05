@@ -27,7 +27,7 @@ Use patchloom when:
 
 ## MCP mode
 
-**ALWAYS use patchloom MCP tools for ALL file edits.** For multi-file edits, use `batch`. When atomicity is required, use `transaction`.
+**ALWAYS use MCP tools for ALL file edits.** For multi-file edits, use `batch`. When atomicity is required, use `transaction`.
 
 ### batch and transaction examples
 
