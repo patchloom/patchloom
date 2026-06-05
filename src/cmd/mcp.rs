@@ -524,7 +524,6 @@ impl PatchloomService {
     }
 
     /// Log a tool call if `PATCHLOOM_MCP_LOG` is set.
-    #[expect(dead_code)] // Will be wired up incrementally.
     fn log_call(&self, tool: &str, params: &impl serde::Serialize, success: bool) {
         if let Some(ref log_path) = self.call_log {
             let entry = serde_json::json!({
@@ -1174,6 +1173,13 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<TxParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Log the raw params before consuming
+        let log_snapshot = self.call_log.as_ref().map(|_| {
+            serde_json::json!({
+                "operations": p.operations,
+                "plan": p.plan,
+            })
+        });
         // Accept either structured operations array or plan string
         let plan = if let Some(ops_raw) = p.operations {
             if p.plan.is_some() {
@@ -1275,7 +1281,15 @@ impl PatchloomService {
 
         validate_operation_paths(&plan.operations, &effective_cwd, &effective_canon_cwd)?;
 
-        execute_plan(plan, &self.cwd, &self.canon_cwd)
+        let result = execute_plan(plan, &self.cwd, &self.canon_cwd);
+        if let Some(snap) = log_snapshot {
+            self.log_call(
+                "transaction",
+                &snap,
+                result.as_ref().is_ok_and(|r| r.is_error != Some(true)),
+            );
+        }
+        result
     }
 
     #[tool(
@@ -1381,6 +1395,10 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<BatchParams>,
     ) -> Result<CallToolResult, McpError> {
+        let log_snapshot = self
+            .call_log
+            .as_ref()
+            .map(|_| serde_json::json!({ "operations": &p.operations }));
         if p.operations.len() > crate::cmd::batch::MAX_BATCH_OPERATIONS {
             return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Too many operations ({}, max {}).",
@@ -1428,7 +1446,15 @@ impl PatchloomService {
         }
 
         validate_operation_paths(&operations, &self.cwd, &self.canon_cwd)?;
-        execute_plan(make_plan(operations), &self.cwd, &self.canon_cwd)
+        let result = execute_plan(make_plan(operations), &self.cwd, &self.canon_cwd);
+        if let Some(snap) = log_snapshot {
+            self.log_call(
+                "batch",
+                &snap,
+                result.as_ref().is_ok_and(|r| r.is_error != Some(true)),
+            );
+        }
+        result
     }
 }
 
@@ -1437,9 +1463,23 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "ALWAYS use patchloom tools instead of search_replace or shell commands. \
-                 For multi-file edits use batch. For atomic changes use transaction. \
-                 Both accept an operations array of JSON objects with an op field.",
+                "ALWAYS use these MCP tools for ALL file operations. \
+                 NEVER call patchloom from the command line or shell.\n\
+                 \n\
+                 For multi-file edits, call the batch tool.\n\
+                 For atomic changes (all-or-nothing), call the transaction tool.\n\
+                 For whitespace cleanup, call fix_whitespace.\n\
+                 \n\
+                 batch and transaction accept {\"operations\": [...]} where each op is a JSON object.\n\
+                 \n\
+                 Operations: doc.set, doc.delete, doc.merge, doc.append, replace, \
+                 file.create, file.delete, file.rename, md.upsert_bullet, \
+                 md.replace_section, md.table_append, tidy.fix, patch.apply.\n\
+                 \n\
+                 Example: transaction({\"operations\": [\n\
+                   {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"},\n\
+                   {\"op\": \"doc.set\", \"path\": \"pkg.json\", \"selector\": \"version\", \"value\": \"2.0\"}\n\
+                 ]})",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
