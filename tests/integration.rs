@@ -490,7 +490,13 @@ fn test_agent_rules_mode_mcp_omits_cli() {
         .stdout(predicates::str::contains("### Operation reference"))
         .stdout(predicates::str::contains("batch({\"operations\":"))
         .stdout(predicates::str::contains("transaction({\"operations\":"))
-        // CLI-only h2 sections must be absent (MCP has h3 subsections within its block)
+        // MCP-only must not mention CLI concepts
+        .stdout(predicates::str::contains("search_replace").not())
+        .stdout(predicates::str::contains("run_terminal_command").not())
+        .stdout(predicates::str::contains("## Exit codes").not())
+        .stdout(predicates::str::contains("--apply").not())
+        .stdout(predicates::str::contains("--check").not())
+        // CLI-only h2 sections must be absent
         .stdout(predicates::str::contains("\n## Batching").not())
         .stdout(predicates::str::contains("\n## Structured edits").not());
 }
@@ -530,7 +536,8 @@ fn test_agent_rules_mode_and_platform_compose() {
             "### batch and transaction examples",
         ))
         .stdout(predicates::str::contains("\n## Batching").not())
-        .stdout(predicates::str::contains("batch ops.txt").not());
+        .stdout(predicates::str::contains("batch ops.txt").not())
+        .stdout(predicates::str::contains("## Exit codes").not());
 }
 
 // ---------------------------------------------------------------------------
