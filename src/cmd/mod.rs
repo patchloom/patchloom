@@ -125,12 +125,18 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
          # Patchloom\n\n"
     ));
 
-    if show_mcp {
+    if show_mcp && !show_cli {
+        out.push_str(
+            "You have patchloom MCP tools. Use them for ALL file reads, edits, and searches. \
+             Do not call patchloom from the command line.\n\n",
+        );
+    }
+    if show_mcp && show_cli {
         out.push_str(
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
-             tools (search_replace, run_terminal_command, etc.) for file edits.** Patchloom \
-             tools are parser-backed (never produce invalid JSON/YAML/TOML), handle whitespace \
-             cleanup in one call, and support atomic multi-file transactions.\n\n",
+             tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
+             JSON/YAML/TOML), handle whitespace cleanup in one call, and support atomic \
+             multi-file transactions.\n\n",
         );
     }
     if show_cli {
@@ -181,9 +187,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **ALWAYS use patchloom MCP tools for ALL file edits.** Never use search_replace \
-             or shell commands. For multi-file edits, use `batch`. When atomicity is required, \
-             use `transaction`.\n\n\
+             **ALWAYS use patchloom MCP tools for ALL file edits.** For multi-file edits, \
+             use `batch`. When atomicity is required, use `transaction`.\n\n\
              ### batch and transaction examples\n\n\
              ```json\n\
              // Multiple edits in one call\n\
@@ -371,20 +376,22 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
          ```\n\n",
     );
 
-    // Exit codes (always shown)
-    out.push_str(
-        "## Exit codes\n\n\
-         | Code | Meaning |\n\
-         |------|---------|\n\
-         | 0 | Success (operation completed, or no changes needed) |\n\
-         | 1 | Failure (error during execution) |\n\
-         | 2 | Changes detected (`--check` mode found pending changes) |\n\
-         | 3 | No matches (search/replace found nothing matching the pattern) |\n\
-         | 4 | Parse error (malformed input file or plan) |\n\
-         | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
-         | 6 | Validation failed (tx plan validation step returned non-zero) |\n\
-         | 7 | Rollback (tx apply failed partway; changes were rolled back) |\n",
-    );
+    // Exit codes (CLI only — MCP tools return results as JSON, not exit codes)
+    if show_cli {
+        out.push_str(
+            "## Exit codes\n\n\
+             | Code | Meaning |\n\
+             |------|---------|\n\
+             | 0 | Success (operation completed, or no changes needed) |\n\
+             | 1 | Failure (error during execution) |\n\
+             | 2 | Changes detected (`--check` mode found pending changes) |\n\
+             | 3 | No matches (search/replace found nothing matching the pattern) |\n\
+             | 4 | Parse error (malformed input file or plan) |\n\
+             | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
+             | 6 | Validation failed (tx plan validation step returned non-zero) |\n\
+             | 7 | Rollback (tx apply failed partway; changes were rolled back) |\n",
+        );
+    }
 
     out
 }
@@ -534,8 +541,10 @@ mod tests {
         assert!(out.contains("## Tool selection guide"));
         assert!(out.contains("batch({\"operations\":"));
         assert!(out.contains("transaction({\"operations\":"));
-        // Decision rule mentions native tools by name
-        assert!(out.contains("search_replace"));
+        // MCP-only mode must not mention CLI or native tools
+        assert!(!out.contains("search_replace"));
+        assert!(!out.contains("run_terminal_command"));
+        assert!(out.contains("Do not call patchloom from the command line"));
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));
@@ -567,8 +576,9 @@ mod tests {
     }
 
     #[test]
-    fn exit_codes_always_present() {
-        for mode in [AgentMode::All, AgentMode::Cli, AgentMode::Mcp] {
+    fn exit_codes_present_for_cli_modes() {
+        // Exit codes are CLI-only (MCP returns JSON results, not exit codes)
+        for mode in [AgentMode::All, AgentMode::Cli] {
             for platform in [
                 AgentPlatform::All,
                 AgentPlatform::Linux,
@@ -581,6 +591,9 @@ mod tests {
                 );
             }
         }
+        // MCP-only mode must NOT have exit codes
+        let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(!out.contains("## Exit codes"));
     }
 
     #[test]
