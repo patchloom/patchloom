@@ -486,7 +486,7 @@ fn test_agent_rules_mode_mcp_omits_cli() {
         .stdout(predicates::str::contains("## MCP mode"))
         .stdout(predicates::str::contains("## Tool usage examples"))
         .stdout(predicates::str::contains("batch({\"operations\":"))
-        .stdout(predicates::str::contains("transaction({\"plan\":"))
+        .stdout(predicates::str::contains("transaction({\"operations\":"))
         .stdout(predicates::str::contains("create_file("))
         .stdout(predicates::str::contains("fix_whitespace("))
         // CLI-only h2 sections must be absent (MCP has h3 subsections within its block)
@@ -15375,6 +15375,167 @@ async fn test_mcp_batch_round_trip() {
     assert_eq!(a["version"], "2.0.0", "batch doc.set failed");
     let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
     assert_eq!(b, "new text\n", "batch replace failed");
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_batch_structured_operations() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"version":"1.0.0"}"#).unwrap();
+    fs::write(dir.path().join("readme.md"), "version 1.0.0\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "batch",
+        serde_json::json!({
+            "operations": [
+                {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
+                {"op": "replace", "path": "readme.md", "from": "1.0.0", "to": "2.0.0"},
+                {"op": "file.create", "path": "hello.txt", "content": "Hello, World!"}
+            ]
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "batch with structured ops should succeed: {text}"
+    );
+
+    let cfg: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
+    assert_eq!(cfg["version"], "2.0.0", "doc.set failed");
+    assert!(
+        fs::read_to_string(dir.path().join("readme.md"))
+            .unwrap()
+            .contains("2.0.0"),
+        "replace failed"
+    );
+    assert!(dir.path().join("hello.txt").exists(), "file.create failed");
+    assert!(
+        fs::read_to_string(dir.path().join("hello.txt"))
+            .unwrap()
+            .contains("Hello, World!"),
+        "file.create content mismatch"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_batch_mixed_structured_and_line_format() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"k":"v1"}"#).unwrap();
+    fs::write(dir.path().join("b.txt"), "old\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "batch",
+        serde_json::json!({
+            "operations": [
+                {"op": "doc.set", "path": "a.json", "selector": "k", "value": "v2"},
+                "replace b.txt \"old\" \"new\""
+            ]
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch with mixed formats should succeed: {text}");
+
+    let a: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
+    assert_eq!(a["k"], "v2");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "new\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_transaction_structured_operations() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("pkg.json"),
+        r#"{"name":"app","version":"1.0.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "transaction",
+        serde_json::json!({
+            "operations": [
+                {"op": "doc.set", "path": "pkg.json", "selector": "version", "value": "3.0.0"},
+                {"op": "file.create", "path": "hello.txt", "content": "Hello, World!"}
+            ]
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "tx with structured operations should succeed: {text}"
+    );
+
+    let pkg: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("pkg.json")).unwrap()).unwrap();
+    assert_eq!(pkg["version"], "3.0.0", "doc.set failed");
+    assert!(dir.path().join("hello.txt").exists(), "file.create failed");
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_transaction_rejects_both_plan_and_operations() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "plan": "{\"version\":\"1\",\"operations\":[]}",
+            "operations": [{"op": "file.create", "path": "x.txt", "content": "y"}]
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with both plan and operations should be rejected"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_transaction_rejects_neither_plan_nor_operations() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("transaction")
+        .with_arguments(serde_json::from_value(serde_json::json!({})).unwrap());
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "tx with neither plan nor operations should be rejected"
+    );
     client.cancel().await.unwrap();
 }
 

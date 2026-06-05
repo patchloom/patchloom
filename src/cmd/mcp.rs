@@ -205,14 +205,18 @@ pub struct MdInsertParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct TxParams {
     /// Transaction plan as a JSON, YAML, or TOML string. Must include
     /// "version" and "operations". May include "format", "validate",
     /// "write_policy", "strict", and "cwd".
-    pub plan: String,
+    /// Either `plan` or `operations` must be provided, not both.
+    pub plan: Option<String>,
     /// Plan format: "json", "yaml", or "toml". Auto-detected if omitted.
     pub format: Option<String>,
+    /// Operations array (alternative to plan). Creates a simple plan
+    /// with version "1" and these operations. All succeed or all roll back.
+    /// Example: [{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"}]
+    pub operations: Option<Vec<Operation>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -260,12 +264,26 @@ pub struct PatchParams {
     pub diff: String,
 }
 
+/// A single batch operation: either a line-format string or a structured object.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum BatchOperation {
+    /// Structured operation object with `op` field (preferred for MCP).
+    /// Example: {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"}
+    Structured(Operation),
+    /// Line-format string (legacy).
+    /// Example: "doc.set config.json version \"2.0.0\""
+    Line(String),
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
-    /// List of operations, one per string, in line-oriented batch format.
-    /// Example: ["doc.set config.json version \"2.0.0\"", "replace README.md \"old\" \"new\""]
-    pub operations: Vec<String>,
+    /// List of operations. Each item can be either a structured object with an "op" field
+    /// (e.g. {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"})
+    /// or a line-format string (e.g. "doc.set config.json version \"2.0.0\"").
+    /// Structured objects are recommended because they avoid quoting issues.
+    pub operations: Vec<BatchOperation>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -500,6 +518,8 @@ pub struct PatchloomService {
     /// Whether tx plans may include format/validate lifecycle steps that
     /// execute shell commands. Controlled by `--allow-shell` on startup.
     allow_shell: bool,
+    /// Optional path for logging MCP tool calls (set via `PATCHLOOM_MCP_LOG`).
+    call_log: Option<PathBuf>,
 }
 
 impl PatchloomService {
@@ -507,12 +527,38 @@ impl PatchloomService {
         let canon_cwd = cwd
             .canonicalize()
             .with_context(|| format!("failed to canonicalize cwd: {}", cwd.display()))?;
+        let call_log = std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from);
         Ok(Self {
             tool_router: Self::tool_router(),
             cwd,
             canon_cwd,
             allow_shell,
+            call_log,
         })
+    }
+
+    /// Log a tool call if `PATCHLOOM_MCP_LOG` is set.
+    #[expect(dead_code)] // Will be wired up incrementally.
+    fn log_call(&self, tool: &str, params: &impl serde::Serialize, success: bool) {
+        if let Some(ref log_path) = self.call_log {
+            let entry = serde_json::json!({
+                "tool": tool,
+                "params": params,
+                "success": success,
+                "timestamp": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0),
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                use std::io::Write;
+                let _ = writeln!(f, "{entry}");
+            }
+        }
     }
 
     /// Validate a path for both syntactic containment and symlink resolution.
@@ -1136,16 +1182,39 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute a full transaction plan. Accepts a JSON/YAML/TOML plan string with operations, optional format/validate lifecycle steps, strict mode, and write_policy. This is the most powerful tool: use it when you need atomic multi-file edits with post-write formatting (cargo fmt, prettier), validation (tests, lints), and rollback on failure."
+        description = "Execute a transaction: all operations succeed or all roll back. Pass operations as a JSON array (recommended) or as a plan string. Example: {\"operations\": [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}]}"
     )]
     async fn transaction(
         &self,
         Parameters(p): Parameters<TxParams>,
     ) -> Result<CallToolResult, McpError> {
-        let plan =
-            crate::plan::parse_plan_auto(&p.plan, None, p.format.as_deref()).map_err(|e| {
+        // Accept either structured operations array or plan string
+        let plan = if let Some(ops) = p.operations {
+            if p.plan.is_some() {
+                return Err(McpError::invalid_params(
+                    "provide either 'operations' or 'plan', not both".to_string(),
+                    None,
+                ));
+            }
+            Plan {
+                version: "1".to_string(),
+                cwd: None,
+                write_policy: None,
+                strict: false,
+                operations: ops,
+                format: None,
+                validate: None,
+            }
+        } else if let Some(ref plan_str) = p.plan {
+            crate::plan::parse_plan_auto(plan_str, None, p.format.as_deref()).map_err(|e| {
                 McpError::invalid_params(format!("failed to parse transaction plan: {e}"), None)
-            })?;
+            })?
+        } else {
+            return Err(McpError::invalid_params(
+                "either 'operations' or 'plan' must be provided".to_string(),
+                None,
+            ));
+        };
 
         // Gate: format/validate lifecycle steps execute shell commands.
         // Require --allow-shell on the MCP server to permit them.
@@ -1308,7 +1377,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute multiple operations atomically. Each string is one line in batch format: 'doc.set config.json version \"2.0\"'"
+        description = "Execute multiple operations in one call. Accepts structured objects (recommended) or line-format strings. Example: [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"old\", \"to\": \"new\"}]"
     )]
     async fn batch(
         &self,
@@ -1322,17 +1391,22 @@ impl PatchloomService {
             ))]));
         }
         let mut operations = Vec::new();
-        for (i, line) in p.operations.iter().enumerate() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            match crate::cmd::batch::parse_line(trimmed, i + 1) {
-                Ok(op) => operations.push(op),
-                Err(e) => {
-                    return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "Parse error: {e}",
-                    ))]));
+        for (i, batch_op) in p.operations.into_iter().enumerate() {
+            match batch_op {
+                BatchOperation::Structured(op) => operations.push(op),
+                BatchOperation::Line(line) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    match crate::cmd::batch::parse_line(trimmed, i + 1) {
+                        Ok(op) => operations.push(op),
+                        Err(e) => {
+                            return Ok(CallToolResult::error(vec![Content::text(format!(
+                                "Parse error: {e}",
+                            ))]));
+                        }
+                    }
                 }
             }
         }

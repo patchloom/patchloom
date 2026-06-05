@@ -37,6 +37,7 @@ pub struct PlanWritePolicy {
 
 /// A single operation within a plan.
 #[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 #[serde(tag = "op")]
 pub enum Operation {
     #[serde(rename = "replace")]

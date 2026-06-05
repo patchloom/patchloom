@@ -118,8 +118,8 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
 | `apply_patch` | Apply a unified diff |
-| `batch` | Run multiple operations in one call |
-| `transaction` | Execute a full transaction plan with format/validate lifecycle |
+| `batch` | Run multiple operations in one call (structured objects or line-format strings) |
+| `transaction` | Execute atomic multi-file edits with optional format/validate lifecycle |
 
 ## How MCP mode differs from CLI mode
 
@@ -135,7 +135,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
 
-The `batch` tool parses its operations line by line and validates every path before execution. The `transaction` tool accepts full transaction plans. All operation paths and plan-level `cwd` fields are validated for containment before execution. A relative transaction `cwd` still resolves from the server invocation root, then must remain inside that root.
+The `batch` tool accepts operations as structured JSON objects (with an `op` field) or as line-format strings, and validates every path before execution. The `transaction` tool accepts either an `operations` array directly or a full plan string. All operation paths and plan-level `cwd` fields are validated for containment before execution. A relative transaction `cwd` still resolves from the server invocation root, then must remain inside that root.
 
 ### Shell execution gate
 
@@ -167,7 +167,7 @@ An MCP-capable agent sends:
 
 Patchloom parses the YAML, changes `database.port` to `5432`, preserves all comments and formatting, and writes the file. The agent receives a success response with no further action needed.
 
-For multi-file edits with post-write formatting and validation, use `transaction`:
+For multi-file atomic edits, use `transaction` with a structured `operations` array:
 
 ```json
 {
@@ -175,10 +175,27 @@ For multi-file edits with post-write formatting and validation, use `transaction
   "params": {
     "name": "transaction",
     "arguments": {
-      "plan": "{\"version\":\"1\",\"operations\":[{\"op\":\"replace\",\"path\":\"src/main.rs\",\"from\":\"v1\",\"to\":\"v2\"},{\"op\":\"doc.set\",\"path\":\"Cargo.toml\",\"selector\":\"package.version\",\"value\":\"2.0.0\"}],\"format\":[{\"cmd\":\"cargo fmt\"}],\"validate\":[{\"cmd\":\"cargo test\",\"required\":true}]}"
+      "operations": [
+        {"op": "replace", "path": "src/main.rs", "from": "v1", "to": "v2"},
+        {"op": "doc.set", "path": "Cargo.toml", "selector": "package.version", "value": "2.0.0"}
+      ]
     }
   }
 }
 ```
 
-This replaces text in `src/main.rs`, updates the version in `Cargo.toml`, runs `cargo fmt`, and verifies with `cargo test`. If any step fails, the transaction reports the error. With `"strict": true`, writes are rolled back on format or validate failure.
+All operations succeed together or roll back. For advanced use with post-write formatting and validation, use the `plan` string parameter instead:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "transaction",
+    "arguments": {
+      "plan": "{\"version\":\"1\",\"operations\":[{\"op\":\"replace\",\"path\":\"src/main.rs\",\"from\":\"v1\",\"to\":\"v2\"}],\"format\":[{\"cmd\":\"cargo fmt\"}],\"validate\":[{\"cmd\":\"cargo test\",\"required\":true}]}"
+    }
+  }
+}
+```
+
+The `plan` string supports `format` and `validate` lifecycle steps (requires `--allow-shell`). With `"strict": true`, writes are rolled back on format or validate failure.

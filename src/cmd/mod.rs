@@ -239,40 +239,64 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              fix_whitespace({\"path\": \"src/main.py\"})\n\
              ```\n\n\
              ### Batching (the main speed win)\n\n\
-             Use `batch` to make multiple edits in one call. Each operation is a string \
-             in patchloom's line-oriented format:\n\n\
+             Use `batch` to make multiple edits in one call. Pass structured objects \
+             with an `op` field (no quoting needed):\n\n\
              ```json\n\
              batch({\"operations\": [\n\
-               \"doc.set config.json version \\\"2.0.0\\\"\",\n\
-               \"doc.set config.yaml app.version \\\"2.0.0\\\"\",\n\
-               \"replace README.md \\\"1.0.0\\\" \\\"2.0.0\\\"\",\n\
-               \"file.create hello.txt \\\"Hello, World!\\\"\",\n\
-               \"file.rename old.txt new.txt\",\n\
-               \"md.upsert_bullet CHANGELOG.md \\\"## Changes\\\" \\\"- Bumped to 2.0.0\\\"\"\n\
+               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"doc.set\", \"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
+               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello, World!\"},\n\
+               {\"op\": \"file.rename\", \"from\": \"old.txt\", \"to\": \"new.txt\"},\n\
+               {\"op\": \"md.upsert_bullet\", \"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Bumped to 2.0.0\"}\n\
              ]})\n\
              ```\n\n\
              ### Transactions (atomic multi-file edits)\n\n\
-             Use `transaction` for atomic operations that roll back on failure. \
-             The `plan` parameter is a JSON string:\n\n\
+             Use `transaction` when all operations must succeed or all roll back. \
+             Pass an `operations` array directly (no plan string needed):\n\n\
              ```json\n\
-             transaction({\"plan\": \"{\\\"version\\\": \\\"1\\\", \\\"operations\\\": [\
-             {\\\"op\\\": \\\"doc.set\\\", \\\"path\\\": \\\"config.json\\\", \\\"selector\\\": \\\"version\\\", \\\"value\\\": \\\"2.0.0\\\"}, \
-             {\\\"op\\\": \\\"replace\\\", \\\"path\\\": \\\"README.md\\\", \\\"from\\\": \\\"1.0.0\\\", \\\"to\\\": \\\"2.0.0\\\"}, \
-             {\\\"op\\\": \\\"file.create\\\", \\\"path\\\": \\\"hello.txt\\\", \\\"content\\\": \\\"Hello!\\\"}\
-             ]}\"})\n\
+             transaction({\"operations\": [\n\
+               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
+               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}\n\
+             ]})\n\
              ```\n\n\
              All operations succeed together or roll back.\n\n\
              ### Workflow: bump version across 6 files\n\n\
              ```json\n\
              batch({\"operations\": [\n\
-               \"doc.set package.json version \\\"2.0.0\\\"\",\n\
-               \"doc.set config.yaml app.version \\\"2.0.0\\\"\",\n\
-               \"doc.set config.json version \\\"2.0.0\\\"\",\n\
-               \"doc.set pyproject.toml project.version \\\"2.0.0\\\"\",\n\
-               \"replace version.txt \\\"1.0.0\\\" \\\"2.0.0\\\"\",\n\
-               \"replace README.md \\\"1.0.0\\\" \\\"2.0.0\\\"\"\n\
+               {\"op\": \"doc.set\", \"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"doc.set\", \"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"doc.set\", \"path\": \"pyproject.toml\", \"selector\": \"project.version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"replace\", \"path\": \"version.txt\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
+               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}\n\
              ]})\n\
-             ```\n\n",
+             ```\n\n\
+             ### Tidy: fix whitespace in all files\n\n\
+             ```json\n\
+             batch({\"operations\": [\n\
+               {\"op\": \"tidy.fix\", \"path\": \"dirty1.txt\"},\n\
+               {\"op\": \"tidy.fix\", \"path\": \"dirty2.txt\"}\n\
+             ]})\n\
+             ```\n\n\
+             Available operation types for batch and transaction:\n\n\
+             | op | Required fields | Description |\n\
+             |---|---|---|\n\
+             | `doc.set` | path, selector, value | Set a key in JSON/YAML/TOML |\n\
+             | `doc.delete` | path, selector | Delete a key |\n\
+             | `doc.merge` | path, value | Deep-merge an object |\n\
+             | `doc.append` | path, selector, value | Append to an array |\n\
+             | `replace` | path, from, to | Replace text in a file |\n\
+             | `file.create` | path, content | Create a file |\n\
+             | `file.delete` | path | Delete a file |\n\
+             | `file.rename` | from, to | Rename/move a file |\n\
+             | `tidy.fix` | path | Fix whitespace (trim trailing, ensure newline) |\n\
+             | `md.upsert_bullet` | path, heading, bullet | Add/update bullet under heading |\n\
+             | `md.table_append` | path, heading, row | Append row to table |\n\
+             | `md.replace_section` | path, heading, content | Replace section content |\n\
+             | `md.insert_after_heading` | path, heading, content | Insert after heading |\n\
+             | `patch.apply` | diff | Apply a unified diff |\n\n",
         );
     }
 
@@ -592,7 +616,7 @@ mod tests {
         assert!(out.contains("fix_whitespace("));
         assert!(out.contains("create_file("));
         assert!(out.contains("batch({\"operations\":"));
-        assert!(out.contains("transaction({\"plan\":"));
+        assert!(out.contains("transaction({\"operations\":"));
         // Decision rule mentions native tools by name
         assert!(out.contains("search_replace"));
         assert!(out.contains("run_terminal_command"));
