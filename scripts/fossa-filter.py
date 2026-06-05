@@ -29,6 +29,9 @@ import sys
 LLVM_EXCEPTION_CRATES = {
     "cc",
     "compiler_builtins",
+    "wit-bindgen-core",
+    "wit-bindgen-rust",
+    "wit-bindgen-rust-macro",
 }
 
 # License IDs that FOSSA uses for the LLVM exception variant.

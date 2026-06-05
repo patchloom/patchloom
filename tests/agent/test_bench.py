@@ -166,6 +166,15 @@ TASKS = [
     {
         "name": "tx_multi_file",
         "prompt": "Create hello.txt with content 'Hello, World!' and update version in package.json from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply.",
+        "prompt_mcp": (
+            "Create hello.txt with content 'Hello, World!' and update version in package.json "
+            "from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply. "
+            "Call the transaction MCP tool: "
+            'transaction({"operations": ['
+            '{"op": "file.create", "path": "hello.txt", "content": "Hello, World!"},'
+            '{"op": "doc.set", "path": "package.json", "selector": "version", "value": "3.0.0"}'
+            "]})"
+        ),
         "setup": lambda ws: (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
         "check": lambda ws: (ws / "hello.txt").exists() and json.loads((ws / "package.json").read_text()).get("version") == "3.0.0",
     },
@@ -186,8 +195,8 @@ TASKS = [
         "prompt_mcp": (
             "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
             "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
-            "and the badge in README.md. Use the patchloom batch tool to do all 6 "
-            "in a single call. Make sure every single file is updated."
+            "and the badge in README.md. Call the batch MCP tool with all 6 as operations. "
+            "Do NOT use run_terminal_command."
         ),
         "setup": lambda ws: [
             (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
@@ -214,6 +223,15 @@ TASKS = [
             "2. Replace 'v3' with 'v4' in README.md\n"
             "3. Add bullet '- v4.0.0 released' under the '## Changelog' heading in CHANGELOG.md\n"
             "All three must succeed together."
+        ),
+        "prompt_mcp": (
+            "Make these changes atomically. Call the transaction MCP tool:\n"
+            'transaction({"operations": ['
+            '{"op": "doc.set", "path": "config.json", "selector": "version", "value": "4.0.0"},'
+            '{"op": "replace", "path": "README.md", "from": "v3", "to": "v4"},'
+            '{"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changelog", "bullet": "- v4.0.0 released"}'
+            "]})\n"
+            "Do NOT use run_terminal_command."
         ),
         "setup": lambda ws: [
             (ws / "config.json").write_text(json.dumps({"name": "myapp", "version": "3.0.0"}, indent=2) + "\n"),
@@ -286,6 +304,11 @@ TASKS = [
         "prompt": (
             "Check all .txt files in the project for missing final newlines and trailing whitespace. "
             "Report which files have issues, then fix all the issues."
+        ),
+        "prompt_mcp": (
+            "Fix whitespace issues in all .txt files: trim trailing whitespace and ensure "
+            "each file ends with a newline. Use the patchloom fix_whitespace tool on each file. "
+            "Don't modify files that are already clean."
         ),
         "setup": lambda ws: [
             (ws / "clean.txt").write_text("This file is clean\n"),
@@ -452,6 +475,25 @@ def _run_session(agent, real_bin, tmp_path, mode):
         print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}{mcp_info}, {'OK' if success else 'FAIL'}")
         if not success:
             _print_failure_diag(ws, task["name"])
+            # Dump CLI shim log entries for this task
+            if new_calls > 0 and log_path.exists():
+                print(f"      --- CLI SHIM LOG ({new_calls} calls) ---")
+                all_log = log_path.read_text().splitlines()
+                for line in all_log[prev_count:]:
+                    line = line.strip()
+                    if line:
+                        print(f"      {line[:500]}")
+                print(f"      --- END CLI SHIM LOG ---")
+            # Dump MCP call log entries for this task
+            if mcp_calls_this_task > 0 and mcp_log.exists():
+                print(f"      --- MCP CALL LOG ({mcp_calls_this_task} calls) ---")
+                mcp_all = mcp_log.read_text().splitlines()
+                prev_mcp = _run_session._prev_mcp_count - mcp_calls_this_task
+                for line in mcp_all[prev_mcp:_run_session._prev_mcp_count]:
+                    line = line.strip()
+                    if line:
+                        print(f"      {line[:500]}")
+                print(f"      --- END MCP CALL LOG ---")
 
     session.total_secs = round(time.monotonic() - total_start, 1)
     if session.tasks:
