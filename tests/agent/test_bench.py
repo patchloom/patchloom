@@ -610,20 +610,34 @@ def test_dry_run_prompts(request):
     print(f"{'=' * 60}")
 
 
-@pytest.mark.timeout(1200)
+def _save_partial_results(request, n_runs):
+    """Save whatever benchmark results have been collected so far."""
+    all_runs = getattr(request.config, "_bench_runs", {})
+    if not all_runs:
+        return
+    modes = [m for m in ["patchloom", "mcp", "native"] if m in all_runs]
+    if modes:
+        results_dir = Path(__file__).resolve().parent.parent.parent / "benches" / "agent" / "results"
+        _save_results(all_runs, modes, results_dir, n_runs)
+
+
+@pytest.mark.timeout(0)  # dynamic: set below
 def test_multi_turn_patchloom(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
     """Run tasks in one session WITH patchloom CLI AGENTS.md."""
+    request.node.timeout = max(1200, n_runs * 700)
     print(f"\n  === Multi-turn session: PATCHLOOM mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
     runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "patchloom", n_runs)
     if not hasattr(request.config, "_bench_runs"):
         request.config._bench_runs = {}
     request.config._bench_runs["patchloom"] = runs
+    _save_partial_results(request, n_runs)
     assert any(t.success for r in runs for t in r.tasks)
 
 
-@pytest.mark.timeout(1200)
+@pytest.mark.timeout(0)  # dynamic: set below
 def test_multi_turn_mcp(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
     """Run tasks in one session WITH patchloom MCP tools."""
+    request.node.timeout = max(1200, n_runs * 700)
     if not _has_mcp_support(bench_patchloom_bin):
         pytest.skip("patchloom binary lacks MCP support (build with --features mcp)")
     print(f"\n  === Multi-turn session: MCP mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
@@ -631,12 +645,14 @@ def test_multi_turn_mcp(bench_agent, bench_patchloom_bin, tmp_path, n_runs, requ
     if not hasattr(request.config, "_bench_runs"):
         request.config._bench_runs = {}
     request.config._bench_runs["mcp"] = runs
+    _save_partial_results(request, n_runs)
     assert any(t.success for r in runs for t in r.tasks)
 
 
-@pytest.mark.timeout(1200)
+@pytest.mark.timeout(0)  # dynamic: set below
 def test_multi_turn_native(bench_agent, bench_patchloom_bin, tmp_path, n_runs, request):
     """Run tasks in one session WITHOUT patchloom (native tools only)."""
+    request.node.timeout = max(1200, n_runs * 700)
     print(f"\n  === Multi-turn session: NATIVE mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
     runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "native", n_runs)
     if not hasattr(request.config, "_bench_runs"):

@@ -152,7 +152,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "## Tool selection guide\n\n\
              | Task pattern | Tool to use |\n\
              |---|---|\n\
-             | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get` |\n\
+             | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |\n\

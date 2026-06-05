@@ -15724,14 +15724,14 @@ async fn test_mcp_doc_has_existing_key() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "doc_has",
-        serde_json::json!({"path": "data.json", "selector": "name"}),
+        "doc_query",
+        serde_json::json!({"action": "has", "path": "data.json", "selector": "name"}),
     )
     .await;
-    assert!(!is_error, "doc_has should succeed: {text}");
+    assert!(!is_error, "doc_query has should succeed: {text}");
     assert!(
         text.contains("true"),
-        "doc_has should return true for existing key: {text}"
+        "doc_query has should return true for existing key: {text}"
     );
     client.cancel().await.unwrap();
 }
@@ -16591,18 +16591,18 @@ async fn test_mcp_doc_keys_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "doc_keys",
-        serde_json::json!({"path": "config.json", "selector": "."}),
+        "doc_query",
+        serde_json::json!({"action": "keys", "path": "config.json", "selector": "."}),
     )
     .await;
-    assert!(!is_error, "doc_keys should succeed: {text}");
+    assert!(!is_error, "doc_query keys should succeed: {text}");
     assert!(
         text.contains("name"),
-        "doc_keys output should contain 'name': {text}"
+        "doc_query keys output should contain 'name': {text}"
     );
     assert!(
         text.contains("version"),
-        "doc_keys output should contain 'version': {text}"
+        "doc_query keys output should contain 'version': {text}"
     );
     client.cancel().await.unwrap();
 }
@@ -16618,12 +16618,12 @@ async fn test_mcp_doc_len_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "doc_len",
-        serde_json::json!({"path": "config.json", "selector": "tags"}),
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "config.json", "selector": "tags"}),
     )
     .await;
-    assert!(!is_error, "doc_len should succeed: {text}");
-    assert!(text.contains('3'), "doc_len should return 3: {text}");
+    assert!(!is_error, "doc_query len should succeed: {text}");
+    assert!(text.contains('3'), "doc_query len should return 3: {text}");
     client.cancel().await.unwrap();
 }
 
@@ -16642,14 +16642,14 @@ async fn test_mcp_doc_select_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "doc_select",
-        serde_json::json!({"path": "config.json", "selector": "users[role=admin]"}),
+        "doc_query",
+        serde_json::json!({"action": "select", "path": "config.json", "selector": "users[role=admin]"}),
     )
     .await;
-    assert!(!is_error, "doc_select should succeed: {text}");
+    assert!(!is_error, "doc_query select should succeed: {text}");
     assert!(
         text.contains("alice"),
-        "doc_select should return matching item: {text}"
+        "doc_query select should return matching item: {text}"
     );
     client.cancel().await.unwrap();
 }
@@ -16669,18 +16669,18 @@ async fn test_mcp_doc_flatten_round_trip() {
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(
         &client,
-        "doc_flatten",
-        serde_json::json!({"path": "config.json"}),
+        "doc_query",
+        serde_json::json!({"action": "flatten", "path": "config.json"}),
     )
     .await;
-    assert!(!is_error, "doc_flatten should succeed: {text}");
+    assert!(!is_error, "doc_query flatten should succeed: {text}");
     assert!(
         text.contains("db.host"),
-        "doc_flatten should contain 'db.host': {text}"
+        "doc_query flatten should contain 'db.host': {text}"
     );
     assert!(
         text.contains("db.port"),
-        "doc_flatten should contain 'db.port': {text}"
+        "doc_query flatten should contain 'db.port': {text}"
     );
     client.cancel().await.unwrap();
 }
