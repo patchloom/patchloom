@@ -97,11 +97,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `doc_update` | Update array elements matching a predicate |
 | `doc_move` | Move a value from one selector path to another |
 | `doc_get` | Read a value by selector (read-only) |
-| `doc_has` | Check whether a selector path exists (read-only) |
-| `doc_keys` | List object keys at a selector path (read-only) |
-| `doc_len` | Count items in an array or object (read-only) |
-| `doc_select` | Filter array items by selector (read-only) |
-| `doc_flatten` | List all leaf selector paths and values (read-only) |
+| `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only) |
 | `doc_diff` | Compare two structured files (read-only) |
 | `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |

@@ -9,7 +9,7 @@
 
 | Task pattern | Tool to use |
 |---|---|
-| Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get` |
+| Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
 | Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |

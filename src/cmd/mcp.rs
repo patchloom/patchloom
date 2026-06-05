@@ -310,18 +310,14 @@ pub struct SearchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct DocSelectorParams {
+pub struct DocQueryParams {
+    /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
+    /// "select" (filter array), or "flatten" (list all paths).
+    pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Selector to query (e.g., "version", "db.pool", "items[*]").
-    pub selector: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DocFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
+    /// Selector to query. Required for has/keys/len/select; ignored for flatten.
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -808,80 +804,52 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Check whether a selector path exists in a JSON, YAML, or TOML file. Returns true/false. Example: {\"path\": \"config.json\", \"selector\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector), \"len\" (count items at selector), \"select\" (filter array by predicate selector), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
-    async fn doc_has(
+    async fn doc_query(
         &self,
-        Parameters(p): Parameters<DocSelectorParams>,
+        Parameters(p): Parameters<DocQueryParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         let abs = self.cwd.join(&p.path);
-        let action = crate::cmd::doc::DocAction::Has {
-            file: abs.to_string_lossy().into_owned(),
-            selector: p.selector,
-        };
-        doc_readonly(&action)
-    }
-
-    #[tool(
-        description = "List object keys at a selector path in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts\"}"
-    )]
-    async fn doc_keys(
-        &self,
-        Parameters(p): Parameters<DocSelectorParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        let abs = self.cwd.join(&p.path);
-        let action = crate::cmd::doc::DocAction::Keys {
-            file: abs.to_string_lossy().into_owned(),
-            selector: p.selector,
-        };
-        doc_readonly(&action)
-    }
-
-    #[tool(
-        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers\"}"
-    )]
-    async fn doc_len(
-        &self,
-        Parameters(p): Parameters<DocSelectorParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        let abs = self.cwd.join(&p.path);
-        let action = crate::cmd::doc::DocAction::Len {
-            file: abs.to_string_lossy().into_owned(),
-            selector: p.selector,
-        };
-        doc_readonly(&action)
-    }
-
-    #[tool(
-        description = "Filter array items by selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"users[role=admin]\"}"
-    )]
-    async fn doc_select(
-        &self,
-        Parameters(p): Parameters<DocSelectorParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        let abs = self.cwd.join(&p.path);
-        let action = crate::cmd::doc::DocAction::Select {
-            file: abs.to_string_lossy().into_owned(),
-            selector: p.selector,
-        };
-        doc_readonly(&action)
-    }
-
-    #[tool(
-        description = "List all leaf selector paths and values in a JSON, YAML, or TOML file. Useful for exploring unknown file structure. Example: {\"path\": \"config.yaml\"}"
-    )]
-    async fn doc_flatten(
-        &self,
-        Parameters(p): Parameters<DocFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        let abs = self.cwd.join(&p.path);
-        let action = crate::cmd::doc::DocAction::Flatten {
-            file: abs.to_string_lossy().into_owned(),
+        let file = abs.to_string_lossy().into_owned();
+        let action = match p.action.as_str() {
+            "has" => {
+                let selector = p.selector.ok_or_else(|| {
+                    McpError::invalid_params("'has' action requires a selector".to_string(), None)
+                })?;
+                crate::cmd::doc::DocAction::Has { file, selector }
+            }
+            "keys" => {
+                let selector = p.selector.ok_or_else(|| {
+                    McpError::invalid_params("'keys' action requires a selector".to_string(), None)
+                })?;
+                crate::cmd::doc::DocAction::Keys { file, selector }
+            }
+            "len" => {
+                let selector = p.selector.ok_or_else(|| {
+                    McpError::invalid_params("'len' action requires a selector".to_string(), None)
+                })?;
+                crate::cmd::doc::DocAction::Len { file, selector }
+            }
+            "select" => {
+                let selector = p.selector.ok_or_else(|| {
+                    McpError::invalid_params(
+                        "'select' action requires a selector".to_string(),
+                        None,
+                    )
+                })?;
+                crate::cmd::doc::DocAction::Select { file, selector }
+            }
+            "flatten" => crate::cmd::doc::DocAction::Flatten { file },
+            other => {
+                return Err(McpError::invalid_params(
+                    format!(
+                        "unknown action '{other}'; valid actions: has, keys, len, select, flatten"
+                    ),
+                    None,
+                ));
+            }
         };
         doc_readonly(&action)
     }
@@ -1548,11 +1516,7 @@ mod tests {
             .collect::<std::collections::BTreeMap<_, _>>();
         assert!(names.contains(&"doc_set"), "missing doc_set tool");
         assert!(names.contains(&"doc_get"), "missing doc_get tool");
-        assert!(names.contains(&"doc_has"), "missing doc_has tool");
-        assert!(names.contains(&"doc_keys"), "missing doc_keys tool");
-        assert!(names.contains(&"doc_len"), "missing doc_len tool");
-        assert!(names.contains(&"doc_select"), "missing doc_select tool");
-        assert!(names.contains(&"doc_flatten"), "missing doc_flatten tool");
+        assert!(names.contains(&"doc_query"), "missing doc_query tool");
         assert!(names.contains(&"doc_diff"), "missing doc_diff tool");
         assert!(names.contains(&"read_file"), "missing read_file tool");
         assert!(names.contains(&"search_files"), "missing search_files tool");
@@ -1597,7 +1561,7 @@ mod tests {
             "missing md_insert_before_heading tool"
         );
         assert!(names.contains(&"transaction"), "missing transaction tool");
-        assert_eq!(names.len(), 33, "expected 33 tools, got {}", names.len());
+        assert_eq!(names.len(), 29, "expected 29 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 

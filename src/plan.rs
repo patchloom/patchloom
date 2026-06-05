@@ -40,7 +40,7 @@ pub struct PlanWritePolicy {
 #[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 #[serde(tag = "op")]
 pub enum Operation {
-    #[serde(rename = "replace")]
+    #[serde(rename = "replace", alias = "replace_text")]
     Replace {
         glob: Option<String>,
         path: Option<String>,
@@ -57,103 +57,106 @@ pub enum Operation {
         #[serde(default)]
         if_exists: bool,
     },
-    #[serde(rename = "doc.set")]
+    #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {
         path: String,
         selector: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.delete")]
+    #[serde(rename = "doc.delete", alias = "doc_delete")]
     DocDelete { path: String, selector: String },
-    #[serde(rename = "doc.merge")]
+    #[serde(rename = "doc.merge", alias = "doc_merge")]
     DocMerge {
         path: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.append")]
+    #[serde(rename = "doc.append", alias = "doc_append")]
     DocAppend {
         path: String,
         selector: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.prepend")]
+    #[serde(rename = "doc.prepend", alias = "doc_prepend")]
     DocPrepend {
         path: String,
         selector: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.update")]
+    #[serde(rename = "doc.update", alias = "doc_update")]
     DocUpdate {
         path: String,
         selector: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.move")]
+    #[serde(rename = "doc.move", alias = "doc_move")]
     DocMove {
         path: String,
         from: String,
         to: String,
     },
-    #[serde(rename = "doc.ensure")]
+    #[serde(rename = "doc.ensure", alias = "doc_ensure")]
     DocEnsure {
         path: String,
         selector: String,
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.delete_where")]
+    #[serde(rename = "doc.delete_where", alias = "doc_delete_where")]
     DocDeleteWhere {
         path: String,
         selector: String,
         predicate: String,
     },
-    #[serde(rename = "md.replace_section")]
+    #[serde(rename = "md.replace_section", alias = "md_replace_section")]
     MdReplaceSection {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.insert_after_heading")]
+    #[serde(rename = "md.insert_after_heading", alias = "md_insert_after_heading")]
     MdInsertAfterHeading {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.insert_before_heading")]
+    #[serde(
+        rename = "md.insert_before_heading",
+        alias = "md_insert_before_heading"
+    )]
     MdInsertBeforeHeading {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.upsert_bullet")]
+    #[serde(rename = "md.upsert_bullet", alias = "md_upsert_bullet")]
     MdUpsertBullet {
         path: String,
         heading: String,
         bullet: String,
     },
-    #[serde(rename = "md.table_append")]
+    #[serde(rename = "md.table_append", alias = "md_table_append")]
     MdTableAppend {
         path: String,
         heading: String,
         row: String,
     },
-    #[serde(rename = "md.dedupe_headings")]
+    #[serde(rename = "md.dedupe_headings", alias = "md_dedupe_headings")]
     MdDedupeHeadings { path: String },
-    #[serde(rename = "tidy.fix")]
+    #[serde(rename = "tidy.fix", alias = "fix_whitespace")]
     TidyFix {
         path: String,
         ensure_final_newline: Option<bool>,
         trim_trailing_whitespace: Option<bool>,
         normalize_eol: Option<String>,
     },
-    #[serde(rename = "file.create")]
+    #[serde(rename = "file.create", alias = "create_file")]
     FileCreate {
         path: String,
         content: String,
         force: Option<bool>,
     },
-    #[serde(rename = "file.delete")]
+    #[serde(rename = "file.delete", alias = "delete_file")]
     FileDelete { path: String },
-    #[serde(rename = "file.rename")]
+    #[serde(rename = "file.rename", alias = "move_file")]
     FileRename {
         from: String,
         to: String,
@@ -161,12 +164,12 @@ pub enum Operation {
         #[serde(default)]
         force: bool,
     },
-    #[serde(rename = "patch.apply")]
+    #[serde(rename = "patch.apply", alias = "apply_patch")]
     PatchApply {
         /// Inline diff text to apply.
         diff: String,
     },
-    #[serde(rename = "search")]
+    #[serde(rename = "search", alias = "search_files")]
     Search {
         path: String,
         pattern: String,
@@ -186,13 +189,13 @@ pub enum Operation {
         /// Assert that the total match count equals N. Fails the operation otherwise.
         assert_count: Option<usize>,
     },
-    #[serde(rename = "read")]
+    #[serde(rename = "read", alias = "read_file")]
     Read {
         path: String,
         /// Optional line range (e.g., "10:25").
         lines: Option<String>,
     },
-    #[serde(rename = "md.lint_agents")]
+    #[serde(rename = "md.lint_agents", alias = "md_lint")]
     MdLintAgents { path: String },
 }
 
@@ -340,6 +343,34 @@ mod tests {
         ]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.operations.len(), 30);
+    }
+
+    #[test]
+    fn parse_op_aliases_match_mcp_tool_names() {
+        // MCP tools use underscores (doc_set, create_file). Plan ops use dots
+        // (doc.set, file.create). Both forms should parse via serde aliases.
+        let json = r#"{"version": "1", "operations": [
+            {"op": "replace_text", "from": "a", "to": "b"},
+            {"op": "doc_set", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc_delete", "path": "f.json", "selector": "k"},
+            {"op": "doc_merge", "path": "f.json", "value": {}},
+            {"op": "doc_append", "path": "f.json", "selector": "arr", "value": 1},
+            {"op": "doc_ensure", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc_delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"},
+            {"op": "md_replace_section", "path": "f.md", "heading": "H", "content": "c"},
+            {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
+            {"op": "md_table_append", "path": "f.md", "heading": "H", "row": "| a |"},
+            {"op": "fix_whitespace", "path": "f.txt"},
+            {"op": "create_file", "path": "f.txt", "content": "c"},
+            {"op": "delete_file", "path": "f.txt"},
+            {"op": "move_file", "from": "a.txt", "to": "b.txt"},
+            {"op": "apply_patch", "diff": "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b"},
+            {"op": "search_files", "path": ".", "pattern": "x"},
+            {"op": "read_file", "path": "f.txt"},
+            {"op": "md_lint", "path": "f.md"}
+        ]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.operations.len(), 18);
     }
 
     #[test]
