@@ -169,11 +169,7 @@ TASKS = [
         "prompt_mcp": (
             "Create hello.txt with content 'Hello, World!' and update version in package.json "
             "from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply. "
-            "Call the transaction MCP tool: "
-            'transaction({"operations": ['
-            '{"op": "file.create", "path": "hello.txt", "content": "Hello, World!"},'
-            '{"op": "doc.set", "path": "package.json", "selector": "version", "value": "3.0.0"}'
-            "]})"
+            "Use the transaction tool with file.create and doc.set operations."
         ),
         "setup": lambda ws: (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
         "check": lambda ws: (ws / "hello.txt").exists() and json.loads((ws / "package.json").read_text()).get("version") == "3.0.0",
@@ -195,8 +191,7 @@ TASKS = [
         "prompt_mcp": (
             "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
             "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
-            "and the badge in README.md. Call the batch MCP tool with all 6 as operations. "
-            "Do NOT use run_terminal_command."
+            "and the badge in README.md. Use the batch tool to do all 6 in one call."
         ),
         "setup": lambda ws: [
             (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
@@ -225,13 +220,11 @@ TASKS = [
             "All three must succeed together."
         ),
         "prompt_mcp": (
-            "Make these changes atomically. Call the transaction MCP tool:\n"
-            'transaction({"operations": ['
-            '{"op": "doc.set", "path": "config.json", "selector": "version", "value": "4.0.0"},'
-            '{"op": "replace", "path": "README.md", "from": "v3", "to": "v4"},'
-            '{"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changelog", "bullet": "- v4.0.0 released"}'
-            "]})\n"
-            "Do NOT use run_terminal_command."
+            "Make these changes atomically using the transaction tool:\n"
+            "1. Set the 'version' key to '4.0.0' in config.json (doc.set op)\n"
+            "2. Replace 'v3' with 'v4' in README.md (replace op)\n"
+            "3. Add bullet '- v4.0.0 released' under '## Changelog' in CHANGELOG.md (md.upsert_bullet op)\n"
+            "All three in one transaction call."
         ),
         "setup": lambda ws: [
             (ws / "config.json").write_text(json.dumps({"name": "myapp", "version": "3.0.0"}, indent=2) + "\n"),
