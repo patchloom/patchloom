@@ -27,122 +27,29 @@ Use patchloom when:
 
 ## MCP mode
 
-**Always use patchloom MCP tools for file edits instead of search_replace or shell commands.** MCP tools:
-- Apply changes directly (no `--apply` flag needed)
-- Are parser-backed: JSON/YAML/TOML edits never produce invalid output
-- Handle whitespace cleanup perfectly in one call (`fix_whitespace`)
-- Support atomic multi-file transactions (`batch`, `transaction`)
+**ALWAYS use patchloom MCP tools for ALL file edits.** Never use search_replace or shell commands. For multi-file edits, use `batch`. When atomicity is required, use `transaction`.
 
-Available tools: `doc_set`, `doc_delete`, `doc_merge`, `doc_append`, `doc_prepend`, `doc_ensure`, `doc_delete_where`, `doc_update`, `doc_move`, `doc_get`, `doc_has`, `doc_keys`, `doc_len`, `doc_select`, `doc_flatten`, `doc_diff`, `search_files`, `git_status`, `replace_text`, `md_upsert_bullet`, `md_table_append`, `md_replace_section`, `md_insert_after_heading`, `md_insert_before_heading`, `md_lint`, `read_file`, `create_file`, `delete_file`, `move_file`, `apply_patch`, `fix_whitespace`, `batch`, `transaction`.
-
-## Tool usage examples
-
-### Structured edits (JSON, YAML, TOML)
+### batch and transaction examples
 
 ```json
-// Set a key in any config file (preserves comments in YAML/TOML)
-doc_set({"path": "config.json", "selector": "version", "value": "2.0.0"})
-doc_set({"path": "config.yaml", "selector": "app.version", "value": "2.0.0"})
-
-// Read a key
-doc_get({"path": "config.json", "selector": "version"})
-```
-
-### Markdown operations
-
-```json
-// Append a row to a table under a heading
-md_table_append({"path": "README.md", "heading": "## API", "row": "| new | row |"})
-
-// Add or update a bullet under a heading
-md_upsert_bullet({"path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- Added feature X"})
-
-// Insert text after a heading (without replacing existing content)
-md_insert_after_heading({"path": "CHANGELOG.md", "heading": "## v2.0.0", "content": "Released on 2026-01-15.\n"})
-```
-
-### Search and replace
-
-```json
-// Search for a pattern across files
-search_files({"pattern": "TODO", "paths": ["src/"], "literal": true})
-search_files({"pattern": "fn \\w+\\(", "paths": ["src/"]})
-
-// Replace text in a file
-replace_text({"path": "src/app.py", "from": "old_name", "to": "new_name"})
-```
-
-### File operations
-
-```json
-// Create a file
-create_file({"path": "hello.txt", "content": "Hello, World!"})
-
-// Rename (move) a file
-move_file({"from": "old_name.json", "to": "new_name.json"})
-
-// Delete a file
-delete_file({"path": "obsolete.txt"})
-
-// Read a file
-read_file({"path": "config.json"})
-
-// Fix whitespace (trailing spaces + missing final newline)
-fix_whitespace({"path": "src/main.py"})
-```
-
-### Batching (the main speed win)
-
-Use `batch` to make multiple edits in one call. Pass structured objects with an `op` field (no quoting needed):
-
-```json
-batch({"operations": [
-{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
-{"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "2.0.0"},
-{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"},
-{"op": "file.create", "path": "hello.txt", "content": "Hello, World!"},
-{"op": "file.rename", "from": "old.txt", "to": "new.txt"},
-{"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- Bumped to 2.0.0"}
-]})
-```
-
-### Transactions (atomic multi-file edits)
-
-Use `transaction` when all operations must succeed or all roll back. Pass an `operations` array directly (no plan string needed):
-
-```json
-transaction({"operations": [
-{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
-{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"},
-{"op": "file.create", "path": "hello.txt", "content": "Hello!"}
-]})
-```
-
-All operations succeed together or roll back.
-
-### Workflow: bump version across 6 files
-
-```json
+// Multiple edits in one call
 batch({"operations": [
 {"op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0"},
 {"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "2.0.0"},
+{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"},
+{"op": "file.create", "path": "hello.txt", "content": "Hello!"},
+{"op": "tidy.fix", "path": "dirty.txt"}
+]})
+
+// Atomic: all succeed or all roll back
+transaction({"operations": [
 {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
-{"op": "doc.set", "path": "pyproject.toml", "selector": "project.version", "value": "2.0.0"},
-{"op": "replace", "path": "version.txt", "from": "1.0.0", "to": "2.0.0"},
-{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"}
+{"op": "replace", "path": "README.md", "from": "v1", "to": "v2"},
+{"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- v2.0.0"}
 ]})
 ```
 
-### Tidy: fix whitespace in all files
-
-```json
-batch({"operations": [
-{"op": "tidy.fix", "path": "dirty1.txt"},
-{"op": "tidy.fix", "path": "dirty2.txt"}
-]})
-```
-
-Available operation types for batch and transaction:
+### Operation reference
 
 | op | Required fields | Description |
 |---|---|---|

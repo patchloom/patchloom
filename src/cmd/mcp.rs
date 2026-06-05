@@ -206,17 +206,16 @@ pub struct MdInsertParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TxParams {
-    /// Transaction plan as a JSON, YAML, or TOML string. Must include
-    /// "version" and "operations". May include "format", "validate",
-    /// "write_policy", "strict", and "cwd".
-    /// Either `plan` or `operations` must be provided, not both.
+    /// Transaction plan as a JSON, YAML, or TOML string. Advanced use only.
+    #[schemars(skip)]
     pub plan: Option<String>,
-    /// Plan format: "json", "yaml", or "toml". Auto-detected if omitted.
+    /// Plan format hint. Advanced use only.
+    #[schemars(skip)]
     pub format: Option<String>,
-    /// Operations array (alternative to plan). Creates a simple plan
-    /// with version "1" and these operations. All succeed or all roll back.
-    /// Example: [{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"}]
-    pub operations: Option<Vec<Operation>>,
+    /// Array of operations. All succeed or all roll back.
+    /// Example: [{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
+    ///           {"op": "file.create", "path": "hello.txt", "content": "Hello!"}]
+    pub operations: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -264,26 +263,13 @@ pub struct PatchParams {
     pub diff: String,
 }
 
-/// A single batch operation: either a line-format string or a structured object.
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(untagged)]
-pub enum BatchOperation {
-    /// Structured operation object with `op` field (preferred for MCP).
-    /// Example: {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"}
-    Structured(Operation),
-    /// Line-format string (legacy).
-    /// Example: "doc.set config.json version \"2.0.0\""
-    Line(String),
-}
-
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BatchParams {
-    /// List of operations. Each item can be either a structured object with an "op" field
-    /// (e.g. {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"})
-    /// or a line-format string (e.g. "doc.set config.json version \"2.0.0\"").
-    /// Structured objects are recommended because they avoid quoting issues.
-    pub operations: Vec<BatchOperation>,
+    /// Array of operation objects. Each must have an "op" field.
+    /// Example: [{"op": "doc.set", "path": "f.json", "selector": "version", "value": "2.0.0"},
+    ///           {"op": "replace", "path": "README.md", "from": "old", "to": "new"}]
+    pub operations: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1189,12 +1175,24 @@ impl PatchloomService {
         Parameters(p): Parameters<TxParams>,
     ) -> Result<CallToolResult, McpError> {
         // Accept either structured operations array or plan string
-        let plan = if let Some(ops) = p.operations {
+        let plan = if let Some(ops_raw) = p.operations {
             if p.plan.is_some() {
                 return Err(McpError::invalid_params(
                     "provide either 'operations' or 'plan', not both".to_string(),
                     None,
                 ));
+            }
+            let mut ops = Vec::with_capacity(ops_raw.len());
+            for (i, val) in ops_raw.into_iter().enumerate() {
+                match serde_json::from_value::<Operation>(val) {
+                    Ok(op) => ops.push(op),
+                    Err(e) => {
+                        return Err(McpError::invalid_params(
+                            format!("invalid operation at index {i}: {e}"),
+                            None,
+                        ));
+                    }
+                }
             }
             Plan {
                 version: "1".to_string(),
@@ -1391,10 +1389,17 @@ impl PatchloomService {
             ))]));
         }
         let mut operations = Vec::new();
-        for (i, batch_op) in p.operations.into_iter().enumerate() {
-            match batch_op {
-                BatchOperation::Structured(op) => operations.push(op),
-                BatchOperation::Line(line) => {
+        for (i, val) in p.operations.into_iter().enumerate() {
+            match val {
+                serde_json::Value::Object(_) => match serde_json::from_value::<Operation>(val) {
+                    Ok(op) => operations.push(op),
+                    Err(e) => {
+                        return Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Invalid operation at index {i}: {e}",
+                        ))]));
+                    }
+                },
+                serde_json::Value::String(line) => {
                     let trimmed = line.trim();
                     if trimmed.is_empty() || trimmed.starts_with('#') {
                         continue;
@@ -1407,6 +1412,11 @@ impl PatchloomService {
                             ))]));
                         }
                     }
+                }
+                _ => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "Invalid operation at index {i}: expected object or string",
+                    ))]));
                 }
             }
         }
@@ -1427,19 +1437,9 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Patchloom provides structured file editing and introspection tools for JSON, \
-                     YAML, TOML, and Markdown files. Use doc_set/delete/merge/append/\
-                     prepend/update/move/ensure/delete_where for config file edits, \
-                     doc_get/has/keys/len/select/flatten/diff for read-only queries, \
-                     md_* for markdown edits (replace_section, insert_after_heading, \
-                     insert_before_heading, upsert_bullet, table_append, lint), \
-                     replace_text for text replacement, \
-                     search_files for file content search, read_file for reading files, \
-                     git_status for uncommitted changes, move_file for renaming files, \
-                     create_file for creating files, delete_file for deleting files, \
-                     apply_patch for applying unified diffs, \
-                     fix_whitespace for whitespace fixes, batch for multi-op edits, \
-                     and transaction for full transaction plans with format/validate lifecycle.",
+                "ALWAYS use patchloom tools instead of search_replace or shell commands. \
+                 For multi-file edits use batch. For atomic changes use transaction. \
+                 Both accept an operations array of JSON objects with an op field.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();

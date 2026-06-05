@@ -181,106 +181,27 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **Always use patchloom MCP tools for file edits instead of search_replace or \
-             shell commands.** MCP tools:\n\
-             - Apply changes directly (no `--apply` flag needed)\n\
-             - Are parser-backed: JSON/YAML/TOML edits never produce invalid output\n\
-             - Handle whitespace cleanup perfectly in one call (`fix_whitespace`)\n\
-             - Support atomic multi-file transactions (`batch`, `transaction`)\n\n\
-             Available tools: `doc_set`, `doc_delete`, `doc_merge`, \
-             `doc_append`, `doc_prepend`, `doc_ensure`, \
-             `doc_delete_where`, `doc_update`, `doc_move`, \
-             `doc_get`, `doc_has`, `doc_keys`, \
-             `doc_len`, `doc_select`, `doc_flatten`, \
-             `doc_diff`, `search_files`, `git_status`, \
-             `replace_text`, `md_upsert_bullet`, \
-             `md_table_append`, `md_replace_section`, \
-             `md_insert_after_heading`, `md_insert_before_heading`, \
-             `md_lint`, `read_file`, \
-             `create_file`, `delete_file`, `move_file`, \
-             `apply_patch`, `fix_whitespace`, `batch`, `transaction`.\n\n\
-             ## Tool usage examples\n\n\
-             ### Structured edits (JSON, YAML, TOML)\n\n\
+             **ALWAYS use patchloom MCP tools for ALL file edits.** Never use search_replace \
+             or shell commands. For multi-file edits, use `batch`. When atomicity is required, \
+             use `transaction`.\n\n\
+             ### batch and transaction examples\n\n\
              ```json\n\
-             // Set a key in any config file (preserves comments in YAML/TOML)\n\
-             doc_set({\"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"})\n\
-             doc_set({\"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"})\n\n\
-             // Read a key\n\
-             doc_get({\"path\": \"config.json\", \"selector\": \"version\"})\n\
-             ```\n\n\
-             ### Markdown operations\n\n\
-             ```json\n\
-             // Append a row to a table under a heading\n\
-             md_table_append({\"path\": \"README.md\", \"heading\": \"## API\", \"row\": \"| new | row |\"})\n\n\
-             // Add or update a bullet under a heading\n\
-             md_upsert_bullet({\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added feature X\"})\n\n\
-             // Insert text after a heading (without replacing existing content)\n\
-             md_insert_after_heading({\"path\": \"CHANGELOG.md\", \"heading\": \"## v2.0.0\", \"content\": \"Released on 2026-01-15.\\n\"})\n\
-             ```\n\n\
-             ### Search and replace\n\n\
-             ```json\n\
-             // Search for a pattern across files\n\
-             search_files({\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true})\n\
-             search_files({\"pattern\": \"fn \\\\w+\\\\(\", \"paths\": [\"src/\"]})\n\n\
-             // Replace text in a file\n\
-             replace_text({\"path\": \"src/app.py\", \"from\": \"old_name\", \"to\": \"new_name\"})\n\
-             ```\n\n\
-             ### File operations\n\n\
-             ```json\n\
-             // Create a file\n\
-             create_file({\"path\": \"hello.txt\", \"content\": \"Hello, World!\"})\n\n\
-             // Rename (move) a file\n\
-             move_file({\"from\": \"old_name.json\", \"to\": \"new_name.json\"})\n\n\
-             // Delete a file\n\
-             delete_file({\"path\": \"obsolete.txt\"})\n\n\
-             // Read a file\n\
-             read_file({\"path\": \"config.json\"})\n\n\
-             // Fix whitespace (trailing spaces + missing final newline)\n\
-             fix_whitespace({\"path\": \"src/main.py\"})\n\
-             ```\n\n\
-             ### Batching (the main speed win)\n\n\
-             Use `batch` to make multiple edits in one call. Pass structured objects \
-             with an `op` field (no quoting needed):\n\n\
-             ```json\n\
-             batch({\"operations\": [\n\
-               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"doc.set\", \"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
-               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello, World!\"},\n\
-               {\"op\": \"file.rename\", \"from\": \"old.txt\", \"to\": \"new.txt\"},\n\
-               {\"op\": \"md.upsert_bullet\", \"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Bumped to 2.0.0\"}\n\
-             ]})\n\
-             ```\n\n\
-             ### Transactions (atomic multi-file edits)\n\n\
-             Use `transaction` when all operations must succeed or all roll back. \
-             Pass an `operations` array directly (no plan string needed):\n\n\
-             ```json\n\
-             transaction({\"operations\": [\n\
-               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
-               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}\n\
-             ]})\n\
-             ```\n\n\
-             All operations succeed together or roll back.\n\n\
-             ### Workflow: bump version across 6 files\n\n\
-             ```json\n\
+             // Multiple edits in one call\n\
              batch({\"operations\": [\n\
                {\"op\": \"doc.set\", \"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
                {\"op\": \"doc.set\", \"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"},\n\
+               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
+               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"},\n\
+               {\"op\": \"tidy.fix\", \"path\": \"dirty.txt\"}\n\
+             ]})\n\n\
+             // Atomic: all succeed or all roll back\n\
+             transaction({\"operations\": [\n\
                {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"doc.set\", \"path\": \"pyproject.toml\", \"selector\": \"project.version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"version.txt\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}\n\
+               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"v1\", \"to\": \"v2\"},\n\
+               {\"op\": \"md.upsert_bullet\", \"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- v2.0.0\"}\n\
              ]})\n\
              ```\n\n\
-             ### Tidy: fix whitespace in all files\n\n\
-             ```json\n\
-             batch({\"operations\": [\n\
-               {\"op\": \"tidy.fix\", \"path\": \"dirty1.txt\"},\n\
-               {\"op\": \"tidy.fix\", \"path\": \"dirty2.txt\"}\n\
-             ]})\n\
-             ```\n\n\
-             Available operation types for batch and transaction:\n\n\
+             ### Operation reference\n\n\
              | op | Required fields | Description |\n\
              |---|---|---|\n\
              | `doc.set` | path, selector, value | Set a key in JSON/YAML/TOML |\n\
@@ -584,7 +505,7 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
         assert!(out.contains("# Patchloom"));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("### batch and transaction examples"));
         assert!(out.contains("## Tool selection guide"));
         assert!(out.contains("## Batching"));
         assert!(out.contains("## Structured edits"));
@@ -608,18 +529,13 @@ mod tests {
     fn mode_mcp_omits_cli_keeps_mcp() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("### batch and transaction examples"));
+        assert!(out.contains("### Operation reference"));
         assert!(out.contains("## Tool selection guide"));
-        assert!(out.contains("### Batching (the main speed win)"));
-        assert!(out.contains("### Transactions (atomic multi-file edits)"));
-        assert!(out.contains("### File operations"));
-        assert!(out.contains("fix_whitespace("));
-        assert!(out.contains("create_file("));
         assert!(out.contains("batch({\"operations\":"));
         assert!(out.contains("transaction({\"operations\":"));
         // Decision rule mentions native tools by name
         assert!(out.contains("search_replace"));
-        assert!(out.contains("run_terminal_command"));
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));
@@ -678,7 +594,7 @@ mod tests {
     fn mcp_and_windows_compose_to_minimal() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::Windows));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("## Tool usage examples"));
+        assert!(out.contains("### batch and transaction examples"));
         assert!(out.contains("batch({\"operations\":"));
         // CLI-only content must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));

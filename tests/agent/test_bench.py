@@ -100,12 +100,15 @@ def _make_workspace(tmp_path, real_bin, mode):
         # Configure grok to discover patchloom as an MCP server
         grok_dir = ws / ".grok"
         grok_dir.mkdir(exist_ok=True)
+        mcp_log = ws / "mcp_calls.jsonl"
         (grok_dir / "config.toml").write_text(
             f'[mcp_servers.patchloom]\n'
             f'command = "{real_bin}"\n'
             f'args = ["mcp-server"]\n'
             f'startup_timeout_sec = 10\n'
             f'tool_timeout_sec = 30\n'
+            f'[mcp_servers.patchloom.env]\n'
+            f'PATCHLOOM_MCP_LOG = "{mcp_log}"\n'
         )
         # Focused MCP AGENTS.md with tool list and usage guidance
         result = subprocess.run(
@@ -333,12 +336,46 @@ def _get_prompt(task: dict, mode: str) -> str:
     return task.get(key, task["prompt"])
 
 
+def _print_failure_diag(ws, task_name):
+    """Print workspace state for failed tasks to diagnose why the check failed."""
+    # Map task names to relevant files
+    diag_files = {
+        "replace": ["src/app.py", "src/test_app.py"],
+        "doc_set": ["config.json"],
+        "md_table": ["README.md"],
+        "tx_multi_file": ["hello.txt", "package.json"],
+        "batch_6_files": ["package.json", "pyproject.toml", "config.yaml", "config.json", "version.txt", "README.md"],
+        "batch_mixed_ops": ["config.json", "README.md", "CHANGELOG.md"],
+        "yaml_comment_preserve": ["config.yaml"],
+        "md_insert": ["CHANGELOG.md"],
+        "file_ops": ["LICENSE", "settings.json", "old_settings.json"],
+        "tidy": ["dirty1.txt", "dirty2.txt", "clean.txt"],
+    }
+    files = diag_files.get(task_name, [])
+    if not files:
+        return
+    print(f"      --- DIAG: {task_name} ---")
+    for fname in files:
+        fpath = ws / fname
+        if fpath.exists():
+            content = fpath.read_text()
+            # Truncate long content, show repr to reveal whitespace
+            if len(content) > 200:
+                content = content[:200] + "..."
+            print(f"      {fname}: {content!r}")
+        else:
+            print(f"      {fname}: MISSING")
+    print(f"      --- END DIAG ---")
+
+
 def _run_session(agent, real_bin, tmp_path, mode):
     """Run one full benchmark session. mode is 'patchloom', 'mcp', or 'native'."""
     ws = _make_workspace(tmp_path, real_bin, mode)
     shim_env, log_path = _make_shim(tmp_path, real_bin)
     session = SessionResult(mode=mode, model=agent.model)
     env = {**os.environ, **shim_env}
+    mcp_log = ws / "mcp_calls.jsonl" if mode == "mcp" else tmp_path / "mcp_calls.jsonl"
+    _run_session._prev_mcp_count = 0
     total_start = time.monotonic()
     session_id = None
 
@@ -367,7 +404,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
             except (json.JSONDecodeError, TypeError):
                 pass  # first-run output may not be valid JSON
 
-        # Parse shim log for call count and per-call durations
+        # Parse shim log for CLI call count and per-call durations
         new_calls = 0
         pl_duration_ms = 0
         if log_path.exists():
@@ -385,6 +422,19 @@ def _run_session(agent, real_bin, tmp_path, mode):
                 except (json.JSONDecodeError, TypeError):
                     pass  # skip malformed shim log entries
 
+        # For MCP mode, also parse MCP server log for tool calls
+        mcp_calls_this_task = 0
+        if mode == "mcp" and mcp_log.exists():
+            mcp_lines = mcp_log.read_text().splitlines()
+            # Count lines added since last task (use prev_mcp_count tracking)
+            if not hasattr(_run_session, '_prev_mcp_count'):
+                _run_session._prev_mcp_count = 0
+            for line in mcp_lines[_run_session._prev_mcp_count:]:
+                line = line.strip()
+                if line:
+                    mcp_calls_this_task += 1
+            _run_session._prev_mcp_count = len(mcp_lines)
+
         try:
             success = task["check"](ws)
         except Exception:
@@ -398,7 +448,10 @@ def _run_session(agent, real_bin, tmp_path, mode):
             success=bool(success),
         ))
         pl_info = f", {new_calls} pl calls ({pl_duration_ms}ms)" if new_calls else ""
-        print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}, {'OK' if success else 'FAIL'}")
+        mcp_info = f", {mcp_calls_this_task} mcp calls" if mcp_calls_this_task else ""
+        print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}{mcp_info}, {'OK' if success else 'FAIL'}")
+        if not success:
+            _print_failure_diag(ws, task["name"])
 
     session.total_secs = round(time.monotonic() - total_start, 1)
     if session.tasks:
