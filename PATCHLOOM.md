@@ -93,25 +93,29 @@ fix_whitespace({"path": "src/main.py"})
 
 ### Batching (the main speed win)
 
-Use `batch` to make multiple edits in one call. Each operation is a string in patchloom's line-oriented format:
+Use `batch` to make multiple edits in one call. Pass structured objects with an `op` field (no quoting needed):
 
 ```json
 batch({"operations": [
-"doc.set config.json version \"2.0.0\"",
-"doc.set config.yaml app.version \"2.0.0\"",
-"replace README.md \"1.0.0\" \"2.0.0\"",
-"file.create hello.txt \"Hello, World!\"",
-"file.rename old.txt new.txt",
-"md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\""
+{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
+{"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "2.0.0"},
+{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"},
+{"op": "file.create", "path": "hello.txt", "content": "Hello, World!"},
+{"op": "file.rename", "from": "old.txt", "to": "new.txt"},
+{"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- Bumped to 2.0.0"}
 ]})
 ```
 
 ### Transactions (atomic multi-file edits)
 
-Use `transaction` for atomic operations that roll back on failure. The `plan` parameter is a JSON string:
+Use `transaction` when all operations must succeed or all roll back. Pass an `operations` array directly (no plan string needed):
 
 ```json
-transaction({"plan": "{\"version\": \"1\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}, {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}]}"})
+transaction({"operations": [
+{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
+{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"},
+{"op": "file.create", "path": "hello.txt", "content": "Hello!"}
+]})
 ```
 
 All operations succeed together or roll back.
@@ -120,14 +124,42 @@ All operations succeed together or roll back.
 
 ```json
 batch({"operations": [
-"doc.set package.json version \"2.0.0\"",
-"doc.set config.yaml app.version \"2.0.0\"",
-"doc.set config.json version \"2.0.0\"",
-"doc.set pyproject.toml project.version \"2.0.0\"",
-"replace version.txt \"1.0.0\" \"2.0.0\"",
-"replace README.md \"1.0.0\" \"2.0.0\""
+{"op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0"},
+{"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "2.0.0"},
+{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
+{"op": "doc.set", "path": "pyproject.toml", "selector": "project.version", "value": "2.0.0"},
+{"op": "replace", "path": "version.txt", "from": "1.0.0", "to": "2.0.0"},
+{"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"}
 ]})
 ```
+
+### Tidy: fix whitespace in all files
+
+```json
+batch({"operations": [
+{"op": "tidy.fix", "path": "dirty1.txt"},
+{"op": "tidy.fix", "path": "dirty2.txt"}
+]})
+```
+
+Available operation types for batch and transaction:
+
+| op | Required fields | Description |
+|---|---|---|
+| `doc.set` | path, selector, value | Set a key in JSON/YAML/TOML |
+| `doc.delete` | path, selector | Delete a key |
+| `doc.merge` | path, value | Deep-merge an object |
+| `doc.append` | path, selector, value | Append to an array |
+| `replace` | path, from, to | Replace text in a file |
+| `file.create` | path, content | Create a file |
+| `file.delete` | path | Delete a file |
+| `file.rename` | from, to | Rename/move a file |
+| `tidy.fix` | path | Fix whitespace (trim trailing, ensure newline) |
+| `md.upsert_bullet` | path, heading, bullet | Add/update bullet under heading |
+| `md.table_append` | path, heading, row | Append row to table |
+| `md.replace_section` | path, heading, content | Replace section content |
+| `md.insert_after_heading` | path, heading, content | Insert after heading |
+| `patch.apply` | diff | Apply a unified diff |
 
 ## Batching (the main speed win)
 
