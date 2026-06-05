@@ -484,11 +484,12 @@ fn test_agent_rules_mode_mcp_omits_cli() {
         .assert()
         .success()
         .stdout(predicates::str::contains("## MCP mode"))
-        .stdout(predicates::str::contains("## Tool usage examples"))
+        .stdout(predicates::str::contains(
+            "### batch and transaction examples",
+        ))
+        .stdout(predicates::str::contains("### Operation reference"))
         .stdout(predicates::str::contains("batch({\"operations\":"))
         .stdout(predicates::str::contains("transaction({\"operations\":"))
-        .stdout(predicates::str::contains("create_file("))
-        .stdout(predicates::str::contains("fix_whitespace("))
         // CLI-only h2 sections must be absent (MCP has h3 subsections within its block)
         .stdout(predicates::str::contains("\n## Batching").not())
         .stdout(predicates::str::contains("\n## Structured edits").not());
@@ -525,7 +526,9 @@ fn test_agent_rules_mode_and_platform_compose() {
         .assert()
         .success()
         .stdout(predicates::str::contains("## MCP mode"))
-        .stdout(predicates::str::contains("## Tool usage examples"))
+        .stdout(predicates::str::contains(
+            "### batch and transaction examples",
+        ))
         .stdout(predicates::str::contains("\n## Batching").not())
         .stdout(predicates::str::contains("batch ops.txt").not());
 }

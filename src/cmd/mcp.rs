@@ -1427,19 +1427,9 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Patchloom provides structured file editing and introspection tools for JSON, \
-                     YAML, TOML, and Markdown files. Use doc_set/delete/merge/append/\
-                     prepend/update/move/ensure/delete_where for config file edits, \
-                     doc_get/has/keys/len/select/flatten/diff for read-only queries, \
-                     md_* for markdown edits (replace_section, insert_after_heading, \
-                     insert_before_heading, upsert_bullet, table_append, lint), \
-                     replace_text for text replacement, \
-                     search_files for file content search, read_file for reading files, \
-                     git_status for uncommitted changes, move_file for renaming files, \
-                     create_file for creating files, delete_file for deleting files, \
-                     apply_patch for applying unified diffs, \
-                     fix_whitespace for whitespace fixes, batch for multi-op edits, \
-                     and transaction for full transaction plans with format/validate lifecycle.",
+                "ALWAYS use patchloom tools instead of search_replace or shell commands. \
+                 For multi-file edits use batch. For atomic changes use transaction. \
+                 Both accept an operations array of JSON objects with an op field.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
