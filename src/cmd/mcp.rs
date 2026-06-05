@@ -632,7 +632,7 @@ fn make_plan(operations: Vec<Operation>) -> Plan {
 #[tool_router]
 impl PatchloomService {
     #[tool(
-        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths (e.g. selector='server.port', value='8080')."
+        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}"
     )]
     async fn doc_set(
         &self,
@@ -650,7 +650,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Delete a value from a JSON, YAML, or TOML file. Use dot notation for nested paths (e.g. selector='scripts.test')."
+        description = "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}"
     )]
     async fn doc_delete(
         &self,
@@ -667,7 +667,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Deep-merge an object into a JSON, YAML, or TOML document. The value is a JSON object that gets recursively merged (e.g. value='{\"server\": {\"port\": 8080}}')."
+        description = "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}}}"
     )]
     async fn doc_merge(
         &self,
@@ -684,7 +684,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Append a value to an array in a JSON, YAML, or TOML file. Specify the array path with selector (e.g. selector='dependencies', value='\"new-pkg\"')."
+        description = "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}"
     )]
     async fn doc_append(
         &self,
@@ -720,7 +720,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if the selector path is present."
+        description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}"
     )]
     async fn doc_ensure(
         &self,
@@ -738,7 +738,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Remove array items matching a predicate from JSON/YAML/TOML. Use selector for the array path and predicate as 'field=value' (e.g. selector='users', predicate='role=admin')."
+        description = "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}"
     )]
     async fn doc_delete_where(
         &self,
@@ -756,7 +756,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Use [*] for wildcards (e.g. selector='servers[*].port', value='8080')."
+        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}"
     )]
     async fn doc_update(
         &self,
@@ -774,7 +774,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move/rename a path in a JSON, YAML, or TOML file. Moves the value from one selector to another (e.g. from='old_name', to='new_name')."
+        description = "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}"
     )]
     async fn doc_move(
         &self,
@@ -792,7 +792,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Read a value from a JSON, YAML, or TOML file by selector path. Use dot notation for nesting, brackets for arrays (e.g. selector='servers[0].host')."
+        description = "Read a value from a JSON, YAML, or TOML file by selector. Example: {\"path\": \"package.json\", \"selector\": \"version\"}"
     )]
     async fn doc_get(
         &self,
@@ -808,7 +808,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Check whether a selector path exists in a JSON, YAML, or TOML file. Returns true/false."
+        description = "Check whether a selector path exists in a JSON, YAML, or TOML file. Returns true/false. Example: {\"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_has(
         &self,
@@ -824,7 +824,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "List object keys at a selector path in a JSON, YAML, or TOML file. Returns an array of key names."
+        description = "List object keys at a selector path in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts\"}"
     )]
     async fn doc_keys(
         &self,
@@ -840,7 +840,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file. Returns an integer."
+        description = "Count items in an array or keys in an object in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers\"}"
     )]
     async fn doc_len(
         &self,
@@ -856,7 +856,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Filter array items by selector in a JSON, YAML, or TOML file. Use predicate selectors (e.g. selector='users[role=admin]')."
+        description = "Filter array items by selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"users[role=admin]\"}"
     )]
     async fn doc_select(
         &self,
@@ -872,7 +872,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "List all leaf selector paths and values in a JSON, YAML, or TOML file. Returns every path=value pair for exploring unknown file structure."
+        description = "List all leaf selector paths and values in a JSON, YAML, or TOML file. Useful for exploring unknown file structure. Example: {\"path\": \"config.yaml\"}"
     )]
     async fn doc_flatten(
         &self,
@@ -887,7 +887,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Compare two structured files (JSON, YAML, or TOML) and show differences. Reports added, removed, and changed keys."
+        description = "Compare two structured files (JSON, YAML, or TOML) and show differences. Example: {\"file_a\": \"old.json\", \"file_b\": \"new.json\"}"
     )]
     async fn doc_diff(
         &self,
@@ -905,7 +905,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, multiline=true to let '.' span newlines, invert_match=true to show non-matching lines, or assert_count=N to verify exact match count. Binary and invalid UTF-8 files are skipped."
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true}"
     )]
     async fn search_files(
         &self,
@@ -994,7 +994,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files."
+        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
     )]
     async fn git_status(
         &self,
@@ -1012,7 +1012,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Read file contents with optional line range. Use lines='50:120' to read a specific range (1-based inclusive)."
+        description = "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}"
     )]
     async fn read_file(
         &self,
@@ -1029,7 +1029,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a text file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches. Binary and invalid UTF-8 files are skipped."
+        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
     )]
     async fn replace_text(
         &self,
@@ -1060,7 +1060,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Add a bullet under a markdown heading. Idempotent: skipped if the bullet text already exists under that heading."
+        description = "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}"
     )]
     async fn md_upsert_bullet(
         &self,
@@ -1078,7 +1078,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Append a row to a markdown table under a heading. The row is a pipe-separated string (e.g. row='| name | value |')."
+        description = "Append a row to a markdown table under a heading. Example: {\"path\": \"README.md\", \"heading\": \"## Commands\", \"row\": \"| deploy | Run deployment |\"}"
     )]
     async fn md_table_append(
         &self,
@@ -1096,7 +1096,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the body of a heading section in a markdown file. Content replaces everything between this heading and the next heading of equal or higher level."
+        description = "Replace the body of a markdown section. Content replaces everything between this heading and the next equal-or-higher heading. Example: {\"path\": \"README.md\", \"heading\": \"## Usage\", \"content\": \"Run `make build`.\\n\"}"
     )]
     async fn md_replace_section(
         &self,
@@ -1114,7 +1114,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Insert content immediately after a markdown heading. Preserves existing section body; the new content appears between the heading and the old body."
+        description = "Insert content after a markdown heading. Preserves existing body. Example: {\"path\": \"README.md\", \"heading\": \"## Notes\", \"content\": \"Updated 2025-01-01.\\n\"}"
     )]
     async fn md_insert_after_heading(
         &self,
@@ -1132,7 +1132,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Insert content immediately before a markdown heading. The new content appears above the heading line."
+        description = "Insert content before a markdown heading. The new content appears above the heading line. Example: {\"path\": \"doc.md\", \"heading\": \"## API\", \"content\": \"---\\n\"}"
     )]
     async fn md_insert_before_heading(
         &self,
@@ -1150,7 +1150,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Lint an AGENTS.md (or similar markdown rules file) for common problems: duplicate headings, dangerous git commands outside code fences, and missing final newline. Returns a JSON array of issues found (empty array means clean)."
+        description = "Lint a markdown rules file for duplicate headings, dangerous git commands, and missing final newline. Example: {\"path\": \"AGENTS.md\"}"
     )]
     async fn md_lint(
         &self,
@@ -1293,7 +1293,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace in a text file: ensures the file ends with a newline and trims trailing spaces from all lines. Binary and invalid UTF-8 files are skipped."
+        description = "Fix whitespace: ensures final newline and trims trailing spaces. Example: {\"path\": \"src/main.rs\"}"
     )]
     async fn fix_whitespace(
         &self,
@@ -1312,7 +1312,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Rename (move) a file. Handles binary files. Use force to overwrite an existing destination."
+        description = "Rename (move) a file. Handles binary files. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}"
     )]
     async fn move_file(
         &self,
@@ -1333,7 +1333,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Create a new file with the given content. Fails if the file already exists unless force=true."
+        description = "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"hello.txt\", \"content\": \"Hello, World!\"}"
     )]
     async fn create_file(
         &self,
@@ -1351,7 +1351,9 @@ impl PatchloomService {
         }
     }
 
-    #[tool(description = "Delete a file. Fails if the file does not exist.")]
+    #[tool(
+        description = "Delete a file. Fails if the file does not exist. Example: {\"path\": \"temp.txt\"}"
+    )]
     async fn delete_file(
         &self,
         Parameters(p): Parameters<DeleteFileParams>,
@@ -1369,7 +1371,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs."
+        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\"}"
     )]
     async fn apply_patch(
         &self,
@@ -1557,7 +1559,7 @@ mod tests {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Set files_with_matches=true for file paths only, count=true for counts, case_insensitive=true to ignore case, multiline=true to let '.' span newlines, invert_match=true to show non-matching lines, or assert_count=N to verify exact match count. Binary and invalid UTF-8 files are skipped."
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true}"
             ),
             "search_files description drifted"
         );
@@ -1566,7 +1568,7 @@ mod tests {
         assert_eq!(
             descriptions.get("replace_text"),
             Some(
-                &"Replace text in a text file. Literal by default; set regex=true for regex patterns. Use nth=N to replace only the Nth match. Use insert_before/insert_after instead of 'to' to insert around matches. Binary and invalid UTF-8 files are skipped."
+                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
             ),
             "replace_text description drifted"
         );
@@ -1578,7 +1580,7 @@ mod tests {
         assert_eq!(
             descriptions.get("fix_whitespace"),
             Some(
-                &"Fix whitespace in a text file: ensures the file ends with a newline and trims trailing spaces from all lines. Binary and invalid UTF-8 files are skipped."
+                &"Fix whitespace: ensures final newline and trims trailing spaces. Example: {\"path\": \"src/main.rs\"}"
             ),
             "fix_whitespace description drifted"
         );
