@@ -132,8 +132,6 @@ spawn + arg parse + exit for every operation.
 - replace_text: string replacement (MCP) vs CLI
 - read_file: file read (MCP) vs CLI
 - fix_whitespace: tidy single file (MCP) vs CLI
-- batch (6 ops): 6-file version bump (MCP) vs CLI
-- transaction (4 ops): atomic multi-file edit (MCP) vs CLI
 
 ### Prerequisites
 
