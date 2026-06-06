@@ -484,13 +484,9 @@ fn test_agent_rules_mode_mcp_omits_cli() {
         .assert()
         .success()
         .stdout(predicates::str::contains("## MCP mode"))
-        .stdout(predicates::str::contains(
-            "### batch and transaction examples",
-        ))
-        .stdout(predicates::str::contains("### Operation reference"))
-        .stdout(predicates::str::contains("batch({\"operations\":"))
-        .stdout(predicates::str::contains("transaction({\"operations\":"))
-        // MCP-only must not mention CLI concepts
+        // MCP mode must not mention batch/transaction tools or CLI concepts
+        .stdout(predicates::str::contains("batch({\"operations\":").not())
+        .stdout(predicates::str::contains("transaction({\"operations\":").not())
         .stdout(predicates::str::contains("search_replace").not())
         .stdout(predicates::str::contains("run_terminal_command").not())
         .stdout(predicates::str::contains("## Exit codes").not())
@@ -532,9 +528,8 @@ fn test_agent_rules_mode_and_platform_compose() {
         .assert()
         .success()
         .stdout(predicates::str::contains("## MCP mode"))
-        .stdout(predicates::str::contains(
-            "### batch and transaction examples",
-        ))
+        .stdout(predicates::str::contains("batch({\"operations\":").not())
+        .stdout(predicates::str::contains("transaction({\"operations\":").not())
         .stdout(predicates::str::contains("\n## Batching").not())
         .stdout(predicates::str::contains("batch ops.txt").not())
         .stdout(predicates::str::contains("## Exit codes").not());
@@ -14297,7 +14292,7 @@ fn test_smoke_readme_command_examples() {
         "launch announcement CLI command count drifted"
     );
     assert!(
-        launch.contains("33 structured tool calls"),
+        launch.contains("27 structured tool calls"),
         "launch announcement MCP tool count drifted"
     );
     let merge_value = r#"{"settings": {"debug": true}}"#;
@@ -15211,13 +15206,6 @@ async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::Rol
     spawn_mcp_client_opts(cwd, false).await
 }
 
-#[cfg(feature = "mcp")]
-async fn spawn_mcp_client_with_shell(
-    cwd: &Path,
-) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-    spawn_mcp_client_opts(cwd, true).await
-}
-
 async fn spawn_mcp_client_opts(
     cwd: &Path,
     allow_shell: bool,
@@ -15231,27 +15219,6 @@ async fn spawn_mcp_client_opts(
     if allow_shell {
         cmd.arg("--allow-shell");
     }
-
-    let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
-    ().serve(transport)
-        .await
-        .expect("failed to connect MCP client")
-}
-
-#[cfg(feature = "mcp")]
-async fn spawn_mcp_client_process_and_cwd(
-    process_dir: &Path,
-    server_cwd: &Path,
-) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-    use rmcp::ServiceExt;
-    use rmcp::transport::TokioChildProcess;
-
-    let bin = assert_cmd::cargo::cargo_bin("patchloom");
-    let mut cmd = tokio::process::Command::new(bin);
-    cmd.arg("mcp-server")
-        .arg("--cwd")
-        .arg(server_cwd)
-        .current_dir(process_dir);
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)
@@ -15356,195 +15323,6 @@ async fn test_mcp_read_round_trip() {
     assert!(
         text.contains("line3"),
         "read should return all lines: {text}"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[tokio::test]
-async fn test_mcp_batch_round_trip() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("a.json"), r#"{"version":"1.0.0"}"#).unwrap();
-    fs::write(dir.path().join("b.txt"), "old text\n").unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
-        &client,
-        "batch",
-        serde_json::json!({
-            "operations": ["doc.set a.json version \"2.0.0\"", "replace b.txt \"old\" \"new\""]
-        }),
-    )
-    .await;
-    assert!(!is_error, "batch should succeed");
-
-    let a: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
-    assert_eq!(a["version"], "2.0.0", "batch doc.set failed");
-    let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
-    assert_eq!(b, "new text\n", "batch replace failed");
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_batch_structured_operations() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("config.json"), r#"{"version":"1.0.0"}"#).unwrap();
-    fs::write(dir.path().join("readme.md"), "version 1.0.0\n").unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "batch",
-        serde_json::json!({
-            "operations": [
-                {"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
-                {"op": "replace", "path": "readme.md", "from": "1.0.0", "to": "2.0.0"},
-                {"op": "file.create", "path": "hello.txt", "content": "Hello, World!"}
-            ]
-        }),
-    )
-    .await;
-    assert!(
-        !is_error,
-        "batch with structured ops should succeed: {text}"
-    );
-
-    let cfg: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
-    assert_eq!(cfg["version"], "2.0.0", "doc.set failed");
-    assert!(
-        fs::read_to_string(dir.path().join("readme.md"))
-            .unwrap()
-            .contains("2.0.0"),
-        "replace failed"
-    );
-    assert!(dir.path().join("hello.txt").exists(), "file.create failed");
-    assert!(
-        fs::read_to_string(dir.path().join("hello.txt"))
-            .unwrap()
-            .contains("Hello, World!"),
-        "file.create content mismatch"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_batch_mixed_structured_and_line_format() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("a.json"), r#"{"k":"v1"}"#).unwrap();
-    fs::write(dir.path().join("b.txt"), "old\n").unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "batch",
-        serde_json::json!({
-            "operations": [
-                {"op": "doc.set", "path": "a.json", "selector": "k", "value": "v2"},
-                "replace b.txt \"old\" \"new\""
-            ]
-        }),
-    )
-    .await;
-    assert!(!is_error, "batch with mixed formats should succeed: {text}");
-
-    let a: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
-    assert_eq!(a["k"], "v2");
-    assert_eq!(
-        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
-        "new\n"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_transaction_structured_operations() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("pkg.json"),
-        r#"{"name":"app","version":"1.0.0"}"#,
-    )
-    .unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "transaction",
-        serde_json::json!({
-            "operations": [
-                {"op": "doc.set", "path": "pkg.json", "selector": "version", "value": "3.0.0"},
-                {"op": "file.create", "path": "hello.txt", "content": "Hello, World!"}
-            ]
-        }),
-    )
-    .await;
-    assert!(
-        !is_error,
-        "tx with structured operations should succeed: {text}"
-    );
-
-    let pkg: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(dir.path().join("pkg.json")).unwrap()).unwrap();
-    assert_eq!(pkg["version"], "3.0.0", "doc.set failed");
-    assert!(dir.path().join("hello.txt").exists(), "file.create failed");
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_transaction_rejects_both_plan_and_operations() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction").with_arguments(
-        serde_json::from_value(serde_json::json!({
-            "plan": "{\"version\":\"1\",\"operations\":[]}",
-            "operations": [{"op": "file.create", "path": "x.txt", "content": "y"}]
-        }))
-        .unwrap(),
-    );
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with both plan and operations should be rejected"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_transaction_rejects_neither_plan_nor_operations() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction")
-        .with_arguments(serde_json::from_value(serde_json::json!({})).unwrap());
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with neither plan nor operations should be rejected"
     );
     client.cancel().await.unwrap();
 }
@@ -15813,29 +15591,6 @@ async fn test_mcp_search_rejects_conflicting_modes() {
 }
 
 #[tokio::test]
-async fn test_mcp_batch_rejects_oversized_payload() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("f.json"), r#"{"k":"v"}"#).unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    // Build a payload exceeding MAX_BATCH_OPERATIONS (10_000).
-    let ops: Vec<String> = (0..10_001)
-        .map(|i| format!("doc.set f.json key{i} \"v\""))
-        .collect();
-    let (is_error, text) =
-        call_tool_text(&client, "batch", serde_json::json!({ "operations": ops })).await;
-    assert!(is_error, "oversized batch should be rejected: {text}");
-    assert!(
-        text.contains("Too many operations"),
-        "error should mention operation count: {text}"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[tokio::test]
 async fn test_mcp_file_rename_round_trip() {
     if !has_mcp_support() {
         return;
@@ -16033,267 +15788,6 @@ async fn test_mcp_md_insert_before_heading_round_trip() {
     assert!(
         preface_pos < heading_pos,
         "preface should appear before ## Second"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_round_trip() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
-    fs::write(dir.path().join("b.txt"), "foo bar\n").unwrap();
-
-    let plan = serde_json::json!({
-        "version": "1",
-        "operations": [
-            {"op": "replace", "path": "a.txt", "from": "hello", "to": "goodbye"},
-            {"op": "replace", "path": "b.txt", "from": "foo", "to": "baz"}
-        ]
-    });
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "transaction",
-        serde_json::json!({"plan": plan.to_string()}),
-    )
-    .await;
-    assert!(!is_error, "tx should succeed: {text}");
-    assert_eq!(
-        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
-        "goodbye world\n"
-    );
-    assert_eq!(
-        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
-        "baz bar\n"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_rejects_escaping_cwd() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-
-    let plan = serde_json::json!({
-        "version": "1",
-        "cwd": "/tmp",
-        "operations": [
-            {"op": "replace", "path": "a.txt", "from": "a", "to": "b"}
-        ]
-    });
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
-        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
-    );
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with escaping cwd should be rejected as a path containment violation"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_rejects_relative_cwd_that_escapes_server_root() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    let process_dir = dir.path().join("sandbox");
-    let repo_dir = dir.path().join("repo");
-    fs::create_dir_all(&process_dir).unwrap();
-    fs::create_dir_all(&repo_dir).unwrap();
-    fs::write(repo_dir.join("inside.txt"), "inside\n").unwrap();
-    fs::write(dir.path().join("outside.txt"), "outside\n").unwrap();
-
-    let plan = serde_json::json!({
-        "version": "1",
-        "cwd": "..",
-        "operations": [
-            {"op": "replace", "path": "outside.txt", "from": "outside", "to": "pwned"}
-        ]
-    });
-
-    let client = spawn_mcp_client_process_and_cwd(&process_dir, &repo_dir).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
-        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
-    );
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with relative escaping cwd should be rejected"
-    );
-    assert_eq!(
-        fs::read_to_string(dir.path().join("outside.txt")).unwrap(),
-        "outside\n"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_rejects_relative_cwd_that_is_a_file() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    let repo_dir = dir.path().join("repo");
-    fs::create_dir_all(&repo_dir).unwrap();
-    fs::write(repo_dir.join("not-a-dir"), "nope\n").unwrap();
-
-    let plan = serde_json::json!({
-        "version": "1",
-        "cwd": "not-a-dir",
-        "operations": [
-            {"op": "replace", "path": "anything.txt", "from": "a", "to": "b"}
-        ]
-    });
-
-    let client = spawn_mcp_client(&repo_dir).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
-        serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
-    );
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with a file-valued relative cwd should be rejected"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_yaml_format() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
-
-    let yaml_plan = "version: \"1\"\noperations:\n  - op: replace\n    path: target.txt\n    from: old\n    to: new\n";
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "transaction",
-        serde_json::json!({"plan": yaml_plan, "format": "yaml"}),
-    )
-    .await;
-    assert!(!is_error, "tx with yaml format should succeed: {text}");
-    assert_eq!(
-        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
-        "new\n"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_invalid_plan_returns_error() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-
-    let client = spawn_mcp_client(dir.path()).await;
-    let params = rmcp::model::CallToolRequestParams::new("transaction".to_string()).with_arguments(
-        serde_json::from_value(serde_json::json!({"plan": "this is not valid json or yaml"}))
-            .unwrap(),
-    );
-    let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "tx with invalid plan should be rejected as a parse error"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[cfg(feature = "mcp")]
-#[tokio::test]
-async fn test_mcp_tx_with_validate_lifecycle() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
-
-    // Plan with operations + a validate step that checks the file content.
-    #[cfg(windows)]
-    let validate_cmd = "findstr new target.txt >nul";
-    #[cfg(not(windows))]
-    let validate_cmd = "grep -q new target.txt";
-    let plan = serde_json::json!({
-        "version": "1",
-        "operations": [
-            {"op": "replace", "path": "target.txt", "from": "old", "to": "new"}
-        ],
-        "validate": [
-            {"cmd": validate_cmd, "required": true}
-        ]
-    });
-
-    // --allow-shell is required for plans with validate steps.
-    let client = spawn_mcp_client_with_shell(dir.path()).await;
-    let (is_error, text) = call_tool_text(
-        &client,
-        "transaction",
-        serde_json::json!({"plan": plan.to_string()}),
-    )
-    .await;
-    assert!(!is_error, "tx with passing validate should succeed: {text}");
-    assert_eq!(
-        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
-        "new\n"
-    );
-    client.cancel().await.unwrap();
-}
-
-#[tokio::test]
-async fn test_mcp_tx_rejects_shell_steps_without_flag() {
-    if !has_mcp_support() {
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("target.txt"), "old\n").unwrap();
-
-    let plan = serde_json::json!({
-        "version": "1",
-        "operations": [
-            {"replace": {"path": "target.txt", "from": "old", "to": "new"}}
-        ],
-        "validate": [
-            {"cmd": "grep -q new target.txt", "required": true}
-        ]
-    });
-
-    // Default client (no --allow-shell) should reject the plan.
-    let client = spawn_mcp_client(dir.path()).await;
-    let result = client
-        .peer()
-        .call_tool(
-            rmcp::model::CallToolRequestParams::new("transaction").with_arguments(
-                serde_json::from_value(serde_json::json!({"plan": plan.to_string()})).unwrap(),
-            ),
-        )
-        .await;
-    assert!(
-        result.is_err(),
-        "tx with shell steps should be rejected without --allow-shell"
-    );
-    // File must remain unchanged.
-    assert_eq!(
-        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
-        "old\n"
     );
     client.cancel().await.unwrap();
 }

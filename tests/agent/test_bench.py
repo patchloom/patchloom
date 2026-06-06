@@ -163,80 +163,7 @@ TASKS = [
         "setup": lambda ws: (ws / "README.md").write_text("# Project\n\n## Commands\n\n| Command | Description |\n|---------|-------------|\n| build | Build it |\n\n## License\n\nMIT\n"),
         "check": lambda ws: "lint" in (ws / "README.md").read_text(),
     },
-    {
-        "name": "tx_multi_file",
-        "prompt": "Create hello.txt with content 'Hello, World!' and update version in package.json from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply.",
-        "prompt_mcp": (
-            "Create hello.txt with content 'Hello, World!' and update version in package.json "
-            "from '1.0.0' to '3.0.0'. Both changes must succeed together or neither should apply. "
-            "Use the transaction tool with file.create and doc.set operations."
-        ),
-        "setup": lambda ws: (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
-        "check": lambda ws: (ws / "hello.txt").exists() and json.loads((ws / "package.json").read_text()).get("version") == "3.0.0",
-    },
-    {
-        "name": "batch_6_files",
-        "prompt": (
-            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
-            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
-            "and the badge in README.md. Make sure every single file is updated."
-        ),
-        # In patchloom/mcp mode, hint that batch is the right tool
-        "prompt_patchloom": (
-            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
-            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
-            "and the badge in README.md. Use patchloom batch to do all 6 in a "
-            "single command. Make sure every single file is updated."
-        ),
-        "prompt_mcp": (
-            "Update the version from '1.0.0' to '2.0.0' in ALL of these files: "
-            "package.json, pyproject.toml, config.yaml, config.json, version.txt, "
-            "and the badge in README.md. Use the batch tool to do all 6 in one call."
-        ),
-        "setup": lambda ws: [
-            (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
-            (ws / "pyproject.toml").write_text('[project]\nname = "myapp"\nversion = "1.0.0"\n'),
-            (ws / "config.yaml").write_text("app:\n  name: myapp\n  version: '1.0.0'\n"),
-            (ws / "config.json").write_text(json.dumps({"app_name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
-            (ws / "version.txt").write_text("1.0.0\n"),
-            (ws / "README.md").write_text("# MyApp\n\n![version](https://img.shields.io/badge/version-1.0.0-blue)\n\nA sample app.\n"),
-        ],
-        "check": lambda ws: all([
-            json.loads((ws / "package.json").read_text()).get("version") == "2.0.0",
-            "2.0.0" in (ws / "pyproject.toml").read_text(),
-            "2.0.0" in (ws / "config.yaml").read_text(),
-            json.loads((ws / "config.json").read_text()).get("version") == "2.0.0",
-            (ws / "version.txt").read_text().strip() == "2.0.0",
-            "2.0.0" in (ws / "README.md").read_text(),
-        ]),
-    },
-    {
-        "name": "batch_mixed_ops",
-        "prompt": (
-            "Make these changes atomically:\n"
-            "1. Set the 'version' key to '4.0.0' in config.json\n"
-            "2. Replace 'v3' with 'v4' in README.md\n"
-            "3. Add bullet '- v4.0.0 released' under the '## Changelog' heading in CHANGELOG.md\n"
-            "All three must succeed together."
-        ),
-        "prompt_mcp": (
-            "Make these changes atomically using the transaction tool:\n"
-            "1. Set the 'version' key to '4.0.0' in config.json (doc.set op)\n"
-            "2. Replace 'v3' with 'v4' in README.md (replace op)\n"
-            "3. Add bullet '- v4.0.0 released' under '## Changelog' in CHANGELOG.md (md.upsert_bullet op)\n"
-            "All three in one transaction call."
-        ),
-        "setup": lambda ws: [
-            (ws / "config.json").write_text(json.dumps({"name": "myapp", "version": "3.0.0"}, indent=2) + "\n"),
-            (ws / "README.md").write_text("# MyApp v3\n\nA sample app running v3.\n"),
-            (ws / "CHANGELOG.md").write_text("# Changelog\n\n## Changelog\n\n- v3.0.0 initial release\n"),
-        ],
-        "check": lambda ws: all([
-            json.loads((ws / "config.json").read_text()).get("version") == "4.0.0",
-            "v4" in (ws / "README.md").read_text(),
-            "v4.0.0 released" in (ws / "CHANGELOG.md").read_text(),
-        ]),
-    },
+
     {
         "name": "yaml_comment_preserve",
         "prompt": (
@@ -282,6 +209,11 @@ TASKS = [
             "Create a file called 'LICENSE' with the text 'MIT License\\n\\nCopyright 2026 MyApp'. "
             "Then rename 'old_settings.json' to 'settings.json'."
         ),
+        "prompt_mcp": (
+            "Do two things: 1) Create a file called LICENSE with the text "
+            "'MIT License\\n\\nCopyright 2026 MyApp'. "
+            "2) Rename old_settings.json to settings.json."
+        ),
         "setup": lambda ws: [
             (ws / "old_settings.json").write_text(json.dumps({"theme": "dark"}, indent=2) + "\n"),
         ],
@@ -299,8 +231,8 @@ TASKS = [
             "Report which files have issues, then fix all the issues."
         ),
         "prompt_mcp": (
-            "Fix whitespace issues in all .txt files: trim trailing whitespace and ensure "
-            "each file ends with a newline. Use the fix_whitespace tool on each .txt file."
+            "Fix whitespace in dirty1.txt then dirty2.txt then clean.txt. "
+            "Call fix_whitespace once for each file."
         ),
         "setup": lambda ws: [
             (ws / "clean.txt").write_text("This file is clean\n"),
@@ -358,9 +290,6 @@ def _print_failure_diag(ws, task_name):
         "replace": ["src/app.py", "src/test_app.py"],
         "doc_set": ["config.json"],
         "md_table": ["README.md"],
-        "tx_multi_file": ["hello.txt", "package.json"],
-        "batch_6_files": ["package.json", "pyproject.toml", "config.yaml", "config.json", "version.txt", "README.md"],
-        "batch_mixed_ops": ["config.json", "README.md", "CHANGELOG.md"],
         "yaml_comment_preserve": ["config.yaml"],
         "md_insert": ["CHANGELOG.md"],
         "file_ops": ["LICENSE", "settings.json", "old_settings.json"],

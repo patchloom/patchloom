@@ -14,7 +14,6 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::cli::global::GlobalFlags;
-use crate::cmd::tx::resolve_plan_cwd;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 
@@ -205,20 +204,6 @@ pub struct MdInsertParams {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct TxParams {
-    /// Transaction plan as a JSON, YAML, or TOML string. Advanced use only.
-    #[schemars(skip)]
-    pub plan: Option<String>,
-    /// Plan format hint. Advanced use only.
-    #[schemars(skip)]
-    pub format: Option<String>,
-    /// Array of operations. All succeed or all roll back.
-    /// Example: [{"op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0"},
-    ///           {"op": "file.create", "path": "hello.txt", "content": "Hello!"}]
-    pub operations: Option<Vec<serde_json::Value>>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TidyParams {
     /// File path to normalize.
@@ -261,15 +246,6 @@ pub struct DeleteFileParams {
 pub struct PatchParams {
     /// Unified diff text to apply.
     pub diff: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct BatchParams {
-    /// Array of operation objects. Each must have an "op" field.
-    /// Example: [{"op": "doc.set", "path": "f.json", "selector": "version", "value": "2.0.0"},
-    ///           {"op": "replace", "path": "README.md", "from": "old", "to": "new"}]
-    pub operations: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -423,6 +399,7 @@ fn validate_path_resolved(
 
 /// Validate all paths in a list of operations.
 /// Checks both syntactic containment and symlink resolution.
+#[cfg(test)]
 fn validate_operation_paths(
     operations: &[Operation],
     cwd: &std::path::Path,
@@ -499,8 +476,14 @@ pub struct PatchloomService {
     canon_cwd: PathBuf,
     /// Whether tx plans may include format/validate lifecycle steps that
     /// execute shell commands. Controlled by `--allow-shell` on startup.
+    /// Currently unused after transaction tool removal, but kept for the
+    /// CLI flag contract.
+    #[expect(dead_code)]
     allow_shell: bool,
     /// Optional path for logging MCP tool calls (set via `PATCHLOOM_MCP_LOG`).
+    /// Currently unused after batch/transaction tool removal (those were the
+    /// only tools that logged calls). Kept for the env var contract.
+    #[expect(dead_code)]
     call_log: Option<PathBuf>,
 }
 
@@ -519,29 +502,6 @@ impl PatchloomService {
         })
     }
 
-    /// Log a tool call if `PATCHLOOM_MCP_LOG` is set.
-    fn log_call(&self, tool: &str, params: &impl serde::Serialize, success: bool) {
-        if let Some(ref log_path) = self.call_log {
-            let entry = serde_json::json!({
-                "tool": tool,
-                "params": params,
-                "success": success,
-                "timestamp": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0),
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_path)
-            {
-                use std::io::Write;
-                let _ = writeln!(f, "{entry}");
-            }
-        }
-    }
-
     /// Validate a path for both syntactic containment and symlink resolution.
     /// Combines the two checks that must always be called together.
     fn check_path(&self, path: &str) -> Result<(), McpError> {
@@ -550,27 +510,10 @@ impl PatchloomService {
     }
 }
 
-/// Execute a plan by calling the tx engine directly (no subprocess).
-///
-/// Validates all operation paths for containment before execution.
-/// Use [`execute_plan_validated`] when the caller already validated paths
-/// via [`PatchloomService::check_path`] to avoid a redundant `canonicalize`
-/// syscall per path.
-fn execute_plan(
-    plan: Plan,
-    cwd: &std::path::Path,
-    canon_cwd: &std::path::Path,
-) -> Result<CallToolResult, McpError> {
-    // Validate all operation paths for containment (syntactic + symlink).
-    validate_operation_paths(&plan.operations, cwd, canon_cwd)?;
-
-    execute_plan_inner(plan, cwd)
-}
-
 /// Execute a plan whose paths have already been validated by the caller.
 ///
-/// Skips the `validate_operation_paths` check, saving a `canonicalize`
-/// syscall per path that `check_path` already performed.
+/// Each individual MCP tool validates paths via `check_path` before calling
+/// this function, so no redundant validation is needed here.
 fn execute_plan_validated(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
     execute_plan_inner(plan, cwd)
 }
@@ -1135,132 +1078,6 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute a transaction: all operations succeed or all roll back. Pass an array of operation objects. Example: {\"operations\": [{\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"}, {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}]}"
-    )]
-    async fn transaction(
-        &self,
-        Parameters(p): Parameters<TxParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // Log the raw params before consuming
-        let log_snapshot = self.call_log.as_ref().map(|_| {
-            serde_json::json!({
-                "operations": p.operations,
-                "plan": p.plan,
-            })
-        });
-        // Accept either structured operations array or plan string
-        let plan = if let Some(ops_raw) = p.operations {
-            if p.plan.is_some() {
-                return Err(McpError::invalid_params(
-                    "provide either 'operations' or 'plan', not both".to_string(),
-                    None,
-                ));
-            }
-            let mut ops = Vec::with_capacity(ops_raw.len());
-            for (i, val) in ops_raw.into_iter().enumerate() {
-                match serde_json::from_value::<Operation>(val) {
-                    Ok(op) => ops.push(op),
-                    Err(e) => {
-                        return Err(McpError::invalid_params(
-                            format!("invalid operation at index {i}: {e}"),
-                            None,
-                        ));
-                    }
-                }
-            }
-            Plan {
-                version: "1".to_string(),
-                cwd: None,
-                write_policy: None,
-                strict: false,
-                operations: ops,
-                format: None,
-                validate: None,
-            }
-        } else if let Some(ref plan_str) = p.plan {
-            crate::plan::parse_plan_auto(plan_str, None, p.format.as_deref()).map_err(|e| {
-                McpError::invalid_params(format!("failed to parse transaction plan: {e}"), None)
-            })?
-        } else {
-            return Err(McpError::invalid_params(
-                "either 'operations' or 'plan' must be provided".to_string(),
-                None,
-            ));
-        };
-
-        // Gate: format/validate lifecycle steps execute shell commands.
-        // Require --allow-shell on the MCP server to permit them.
-        let has_shell_steps = plan.format.as_ref().is_some_and(|f| !f.is_empty())
-            || plan.validate.as_ref().is_some_and(|v| !v.is_empty());
-        if has_shell_steps && !self.allow_shell {
-            return Err(McpError::invalid_params(
-                "this plan contains format/validate steps that execute shell commands; \
-                 start the MCP server with --allow-shell to permit this"
-                    .to_string(),
-                None,
-            ));
-        }
-        if has_shell_steps {
-            eprintln!(
-                "patchloom mcp: warning: executing shell commands from tx plan \
-                 (format/validate lifecycle steps)"
-            );
-        }
-
-        // Validate plan-level cwd for containment.
-        if let Some(ref plan_cwd) = plan.cwd {
-            let cwd_path = std::path::Path::new(plan_cwd);
-            let resolved_plan_cwd = resolve_plan_cwd(&self.cwd, Some(plan_cwd));
-            if cwd_path.is_absolute() {
-                // Absolute cwd must be inside the server's working directory.
-                let canon_plan_cwd = cwd_path.canonicalize().map_err(|e| {
-                    McpError::invalid_params(
-                        format!("plan cwd does not exist or is inaccessible: {e}"),
-                        None,
-                    )
-                })?;
-                if !canon_plan_cwd.starts_with(&self.canon_cwd) {
-                    return Err(McpError::invalid_params(
-                        format!("plan cwd must be inside the working directory: {plan_cwd}"),
-                        None,
-                    ));
-                }
-            } else {
-                validate_path_resolved(plan_cwd, &self.cwd, &self.canon_cwd)?;
-                if !resolved_plan_cwd.is_dir() {
-                    return Err(McpError::invalid_params(
-                        format!("plan cwd is not a directory: {plan_cwd}"),
-                        None,
-                    ));
-                }
-            }
-        }
-
-        // Resolve effective cwd for path validation.
-        let (effective_cwd, effective_canon_cwd) = if let Some(ref plan_cwd) = plan.cwd {
-            let eff = resolve_plan_cwd(&self.cwd, Some(plan_cwd));
-            let canon = eff.canonicalize().map_err(|e| {
-                McpError::internal_error(format!("failed to canonicalize effective cwd: {e}"), None)
-            })?;
-            (eff, canon)
-        } else {
-            (self.cwd.clone(), self.canon_cwd.clone())
-        };
-
-        validate_operation_paths(&plan.operations, &effective_cwd, &effective_canon_cwd)?;
-
-        let result = execute_plan(plan, &self.cwd, &self.canon_cwd);
-        if let Some(snap) = log_snapshot {
-            self.log_call(
-                "transaction",
-                &snap,
-                result.as_ref().is_ok_and(|r| r.is_error != Some(true)),
-            );
-        }
-        result
-    }
-
-    #[tool(
         description = "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
     )]
     async fn fix_whitespace(
@@ -1357,75 +1174,6 @@ impl PatchloomService {
             &self.cwd,
         )
     }
-
-    #[tool(
-        description = "Execute multiple operations in one call. Accepts structured objects (recommended) or line-format strings. Example: [{\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}, {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"old\", \"to\": \"new\"}]"
-    )]
-    async fn batch(
-        &self,
-        Parameters(p): Parameters<BatchParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let log_snapshot = self
-            .call_log
-            .as_ref()
-            .map(|_| serde_json::json!({ "operations": &p.operations }));
-        if p.operations.len() > crate::cmd::batch::MAX_BATCH_OPERATIONS {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
-                "Too many operations ({}, max {}).",
-                p.operations.len(),
-                crate::cmd::batch::MAX_BATCH_OPERATIONS
-            ))]));
-        }
-        let mut operations = Vec::new();
-        for (i, val) in p.operations.into_iter().enumerate() {
-            match val {
-                serde_json::Value::Object(_) => match serde_json::from_value::<Operation>(val) {
-                    Ok(op) => operations.push(op),
-                    Err(e) => {
-                        return Ok(CallToolResult::error(vec![Content::text(format!(
-                            "Invalid operation at index {i}: {e}",
-                        ))]));
-                    }
-                },
-                serde_json::Value::String(line) => {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with('#') {
-                        continue;
-                    }
-                    match crate::cmd::batch::parse_line(trimmed, i + 1) {
-                        Ok(op) => operations.push(op),
-                        Err(e) => {
-                            return Ok(CallToolResult::error(vec![Content::text(format!(
-                                "Parse error: {e}",
-                            ))]));
-                        }
-                    }
-                }
-                _ => {
-                    return Ok(CallToolResult::error(vec![Content::text(format!(
-                        "Invalid operation at index {i}: expected object or string",
-                    ))]));
-                }
-            }
-        }
-
-        if operations.is_empty() {
-            return Ok(CallToolResult::error(vec![Content::text(
-                "No operations provided.",
-            )]));
-        }
-
-        validate_operation_paths(&operations, &self.cwd, &self.canon_cwd)?;
-        let result = execute_plan(make_plan(operations), &self.cwd, &self.canon_cwd);
-        if let Some(snap) = log_snapshot {
-            self.log_call(
-                "batch",
-                &snap,
-                result.as_ref().is_ok_and(|r| r.is_error != Some(true)),
-            );
-        }
-        result
-    }
 }
 
 #[tool_handler]
@@ -1433,22 +1181,7 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "ALWAYS use these MCP tools for ALL file operations.\n\
-                 \n\
-                 For multi-file edits, call the batch tool.\n\
-                 For atomic changes (all-or-nothing), call the transaction tool.\n\
-                 For whitespace cleanup, call fix_whitespace.\n\
-                 \n\
-                 batch and transaction accept {\"operations\": [...]} where each op is a JSON object.\n\
-                 \n\
-                 Operations: doc.set, doc.delete, doc.merge, doc.append, replace, \
-                 file.create, file.delete, file.rename, md.upsert_bullet, \
-                 md.replace_section, md.table_append, tidy.fix, patch.apply.\n\
-                 \n\
-                 Example: transaction({\"operations\": [\n\
-                   {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"},\n\
-                   {\"op\": \"doc.set\", \"path\": \"pkg.json\", \"selector\": \"version\", \"value\": \"2.0\"}\n\
-                 ]})",
+                "Use these tools for ALL file operations. Each tool handles one file at a time.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1535,7 +1268,6 @@ mod tests {
             ),
             "replace_text description drifted"
         );
-        assert!(names.contains(&"batch"), "missing batch tool");
         assert!(
             names.contains(&"fix_whitespace"),
             "missing fix_whitespace tool"
@@ -1559,8 +1291,7 @@ mod tests {
             names.contains(&"md_insert_before_heading"),
             "missing md_insert_before_heading tool"
         );
-        assert!(names.contains(&"transaction"), "missing transaction tool");
-        assert_eq!(names.len(), 29, "expected 29 tools, got {}", names.len());
+        assert_eq!(names.len(), 27, "expected 27 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
@@ -1652,13 +1383,6 @@ mod tests {
     #[test]
     fn path_rejects_single_parent() {
         assert!(validate_path_contained("..").is_err());
-    }
-
-    #[test]
-    fn path_resolution_matches_tx_relative_cwd_rules() {
-        let base = std::path::Path::new("/workspace");
-        assert_eq!(resolve_plan_cwd(base, Some("nested")), base.join("nested"));
-        assert_eq!(resolve_plan_cwd(base, Some("a/../b")), base.join("a/../b"));
     }
 
     #[test]

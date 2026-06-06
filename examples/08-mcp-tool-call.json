@@ -25,27 +25,6 @@
       }
     },
     {
-      "description": "Batch multiple edits in one call",
-      "tool": "batch",
-      "arguments": {
-        "operations": [
-          "doc.set config.json version \"2.0\"",
-          "replace README.md \"v1\" \"v2\"",
-          "md.upsert_bullet CHANGELOG.md \"Unreleased\" \"- Version bump\""
-        ]
-      }
-    },
-    {
-      "description": "Atomic transaction with rollback",
-      "tool": "transaction",
-      "arguments": {
-        "operations": [
-          {"op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0"},
-          {"op": "replace", "path": "README.md", "from": "1.0.0", "to": "2.0.0"}
-        ]
-      }
-    },
-    {
       "description": "Rename a file",
       "tool": "move_file",
       "arguments": {
