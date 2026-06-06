@@ -154,9 +154,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
-             | Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |\n\
+             | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
              | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |\n\
-             | Find/replace text in a file | `replace_text` |\n\
+             | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\n",
         );
     }
@@ -184,7 +184,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **ALWAYS use MCP tools for ALL file edits.** Call individual tools for each file.\n\n",
+             **ALWAYS use MCP tools for ALL file edits.** Use `batch_replace` or `batch_tidy` \
+             when applying the same operation to multiple files; use individual tools otherwise.\n\n",
         );
     }
 

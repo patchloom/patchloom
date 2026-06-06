@@ -225,6 +225,26 @@ TASKS = [
         ]),
     },
     {
+        "name": "multi_file_replace",
+        "prompt": (
+            "Replace the version string '1.0.0' with '2.0.0' in all three config files: "
+            "package.json, config.yaml, and version.txt."
+        ),
+        "setup": lambda ws: [
+            (ws / "package.json").write_text(json.dumps({"name": "myapp", "version": "1.0.0"}, indent=2) + "\n"),
+            (ws / "config.yaml").write_text("app:\n  version: \"1.0.0\"\n  name: myapp\n"),
+            (ws / "version.txt").write_text("1.0.0\n"),
+        ],
+        "check": lambda ws: all([
+            "2.0.0" in (ws / "package.json").read_text(),
+            "1.0.0" not in (ws / "package.json").read_text(),
+            "2.0.0" in (ws / "config.yaml").read_text(),
+            "1.0.0" not in (ws / "config.yaml").read_text(),
+            "2.0.0" in (ws / "version.txt").read_text(),
+            "1.0.0" not in (ws / "version.txt").read_text(),
+        ]),
+    },
+    {
         "name": "tidy",
         "prompt": (
             "Check all .txt files in the project for missing final newlines and trailing whitespace. "
@@ -288,6 +308,7 @@ def _print_failure_diag(ws, task_name):
     # Map task names to relevant files
     diag_files = {
         "replace": ["src/app.py", "src/test_app.py"],
+        "multi_file_replace": ["package.json", "config.yaml", "version.txt"],
         "doc_set": ["config.json"],
         "md_table": ["README.md"],
         "yaml_comment_preserve": ["config.yaml"],

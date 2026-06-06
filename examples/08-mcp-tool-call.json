@@ -40,6 +40,22 @@
         "heading": "## API Endpoints",
         "row": "| `/api/v2/users` | List users (paginated) |"
       }
+    },
+    {
+      "description": "Replace a version string across multiple files atomically",
+      "tool": "batch_replace",
+      "arguments": {
+        "files": ["Cargo.toml", "README.md", "docs/install.md"],
+        "from": "0.1.0",
+        "to": "0.2.0"
+      }
+    },
+    {
+      "description": "Fix whitespace in multiple source files",
+      "tool": "batch_tidy",
+      "arguments": {
+        "files": ["src/main.rs", "src/lib.rs", "tests/integration.rs"]
+      }
     }
   ]
 }

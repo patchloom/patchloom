@@ -306,6 +306,37 @@ pub struct DocDiffParams {
 }
 
 // ---------------------------------------------------------------------------
+// Homogeneous batch parameter types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BatchReplaceParams {
+    /// File paths to apply the replacement to (relative to working directory).
+    pub files: Vec<String>,
+    /// Text to find in each file.
+    pub from: String,
+    /// Text to replace with.
+    pub to: String,
+    /// Use regex mode for the `from` pattern.
+    #[serde(default)]
+    pub regex: bool,
+    /// Case-insensitive matching.
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    #[serde(default)]
+    pub multiline: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BatchTidyParams {
+    /// File paths to normalize (relative to working directory).
+    pub files: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Path containment
 // ---------------------------------------------------------------------------
 
@@ -1174,6 +1205,76 @@ impl PatchloomService {
             &self.cwd,
         )
     }
+
+    #[tool(
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"from\": \"0.1.0\", \"to\": \"0.2.0\"}"
+    )]
+    async fn batch_replace(
+        &self,
+        Parameters(p): Parameters<BatchReplaceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if p.files.is_empty() {
+            return Err(McpError::invalid_params(
+                "files array must not be empty",
+                None,
+            ));
+        }
+        for f in &p.files {
+            self.check_path(f)?;
+        }
+        let mode = if p.regex {
+            Some("regex".to_string())
+        } else {
+            None
+        };
+        let ops: Vec<Operation> = p
+            .files
+            .into_iter()
+            .map(|file| Operation::Replace {
+                glob: None,
+                path: Some(file),
+                mode: mode.clone(),
+                from: p.from.clone(),
+                to: Some(p.to.clone()),
+                nth: None,
+                insert_before: None,
+                insert_after: None,
+                case_insensitive: p.case_insensitive,
+                multiline: p.multiline,
+                if_exists: false,
+            })
+            .collect();
+        execute_plan_validated(make_plan(ops), &self.cwd)
+    }
+
+    #[tool(
+        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
+    )]
+    async fn batch_tidy(
+        &self,
+        Parameters(p): Parameters<BatchTidyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if p.files.is_empty() {
+            return Err(McpError::invalid_params(
+                "files array must not be empty",
+                None,
+            ));
+        }
+        for f in &p.files {
+            self.check_path(f)?;
+        }
+        let ops: Vec<Operation> = p
+            .files
+            .into_iter()
+            .map(|file| Operation::TidyFix {
+                path: file,
+                ensure_final_newline: Some(true),
+                trim_trailing_whitespace: Some(true),
+                normalize_eol: None,
+            })
+            .collect();
+        execute_plan_validated(make_plan(ops), &self.cwd)
+    }
 }
 
 #[tool_handler]
@@ -1181,7 +1282,7 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Use these tools for ALL file operations. Each tool handles one file at a time.",
+                "Use these tools for ALL file operations. Use batch_replace and batch_tidy when applying the same operation to multiple files.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1284,6 +1385,11 @@ mod tests {
         assert!(names.contains(&"delete_file"), "missing delete_file tool");
         assert!(names.contains(&"apply_patch"), "missing apply_patch tool");
         assert!(
+            names.contains(&"batch_replace"),
+            "missing batch_replace tool"
+        );
+        assert!(names.contains(&"batch_tidy"), "missing batch_tidy tool");
+        assert!(
             names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
         );
@@ -1291,7 +1397,7 @@ mod tests {
             names.contains(&"md_insert_before_heading"),
             "missing md_insert_before_heading tool"
         );
-        assert_eq!(names.len(), 27, "expected 27 tools, got {}", names.len());
+        assert_eq!(names.len(), 29, "expected 29 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 

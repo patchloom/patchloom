@@ -14292,7 +14292,7 @@ fn test_smoke_readme_command_examples() {
         "launch announcement CLI command count drifted"
     );
     assert!(
-        launch.contains("27 structured tool calls"),
+        launch.contains("29 structured tool calls"),
         "launch announcement MCP tool count drifted"
     );
     let merge_value = r#"{"settings": {"debug": true}}"#;
@@ -16388,6 +16388,159 @@ async fn test_mcp_md_lint_round_trip() {
         clean.as_array().unwrap().len(),
         0,
         "md_lint should return empty array for clean file"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Homogeneous batch MCP integration tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mcp_batch_replace_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "version = 1.0.0\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "version = 1.0.0\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["a.txt", "b.txt"],
+            "from": "1.0.0",
+            "to": "2.0.0"
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace should succeed: {text}");
+
+    let a = fs::read_to_string(dir.path().join("a.txt")).unwrap();
+    let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
+    assert!(a.contains("2.0.0"), "a.txt should be updated: {a}");
+    assert!(b.contains("2.0.0"), "b.txt should be updated: {b}");
+    assert!(
+        !a.contains("1.0.0"),
+        "a.txt should not have old version: {a}"
+    );
+    assert!(
+        !b.contains("1.0.0"),
+        "b.txt should not have old version: {b}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_regex_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("x.txt"), "foo123bar\n").unwrap();
+    fs::write(dir.path().join("y.txt"), "foo456bar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["x.txt", "y.txt"],
+            "from": "foo\\d+bar",
+            "to": "replaced",
+            "regex": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace regex should succeed: {text}");
+
+    let x = fs::read_to_string(dir.path().join("x.txt")).unwrap();
+    let y = fs::read_to_string(dir.path().join("y.txt")).unwrap();
+    assert!(x.contains("replaced"), "x.txt: {x}");
+    assert!(y.contains("replaced"), "y.txt: {y}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_empty_files_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "files": [],
+            "from": "a",
+            "to": "b"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(result.is_err(), "empty files array should be rejected");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_tidy_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Files with trailing whitespace and missing final newline.
+    fs::write(dir.path().join("c.txt"), "hello   \nworld").unwrap();
+    fs::write(dir.path().join("d.txt"), "foo  \nbar  ").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "batch_tidy",
+        serde_json::json!({
+            "files": ["c.txt", "d.txt"]
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_tidy should succeed: {text}");
+
+    let c = fs::read_to_string(dir.path().join("c.txt")).unwrap();
+    let d = fs::read_to_string(dir.path().join("d.txt")).unwrap();
+    assert!(c.ends_with('\n'), "c.txt should have final newline");
+    assert!(d.ends_with('\n'), "d.txt should have final newline");
+    assert!(
+        !c.contains("   \n"),
+        "c.txt trailing whitespace should be trimmed"
+    );
+    assert!(
+        !d.contains("  \n"),
+        "d.txt trailing whitespace should be trimmed"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_path_traversal_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "content\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "files": ["ok.txt", "../../etc/passwd"],
+            "from": "a",
+            "to": "b"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "batch_replace with path traversal should be rejected"
     );
     client.cancel().await.unwrap();
 }

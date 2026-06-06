@@ -114,6 +114,8 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
 | `apply_patch` | Apply a unified diff |
+| `batch_replace` | Replace the same text across multiple files atomically |
+| `batch_tidy` | Fix whitespace in multiple files atomically |
 
 ## How MCP mode differs from CLI mode
 
