@@ -141,13 +141,17 @@ jobs:
         run: |
           TAG="${{ steps.resolve-tag.outputs.tag }}"
           if [ -n "$TAG" ]; then
-            dist host --steps=create "--tag=$TAG" --output-format=json > plan-dist-manifest.json
+            dist plan "--tag=$TAG" --output-format=json > plan-dist-manifest.json
           else
             dist plan --output-format=json > plan-dist-manifest.json
           fi
           echo "dist ran successfully"
           cat plan-dist-manifest.json
-          echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+          # Write only the ci section (~2KB) to GITHUB_OUTPUT.
+          # The full manifest is ~54KB and exceeds the ~50KB silent-drop
+          # limit for GitHub Actions step outputs, causing downstream
+          # matrix jobs to be skipped.
+          echo "manifest=$(jq -c '{ci, announcement_is_prerelease, announcement_title, releases, publish_prereleases}' plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
       - name: "Upload dist-manifest.json"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -309,58 +313,35 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Install cached dist
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: cargo-dist-cache
-          path: ~/.cargo/bin/
-      - run: chmod +x ~/.cargo/bin/dist
-      # Fetch artifacts from scratch-storage
-      - name: Fetch artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: artifacts-*
-          path: target/distrib/
-          merge-multiple: true
-      - id: host
-        shell: bash
-        run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --output-format=json > dist-manifest.json
-          echo "artifacts uploaded successfully"
-          cat dist-manifest.json
-          echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
-      - name: "Upload dist-manifest.json"
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          # Overwrite the previous copy
-          name: artifacts-dist-manifest
-          path: dist-manifest.json
-      # Create a GitHub Release while uploading all files to it
+      # Download all build artifacts and the plan manifest from scratch storage
       - name: "Download GitHub Artifacts"
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: artifacts-*
           path: artifacts
           merge-multiple: true
-      - name: Cleanup
-        run: |
-          # Remove the granular manifests
-          rm -f artifacts/*-dist-manifest.json
       - name: Create GitHub Release
+        id: host
         env:
-          PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
-          ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
+          PRERELEASE_FLAG: "${{ fromJson(needs.plan.outputs.val).announcement_is_prerelease && '--prerelease' || '' }}"
+          ANNOUNCEMENT_TITLE: "${{ fromJson(needs.plan.outputs.val).announcement_title }}"
           RELEASE_COMMIT: "${{ github.sha }}"
+        shell: bash
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+          # Extract release notes from the full plan manifest before cleanup.
+          # The full manifest (~54KB) exceeds the GitHub Actions ~50KB step
+          # output limit, so we read it from the downloaded artifact file.
+          jq -r '.announcement_github_body // empty' artifacts/plan-dist-manifest.json > "$RUNNER_TEMP/notes.txt"
+          cp artifacts/plan-dist-manifest.json "$RUNNER_TEMP/plan-dist-manifest.json"
+
+          # Remove manifests so only distributable files are uploaded to the release
+          rm -f artifacts/*-dist-manifest.json
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+          # Output the slimmed manifest for downstream jobs (full manifest
+          # exceeds GitHub Actions ~50KB step output limit)
+          echo "manifest=$(jq -c '{ci, announcement_is_prerelease, announcement_title, releases, publish_prereleases}' "$RUNNER_TEMP/plan-dist-manifest.json")" >> "$GITHUB_OUTPUT"
 
   provenance:
     needs:
