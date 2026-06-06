@@ -28,7 +28,7 @@ patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 | [05-strict-mode.json](05-strict-mode.json) | Create a module, wire it, update changelog; rolls back everything if build or tests fail | `file.create`, `replace`, `md.insert_after_heading`, `strict`, `format`, `validate` |
 | [06-batch-version-bump.txt](06-batch-version-bump.txt) | Version bump across JSON, YAML, and markdown using the batch line format | `doc.set`, `replace`, `md.upsert_bullet` |
 | [07-yaml-plan.yaml](07-yaml-plan.yaml) | Same semantics as JSON plans but in YAML for readability; config bump with format and validate | `doc.set`, `doc.ensure`, `md.upsert_bullet`, `replace`, `format`, `validate` |
-| [08-mcp-tool-call.json](08-mcp-tool-call.json) | Reference showing MCP tool call arguments for common operations (not a tx plan) | `doc_set`, `search_files`, `batch`, `transaction`, `move_file`, `md_table_append` |
+| [08-mcp-tool-call.json](08-mcp-tool-call.json) | Reference showing MCP tool call arguments for common operations (not a tx plan) | `doc_set`, `search_files`, `move_file`, `md_table_append` |
 | [09-patch-apply.json](09-patch-apply.json) | Apply a unified diff then follow up with a glob replace to catch remaining references | `patch.apply`, `replace` |
 | [10-inspect-and-edit.json](10-inspect-and-edit.json) | Read a config, search for references, then update both config and source code in one tx | `read`, `search`, `doc.set`, `replace` |
 
