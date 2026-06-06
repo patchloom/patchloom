@@ -45,10 +45,16 @@ SHIM_TEMPLATE = (Path(__file__).parent / "shim.sh").read_text()
 
 def _find_patchloom_binary() -> str:
     repo_root = Path(__file__).resolve().parent.parent.parent
+    # Prefer the most recently modified binary so `make bench-agent`
+    # (which builds debug) picks up the freshly compiled version
+    # instead of a stale release build.
+    candidates = []
     for subdir in ["release", "debug"]:
         p = repo_root / "target" / subdir / "patchloom"
         if p.exists():
-            return str(p)
+            candidates.append(p)
+    if candidates:
+        return str(max(candidates, key=lambda p: p.stat().st_mtime))
     found = shutil.which("patchloom")
     if found:
         return found
@@ -97,7 +103,8 @@ def _make_workspace(tmp_path, real_bin, mode):
         )
         (ws / "AGENTS.md").write_text(result.stdout)
     elif mode == "mcp":
-        # Configure grok to discover patchloom as an MCP server
+        # Configure grok to discover patchloom as an MCP server.
+        # Use inline table for env (documented format in grok docs).
         grok_dir = ws / ".grok"
         grok_dir.mkdir(exist_ok=True)
         mcp_log = ws / "mcp_calls.jsonl"
@@ -105,10 +112,9 @@ def _make_workspace(tmp_path, real_bin, mode):
             f'[mcp_servers.patchloom]\n'
             f'command = "{real_bin}"\n'
             f'args = ["mcp-server"]\n'
+            f'env = {{ PATCHLOOM_MCP_LOG = "{mcp_log}" }}\n'
             f'startup_timeout_sec = 10\n'
             f'tool_timeout_sec = 30\n'
-            f'[mcp_servers.patchloom.env]\n'
-            f'PATCHLOOM_MCP_LOG = "{mcp_log}"\n'
         )
         # Focused MCP AGENTS.md with tool list and usage guidance
         result = subprocess.run(
@@ -280,6 +286,7 @@ class TaskResult:
     patchloom_calls: int
     patchloom_duration_ms: int
     success: bool
+    mcp_tools: dict = field(default_factory=dict)  # tool_name -> call_count
 
 
 @dataclass
@@ -389,6 +396,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
 
         # For MCP mode, also parse MCP server log for tool calls
         mcp_calls_this_task = 0
+        mcp_tool_counts = {}
         if mode == "mcp" and mcp_log.exists():
             mcp_lines = mcp_log.read_text().splitlines()
             # Count lines added since last task (use prev_mcp_count tracking)
@@ -398,6 +406,12 @@ def _run_session(agent, real_bin, tmp_path, mode):
                 line = line.strip()
                 if line:
                     mcp_calls_this_task += 1
+                    try:
+                        entry = json.loads(line)
+                        tool = entry.get("tool", "?")
+                        mcp_tool_counts[tool] = mcp_tool_counts.get(tool, 0) + 1
+                    except (json.JSONDecodeError, TypeError):
+                        pass
             _run_session._prev_mcp_count = len(mcp_lines)
 
         try:
@@ -411,9 +425,16 @@ def _run_session(agent, real_bin, tmp_path, mode):
             patchloom_calls=new_calls,
             patchloom_duration_ms=pl_duration_ms,
             success=bool(success),
+            mcp_tools=dict(mcp_tool_counts),
         ))
         pl_info = f", {new_calls} pl calls ({pl_duration_ms}ms)" if new_calls else ""
-        mcp_info = f", {mcp_calls_this_task} mcp calls" if mcp_calls_this_task else ""
+        if mcp_tool_counts:
+            tool_summary = " ".join(f"{t}:{n}" for t, n in sorted(mcp_tool_counts.items()))
+            mcp_info = f", {mcp_calls_this_task} mcp [{tool_summary}]"
+        elif mcp_calls_this_task:
+            mcp_info = f", {mcp_calls_this_task} mcp calls"
+        else:
+            mcp_info = ""
         print(f"    [{mode}] {task['name']}: {duration:.1f}s{pl_info}{mcp_info}, {'OK' if success else 'FAIL'}")
         if not success:
             _print_failure_diag(ws, task["name"])
@@ -444,6 +465,13 @@ def _run_session(agent, real_bin, tmp_path, mode):
             session.subsequent_avg_secs = round(
                 sum(t.duration_secs for t in session.tasks[1:]) / (len(session.tasks) - 1), 1
             )
+    # Diagnostic: confirm MCP log file status
+    if mode == "mcp":
+        if mcp_log.exists():
+            n_lines = len(mcp_log.read_text().splitlines())
+            print(f"  MCP log: {mcp_log} ({n_lines} entries)")
+        else:
+            print(f"  MCP log: NOT CREATED at {mcp_log}")
     return session
 
 
@@ -751,6 +779,7 @@ def _save_results(all_runs, modes, output_dir, n_runs):
                     "patchloom_calls": t.patchloom_calls,
                     "patchloom_duration_ms": t.patchloom_duration_ms,
                     "success": t.success,
+                    "mcp_tools": t.mcp_tools,
                 }
                 for t in s.tasks
             ],

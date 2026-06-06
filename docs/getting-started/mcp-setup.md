@@ -159,7 +159,26 @@ Each line is a JSON object:
 | `ok` | boolean | Whether the call succeeded |
 | `error` | string | Error message (only present on failure) |
 
-To configure logging in your MCP client, add `--log` to the args:
+### Configuring logging in your MCP client
+
+**Grok (config.toml)** -- pass the env var to the MCP server subprocess:
+
+```toml
+[mcp_servers.patchloom]
+command = "/path/to/patchloom"
+args = ["mcp-server"]
+env = { PATCHLOOM_MCP_LOG = "/tmp/patchloom-mcp.log" }
+```
+
+Or use `--log` in the args:
+
+```toml
+[mcp_servers.patchloom]
+command = "/path/to/patchloom"
+args = ["mcp-server", "--log", "/tmp/patchloom-mcp.log"]
+```
+
+**Claude Desktop / VS Code / Cursor (JSON)** -- use `--log` in the args:
 
 ```json
 {
@@ -167,6 +186,20 @@ To configure logging in your MCP client, add `--log` to the args:
     "patchloom": {
       "command": "/path/to/patchloom",
       "args": ["mcp-server", "--log", "/tmp/patchloom-mcp.log"]
+    }
+  }
+}
+```
+
+Or pass the env var (Claude Desktop supports `env` in server config):
+
+```json
+{
+  "mcpServers": {
+    "patchloom": {
+      "command": "/path/to/patchloom",
+      "args": ["mcp-server"],
+      "env": { "PATCHLOOM_MCP_LOG": "/tmp/patchloom-mcp.log" }
     }
   }
 }
