@@ -257,8 +257,8 @@ TASKS = [
             "Report which files have issues, then fix all the issues."
         ),
         "prompt_mcp": (
-            "Fix whitespace in dirty1.txt then dirty2.txt then clean.txt. "
-            "Call fix_whitespace once for each file."
+            "Fix whitespace issues (trailing whitespace, missing final newlines) "
+            "in dirty1.txt, dirty2.txt, and clean.txt."
         ),
         "setup": lambda ws: [
             (ws / "clean.txt").write_text("This file is clean\n"),
@@ -408,8 +408,9 @@ def _run_session(agent, real_bin, tmp_path, mode):
                     mcp_calls_this_task += 1
                     try:
                         entry = json.loads(line)
-                        tool = entry.get("tool", "?")
-                        mcp_tool_counts[tool] = mcp_tool_counts.get(tool, 0) + 1
+                        if isinstance(entry, dict):
+                            tool = entry.get("tool", "?")
+                            mcp_tool_counts[tool] = mcp_tool_counts.get(tool, 0) + 1
                     except (json.JSONDecodeError, TypeError):
                         pass
             _run_session._prev_mcp_count = len(mcp_lines)
