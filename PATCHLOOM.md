@@ -12,9 +12,9 @@
 | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
-| Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |
+| Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |
 | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |
-| Find/replace text in a file | `replace_text` |
+| Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
 
 Use patchloom when:
@@ -25,7 +25,7 @@ Use patchloom when:
 
 ## MCP mode
 
-**ALWAYS use MCP tools for ALL file edits.** Call individual tools for each file.
+**ALWAYS use MCP tools for ALL file edits.** Use `batch_replace` or `batch_tidy` when applying the same operation to multiple files; use individual tools otherwise.
 
 ## Batching (the main speed win)
 

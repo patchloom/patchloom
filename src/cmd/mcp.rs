@@ -7,9 +7,14 @@
 
 use anyhow::Context;
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ErrorData as McpError, ServerCapabilities, ServerInfo};
-use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, Content, ErrorData as McpError, ListToolsResult,
+    PaginatedRequestParams, ServerCapabilities, ServerInfo,
+};
+use rmcp::service::{RequestContext, RoleServer};
+use rmcp::{ServerHandler, ServiceExt, tool, tool_router};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -306,6 +311,37 @@ pub struct DocDiffParams {
 }
 
 // ---------------------------------------------------------------------------
+// Homogeneous batch parameter types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BatchReplaceParams {
+    /// File paths to apply the replacement to (relative to working directory).
+    pub files: Vec<String>,
+    /// Text to find in each file.
+    pub from: String,
+    /// Text to replace with.
+    pub to: String,
+    /// Use regex mode for the `from` pattern.
+    #[serde(default)]
+    pub regex: bool,
+    /// Case-insensitive matching.
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    #[serde(default)]
+    pub multiline: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BatchTidyParams {
+    /// File paths to normalize (relative to working directory).
+    pub files: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Path containment
 // ---------------------------------------------------------------------------
 
@@ -468,7 +504,6 @@ fn validate_operation_paths(
 
 #[derive(Debug, Clone)]
 pub struct PatchloomService {
-    #[expect(dead_code)] // Used by tool_router macro-generated code.
     tool_router: ToolRouter<Self>,
     cwd: PathBuf,
     /// Pre-canonicalized cwd, computed once at startup to avoid a
@@ -476,23 +511,22 @@ pub struct PatchloomService {
     canon_cwd: PathBuf,
     /// Whether tx plans may include format/validate lifecycle steps that
     /// execute shell commands. Controlled by `--allow-shell` on startup.
-    /// Currently unused after transaction tool removal, but kept for the
-    /// CLI flag contract.
     #[expect(dead_code)]
     allow_shell: bool,
-    /// Optional path for logging MCP tool calls (set via `PATCHLOOM_MCP_LOG`).
-    /// Currently unused after batch/transaction tool removal (those were the
-    /// only tools that logged calls). Kept for the env var contract.
-    #[expect(dead_code)]
+    /// Optional path for logging MCP tool calls as JSONL.
+    /// Set via `--log <path>` or `PATCHLOOM_MCP_LOG` env var.
     call_log: Option<PathBuf>,
 }
 
 impl PatchloomService {
-    pub fn new(cwd: PathBuf, allow_shell: bool) -> anyhow::Result<Self> {
+    pub fn new(cwd: PathBuf, allow_shell: bool, log_flag: Option<String>) -> anyhow::Result<Self> {
         let canon_cwd = cwd
             .canonicalize()
             .with_context(|| format!("failed to canonicalize cwd: {}", cwd.display()))?;
-        let call_log = std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from);
+        // --log flag takes precedence over PATCHLOOM_MCP_LOG env var.
+        let call_log = log_flag
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from));
         Ok(Self {
             tool_router: Self::tool_router(),
             cwd,
@@ -507,6 +541,45 @@ impl PatchloomService {
     fn check_path(&self, path: &str) -> Result<(), McpError> {
         validate_path_contained(path)?;
         validate_path_resolved(path, &self.cwd, &self.canon_cwd)
+    }
+
+    /// Write a JSONL log entry for a tool call if logging is enabled.
+    fn log_tool_call(
+        &self,
+        tool: &str,
+        duration_ms: u64,
+        result: &Result<CallToolResult, McpError>,
+    ) {
+        let Some(ref log_path) = self.call_log else {
+            return;
+        };
+        let (ok, error) = match result {
+            Ok(r) => (!r.is_error.unwrap_or(false), None),
+            Err(e) => (false, Some(format!("{e}"))),
+        };
+        let ts = {
+            let d = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            d.as_millis()
+        };
+        let mut entry = serde_json::json!({
+            "ts": ts,
+            "tool": tool,
+            "duration_ms": duration_ms,
+            "ok": ok,
+        });
+        if let Some(err_msg) = error {
+            entry["error"] = serde_json::Value::String(err_msg);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
     }
 }
 
@@ -1174,25 +1247,124 @@ impl PatchloomService {
             &self.cwd,
         )
     }
+
+    #[tool(
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"from\": \"0.1.0\", \"to\": \"0.2.0\"}"
+    )]
+    async fn batch_replace(
+        &self,
+        Parameters(p): Parameters<BatchReplaceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if p.files.is_empty() {
+            return Err(McpError::invalid_params(
+                "files array must not be empty",
+                None,
+            ));
+        }
+        for f in &p.files {
+            self.check_path(f)?;
+        }
+        let mode = if p.regex {
+            Some("regex".to_string())
+        } else {
+            None
+        };
+        let ops: Vec<Operation> = p
+            .files
+            .into_iter()
+            .map(|file| Operation::Replace {
+                glob: None,
+                path: Some(file),
+                mode: mode.clone(),
+                from: p.from.clone(),
+                to: Some(p.to.clone()),
+                nth: None,
+                insert_before: None,
+                insert_after: None,
+                case_insensitive: p.case_insensitive,
+                multiline: p.multiline,
+                if_exists: false,
+            })
+            .collect();
+        execute_plan_validated(make_plan(ops), &self.cwd)
+    }
+
+    #[tool(
+        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
+    )]
+    async fn batch_tidy(
+        &self,
+        Parameters(p): Parameters<BatchTidyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if p.files.is_empty() {
+            return Err(McpError::invalid_params(
+                "files array must not be empty",
+                None,
+            ));
+        }
+        for f in &p.files {
+            self.check_path(f)?;
+        }
+        let ops: Vec<Operation> = p
+            .files
+            .into_iter()
+            .map(|file| Operation::TidyFix {
+                path: file,
+                ensure_final_newline: Some(true),
+                trim_trailing_whitespace: Some(true),
+                normalize_eol: None,
+            })
+            .collect();
+        execute_plan_validated(make_plan(ops), &self.cwd)
+    }
 }
 
-#[tool_handler]
 impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Use these tools for ALL file operations. Each tool handles one file at a time.",
+                "Use these tools for ALL file operations. Use batch_replace and batch_tidy when applying the same operation to multiple files.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info
     }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        Ok(ListToolsResult {
+            tools: self.tool_router.list_all(),
+            next_cursor: None,
+            meta: None,
+        })
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let tool_name = request.name.clone();
+        let start = std::time::Instant::now();
+        let tc = ToolCallContext::new(self, request, context);
+        let result = self.tool_router.call(tc).await;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        self.log_tool_call(&tool_name, duration_ms, &result);
+        result
+    }
 }
 
 /// Run the MCP server on stdio.
-pub fn run_mcp_server(global: &GlobalFlags, allow_shell: bool) -> anyhow::Result<u8> {
+pub fn run_mcp_server(
+    global: &GlobalFlags,
+    allow_shell: bool,
+    log: Option<String>,
+) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    let service = PatchloomService::new(cwd, allow_shell)?;
+    let service = PatchloomService::new(cwd, allow_shell, log)?;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -1228,7 +1400,7 @@ mod tests {
         allow_shell: bool,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
         let (server_transport, client_transport) = tokio::io::duplex(16384);
-        let service = PatchloomService::new(cwd, allow_shell).unwrap();
+        let service = PatchloomService::new(cwd, allow_shell, None).unwrap();
         tokio::spawn(async move {
             let server = service.serve(server_transport).await.unwrap();
             server.waiting().await.unwrap();
@@ -1284,6 +1456,11 @@ mod tests {
         assert!(names.contains(&"delete_file"), "missing delete_file tool");
         assert!(names.contains(&"apply_patch"), "missing apply_patch tool");
         assert!(
+            names.contains(&"batch_replace"),
+            "missing batch_replace tool"
+        );
+        assert!(names.contains(&"batch_tidy"), "missing batch_tidy tool");
+        assert!(
             names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
         );
@@ -1291,7 +1468,7 @@ mod tests {
             names.contains(&"md_insert_before_heading"),
             "missing md_insert_before_heading tool"
         );
-        assert_eq!(names.len(), 27, "expected 27 tools, got {}", names.len());
+        assert_eq!(names.len(), 29, "expected 29 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
@@ -1484,6 +1661,109 @@ mod tests {
         assert!(
             result.is_err(),
             "new file through symlink escaping cwd should be rejected"
+        );
+    }
+
+    /// Spawn a test client with JSONL logging enabled.
+    async fn spawn_test_client_with_log(
+        cwd: std::path::PathBuf,
+        log_path: std::path::PathBuf,
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+        let (server_transport, client_transport) = tokio::io::duplex(16384);
+        let service =
+            PatchloomService::new(cwd, false, Some(log_path.to_string_lossy().into_owned()))
+                .unwrap();
+        tokio::spawn(async move {
+            let server = service.serve(server_transport).await.unwrap();
+            server.waiting().await.unwrap();
+        });
+        ().serve(client_transport).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn mcp_log_writes_jsonl_on_tool_call() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_file = dir.path().join("mcp.log");
+        std::fs::write(dir.path().join("test.txt"), "hello world").unwrap();
+        let client = spawn_test_client_with_log(dir.path().to_path_buf(), log_file.clone()).await;
+
+        // Call read_file to trigger a log entry.
+        let params = rmcp::model::CallToolRequestParams::new("read_file").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "test.txt",
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            result.is_error != Some(true),
+            "read_file should succeed: {result:?}"
+        );
+        client.cancel().await.unwrap();
+
+        // Verify the log file contains a valid JSONL entry.
+        let log_content = std::fs::read_to_string(&log_file).expect("log file should exist");
+        let lines: Vec<&str> = log_content.trim().lines().collect();
+        assert_eq!(lines.len(), 1, "expected exactly 1 log line");
+        let entry: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("log line should be valid JSON");
+        assert_eq!(entry["tool"], "read_file");
+        assert_eq!(entry["ok"], true);
+        assert!(entry["ts"].is_number(), "ts should be a number");
+        assert!(
+            entry["duration_ms"].is_number(),
+            "duration_ms should be a number"
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_log_records_error_on_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_file = dir.path().join("mcp.log");
+        let client = spawn_test_client_with_log(dir.path().to_path_buf(), log_file.clone()).await;
+
+        // Call doc_set on a non-existent file to trigger an error result.
+        let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "nonexistent.json",
+                "selector": "key",
+                "value": "val",
+            }))
+            .unwrap(),
+        );
+        let _result = client.peer().call_tool(params).await;
+        client.cancel().await.unwrap();
+
+        let log_content = std::fs::read_to_string(&log_file).expect("log file should exist");
+        let lines: Vec<&str> = log_content.trim().lines().collect();
+        assert_eq!(lines.len(), 1, "expected exactly 1 log line");
+        let entry: serde_json::Value =
+            serde_json::from_str(lines[0]).expect("log line should be valid JSON");
+        assert_eq!(entry["tool"], "doc_set");
+        assert_eq!(entry["ok"], false);
+    }
+
+    #[tokio::test]
+    async fn mcp_no_log_without_flag() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let log_file = dir.path().join("mcp.log");
+        std::fs::write(dir.path().join("test.txt"), "hello").unwrap();
+        // Use default client (no log flag).
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("read_file").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "test.txt",
+            }))
+            .unwrap(),
+        );
+        let _result = client.peer().call_tool(params).await.unwrap();
+        client.cancel().await.unwrap();
+
+        // Log file should not exist since no log path was configured.
+        assert!(
+            !log_file.exists(),
+            "log file should not exist without --log"
         );
     }
 }

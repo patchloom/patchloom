@@ -114,6 +114,8 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
 | `apply_patch` | Apply a unified diff |
+| `batch_replace` | Replace the same text across multiple files atomically |
+| `batch_tidy` | Fix whitespace in multiple files atomically |
 
 ## How MCP mode differs from CLI mode
 
@@ -124,6 +126,51 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | Path security | No restriction | Paths must stay within working directory |
 | Error format | stderr text | MCP error response with structured content |
 | Discovery | Agent reads AGENTS.md | Agent discovers tools via MCP protocol |
+
+## Debugging and logging
+
+The MCP server can log every tool call to a JSONL file for debugging and performance analysis. Each line records the tool name, duration, and success/failure status.
+
+Enable logging with the `--log` flag:
+
+```bash
+patchloom mcp-server --log /tmp/patchloom-mcp.log
+```
+
+Or set the `PATCHLOOM_MCP_LOG` environment variable (the `--log` flag takes precedence):
+
+```bash
+export PATCHLOOM_MCP_LOG=/tmp/patchloom-mcp.log
+patchloom mcp-server
+```
+
+Each line is a JSON object:
+
+```json
+{"ts":1749123456789,"tool":"replace_text","duration_ms":3,"ok":true}
+{"ts":1749123456800,"tool":"doc_set","duration_ms":5,"ok":false,"error":"file not found"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ts` | number | Unix timestamp in milliseconds |
+| `tool` | string | Tool name that was called |
+| `duration_ms` | number | Execution time in milliseconds |
+| `ok` | boolean | Whether the call succeeded |
+| `error` | string | Error message (only present on failure) |
+
+To configure logging in your MCP client, add `--log` to the args:
+
+```json
+{
+  "mcpServers": {
+    "patchloom": {
+      "command": "/path/to/patchloom",
+      "args": ["mcp-server", "--log", "/tmp/patchloom-mcp.log"]
+    }
+  }
+}
+```
 
 ## Security model
 
