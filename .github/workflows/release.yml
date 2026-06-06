@@ -16,6 +16,7 @@
 name: Release
 permissions:
   "contents": "read"
+  "pull-requests": "write"
 
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
@@ -41,6 +42,7 @@ permissions:
 on:
   pull_request:
   push:
+    branches: [main]
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
@@ -50,17 +52,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # release-please creates a PR that tracks conventional commits.
+  # When merged, it bumps the version, updates CHANGELOG.md, and tags.
+  release-please:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: googleapis/release-please-action@a02a34c4d625f9be7cb89f4291f2343e4b830e5d # v4
+        id: rp
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
+    needs: [release-please]
+    # Run when: release-please created a release, OR a tag was pushed
+    # manually, OR workflow_dispatch, OR pull_request.
+    # always() is required because release-please is skipped on non-main events,
+    # and GitHub Actions skips dependent jobs when any need is skipped.
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       startsWith(github.ref, 'refs/tags/') ||
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'pull_request')
     permissions:
       "contents": "write"
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-      tag-flag: ${{ startsWith(github.ref, 'refs/tags/') && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ startsWith(github.ref, 'refs/tags/') }}
+      tag: ${{ steps.resolve-tag.outputs.tag }}
+      tag-flag: ${{ steps.resolve-tag.outputs.tag && format('--tag={0}', steps.resolve-tag.outputs.tag) || '' }}
+      publishing: ${{ steps.resolve-tag.outputs.tag != '' }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -68,10 +104,21 @@ jobs:
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+      - name: Resolve release tag
+        id: resolve-tag
+        run: |
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ needs.release-please.outputs.tag_name }}" != "" ]]; then
+            echo "tag=${{ needs.release-please.outputs.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ steps.resolve-tag.outputs.tag || github.ref }}
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -86,7 +133,12 @@ jobs:
       # This keeps manual branch runs from creating an untagged GitHub Release.
       - id: plan
         run: |
-          dist ${{ (startsWith(github.ref, 'refs/tags/') && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          TAG="${{ steps.resolve-tag.outputs.tag }}"
+          if [ -n "$TAG" ]; then
+            dist host --steps=create "--tag=$TAG" --output-format=json > plan-dist-manifest.json
+          else
+            dist plan --output-format=json > plan-dist-manifest.json
+          fi
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
