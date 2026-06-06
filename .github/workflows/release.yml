@@ -162,10 +162,12 @@ jobs:
   build-local-artifacts:
     timeout-minutes: 30
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-    # Let the initial task tell us to not run (currently very blunt)
+    # Let the initial task tell us to not run (currently very blunt).
+    # always() prevents transitive skip: release-please is skipped on tag
+    # pushes, which transitively skips plan's dependents unless they opt out.
     needs:
       - plan
-    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+    if: ${{ always() && !failure() && !cancelled() && fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
       # Target platforms/runners are computed by dist in create-release.
@@ -246,6 +248,9 @@ jobs:
     needs:
       - plan
       - build-local-artifacts
+    # always() prevents transitive skip from release-please -> plan chain.
+    # Still requires plan success and build-local success.
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.build-local-artifacts.result == 'success' }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 20
     env:
@@ -301,7 +306,7 @@ jobs:
     permissions:
       "contents": "write"
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
@@ -347,7 +352,7 @@ jobs:
     needs:
       - plan
       - host
-    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
@@ -426,8 +431,9 @@ jobs:
       PLAN: ${{ needs.plan.outputs.val }}
       GITHUB_USER: "axo bot"
       GITHUB_EMAIL: "admin+bot@axo.dev"
+    # always() prevents transitive skip from release-please chain.
     # Do not publish outside the repo while the repository is private.
-    if: ${{ !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -471,8 +477,9 @@ jobs:
     needs:
       - plan
       - host
+    # always() prevents transitive skip from release-please chain.
     # Do not publish outside the repo while the repository is private.
-    if: ${{ !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
     uses: ./.github/workflows/publish-crates.yml
     with:
       plan: ${{ needs.plan.outputs.val }}
