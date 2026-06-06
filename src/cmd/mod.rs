@@ -127,16 +127,15 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
     if show_mcp && !show_cli {
         out.push_str(
-            "You have patchloom MCP tools. Use them for ALL file reads, edits, and searches. \
-             Do not call patchloom from the command line.\n\n",
+            "You have MCP tools for file reads, edits, and searches. \
+             Use them for ALL file operations.\n\n",
         );
     }
     if show_mcp && show_cli {
         out.push_str(
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
              tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
-             JSON/YAML/TOML), handle whitespace cleanup in one call, and support atomic \
-             multi-file transactions.\n\n",
+             JSON/YAML/TOML) and handle whitespace cleanup in one call.\n\n",
         );
     }
     if show_cli {
@@ -157,8 +156,6 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one call per file) |\n\
              | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |\n\
-             | Edit multiple files at once | `batch` (one call for all edits) |\n\
-             | Changes must all succeed or all roll back | `transaction` |\n\
              | Find/replace text in a file | `replace_text` |\n\
              | Search across files | `search_files` |\n\n",
         );
@@ -187,42 +184,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **ALWAYS use patchloom MCP tools for ALL file edits.** For multi-file edits, \
-             use `batch`. When atomicity is required, use `transaction`.\n\n\
-             ### batch and transaction examples\n\n\
-             ```json\n\
-             // Multiple edits in one call\n\
-             batch({\"operations\": [\n\
-               {\"op\": \"doc.set\", \"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"doc.set\", \"path\": \"config.yaml\", \"selector\": \"app.version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"},\n\
-               {\"op\": \"file.create\", \"path\": \"hello.txt\", \"content\": \"Hello!\"},\n\
-               {\"op\": \"tidy.fix\", \"path\": \"dirty.txt\"}\n\
-             ]})\n\n\
-             // Atomic: all succeed or all roll back\n\
-             transaction({\"operations\": [\n\
-               {\"op\": \"doc.set\", \"path\": \"config.json\", \"selector\": \"version\", \"value\": \"2.0.0\"},\n\
-               {\"op\": \"replace\", \"path\": \"README.md\", \"from\": \"v1\", \"to\": \"v2\"},\n\
-               {\"op\": \"md.upsert_bullet\", \"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- v2.0.0\"}\n\
-             ]})\n\
-             ```\n\n\
-             ### Operation reference\n\n\
-             | op | Required fields | Description |\n\
-             |---|---|---|\n\
-             | `doc.set` | path, selector, value | Set a key in JSON/YAML/TOML |\n\
-             | `doc.delete` | path, selector | Delete a key |\n\
-             | `doc.merge` | path, value | Deep-merge an object |\n\
-             | `doc.append` | path, selector, value | Append to an array |\n\
-             | `replace` | path, from, to | Replace text in a file |\n\
-             | `file.create` | path, content | Create a file |\n\
-             | `file.delete` | path | Delete a file |\n\
-             | `file.rename` | from, to | Rename/move a file |\n\
-             | `tidy.fix` | path | Fix whitespace (trim trailing, ensure newline) |\n\
-             | `md.upsert_bullet` | path, heading, bullet | Add/update bullet under heading |\n\
-             | `md.table_append` | path, heading, row | Append row to table |\n\
-             | `md.replace_section` | path, heading, content | Replace section content |\n\
-             | `md.insert_after_heading` | path, heading, content | Insert after heading |\n\
-             | `patch.apply` | diff | Apply a unified diff |\n\n",
+             **ALWAYS use MCP tools for ALL file edits.** Call individual tools for each file.\n\n",
         );
     }
 
@@ -512,7 +474,6 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
         assert!(out.contains("# Patchloom"));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("### batch and transaction examples"));
         assert!(out.contains("## Tool selection guide"));
         assert!(out.contains("## Batching"));
         assert!(out.contains("## Structured edits"));
@@ -536,15 +497,14 @@ mod tests {
     fn mode_mcp_omits_cli_keeps_mcp() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("### batch and transaction examples"));
-        assert!(out.contains("### Operation reference"));
         assert!(out.contains("## Tool selection guide"));
-        assert!(out.contains("batch({\"operations\":"));
-        assert!(out.contains("transaction({\"operations\":"));
-        // MCP-only mode must not mention CLI or native tools
+        // MCP-only mode must not mention batch/transaction tools or CLI
+        assert!(!out.contains("batch({\"operations\":"));
+        assert!(!out.contains("transaction({\"operations\":"));
         assert!(!out.contains("search_replace"));
         assert!(!out.contains("run_terminal_command"));
-        assert!(out.contains("Do not call patchloom from the command line"));
+        assert!(!out.contains("command line"));
+        assert!(out.contains("Use them for ALL file operations"));
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));
@@ -607,9 +567,9 @@ mod tests {
     fn mcp_and_windows_compose_to_minimal() {
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::Windows));
         assert!(out.contains("## MCP mode"));
-        assert!(out.contains("### batch and transaction examples"));
-        assert!(out.contains("batch({\"operations\":"));
-        // CLI-only content must be absent (check for h2 headings, not h3)
+        // MCP mode must not contain batch/transaction or CLI content
+        assert!(!out.contains("batch({\"operations\":"));
+        assert!(!out.contains("transaction({\"operations\":"));
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("batch ops.txt"));
         assert!(!out.contains("<<'EOF'"));

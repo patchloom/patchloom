@@ -114,8 +114,6 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
 | `apply_patch` | Apply a unified diff |
-| `batch` | Run multiple operations in one call (structured objects or line-format strings) |
-| `transaction` | Execute atomic multi-file edits with optional format/validate lifecycle |
 
 ## How MCP mode differs from CLI mode
 
@@ -131,17 +129,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
 
-The `batch` tool accepts operations as structured JSON objects (with an `op` field) or as line-format strings, and validates every path before execution. The `transaction` tool accepts either an `operations` array directly or a full plan string. All operation paths and plan-level `cwd` fields are validated for containment before execution. A relative transaction `cwd` still resolves from the server invocation root, then must remain inside that root.
-
-### Shell execution gate
-
-Transaction plans can include `format` and `validate` lifecycle steps that run shell commands (e.g., `cargo fmt`, `cargo test`). Because these execute arbitrary commands, they are **disabled by default** in MCP mode. To enable them, start the server with `--allow-shell`:
-
-```bash
-patchloom mcp-server --allow-shell
-```
-
-Without `--allow-shell`, any plan containing `format` or `validate` steps is rejected with an error. Plans that only contain file operations work without the flag. Enable `--allow-shell` only when the MCP client is trusted.
+Each individual tool validates every path before execution.
 
 ## Example tool call
 
@@ -162,36 +150,3 @@ An MCP-capable agent sends:
 ```
 
 Patchloom parses the YAML, changes `database.port` to `5432`, preserves all comments and formatting, and writes the file. The agent receives a success response with no further action needed.
-
-For multi-file atomic edits, use `transaction` with a structured `operations` array:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "transaction",
-    "arguments": {
-      "operations": [
-        {"op": "replace", "path": "src/main.rs", "from": "v1", "to": "v2"},
-        {"op": "doc.set", "path": "Cargo.toml", "selector": "package.version", "value": "2.0.0"}
-      ]
-    }
-  }
-}
-```
-
-All operations succeed together or roll back. For advanced use with post-write formatting and validation, use the `plan` string parameter instead:
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "transaction",
-    "arguments": {
-      "plan": "{\"version\":\"1\",\"operations\":[{\"op\":\"replace\",\"path\":\"src/main.rs\",\"from\":\"v1\",\"to\":\"v2\"}],\"format\":[{\"cmd\":\"cargo fmt\"}],\"validate\":[{\"cmd\":\"cargo test\",\"required\":true}]}"
-    }
-  }
-}
-```
-
-The `plan` string supports `format` and `validate` lifecycle steps (requires `--allow-shell`). With `"strict": true`, writes are rolled back on format or validate failure.
