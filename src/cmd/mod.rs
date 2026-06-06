@@ -64,6 +64,10 @@ pub enum Command {
         /// rejected. Enable only when the MCP client is trusted.
         #[arg(long)]
         allow_shell: bool,
+        /// Log every tool call to a JSONL file (tool name, duration, status).
+        /// Also settable via PATCHLOOM_MCP_LOG env var; the flag takes precedence.
+        #[arg(long)]
+        log: Option<String>,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     Completions {
@@ -374,9 +378,9 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
-        Command::McpServer { allow_shell } => {
+        Command::McpServer { allow_shell, log } => {
             load_project_config(&mut global);
-            mcp::run_mcp_server(&global, allow_shell)
+            mcp::run_mcp_server(&global, allow_shell, log)
         }
         Command::AgentRules(args) => {
             let output = generate_agent_rules(&args);
