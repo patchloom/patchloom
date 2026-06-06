@@ -74,7 +74,7 @@ jobs:
         with:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@a02a34c4d625f9be7cb89f4291f2343e4b830e5d # v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         id: rp
         with:
           token: ${{ steps.app-token.outputs.token }}
