@@ -206,7 +206,12 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 6. Add tests that cover success, failure, and edge-case exit codes.
 
-7. Run `make check`.
+7. Update ancillary files that integration tests auto-verify:
+   - `tests/agent/drivers/base.py`: add the command name to `_PATCHLOOM_SUBCOMMANDS`.
+   - `docs/reference/README.md`: add a `<!-- ref:command:<name> -->` marker with a `## \`<name>\`` heading, description, **Use when:** stanza, and **Related:** links.
+   - `docs/blog/launch-announcement.md`: update the command count ("N commands cover...").
+
+8. Run `make sync-patchloom-md && make update-readme && make check`.
 
 ## Adding a new MCP tool
 
@@ -285,6 +290,25 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
 - Internal refactors and performance optimizations (no user-visible behavior change) still require a targeted unit or integration test on the changed helper or code path. Existing higher-level tests may provide coverage, but a focused test prevents silent regression of the optimization or guard in future refactors.
+
+- When asserting `Send + Sync` bounds on public types, use the `const` static assertion pattern (compile-time, no dead-code warnings):
+
+```rust
+const _: () = {
+    fn _assert<T: Send + Sync>() {}
+    let _ = _assert::<MyType>;
+};
+```
+
+  Do NOT use a named function calling a named helper (produces dead_code warnings):
+
+```rust
+// BAD: generates dead_code warning
+fn assert_send_sync<T: Send + Sync>() {}
+fn check() { assert_send_sync::<MyType>(); }
+```
+
+- Clippy `collapsible_if` with `if let` chains (Rust 2024 edition): nested `} else if cond { if let Err(e) = expr {` must be collapsed to `} else if cond && let Err(e) = expr {`. This fires frequently when validating structured file formats (JSON/YAML/TOML) by file extension.
 
 ## Safety rules
 
