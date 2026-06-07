@@ -426,7 +426,10 @@ fn validate_path_resolved(
     })?;
     if !canon_path.starts_with(canon_cwd) {
         return Err(McpError::invalid_params(
-            format!("resolved path escapes working directory: {path}"),
+            format!(
+                "resolved path escapes working directory: {path} (cwd: {})",
+                cwd.display()
+            ),
             None,
         ));
     }
@@ -539,7 +542,15 @@ impl PatchloomService {
     /// Validate a path for both syntactic containment and symlink resolution.
     /// Combines the two checks that must always be called together.
     fn check_path(&self, path: &str) -> Result<(), McpError> {
-        validate_path_contained(path)?;
+        validate_path_contained(path).map_err(|_| {
+            McpError::invalid_params(
+                format!(
+                    "path rejected: {path}; use a relative path within the working directory ({})",
+                    self.cwd.display()
+                ),
+                None,
+            )
+        })?;
         validate_path_resolved(path, &self.cwd, &self.canon_cwd)
     }
 
