@@ -728,16 +728,11 @@ pub(crate) fn execute_with_mode(
                 return Ok((String::new(), exit::NO_MATCHES));
             }
             let target = results[0];
-            if let Some(arr) = target.as_array() {
-                let len = arr.len();
-                let output = match output_mode {
-                    OutputMode::Text => len.to_string(),
-                    OutputMode::Json => serde_json::to_string_pretty(&len)?,
-                    OutputMode::Jsonl => serde_json::to_string(&len)?,
-                };
-                Ok((output, exit::SUCCESS))
-            } else if let Some(obj) = target.as_object() {
-                let len = obj.len();
+            let len = target
+                .as_array()
+                .map(|a| a.len())
+                .or_else(|| target.as_object().map(|o| o.len()));
+            if let Some(len) = len {
                 let output = match output_mode {
                     OutputMode::Text => len.to_string(),
                     OutputMode::Json => serde_json::to_string_pretty(&len)?,
