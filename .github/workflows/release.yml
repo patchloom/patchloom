@@ -107,11 +107,9 @@ jobs:
       - name: Get PR branch
         id: pr-branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
         run: |
-          branch=$(gh pr view "${{ needs.release-please.outputs.pr }}" \
-            --repo "${{ github.repository }}" \
-            --json headRefName --jq .headRefName)
+          branch=$(echo "$PR_JSON" | jq -r .headBranchName)
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
