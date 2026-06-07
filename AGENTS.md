@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides nineteen commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
 
 ## Dev commands
 
@@ -60,6 +60,7 @@ src/
   cmd/tidy.rs          Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
   cmd/read.rs          Read file contents with optional line range
+  cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
   cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
   cmd/explain.rs       Parse a tx plan and print a human-readable summary
@@ -67,6 +68,10 @@ src/
   cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
   config.rs            Project config file (.patchloom.toml) loading and merging
   backup.rs            Backup session management for undo safety net
+  schema.rs            Intent format spec: OperationSchema, Tier, operation_schemas(),
+                       operations_for_tier(), system_prompt_for_tier(), INTENT_FORMAT_VERSION
+  fallback.rs          Multi-strategy fallback chain: EditError, EditErrorKind, validate_edit(),
+                       find_similar_targets(), anchor_match(), resolve_with_fallback()
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees

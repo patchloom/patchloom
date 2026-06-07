@@ -51,9 +51,11 @@ pub mod cmd;
 pub mod config;
 pub mod diff;
 pub mod exit;
+pub mod fallback;
 pub(crate) mod files;
 pub mod ops;
 pub mod plan;
+pub mod schema;
 pub mod selector;
 pub mod write;
 

@@ -768,6 +768,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "similar",
+ "strsim",
  "tempfile",
  "tokio",
  "toml_edit",

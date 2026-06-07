@@ -268,6 +268,18 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `tx` directly (without `--apply`) to see the actual diff preview. Use `explain` when you want a quick overview without touching any files.
 - **Related:** `tx`, `batch`
 
+<!-- ref:command:schema -->
+## `schema`
+
+- **What it does:** Exports the complete registry of patchloom operations with JSON Schemas, tier-filtered subsets, and LLM-ready system prompt fragments. Each operation is annotated with a minimum capability tier (weak, medium, strong).
+- **Use when:** You are building an AI agent that uses patchloom programmatically and need machine-readable operation schemas, or you want to generate a system prompt tailored to a specific model tier.
+- **Notable flags:**
+  - `--format json|prompt` (default: `json`): `json` outputs operation schemas as JSON, `prompt` outputs markdown suitable for LLM system prompts.
+  - `--tier weak|medium|strong`: Filter operations by minimum capability tier.
+  - `--examples`: Include usage examples in JSON output (omitted by default).
+- **Prefer instead:** Nothing; this is the only programmatic way to discover available operations and their schemas.
+- **Related:** `agent-rules`, `mcp-server`
+
 <!-- ref:command:agent-rules -->
 ## `agent-rules`
 
