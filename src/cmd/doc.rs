@@ -880,6 +880,7 @@ pub(crate) fn execute_with_mode(
 // ---------------------------------------------------------------------------
 
 pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("doc: running doc command");
     let cwd = global.resolve_cwd()?;
     args.action.resolve_files(&cwd);
 

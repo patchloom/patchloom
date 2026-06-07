@@ -191,6 +191,12 @@ fn make_diff_output(replacements: &[FileReplacement], color: bool) -> String {
 }
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "replace: from={:?} regex={} paths={:?}",
+        args.from,
+        args.regex,
+        args.paths
+    );
     if args.from.is_empty() {
         anyhow::bail!("search pattern must not be empty");
     }

@@ -1594,7 +1594,17 @@ fn execute_and_collect(
     let mut tx_lints: Vec<TxLintResult> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
 
+    crate::verbose!(
+        "tx: executing plan with {} operations",
+        plan.operations.len()
+    );
     for (i, op) in plan.operations.iter().enumerate() {
+        crate::verbose!(
+            "tx: operation {}/{}: {}",
+            i + 1,
+            plan.operations.len(),
+            op_label(op)
+        );
         if let Operation::Replace { if_exists, .. } = op
             && !if_exists
         {
@@ -1615,8 +1625,15 @@ fn execute_and_collect(
             structured,
         };
         match execute_operation(op, &mut tx) {
-            Ok(count) => total_replace_matches += count,
+            Ok(count) => {
+                crate::verbose!(
+                    "tx: operation {} succeeded (replace_matches: {count})",
+                    i + 1
+                );
+                total_replace_matches += count;
+            }
             Err(e) => {
+                crate::verbose!("tx: operation {} failed: {e}", i + 1);
                 anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
             }
         }
@@ -1765,6 +1782,11 @@ fn make_error_json_with_prefix(
 /// The MCP server calls this to avoid subprocess overhead.
 #[cfg(feature = "mcp")]
 pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
+    crate::verbose!(
+        "tx: direct plan execution ({} ops, cwd={})",
+        plan.operations.len(),
+        cwd.display()
+    );
     // Validate plan.
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(

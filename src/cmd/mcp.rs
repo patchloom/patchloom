@@ -342,6 +342,78 @@ pub struct BatchTidyParams {
 }
 
 // ---------------------------------------------------------------------------
+// Resource limits
+// ---------------------------------------------------------------------------
+
+/// Maximum size for content/diff fields (10 MiB).
+const MAX_CONTENT_BYTES: usize = 10 * 1024 * 1024;
+
+/// Maximum size for pattern/selector string fields (1 MiB).
+const MAX_PARAM_BYTES: usize = 1024 * 1024;
+
+/// Maximum number of files in a batch operation.
+const MAX_BATCH_FILES: usize = 1000;
+
+/// Maximum nesting depth for JSON value parameters.
+const MAX_JSON_DEPTH: usize = 64;
+
+fn validate_content_size(field: &str, value: &str) -> Result<(), McpError> {
+    if value.len() > MAX_CONTENT_BYTES {
+        return Err(McpError::invalid_params(
+            format!(
+                "{field} exceeds maximum size ({} bytes, limit {})",
+                value.len(),
+                MAX_CONTENT_BYTES
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_param_size(field: &str, value: &str) -> Result<(), McpError> {
+    if value.len() > MAX_PARAM_BYTES {
+        return Err(McpError::invalid_params(
+            format!(
+                "{field} exceeds maximum size ({} bytes, limit {})",
+                value.len(),
+                MAX_PARAM_BYTES
+            ),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_json_depth(field: &str, value: &serde_json::Value) -> Result<(), McpError> {
+    fn measure(v: &serde_json::Value) -> usize {
+        match v {
+            serde_json::Value::Array(arr) => 1 + arr.iter().map(measure).max().unwrap_or(0),
+            serde_json::Value::Object(obj) => 1 + obj.values().map(measure).max().unwrap_or(0),
+            _ => 0,
+        }
+    }
+    let depth = measure(value);
+    if depth > MAX_JSON_DEPTH {
+        return Err(McpError::invalid_params(
+            format!("{field} exceeds maximum nesting depth ({depth}, limit {MAX_JSON_DEPTH})"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_batch_size(field: &str, count: usize) -> Result<(), McpError> {
+    if count > MAX_BATCH_FILES {
+        return Err(McpError::invalid_params(
+            format!("{field} exceeds maximum batch size ({count}, limit {MAX_BATCH_FILES})"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Path containment
 // ---------------------------------------------------------------------------
 
@@ -662,6 +734,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocSetParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocSet {
                 path: p.path,
@@ -680,6 +754,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocDelete {
                 path: p.path,
@@ -697,6 +772,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMergeParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocMerge {
                 path: p.path,
@@ -714,6 +790,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocAppend {
                 path: p.path,
@@ -732,6 +810,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocArrayParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocPrepend {
                 path: p.path,
@@ -750,6 +830,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocEnsureParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocEnsure {
                 path: p.path,
@@ -768,6 +850,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocDeleteWhereParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_param_size("predicate", &p.predicate)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocDeleteWhere {
                 path: p.path,
@@ -786,6 +870,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
+        validate_json_depth("value", &p.value)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocUpdate {
                 path: p.path,
@@ -804,6 +890,8 @@ impl PatchloomService {
         Parameters(p): Parameters<DocMoveParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("from", &p.from)?;
+        validate_param_size("to", &p.to)?;
         execute_plan_validated(
             make_plan(vec![Operation::DocMove {
                 path: p.path,
@@ -822,6 +910,7 @@ impl PatchloomService {
         Parameters(p): Parameters<DocGetParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("selector", &p.selector)?;
         let abs = self.cwd.join(&p.path);
         let action = crate::cmd::doc::DocAction::Get {
             file: abs.to_string_lossy().into_owned(),
@@ -918,6 +1007,7 @@ impl PatchloomService {
                 None,
             ));
         }
+        validate_param_size("pattern", &p.pattern)?;
         for path in &p.paths {
             self.check_path(path)?;
         }
@@ -1031,6 +1121,16 @@ impl PatchloomService {
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("from", &p.from)?;
+        if let Some(ref to) = p.to {
+            validate_content_size("to", to)?;
+        }
+        if let Some(ref ib) = p.insert_before {
+            validate_content_size("insert_before", ib)?;
+        }
+        if let Some(ref ia) = p.insert_after {
+            validate_content_size("insert_after", ia)?;
+        }
         let mode = if p.regex {
             Some("regex".to_string())
         } else {
@@ -1062,6 +1162,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdUpsertBulletParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("bullet", &p.bullet)?;
         execute_plan_validated(
             make_plan(vec![Operation::MdUpsertBullet {
                 path: p.path,
@@ -1080,6 +1181,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdTableAppendParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("row", &p.row)?;
         execute_plan_validated(
             make_plan(vec![Operation::MdTableAppend {
                 path: p.path,
@@ -1098,6 +1200,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdReplaceSectionParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_content_size("content", &p.content)?;
         execute_plan_validated(
             make_plan(vec![Operation::MdReplaceSection {
                 path: p.path,
@@ -1116,6 +1219,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_content_size("content", &p.content)?;
         execute_plan_validated(
             make_plan(vec![Operation::MdInsertAfterHeading {
                 path: p.path,
@@ -1134,6 +1238,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdInsertParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_content_size("content", &p.content)?;
         execute_plan_validated(
             make_plan(vec![Operation::MdInsertBeforeHeading {
                 path: p.path,
@@ -1209,6 +1314,7 @@ impl PatchloomService {
         Parameters(p): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_content_size("content", &p.content)?;
 
         let abs = self.cwd.join(&p.path);
         match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
@@ -1246,6 +1352,7 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<PatchParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_content_size("diff", &p.diff)?;
         // Validate paths embedded in the diff.
         let patch_files = crate::ops::patch::parse_patch(&p.diff)
             .map_err(|e| McpError::invalid_params(format!("failed to parse diff: {e}"), None))?;
@@ -1272,6 +1379,9 @@ impl PatchloomService {
                 None,
             ));
         }
+        validate_batch_size("files", p.files.len())?;
+        validate_param_size("from", &p.from)?;
+        validate_content_size("to", &p.to)?;
         for f in &p.files {
             self.check_path(f)?;
         }
@@ -1313,6 +1423,7 @@ impl PatchloomService {
                 None,
             ));
         }
+        validate_batch_size("files", p.files.len())?;
         for f in &p.files {
             self.check_path(f)?;
         }
@@ -1359,10 +1470,15 @@ impl ServerHandler for PatchloomService {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let tool_name = request.name.clone();
+        crate::verbose!("mcp: tool call -> {tool_name}");
         let start = std::time::Instant::now();
         let tc = ToolCallContext::new(self, request, context);
         let result = self.tool_router.call(tc).await;
         let duration_ms = start.elapsed().as_millis() as u64;
+        crate::verbose!(
+            "mcp: {tool_name} completed in {duration_ms}ms (ok={})",
+            result.is_ok()
+        );
         self.log_tool_call(&tool_name, duration_ms, &result);
         result
     }
@@ -1752,6 +1868,104 @@ mod tests {
             serde_json::from_str(lines[0]).expect("log line should be valid JSON");
         assert_eq!(entry["tool"], "doc_set");
         assert_eq!(entry["ok"], false);
+    }
+
+    #[test]
+    fn validate_content_size_accepts_small() {
+        assert!(validate_content_size("field", "hello").is_ok());
+    }
+
+    #[test]
+    fn validate_content_size_rejects_oversized() {
+        let big = "x".repeat(MAX_CONTENT_BYTES + 1);
+        let err = validate_content_size("content", &big).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("content"), "error should name the field");
+        assert!(msg.contains("exceeds"), "error should say exceeds");
+    }
+
+    #[test]
+    fn validate_param_size_accepts_small() {
+        assert!(validate_param_size("selector", "a.b.c").is_ok());
+    }
+
+    #[test]
+    fn validate_param_size_rejects_oversized() {
+        let big = "x".repeat(MAX_PARAM_BYTES + 1);
+        let err = validate_param_size("pattern", &big).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("pattern"), "error should name the field");
+    }
+
+    #[test]
+    fn validate_batch_size_accepts_small() {
+        assert!(validate_batch_size("files", 5).is_ok());
+    }
+
+    #[test]
+    fn validate_batch_size_rejects_oversized() {
+        let err = validate_batch_size("files", MAX_BATCH_FILES + 1).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("files"), "error should name the field");
+    }
+
+    #[test]
+    fn validate_json_depth_accepts_shallow() {
+        let val = serde_json::json!({"a": {"b": "c"}});
+        assert!(validate_json_depth("value", &val).is_ok());
+    }
+
+    #[test]
+    fn validate_json_depth_accepts_scalar() {
+        let val = serde_json::json!("hello");
+        assert!(validate_json_depth("value", &val).is_ok());
+    }
+
+    #[test]
+    fn validate_json_depth_rejects_deeply_nested() {
+        // Build a value nested deeper than MAX_JSON_DEPTH.
+        let mut val = serde_json::json!("leaf");
+        for _ in 0..MAX_JSON_DEPTH + 1 {
+            val = serde_json::json!([val]);
+        }
+        let err = validate_json_depth("value", &val).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("nesting depth"), "error should mention depth");
+    }
+
+    #[tokio::test]
+    async fn mcp_rejects_oversized_content_via_protocol() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let big_content = "x".repeat(MAX_CONTENT_BYTES + 1);
+        let params = rmcp::model::CallToolRequestParams::new("create_file").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "big.txt",
+                "content": big_content,
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(result.is_err(), "oversized content should be rejected");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_rejects_oversized_batch() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let files: Vec<String> = (0..MAX_BATCH_FILES + 1)
+            .map(|i| format!("file{i}.txt"))
+            .collect();
+        let params = rmcp::model::CallToolRequestParams::new("batch_tidy").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "files": files,
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(result.is_err(), "oversized batch should be rejected");
+        client.cancel().await.unwrap();
     }
 
     #[tokio::test]

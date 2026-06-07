@@ -17160,3 +17160,55 @@ fn test_agent_driver_subcommands_match_cli() {
         extra_in_py,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Verbose flag
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_verbose_flag_emits_to_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom]"));
+}
+
+#[test]
+fn test_verbose_env_var_emits_to_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .env("PATCHLOOM_LOG", "1")
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom]"));
+}
+
+#[test]
+fn test_no_verbose_by_default() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("hello")
+        .arg(dir.path())
+        .env_remove("PATCHLOOM_LOG")
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty());
+}

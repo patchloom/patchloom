@@ -129,6 +129,13 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** You need to override the default terminal detection, for example forcing color into a pager or disabling it in a terminal that renders escape codes literally.
 - **Prefer instead:** Set the `NO_COLOR` environment variable when you want a global, tool-agnostic way to disable color across all CLI tools.
 
+<!-- ref:global-flag:verbose -->
+### `--verbose`
+
+- **What it does:** Prints diagnostic messages to stderr prefixed with `[patchloom]`. Shows which operations are running, search parameters, selector evaluation steps, and MCP tool call timing. Can also be enabled by setting the `PATCHLOOM_LOG` environment variable to any value.
+- **Use when:** A command produces unexpected results and you need to see what Patchloom is doing internally without reading source code.
+- **Prefer instead:** Use `--json` when you need machine-readable output for downstream tools.
+
 ### Exit codes
 
 Use [Core Concepts](../getting-started/concepts.md#exit-codes) as the canonical exit code table. When integrating Patchloom into CI or agent workflows, branch on exit codes instead of parsing human readable output.

@@ -5,6 +5,7 @@ use super::parser::{Segment, Selector};
 /// Returns all matching leaf values.  For wildcards and predicates the
 /// result may contain more than one entry.
 pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a serde_json::Value> {
+    crate::verbose!("selector: evaluating {:?}", selector);
     let mut current = vec![value];
 
     for segment in selector {
