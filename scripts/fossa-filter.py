@@ -6,7 +6,7 @@ Exit 1 if any genuine issues remain after filtering.
 
 Documented false positives
 --------------------------
-1. cc, compiler_builtins (and other Rust compiler infrastructure)
+1. cc, compiler_builtins, wasi (and other Rust compiler infrastructure)
    apache-2.0 WITH llvm-exception
    The LLVM exception explicitly permits compiling code with these
    crates without the Apache-2.0 license applying to the compiled
@@ -29,6 +29,7 @@ import sys
 LLVM_EXCEPTION_CRATES = {
     "cc",
     "compiler_builtins",
+    "wasi",
     "wit-bindgen-core",
     "wit-bindgen-rust",
     "wit-bindgen-rust-macro",
