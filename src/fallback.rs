@@ -241,7 +241,15 @@ pub fn anchor_match(
     }
 
     let first_target = target_lines[0].trim();
-    let _last_target = target_lines.last().map(|l| l.trim()).unwrap_or("");
+    let last_target = target_lines.last().map(|l| l.trim()).unwrap_or("");
+
+    // Anchor matching requires at least one piece of structural context
+    // (before_context or after_context). Without context, it would
+    // degenerate into the same Jaro-Winkler line scan that the
+    // similarity path already does, making the fallback chain redundant.
+    if before_context.is_none() && after_context.is_none() {
+        return None;
+    }
 
     // Find candidate positions by matching the first line with anchors.
     for (i, line) in lines.iter().enumerate() {
@@ -250,6 +258,19 @@ pub fn anchor_match(
         // Check if this line is similar to the first target line.
         if strsim::jaro_winkler(trimmed, first_target) < 0.85 {
             continue;
+        }
+
+        // For multi-line targets, also verify the last line of the
+        // candidate region is similar to the last target line.
+        if target_lines.len() > 1 {
+            let end_idx = i + target_lines.len();
+            if end_idx > lines.len() {
+                continue;
+            }
+            let candidate_last = lines[end_idx - 1].trim();
+            if strsim::jaro_winkler(candidate_last, last_target) < 0.85 {
+                continue;
+            }
         }
 
         // If we have before_context, verify the preceding line matches.
@@ -263,7 +284,7 @@ pub fn anchor_match(
             }
         }
 
-        // If we have after_context and the target is one line, check the next line.
+        // If we have after_context, check the line after the candidate region.
         if let Some(after) = after_context {
             let end_idx = i + target_lines.len();
             if end_idx >= lines.len() {
@@ -561,6 +582,31 @@ mod tests {
     }
 
     #[test]
+    fn anchor_match_requires_context_for_fuzzy() {
+        // Without context, anchor matching skips the fuzzy path and returns
+        // None even if a similar line exists. This prevents anchor from
+        // duplicating the similarity path in the fallback chain.
+        let content = "fn process_request(x: i32) {}\n";
+        let result = anchor_match(content, "fn process_requst(x: i32) {}", None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn anchor_match_multi_line_verifies_last_line() {
+        // Multi-line anchor matching must check both the first and last
+        // lines of the candidate region, not just the first.
+        let content = "fn setup() {}\nfn process(x: i32) {}\nfn teardown() {}\nfn other() {}\n";
+        // Target has a matching first line but wrong last line.
+        let result = anchor_match(
+            content,
+            "fn process(x: i32) {}\nfn completely_wrong() {}",
+            Some("fn setup() {}"),
+            None,
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn resolve_with_fallback_exact_match() {
         let content = "fn hello() {}\n";
         let result = resolve_with_fallback(content, "fn hello()", None, None).unwrap();
@@ -569,11 +615,10 @@ mod tests {
 
     #[test]
     fn resolve_with_fallback_similarity_match() {
-        // Anchor matching is tried before similarity, and it uses Jaro-Winkler
-        // with the same threshold.  A slightly misspelled single line will be
-        // caught by the anchor path (no context required).  The test verifies
-        // the fallback chain resolves it, regardless of which fuzzy strategy
-        // fires first.
+        // Without context, anchor matching is skipped (it requires at least
+        // before_context or after_context to avoid degenerating into the same
+        // Jaro-Winkler scan that similarity already does). The similarity
+        // path catches the misspelled target instead.
         let content = "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n";
         let result = resolve_with_fallback(
             content,
@@ -583,11 +628,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let r = result.unwrap();
-        assert!(
-            r.strategy == MatchStrategy::Anchor || r.strategy == MatchStrategy::Similarity,
-            "expected fuzzy match, got {:?}",
-            r.strategy
-        );
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
     }
 
     #[test]
@@ -602,8 +643,8 @@ mod tests {
 
     #[test]
     fn resolve_with_fallback_anchor_over_similarity() {
-        // When both anchor and similarity could match, anchor should win
-        // (it comes first in the chain).
+        // When context is provided, anchor matching fires before similarity
+        // and should win.
         let content = "fn setup() {}\nfn proces_data(x: i32) {}\nfn cleanup() {}\n";
         let result = resolve_with_fallback(
             content,
@@ -613,8 +654,7 @@ mod tests {
         );
         assert!(result.is_ok());
         let r = result.unwrap();
-        // Anchor match should be preferred when context is provided.
-        assert!(r.strategy == MatchStrategy::Anchor || r.strategy == MatchStrategy::Similarity,);
+        assert_eq!(r.strategy, MatchStrategy::Anchor);
     }
 
     #[test]
