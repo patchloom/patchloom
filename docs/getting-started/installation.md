@@ -6,21 +6,12 @@
 brew install patchloom/tap/patchloom
 ```
 
-This installs the core CLI from a pre-built binary. If you need
-`mcp-server`, install from source with `--features mcp` (see below).
+This installs patchloom with all commands, including the MCP server.
 
 ## From crates.io
 
-Core CLI:
-
 ```bash
 cargo install patchloom
-```
-
-With MCP support:
-
-```bash
-cargo install patchloom --features mcp
 ```
 
 ## From GitHub Releases
@@ -41,8 +32,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/patchloom/patchloom/rel
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/patchloom/patchloom/releases/latest/download/patchloom-installer.ps1 | iex"
 ```
 
-Pre-built binaries include the core CLI only. If you need `mcp-server`,
-install from source with `--features mcp`.
+Pre-built binaries include all commands, including the MCP server.
 
 ## From source
 
@@ -54,14 +44,8 @@ cd patchloom
 cargo install --path .
 ```
 
-With MCP support:
-
-```bash
-cargo install --path . --features mcp
-```
-
-The `mcp-server` command is feature-gated. If you only run
-`cargo install --path .`, you get the core CLI without MCP.
+This builds with MCP support by default. To build without MCP
+(smaller binary), use `cargo install --path . --no-default-features`.
 
 If you're contributing from a source checkout, use `make check-fast`
 while iterating and `make check` before committing.

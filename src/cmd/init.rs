@@ -142,7 +142,9 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 eprintln!("{mcp_json_hint}");
             }
         } else {
-            eprintln!("MCP server not available (build with --features mcp to enable).");
+            eprintln!(
+                "MCP server not available (this binary was built with --no-default-features)."
+            );
         }
 
         eprintln!();

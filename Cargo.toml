@@ -29,7 +29,7 @@ exclude = [
 ]
 
 [features]
-default = []
+default = ["mcp"]
 mcp = ["rmcp", "tokio", "schemars"]
 
 [dependencies]

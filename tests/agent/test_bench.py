@@ -63,7 +63,7 @@ def _find_patchloom_binary() -> str:
 
 
 def _has_mcp_support(binary: str) -> bool:
-    """Check if the patchloom binary was built with --features mcp."""
+    """Check if the patchloom binary includes MCP support (default since v0.1.2)."""
     try:
         proc = subprocess.run(
             [binary, "mcp-server", "--help"],
@@ -617,7 +617,7 @@ def test_multi_turn_mcp(bench_agent, bench_patchloom_bin, tmp_path, n_runs, requ
     """Run tasks in one session WITH patchloom MCP tools."""
     request.node.timeout = max(1200, n_runs * 700)
     if not _has_mcp_support(bench_patchloom_bin):
-        pytest.skip("patchloom binary lacks MCP support (build with --features mcp)")
+        pytest.skip("patchloom binary lacks MCP support (built with --no-default-features?)")
     print(f"\n  === Multi-turn session: MCP mode ({n_runs} run{'s' if n_runs > 1 else ''}) ===")
     runs = _run_n_sessions(bench_agent, bench_patchloom_bin, tmp_path, "mcp", n_runs)
     if not hasattr(request.config, "_bench_runs"):
