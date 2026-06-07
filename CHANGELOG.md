@@ -4,6 +4,13 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.5](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.4...patchloom-v0.1.5) (2026-06-07)
+
+
+### Bug Fixes
+
+* improvement cycle 6 (doc_query validation, troubleshooting docs) ([#520](https://github.com/patchloom/patchloom/issues/520)) ([93d3fdf](https://github.com/patchloom/patchloom/commit/93d3fdf77957d0fa14dc9f358c39a402a2f0af6c))
+
 ## [0.1.4](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.3...patchloom-v0.1.4) (2026-06-07)
 
 
