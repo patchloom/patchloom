@@ -9782,6 +9782,31 @@ fn test_tx_md_insert_after_heading_in_plan() {
 }
 
 #[test]
+fn test_tx_md_replace_section_nonexistent_file_rolls_back() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+            "version": "1",
+        "operations": [{
+            "op": "md.replace_section",
+            "path": nonexistent_path("doc.md"),
+            "heading": "Title",
+            "content": "New content\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+}
+
+#[test]
 fn test_tx_md_replace_section_missing_heading_rolls_back() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");
