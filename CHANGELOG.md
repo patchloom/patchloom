@@ -4,6 +4,19 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.1...patchloom-v0.1.2) (2026-06-07)
+
+
+### Features
+
+* enable MCP feature by default ([#502](https://github.com/patchloom/patchloom/issues/502)) ([7eb8750](https://github.com/patchloom/patchloom/commit/7eb87507e5b686a1d80391e50a97ce50abdd51a0))
+
+
+### Bug Fixes
+
+* add benchmark result directories to .gitignore ([#500](https://github.com/patchloom/patchloom/issues/500)) ([9bdd383](https://github.com/patchloom/patchloom/commit/9bdd38319f7fe2713e4b22eea24fa99244a9d392))
+* improvement cycle 4 (MCP tests, doc dedup, error messages) ([#507](https://github.com/patchloom/patchloom/issues/507)) ([764c355](https://github.com/patchloom/patchloom/commit/764c3554c219ee7d5ca9c9098c73b0621ff90ad9))
+
 ## [0.1.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.0...patchloom-v0.1.1) (2026-06-06)
 
 
