@@ -466,6 +466,35 @@ fn flush_doc_cache(
     Ok(())
 }
 
+/// Apply a markdown heading operation (read file, transform, write back).
+///
+/// Five of the six md operations follow an identical pattern: resolve path,
+/// read content, call a `(&str, &str, &str) -> Option<String>` transform,
+/// error on `None`, and update pending state. This helper captures that pattern.
+fn apply_md_heading_op(
+    tx: &mut TxState<'_>,
+    path: &str,
+    heading: &str,
+    extra: &str,
+    op: impl FnOnce(&str, &str, &str) -> Option<String>,
+    err_label: &str,
+) -> anyhow::Result<()> {
+    let file_path = tx.cwd.join(path);
+    let file_content = read_file_content(tx.pending, &file_path)?;
+    let new_content = op(file_content, heading, extra)
+        .ok_or_else(|| anyhow::anyhow!("{err_label} not found: {heading}"))?;
+    update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+    Ok(())
+}
+
+/// Wrap an error with the file path for context.
+///
+/// This replaces 27 identical `.map_err(path_err(path))` calls
+/// throughout `execute_operation` and `get_doc_root`.
+fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> anyhow::Error + '_ {
+    move |e| anyhow::anyhow!("{path}: {e}")
+}
+
 /// Load a structured document from the cache (or parse from pending buffer)
 /// and return a mutable reference to the parsed JSON value. Serialization is
 /// deferred until the cache is flushed.
@@ -484,8 +513,8 @@ fn get_doc_root<'a>(
     // Ensure the document is in the cache.
     if !doc_cache.contains_key(&file_path) {
         let content = read_file_content(pending, &file_path)?;
-        let format = detect_format(path).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-        let root = parse_doc(content, &format).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+        let format = detect_format(path).map_err(path_err(path))?;
+        let root = parse_doc(content, &format).map_err(path_err(path))?;
         let old_value = match format {
             FileFormat::Json => serde_json::Value::Null,
             _ => root.clone(),
@@ -875,22 +904,22 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             value,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            set_at_path(root, &sel, value.clone()).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
+            set_at_path(root, &sel, value.clone()).map_err(path_err(path))?;
         }
 
         Operation::DocDelete { path, selector } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            delete_at_selector(root, &sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
+            delete_at_selector(root, &sel).map_err(path_err(path))?;
         }
 
         Operation::DocMerge { path, value } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
             deep_merge(root, value);
         }
 
@@ -899,11 +928,10 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             value,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let target =
-                navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
+            let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
             target
                 .as_array_mut()
                 .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
@@ -915,11 +943,10 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             value,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let target =
-                navigate_mut(root, &sel, false).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
+            let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
             target
                 .as_array_mut()
                 .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
@@ -931,9 +958,9 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             value,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
             let count = update_matching(root, &sel, value);
             if count == 0 {
                 anyhow::bail!("{path}: no matching nodes found for selector '{selector}'");
@@ -941,11 +968,11 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         }
 
         Operation::DocMove { path, from, to } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let from_sel = parse_selector(from).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let to_sel = parse_selector(to).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            move_at_path(root, &from_sel, &to_sel).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let from_sel = parse_selector(from).map_err(path_err(path))?;
+            let to_sel = parse_selector(to).map_err(path_err(path))?;
+            move_at_path(root, &from_sel, &to_sel).map_err(path_err(path))?;
         }
 
         Operation::DocEnsure {
@@ -953,13 +980,12 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             value,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
             // If the path already exists, no-op.
             if selector::eval(root, &sel).is_empty() {
-                set_at_path(root, &sel, value.clone())
-                    .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+                set_at_path(root, &sel, value.clone()).map_err(path_err(path))?;
             }
         }
 
@@ -968,10 +994,10 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             selector,
             predicate,
         } => {
-            let root = get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd)
-                .map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            let sel = parse_selector(selector).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
-            delete_where(root, &sel, predicate).map_err(|e| anyhow::anyhow!("{path}: {e}"))?;
+            let root =
+                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let sel = parse_selector(selector).map_err(path_err(path))?;
+            delete_where(root, &sel, predicate).map_err(path_err(path))?;
         }
 
         Operation::MdReplaceSection {
@@ -979,11 +1005,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             heading,
             content,
         } => {
-            let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
-            let new_content = replace_section_in(file_content, heading, content)
-                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            apply_md_heading_op(tx, path, heading, content, replace_section_in, "heading")?;
         }
 
         Operation::MdInsertAfterHeading {
@@ -991,11 +1013,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             heading,
             content,
         } => {
-            let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
-            let new_content = insert_after_heading_in(file_content, heading, content)
-                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            apply_md_heading_op(
+                tx,
+                path,
+                heading,
+                content,
+                insert_after_heading_in,
+                "heading",
+            )?;
         }
 
         Operation::MdInsertBeforeHeading {
@@ -1003,11 +1028,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             heading,
             content,
         } => {
-            let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
-            let new_content = insert_before_heading_in(file_content, heading, content)
-                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            apply_md_heading_op(
+                tx,
+                path,
+                heading,
+                content,
+                insert_before_heading_in,
+                "heading",
+            )?;
         }
 
         Operation::MdUpsertBullet {
@@ -1015,19 +1043,11 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             heading,
             bullet,
         } => {
-            let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
-            let new_content = upsert_bullet_in(file_content, heading, bullet)
-                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            apply_md_heading_op(tx, path, heading, bullet, upsert_bullet_in, "heading")?;
         }
 
         Operation::MdTableAppend { path, heading, row } => {
-            let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
-            let new_content = table_append_for_tx(file_content, heading, row)
-                .ok_or_else(|| anyhow::anyhow!("heading/table not found: {heading}"))?;
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            apply_md_heading_op(tx, path, heading, row, table_append_for_tx, "heading/table")?;
         }
 
         Operation::MdDedupeHeadings { path } => {
