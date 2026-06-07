@@ -1,18 +1,10 @@
 # MCP Setup Guide
 
-When built with `--features mcp`, Patchloom can run an MCP (Model Context Protocol) server for structured tool calls. MCP-capable AI agents can call Patchloom tools directly with JSON parameters, with no shell command construction, no quoting issues, and no `--apply` flag needed.
+Patchloom includes an MCP (Model Context Protocol) server for structured tool calls. MCP-capable AI agents can call Patchloom tools directly with JSON parameters, with no shell command construction, no quoting issues, and no `--apply` flag needed.
 
-## Install or build with MCP support
+## Verify MCP support
 
-MCP is behind a feature flag. Install or build with:
-
-```bash
-cargo install --path . --features mcp
-# or
-cargo build --features mcp --release
-```
-
-Verify it works:
+The MCP server is included by default in all pre-built binaries, Homebrew, and crates.io installs. Verify it works:
 
 ```bash
 patchloom mcp-server --help

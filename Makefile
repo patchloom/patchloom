@@ -35,7 +35,6 @@ update-readme: ## Update README.md and CHANGELOG.md test counts
 	core_cmds=$$(NO_COLOR=1 cargo run --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	all_cmds=$$(NO_COLOR=1 cargo run --all-features --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	sed -i.bak "s/tests-[0-9]*%20passing/tests-$$total%20passing/" README.md; \
-	sed -i.bak "s/[0-9]* passing tests across [0-9]* core commands, plus the optional \`mcp-server\` command/$$total passing tests across $$core_cmds core commands, plus the optional \`mcp-server\` command/" README.md; \
 	sed -i.bak "s/[0-9]* passing tests across [0-9]* commands/$$total passing tests across $$all_cmds commands/" README.md; \
 	sed -i.bak "/^## \[Unreleased\]/,/^## \[/ s/- [0-9]* tests ([0-9]* unit + [0-9]* integration)/- $$total tests ($$unit unit + $$integ integration)/" CHANGELOG.md; \
 	rm -f README.md.bak CHANGELOG.md.bak; \

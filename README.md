@@ -107,7 +107,7 @@ Agent: batch with
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
 | **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append README.md --heading "API" --row "\| new \| row \|" --apply` |
 | **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx plan.json --apply` |
-| **MCP server** | Expose all operations as structured MCP tool calls (requires `--features mcp`) | `patchloom mcp-server` |
+| **MCP server** | Expose all operations as structured MCP tool calls | `patchloom mcp-server` |
 | **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
 
 ### When to use patchloom vs native tools
@@ -162,11 +162,8 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 # Homebrew (macOS/Linux)
 brew install patchloom/tap/patchloom
 
-# crates.io (requires Rust 1.95+)
+# crates.io (requires Rust 1.95+, includes MCP server)
 cargo install patchloom
-
-# With MCP support
-cargo install patchloom --features mcp
 ```
 
 Pre-built binaries for Linux, macOS, and Windows are on the
@@ -277,7 +274,7 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
 | `tidy` | Text-file whitespace and newline normalization | CI checks for text tidiness |
-| `mcp-server` | MCP protocol server (requires `--features mcp`) | MCP-capable agents (no shell syntax) |
+| `mcp-server` | MCP protocol server | MCP-capable agents (no shell syntax) |
 
 ### General-purpose (also useful in scripts and CI)
 
@@ -382,7 +379,7 @@ flowchart LR
 
 ## Status
 
-1199 passing tests across 18 core commands, plus the optional `mcp-server` command. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1199 passing tests across 19 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

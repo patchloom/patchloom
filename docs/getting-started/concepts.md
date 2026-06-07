@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 18 core commands. Building with `--features mcp` adds a 19th, `mcp-server`:
+Patchloom has 19 commands:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
@@ -19,7 +19,7 @@ Patchloom has 18 core commands. Building with `--features mcp` adds a 19th, `mcp
 - **explain** -- summarize a tx plan in plain English before applying
 - **undo** -- restore files from a backup created by `--apply`
 - **init** -- set up patchloom in a project (agent rules, completions, MCP)
-- **mcp-server** -- MCP protocol server exposing patchloom tools for AI agents (requires `--features mcp`)
+- **mcp-server** -- MCP protocol server exposing patchloom tools for AI agents
 
 For feature-by-feature `Use when` guidance on commands, operations, and notable modes, see the [reference guide](../reference/README.md).
 

@@ -25,7 +25,7 @@ file.create VERSION "2.0.0"
 EOF
 ```
 
-18 core commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, and file lifecycle operations. Building with `--features mcp` adds a 19th command (`mcp-server`) that exposes everything as structured tool calls for MCP-capable agents.
+19 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, file lifecycle operations, and an MCP server that exposes everything as structured tool calls for MCP-capable agents.
 
 ## The honest benchmark
 
@@ -90,7 +90,7 @@ patchloom agent-rules >> AGENTS.md
 For MCP mode (structured tool calls, no shell syntax):
 
 ```bash
-cargo install patchloom --features mcp
+cargo install patchloom
 patchloom mcp-server
 ```
 
@@ -99,7 +99,7 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 ## By the numbers
 
 - **1,195 tests**, zero unsafe code
-- **18 CLI commands** + MCP server with 29 structured tool calls
+- **19 commands** including MCP server with 29 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
 - **MIT OR Apache-2.0** licensed

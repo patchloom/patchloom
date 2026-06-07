@@ -13942,15 +13942,15 @@ fn test_smoke_source_install_docs_use_cargo_install_path() {
 }
 
 #[test]
-fn test_smoke_installation_docs_cover_mcp_feature_paths() {
+fn test_smoke_installation_docs_confirm_mcp_included_by_default() {
     let content = fs::read_to_string(installation_path()).unwrap();
     assert!(
-        content.contains("cargo install --path . --features mcp"),
-        "installation guide should document MCP-capable source installs"
+        content.contains("MCP support by default"),
+        "installation guide should confirm MCP is included by default"
     );
     assert!(
-        content.contains("cargo install patchloom --features mcp"),
-        "installation guide should document MCP-capable crates.io installs"
+        content.contains("--no-default-features"),
+        "installation guide should document opting out of MCP"
     );
 }
 
@@ -13972,24 +13972,24 @@ fn test_launch_announcement_command_count_matches_readme() {
     let readme = fs::read_to_string(readme_path()).unwrap();
     let launch = fs::read_to_string(launch_announcement_path()).unwrap();
 
-    // Extract core command count from README (e.g., "across 18 core commands").
+    // Extract command count from README (e.g., "across 19 commands").
     let readme_count: usize = readme
         .lines()
-        .find(|l| l.contains("core commands"))
+        .find(|l| l.contains("passing tests across") && l.contains("commands"))
         .and_then(|l| {
-            let idx = l.find("core commands")?;
+            let idx = l.find("commands")?;
             l[..idx]
                 .split_whitespace()
                 .next_back()?
                 .parse::<usize>()
                 .ok()
         })
-        .expect("README should state the core command count");
+        .expect("README should state the command count");
 
-    // Launch announcement says "N core commands cover".
+    // Launch announcement says "N commands cover".
     assert!(
-        launch.contains(&format!("{readme_count} core commands cover")),
-        "launch announcement command count should match README ({readme_count} core commands)"
+        launch.contains(&format!("{readme_count} commands cover")),
+        "launch announcement command count should match README ({readme_count} commands)"
     );
 }
 
@@ -14288,7 +14288,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains(".cursor/mcp.json"));
     assert!(launch.contains("1,195 tests"));
     assert!(
-        launch.contains("18 CLI commands"),
+        launch.contains("19 commands"),
         "launch announcement CLI command count drifted"
     );
     assert!(
@@ -15250,7 +15250,7 @@ async fn call_tool_text(
 #[tokio::test]
 async fn test_mcp_doc_set_round_trip() {
     if !has_mcp_support() {
-        return; // binary built without --features mcp
+        return; // binary built with --no-default-features (no MCP)
     }
     let dir = TempDir::new().unwrap();
     fs::write(
