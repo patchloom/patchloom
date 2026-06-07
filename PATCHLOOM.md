@@ -44,7 +44,7 @@ EOF
 
 One line per operation. Double-quote values with spaces.
 
-**Note:** Values are parsed as JSON. A quoted `"1.0"` produces the JSON number `1.0`, not the string `"1.0"`. To set a string that looks numeric, omit the outer quotes: `doc.set config.json version 1.0`.
+**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes: `doc.set config.json version '"1.0"'`.
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
 

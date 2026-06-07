@@ -357,6 +357,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
         prev_count = len(prev_lines)
 
         prompt = _get_prompt(task, mode)
+        # --yolo runs non-interactively (auto-confirm/apply) so benchmarks are unattended.
         cmd = ["grok", "-p", prompt, "--yolo", "--output-format", "json",
                "--max-turns", "15", "--cwd", str(ws), "-m", agent.model]
         if session_id:
@@ -412,7 +413,7 @@ def _run_session(agent, real_bin, tmp_path, mode):
                             tool = entry.get("tool", "?")
                             mcp_tool_counts[tool] = mcp_tool_counts.get(tool, 0) + 1
                     except (json.JSONDecodeError, TypeError):
-                        pass
+                        pass  # Skip malformed MCP log lines
             _run_session._prev_mcp_count = len(mcp_lines)
 
         try:
@@ -582,7 +583,12 @@ def test_dry_run_prompts(request):
             for line in prompt.split("\n"):
                 print(f"    {line}")
         # Show check function source for transparency
-        print(f"\n  [check]: {task['check'].__code__.co_code!r:.60}...")
+        import inspect
+        try:
+            src = inspect.getsource(task["check"]).strip()
+            print(f"\n  [check]:\n    {src[:200]}")
+        except OSError:
+            print(f"\n  [check]: <source unavailable>")
     print(f"\n{'=' * 60}")
     print(f"Total: {len(TASKS)} tasks x {len(modes)} modes")
     print(f"{'=' * 60}")
