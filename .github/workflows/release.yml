@@ -64,6 +64,7 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
+      pr: ${{ steps.rp.outputs.pr }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -80,6 +81,56 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # When release-please bumps the version in Cargo.toml, PATCHLOOM.md
+  # becomes stale because it embeds the `patchloom agent-rules` output
+  # which includes the version.  This job auto-regenerates it.
+  sync-generated-files:
+    needs: [release-please]
+    # Run when release-please has an open PR but did not create a release.
+    # The pr output is empty when no PR was created or updated.
+    if: >-
+      needs.release-please.outputs.release_created != 'true' &&
+      needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+      - name: Get PR branch
+        id: pr-branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(gh pr view "${{ needs.release-please.outputs.pr }}" \
+            --repo "${{ github.repository }}" \
+            --json headRefName --jq .headRefName)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ steps.pr-branch.outputs.branch }}
+          token: ${{ steps.app-token.outputs.token }}
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Sync PATCHLOOM.md
+        run: make sync-patchloom-md
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet; then
+            echo "PATCHLOOM.md is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PATCHLOOM.md
+          git commit -s -m "chore: sync PATCHLOOM.md with version bump"
+          git push
 
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
