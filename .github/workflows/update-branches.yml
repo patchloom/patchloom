@@ -17,16 +17,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+      # Use a GitHub App token instead of GITHUB_TOKEN so that the merge
+      # commit triggers pull_request workflows (CI, DCO, etc.) on the
+      # updated HEAD.  GITHUB_TOKEN pushes are silently ignored by GitHub
+      # to prevent infinite loops, which leaves required checks stale and
+      # blocks auto-merge.
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
       - name: Update open PR branches
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --state open --json number --jq '.[].number')
           for pr in $prs; do
