@@ -97,6 +97,7 @@ fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
 // ── Public entry point ──────────────────────────────────────────────
 
 pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("patch: running patch command");
     let (file, stdin_flag) = match &args.action {
         PatchAction::Check { file, stdin } => (file.clone(), *stdin),
         PatchAction::Apply { file, stdin } => (file.clone(), *stdin),

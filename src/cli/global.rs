@@ -44,6 +44,11 @@ pub struct GlobalFlags {
     #[arg(long, short = 'q', global = true)]
     pub quiet: bool,
 
+    /// Enable verbose diagnostic output on stderr for debugging.
+    /// Can also be enabled via the PATCHLOOM_LOG environment variable.
+    #[arg(long, global = true)]
+    pub verbose: bool,
+
     /// Set working directory.
     #[arg(long, global = true)]
     pub cwd: Option<String>,
@@ -284,5 +289,11 @@ mod tests {
         let mut g = GlobalFlags::default();
         g.merge_write(&w);
         assert!(g.confirm);
+    }
+
+    #[test]
+    fn verbose_flag_defaults_to_false() {
+        let g = GlobalFlags::default();
+        assert!(!g.verbose);
     }
 }

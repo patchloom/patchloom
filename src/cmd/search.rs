@@ -353,6 +353,12 @@ pub(crate) fn collect_matches(
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<SearchResults> {
+    crate::verbose!(
+        "search: pattern={:?} literal={} paths={:?}",
+        args.pattern,
+        args.literal,
+        args.paths
+    );
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher(global)?;
     let matcher = build_matcher(args)?;
