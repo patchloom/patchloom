@@ -4,6 +4,14 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.4](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.3...patchloom-v0.1.4) (2026-06-07)
+
+
+### Bug Fixes
+
+* auto-sync PATCHLOOM.md on release-please version bumps ([#513](https://github.com/patchloom/patchloom/issues/513)) ([cb6cb1c](https://github.com/patchloom/patchloom/commit/cb6cb1c3dca42974c2230485d3a712dd3ac05b75)), closes [#512](https://github.com/patchloom/patchloom/issues/512)
+* parse release-please pr output as JSON ([#515](https://github.com/patchloom/patchloom/issues/515)) ([3215fcd](https://github.com/patchloom/patchloom/commit/3215fcdf2137ccf6a2243b7a8373d58a0f0ad94b))
+
 ## [0.1.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.2...patchloom-v0.1.3) (2026-06-07)
 
 
