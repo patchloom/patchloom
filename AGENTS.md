@@ -244,6 +244,28 @@ async fn new_tool(
 
 6. Run `make sync-patchloom-md && make update-readme && make check`.
 
+## Removing an MCP tool
+
+1. **Remove the handler method and params struct** from `src/cmd/mcp.rs`.
+
+2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected count.
+
+3. **Remove integration tests** for the tool from `tests/integration.rs`.
+
+4. **Remove references** from all documentation that lists MCP tools:
+   - `src/cmd/mod.rs` (agent-rules generator)
+   - `docs/getting-started/mcp-setup.md`
+   - `examples/README.md` (example descriptions)
+   - `benches/README.md` (MCP benchmark table)
+
+5. Grep for the tool name across the repo to catch remaining references:
+
+```bash
+grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
+```
+
+6. Run `make sync-patchloom-md && make update-readme && make check`.
+
 ## Coding conventions
 
 - Run `cargo fmt` before every commit.
