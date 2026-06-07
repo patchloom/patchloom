@@ -21,6 +21,10 @@ fuzz/corpus/
 fuzz/artifacts/
 
 
+# Benchmark result files (local runs, not committed)
+benches/agent/results/
+benches/mcp/results/
+
 # Python virtual environments
 tests/agent/.venv/
 tests/agent/.pytest_cache/
