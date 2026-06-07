@@ -1,5 +1,32 @@
 #![deny(unsafe_code)]
+//! Patchloom: agent-grade repo operations as a Rust library.
+//!
+//! This crate provides both a CLI binary and a library API for structured
+//! file editing operations. The [`api`] module is the main entry point for
+//! library consumers.
+//!
+//! # Feature flags
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `core`  | no      | Marker feature for core library usage (no extra deps) |
+//! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
+//! | `full`  | no      | Everything: currently equivalent to `mcp` |
+//!
+//! ## Embedding as a library
+//!
+//! To use patchloom as a library without the MCP server overhead:
+//!
+//! ```toml
+//! [dependencies]
+//! patchloom = { version = "0.1", default-features = false }
+//! ```
+//!
+//! This gives you the full [`api`] module (doc/replace/md/file/patch operations)
+//! and the [`ops`] module for lower-level access, without pulling in `tokio`
+//! or other async runtime dependencies.
 
+pub mod api;
 pub mod backup;
 pub mod cli;
 pub mod cmd;

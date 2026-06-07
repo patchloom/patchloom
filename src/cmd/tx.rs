@@ -1758,13 +1758,11 @@ fn commit_changes(
 }
 
 /// Build a JSON error string without writing to stdout.
-#[cfg(feature = "mcp")]
 fn make_error_json(error_kind: &'static str, error: &str) -> String {
     make_error_json_with_prefix(error_kind, legacy_error_prefix(error_kind), error)
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
-#[cfg(feature = "mcp")]
 fn make_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &str,
@@ -1779,9 +1777,8 @@ fn make_error_json_with_prefix(
 ///
 /// This is the in-process equivalent of spawning
 /// `patchloom --json tx <plan-file> --apply` and capturing its output.
-/// The MCP server calls this to avoid subprocess overhead.
-#[cfg(feature = "mcp")]
-pub(crate) fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
+/// The MCP server and library API call this to avoid subprocess overhead.
+pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
     crate::verbose!(
         "tx: direct plan execution ({} ops, cwd={})",
         plan.operations.len(),

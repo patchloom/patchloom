@@ -1,15 +1,15 @@
-pub(crate) mod doc {
+pub mod doc {
     use crate::selector;
     use std::path::Path;
 
     #[derive(Debug, Clone, Copy)]
-    pub(crate) enum FileFormat {
+    pub enum FileFormat {
         Json,
         Yaml,
         Toml,
     }
 
-    pub(crate) fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
+    pub fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
         match Path::new(path).extension().and_then(|e| e.to_str()) {
             Some("json") => Ok(FileFormat::Json),
             Some("yaml" | "yml") => Ok(FileFormat::Yaml),
@@ -23,7 +23,7 @@ pub(crate) mod doc {
         }
     }
 
-    pub(crate) fn serialize_value(
+    pub fn serialize_value(
         value: &serde_json::Value,
         format: &FileFormat,
     ) -> anyhow::Result<String> {
@@ -55,7 +55,7 @@ pub(crate) mod doc {
     /// paths that differ between `old_value` and `new_value` are updated.
     ///
     /// JSON falls through to [`serialize_value`] (JSON has no comments).
-    pub(crate) fn serialize_value_preserving(
+    pub fn serialize_value_preserving(
         original_content: &str,
         old_value: &serde_json::Value,
         new_value: &serde_json::Value,
@@ -868,7 +868,7 @@ pub(crate) mod doc {
     }
 
     /// Check if a string needs YAML quoting.
-    pub(crate) fn needs_yaml_quoting(s: &str) -> bool {
+    pub fn needs_yaml_quoting(s: &str) -> bool {
         if s.is_empty() {
             return true;
         }
@@ -926,10 +926,7 @@ pub(crate) mod doc {
         Ok(mapping)
     }
 
-    pub(crate) fn parse_doc(
-        content: &str,
-        format: &FileFormat,
-    ) -> anyhow::Result<serde_json::Value> {
+    pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
         match format {
             FileFormat::Json => Ok(serde_json::from_str(content)?),
             FileFormat::Yaml => {
@@ -989,7 +986,7 @@ pub(crate) mod doc {
         }
     }
 
-    pub(crate) fn navigate_mut<'a>(
+    pub fn navigate_mut<'a>(
         root: &'a mut serde_json::Value,
         segments: &[selector::Segment],
         create: bool,
@@ -1029,7 +1026,7 @@ pub(crate) mod doc {
     /// Set a value at the location described by `segments`.  Navigates to the
     /// parent (creating intermediate keys when needed) and inserts the value at
     /// the final Key or Index segment.
-    pub(crate) fn set_at_path(
+    pub fn set_at_path(
         root: &mut serde_json::Value,
         segments: &[selector::Segment],
         value: serde_json::Value,
@@ -1064,7 +1061,7 @@ pub(crate) mod doc {
 
     /// Delete the value at the given selector path. Returns `true` if
     /// something was removed, `false` if the path did not exist.
-    pub(crate) fn delete_at_selector(
+    pub fn delete_at_selector(
         root: &mut serde_json::Value,
         segments: &[selector::Segment],
     ) -> anyhow::Result<bool> {
@@ -1102,7 +1099,7 @@ pub(crate) mod doc {
 
     /// Parse a `key=value` predicate and remove matching items from the array
     /// at `segments`. Returns the number of items removed.
-    pub(crate) fn delete_where(
+    pub fn delete_where(
         root: &mut serde_json::Value,
         segments: &[selector::Segment],
         predicate: &str,
@@ -1128,7 +1125,7 @@ pub(crate) mod doc {
 
     /// Move a value from one path to another within the same document.
     /// Removes the value at `from_segments` and inserts it at `to_segments`.
-    pub(crate) fn move_at_path(
+    pub fn move_at_path(
         root: &mut serde_json::Value,
         from_segments: &[selector::Segment],
         to_segments: &[selector::Segment],
@@ -1189,7 +1186,7 @@ pub(crate) mod doc {
 
     const MAX_MERGE_DEPTH: usize = 128;
 
-    pub(crate) fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
+    pub fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
         deep_merge_inner(base, other, 0);
     }
 
@@ -1210,7 +1207,7 @@ pub(crate) mod doc {
         }
     }
 
-    pub(crate) fn update_matching(
+    pub fn update_matching(
         value: &mut serde_json::Value,
         segments: &[selector::Segment],
         new_val: &serde_json::Value,
@@ -1266,7 +1263,7 @@ pub(crate) mod doc {
     }
 }
 
-pub(crate) mod replace {
+pub mod replace {
     use regex::Regex;
 
     /// Build an optional compiled regex for replace operations.
@@ -1274,7 +1271,7 @@ pub(crate) mod replace {
     /// Returns `Some(Regex)` when regex mode is active or case-insensitive
     /// matching is requested (which requires escaping the literal pattern).
     /// Returns `None` for plain literal, case-sensitive replacements.
-    pub(crate) fn compile_replace_regex(
+    pub fn compile_replace_regex(
         pattern: &str,
         regex_mode: bool,
         case_insensitive: bool,
@@ -1299,13 +1296,13 @@ pub(crate) mod replace {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub(crate) enum ReplaceModeError {
+    pub enum ReplaceModeError {
         MissingMode,
         BothInsertModes,
         ToWithInsert,
     }
 
-    pub(crate) fn validate_replace_mode(
+    pub fn validate_replace_mode(
         has_to: bool,
         has_insert_before: bool,
         has_insert_after: bool,
@@ -1318,7 +1315,7 @@ pub(crate) mod replace {
         }
     }
 
-    pub(crate) fn replacement_text(
+    pub fn replacement_text(
         from: &str,
         to: &Option<String>,
         insert_before: &Option<String>,
@@ -1344,7 +1341,7 @@ pub(crate) mod replace {
         expanded
     }
 
-    pub(crate) fn replace_content<'a>(
+    pub fn replace_content<'a>(
         content: &'a str,
         from: &str,
         to: &str,
@@ -1425,11 +1422,11 @@ pub(crate) mod replace {
     }
 }
 
-pub(crate) mod md {
+pub mod md {
     use std::collections::HashSet;
 
     #[derive(Debug, Clone)]
-    pub(crate) struct HeadingInfo {
+    pub struct HeadingInfo {
         pub level: usize,
         pub text: String,
         pub line_start: usize,
@@ -1439,7 +1436,7 @@ pub(crate) mod md {
     /// Iterate over lines that are NOT inside fenced code blocks.
     /// Yields `(0-based line index, line content)` pairs, skipping lines
     /// within ```` ``` ```` or `~~~` fenced regions.
-    pub(crate) fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
+    pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
         // Track the fence character and minimum length required to close.
         let mut fence: Option<(u8, usize)> = None;
         content.lines().enumerate().filter(move |(_, line)| {
@@ -1470,7 +1467,7 @@ pub(crate) mod md {
         })
     }
 
-    pub(crate) fn parse_headings(content: &str) -> Vec<HeadingInfo> {
+    pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
         let mut headings = Vec::new();
         let total_lines = content.lines().count();
 
@@ -1528,7 +1525,7 @@ pub(crate) mod md {
         }
     }
 
-    pub(crate) fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
+    pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
         let headings = parse_headings(content);
         let offsets = line_byte_starts(content);
         let query = normalize_heading_query(heading);
@@ -1551,11 +1548,7 @@ pub(crate) mod md {
         None
     }
 
-    pub(crate) fn replace_section_in(
-        content: &str,
-        heading: &str,
-        replacement: &str,
-    ) -> Option<String> {
+    pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
         let (body_start, body_end) = find_section(content, heading)?;
         let mut out = String::with_capacity(content.len());
         out.push_str(&content[..body_start]);
@@ -1569,7 +1562,7 @@ pub(crate) mod md {
         Some(out)
     }
 
-    pub(crate) fn insert_after_heading_in(
+    pub fn insert_after_heading_in(
         content: &str,
         heading: &str,
         insertion: &str,
@@ -1585,7 +1578,7 @@ pub(crate) mod md {
         Some(out)
     }
 
-    pub(crate) fn insert_before_heading_in(
+    pub fn insert_before_heading_in(
         content: &str,
         heading: &str,
         insertion: &str,
@@ -1615,7 +1608,7 @@ pub(crate) mod md {
         None
     }
 
-    pub(crate) fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
+    pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
         let (body_start, body_end) = find_section(content, heading)?;
         let body = &content[body_start..body_end];
 
@@ -1643,7 +1636,7 @@ pub(crate) mod md {
         Some(out)
     }
 
-    pub(crate) fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
+    pub fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
         let headings = parse_headings(content);
         let offsets = line_byte_starts(content);
         let mut seen: HashSet<(usize, String)> = HashSet::new();
@@ -1693,7 +1686,7 @@ pub(crate) mod md {
             .all(|c| matches!(c, '-' | ':' | '|' | ' '))
     }
 
-    pub(crate) fn table_append_in(
+    pub fn table_append_in(
         content: &str,
         body_start: usize,
         body_end: usize,
@@ -1746,7 +1739,7 @@ pub(crate) mod md {
         Some(out)
     }
 
-    pub(crate) fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
+    pub fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
         let (body_start, body_end) = find_section(content, heading)?;
         table_append_in(content, body_start, body_end, row)
     }
