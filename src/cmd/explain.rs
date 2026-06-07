@@ -417,4 +417,99 @@ mod tests {
         assert_eq!(json["validate_steps"], 1);
         assert!(!json["strict"].as_bool().unwrap());
     }
+
+    #[test]
+    fn describe_replace_insert_before() {
+        let op = Operation::Replace {
+            path: Some("main.rs".into()),
+            glob: None,
+            mode: None,
+            from: "fn main".into(),
+            to: None,
+            nth: None,
+            insert_before: Some("// entry\n".into()),
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+        };
+        let desc = describe_operation(&op);
+        assert_eq!(
+            desc,
+            r#"Insert "// entry
+" before "fn main" in main.rs"#
+        );
+    }
+
+    #[test]
+    fn describe_replace_insert_after() {
+        let op = Operation::Replace {
+            path: Some("lib.rs".into()),
+            glob: None,
+            mode: None,
+            from: "use crate".into(),
+            to: None,
+            nth: None,
+            insert_before: None,
+            insert_after: Some("// added".into()),
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+        };
+        let desc = describe_operation(&op);
+        assert_eq!(desc, r#"Insert "// added" after "use crate" in lib.rs"#);
+    }
+
+    #[test]
+    fn describe_file_rename() {
+        let op = Operation::FileRename {
+            from: "old.rs".into(),
+            to: "new.rs".into(),
+            force: true,
+        };
+        let desc = describe_operation(&op);
+        assert!(desc.contains("Rename old.rs to new.rs"));
+        assert!(desc.contains("(overwrite)"));
+    }
+
+    #[test]
+    fn describe_file_rename_no_force() {
+        let op = Operation::FileRename {
+            from: "a.txt".into(),
+            to: "b.txt".into(),
+            force: false,
+        };
+        let desc = describe_operation(&op);
+        assert_eq!(desc, "Rename a.txt to b.txt");
+        assert!(!desc.contains("overwrite"));
+    }
+
+    #[test]
+    fn describe_read_with_lines() {
+        let op = Operation::Read {
+            path: "src/lib.rs".into(),
+            lines: Some("10:20".into()),
+        };
+        assert_eq!(describe_operation(&op), "Read src/lib.rs lines 10:20");
+    }
+
+    #[test]
+    fn describe_read_without_lines() {
+        let op = Operation::Read {
+            path: "README.md".into(),
+            lines: None,
+        };
+        assert_eq!(describe_operation(&op), "Read README.md");
+    }
+
+    #[test]
+    fn describe_md_lint_agents() {
+        let op = Operation::MdLintAgents {
+            path: "AGENTS.md".into(),
+        };
+        assert_eq!(
+            describe_operation(&op),
+            "Lint AGENTS.md for AGENTS.md issues"
+        );
+    }
 }
