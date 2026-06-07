@@ -4,6 +4,15 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.2...patchloom-v0.1.3) (2026-06-07)
+
+
+### Bug Fixes
+
+* add wasi crate to FOSSA false positive filter ([#510](https://github.com/patchloom/patchloom/issues/510)) ([1882060](https://github.com/patchloom/patchloom/commit/18820609dcd0fea3062e70a7e173f10836682464))
+* improvement cycle 5 (tx.rs refactoring, error path tests) ([#508](https://github.com/patchloom/patchloom/issues/508)) ([680b18b](https://github.com/patchloom/patchloom/commit/680b18bbd78f00a1eccaff7026b5292a178ebea9))
+* make release host job idempotent for release-please ([#511](https://github.com/patchloom/patchloom/issues/511)) ([2b6ae3b](https://github.com/patchloom/patchloom/commit/2b6ae3b2507282d2257906bc5c35a542ceb2e4dc))
+
 ## [0.1.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.1...patchloom-v0.1.2) (2026-06-07)
 
 
