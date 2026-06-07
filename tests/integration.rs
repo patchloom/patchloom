@@ -17212,3 +17212,146 @@ fn test_no_verbose_by_default() {
         .success()
         .stderr(predicate::str::is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// schema command
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_schema_json_output() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        !parsed.is_empty(),
+        "schema should return at least one operation"
+    );
+    // Every entry must have name, description, parameters, min_tier.
+    for op in &parsed {
+        assert!(op.get("name").is_some(), "missing name in schema entry");
+        assert!(
+            op.get("description").is_some(),
+            "missing description in schema entry"
+        );
+        assert!(
+            op.get("parameters").is_some(),
+            "missing parameters in schema entry"
+        );
+        assert!(
+            op.get("min_tier").is_some(),
+            "missing min_tier in schema entry"
+        );
+    }
+}
+
+#[test]
+fn test_schema_prompt_output() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "prompt"])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    assert!(stdout.contains("# Patchloom Operations"));
+    assert!(stdout.contains("format version:"));
+    assert!(stdout.contains("replace"));
+}
+
+#[test]
+fn test_schema_tier_filtering() {
+    let weak_output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json", "--tier", "weak"])
+        .assert()
+        .success();
+
+    let strong_output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json", "--tier", "strong"])
+        .assert()
+        .success();
+
+    let weak: Vec<serde_json::Value> =
+        serde_json::from_str(&String::from_utf8(weak_output.get_output().stdout.clone()).unwrap())
+            .unwrap();
+    let strong: Vec<serde_json::Value> = serde_json::from_str(
+        &String::from_utf8(strong_output.get_output().stdout.clone()).unwrap(),
+    )
+    .unwrap();
+
+    assert!(
+        weak.len() < strong.len(),
+        "weak tier ({}) should have fewer ops than strong ({})",
+        weak.len(),
+        strong.len()
+    );
+    // All weak ops should have min_tier "weak".
+    for op in &weak {
+        assert_eq!(
+            op.get("min_tier").and_then(|t| t.as_str()),
+            Some("weak"),
+            "weak tier should only contain weak ops"
+        );
+    }
+}
+
+#[test]
+fn test_schema_examples_flag() {
+    // Without --examples, entries should not have "examples" key.
+    let without_output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json"])
+        .assert()
+        .success();
+
+    let without: Vec<serde_json::Value> = serde_json::from_str(
+        &String::from_utf8(without_output.get_output().stdout.clone()).unwrap(),
+    )
+    .unwrap();
+    for op in &without {
+        assert!(
+            op.get("examples").is_none(),
+            "examples should be stripped without --examples flag"
+        );
+    }
+
+    // With --examples, entries should have "examples" key.
+    let with_output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json", "--examples"])
+        .assert()
+        .success();
+
+    let with: Vec<serde_json::Value> =
+        serde_json::from_str(&String::from_utf8(with_output.get_output().stdout.clone()).unwrap())
+            .unwrap();
+    assert!(
+        with.iter().any(|op| op.get("examples").is_some()),
+        "at least one op should have examples with --examples flag"
+    );
+}
+
+#[test]
+fn test_schema_quiet_suppresses_output() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json", "--quiet"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn test_schema_invalid_tier_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--tier", "invalid"])
+        .assert()
+        .failure();
+}
