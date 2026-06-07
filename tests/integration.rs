@@ -16545,6 +16545,173 @@ async fn test_mcp_batch_replace_path_traversal_rejected() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_rejects_unknown_fields() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.json"), r#"{"a":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Send a valid tool call but with an extra hallucinated parameter.
+    // deny_unknown_fields on the params struct must reject this.
+    let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "test.json",
+            "selector": "a",
+            "value": 2,
+            "hallucinated_param": true
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "unknown fields must be rejected by deny_unknown_fields"
+    );
+    // File must remain unchanged
+    let content = fs::read_to_string(dir.path().join("test.json")).unwrap();
+    assert_eq!(content, r#"{"a":1}"#);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_regex_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("ver.txt"),
+        "version = 1.2.3\nversion = 4.5.6\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "ver.txt",
+            "from": r"version = (\d+)\.(\d+)\.(\d+)",
+            "to": "version = $1.$2.99",
+            "regex": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "regex replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("ver.txt")).unwrap();
+    assert_eq!(content, "version = 1.2.99\nversion = 4.5.99\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_nth_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo bar foo baz foo\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "rep.txt",
+            "from": "foo",
+            "to": "qux",
+            "nth": 2
+        }),
+    )
+    .await;
+    assert!(!is_error, "nth replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("rep.txt")).unwrap();
+    assert_eq!(content, "foo bar qux baz foo\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_if_exists_no_match_succeeds() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("stable.txt"), "no match here\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "stable.txt",
+            "from": "nonexistent",
+            "to": "replacement",
+            "if_exists": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "if_exists with no match should succeed (not error)"
+    );
+
+    let content = fs::read_to_string(dir.path().join("stable.txt")).unwrap();
+    assert_eq!(content, "no match here\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_unknown_action_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"x":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("doc_query").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "data.json",
+            "action": "nonexistent"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "unknown action should return McpError::invalid_params"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_has_without_selector_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"x":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("doc_query").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "data.json",
+            "action": "has"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "'has' without selector should return McpError::invalid_params"
+    );
+    client.cancel().await.unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Backup pruning integration tests (#371)
 // ---------------------------------------------------------------------------
