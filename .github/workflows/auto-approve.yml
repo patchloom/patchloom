@@ -38,6 +38,10 @@ jobs:
       - name: Auto-approve PR
         uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363 # v4
       - name: Enable auto-merge
+        # Skip auto-merge for release-please PRs so the user controls
+        # release cadence.  The PR is still approved (satisfies branch
+        # protection) but waits for a manual merge click.
+        if: "!contains(github.event.pull_request.labels.*.name, 'autorelease: pending')"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
