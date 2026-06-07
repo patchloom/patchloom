@@ -3238,4 +3238,11 @@ mod tests {
         let code = crate::cmd::undo::run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
+
+    #[test]
+    fn path_err_formats_flat_error_with_path_prefix() {
+        let err = super::path_err("config.toml")(anyhow::anyhow!("key not found"));
+        let msg = err.to_string();
+        assert_eq!(msg, "config.toml: key not found");
+    }
 }

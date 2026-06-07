@@ -9290,6 +9290,39 @@ fn test_tx_doc_prepend_in_plan() {
 }
 
 #[test]
+fn test_tx_doc_set_unsupported_format_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "this is not a structured file\n").unwrap();
+
+    let plan = serde_json::json!({
+            "version": "1",
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "key",
+            "value": "val"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // Original content must be preserved.
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "this is not a structured file\n"
+    );
+}
+
+#[test]
 fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
@@ -9746,6 +9779,39 @@ fn test_tx_md_insert_after_heading_in_plan() {
 
     let result = fs::read_to_string(&file).unwrap();
     assert!(result.contains("Inserted line\nExisting content"));
+}
+
+#[test]
+fn test_tx_md_replace_section_missing_heading_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\nSome content\n").unwrap();
+
+    let plan = serde_json::json!({
+            "version": "1",
+        "operations": [{
+            "op": "md.replace_section",
+            "path": file.to_str().unwrap(),
+            "heading": "Nonexistent Heading",
+            "content": "New content\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // Original content must be preserved.
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "# Title\nSome content\n"
+    );
 }
 
 #[test]
