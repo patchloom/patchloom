@@ -155,3 +155,15 @@ dependencies[name=react].version # predicate filter
 | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |
 | 6 | Validation failed (tx plan validation step returned non-zero) |
 | 7 | Rollback (tx apply failed partway; changes were rolled back) |
+
+## Troubleshooting
+
+If a command produces unexpected results, enable verbose logging to see what patchloom is doing internally:
+
+```bash
+patchloom --verbose <command> [args]
+# or via environment variable:
+PATCHLOOM_LOG=1 patchloom <command> [args]
+```
+
+Diagnostic messages are printed to stderr prefixed with `[patchloom]`.

@@ -927,6 +927,9 @@ impl PatchloomService {
         Parameters(p): Parameters<DocQueryParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        if let Some(ref sel) = p.selector {
+            validate_param_size("selector", sel)?;
+        }
         let abs = self.cwd.join(&p.path);
         let file = abs.to_string_lossy().into_owned();
         let action = match p.action.as_str() {
@@ -1965,6 +1968,25 @@ mod tests {
         );
         let result = client.peer().call_tool(params).await;
         assert!(result.is_err(), "oversized batch should be rejected");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_rejects_oversized_doc_query_selector() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("data.json"), r#"{"a":1}"#).unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let big_selector = "x".repeat(MAX_PARAM_BYTES + 1);
+        let params = rmcp::model::CallToolRequestParams::new("doc_query").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "action": "has",
+                "path": "data.json",
+                "selector": big_selector,
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(result.is_err(), "oversized selector should be rejected");
         client.cancel().await.unwrap();
     }
 
