@@ -25,6 +25,24 @@
 //! This gives you the full [`api`] module (doc/replace/md/file/patch operations)
 //! and the [`ops`] module for lower-level access, without pulling in `tokio`
 //! or other async runtime dependencies.
+//!
+//! ## Thread safety
+//!
+//! All public API types ([`api::EditResult`], [`api::ApplyMode`], etc.) are
+//! `Send + Sync`. Library functions are safe to call concurrently from
+//! multiple threads with one constraint:
+//!
+//! - **Different files**: fully safe. Multiple threads can edit different files
+//!   simultaneously with no coordination.
+//! - **Same file**: the caller must serialize access. Concurrent writes to the
+//!   same file are inherently racy (last writer wins). Use a mutex or other
+//!   synchronization if you need to coordinate edits to a single file.
+//!
+//! Backup sessions use unique directory names (nanosecond timestamp +
+//! monotonic counter) so concurrent backup creation never collides.
+//!
+//! Configuration can be loaded once with [`config::CachedConfig`] and reused
+//! across threads, avoiding repeated disk reads.
 
 pub mod api;
 pub mod backup;

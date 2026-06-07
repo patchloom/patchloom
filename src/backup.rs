@@ -71,6 +71,10 @@ fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
     }
 }
 
+/// Monotonic counter to disambiguate backup sessions created in the same
+/// nanosecond (e.g., from concurrent threads).
+static SESSION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// An active backup session that collects originals before writes.
 pub struct BackupSession {
     session_dir: PathBuf,
@@ -86,7 +90,10 @@ impl BackupSession {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
-        let timestamp = format!("{}", now.as_nanos());
+        // Include a monotonic counter to prevent collisions when multiple
+        // threads create backup sessions in the same nanosecond.
+        let seq = SESSION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let timestamp = format!("{}_{}", now.as_nanos(), seq);
         let session_dir = project_root.join(BACKUP_DIR).join(&timestamp);
         std::fs::create_dir_all(&session_dir)
             .with_context(|| format!("failed to create backup dir {}", session_dir.display()))?;

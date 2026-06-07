@@ -109,6 +109,64 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
     }
 }
 
+/// A cached project configuration that can be loaded once and reused across
+/// multiple operations. This avoids re-reading `.patchloom.toml` from disk
+/// on every API call.
+///
+/// # Thread safety
+///
+/// `CachedConfig` is `Send + Sync` and can be shared across threads via
+/// `Arc<CachedConfig>`.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use patchloom::config::CachedConfig;
+/// use std::path::Path;
+///
+/// let config = CachedConfig::load(Path::new("/my/project"));
+/// // Use config.project_config() in multiple API calls...
+/// ```
+#[derive(Debug)]
+pub struct CachedConfig {
+    config: ProjectConfig,
+    config_dir: Option<PathBuf>,
+}
+
+impl CachedConfig {
+    /// Load configuration from the given directory, searching upward for
+    /// `.patchloom.toml`. Returns a `CachedConfig` with defaults if no
+    /// config file is found.
+    pub fn load(start: &Path) -> Self {
+        match find_and_load(start) {
+            Some((config, dir)) => Self {
+                config,
+                config_dir: Some(dir),
+            },
+            None => Self {
+                config: ProjectConfig::default(),
+                config_dir: None,
+            },
+        }
+    }
+
+    /// Access the loaded project configuration.
+    pub fn project_config(&self) -> &ProjectConfig {
+        &self.config
+    }
+
+    /// The directory containing the `.patchloom.toml` file, if one was found.
+    pub fn config_dir(&self) -> Option<&Path> {
+        self.config_dir.as_deref()
+    }
+}
+
+// Static assertion: CachedConfig must be Send + Sync for cross-thread sharing.
+const _: () = {
+    fn _assert<T: Send + Sync>() {}
+    let _ = _assert::<CachedConfig>;
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

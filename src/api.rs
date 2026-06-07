@@ -27,6 +27,17 @@
 //! - [`ApplyMode::Preview`] — compute the result without writing to disk.
 //! - [`ApplyMode::Apply`] — write changes to disk with backup.
 //! - [`ApplyMode::Check`] — report whether changes would occur (for CI).
+//!
+//! # Thread safety
+//!
+//! All types in this module are `Send + Sync`. Functions are safe to call
+//! concurrently from multiple threads when operating on **different files**.
+//! Concurrent edits to the **same file** are the caller's responsibility
+//! to serialize (e.g., via a `Mutex` per file path).
+//!
+//! Backup sessions use unique directory names (nanosecond timestamp +
+//! monotonic counter), so concurrent `ApplyMode::Apply` calls never collide
+//! on backup directories.
 
 use std::path::Path;
 
@@ -1035,5 +1046,196 @@ mod tests {
         assert_eq!(code, crate::exit::SUCCESS);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("goodbye"));
+    }
+
+    // Static assertions: all public API types must be Send + Sync.
+    const _: () = {
+        fn _assert<T: Send + Sync>() {}
+        let _ = _assert::<EditResult>;
+        let _ = _assert::<ApplyMode>;
+        let _ = _assert::<ReplaceOptions>;
+        let _ = _assert::<WritePolicyOptions>;
+        let _ = _assert::<EolNormalization>;
+    };
+
+    #[test]
+    fn concurrent_edits_to_different_files() {
+        let dir = TempDir::new().unwrap();
+        let num_threads = 8;
+
+        // Create files for each thread.
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("file_{i}.json"));
+            fs::write(&file, format!(r#"{{"value": {i}}}"#)).unwrap();
+        }
+
+        // Edit all files concurrently.
+        std::thread::scope(|s| {
+            let dir_path = dir.path();
+            for i in 0..num_threads {
+                s.spawn(move || {
+                    let file = dir_path.join(format!("file_{i}.json"));
+                    let result =
+                        doc_set(&file, "value", serde_json::json!(i * 100), ApplyMode::Apply)
+                            .unwrap();
+                    assert!(result.changed);
+                    assert!(result.applied);
+                });
+            }
+        });
+
+        // Verify all files were updated correctly.
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("file_{i}.json"));
+            let content = fs::read_to_string(&file).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+            assert_eq!(parsed["value"], serde_json::json!(i * 100));
+        }
+    }
+
+    #[test]
+    fn concurrent_backup_sessions_no_collision() {
+        use crate::backup::{BackupSession, list_sessions};
+
+        let dir = TempDir::new().unwrap();
+        let num_threads = 16;
+
+        // Create a file for each thread to back up.
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("backup_{i}.txt"));
+            fs::write(&file, format!("original_{i}")).unwrap();
+        }
+
+        // Create backup sessions concurrently.
+        let timestamps: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+        std::thread::scope(|s| {
+            let dir_path = dir.path();
+            let ts_ref = &timestamps;
+            for i in 0..num_threads {
+                s.spawn(move || {
+                    let file = dir_path.join(format!("backup_{i}.txt"));
+                    let mut session = BackupSession::new(dir_path).unwrap();
+                    session.save_before_write(&file).unwrap();
+                    let ts = session.finalize().unwrap().unwrap();
+                    ts_ref.lock().unwrap().push(ts);
+                });
+            }
+        });
+
+        let ts = timestamps.into_inner().unwrap();
+        // All timestamps must be unique (no collisions).
+        let mut sorted = ts.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            num_threads,
+            "all backup session timestamps must be unique"
+        );
+
+        // All sessions should be listed.
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), num_threads);
+    }
+
+    #[test]
+    fn concurrent_replace_text_different_files() {
+        let dir = TempDir::new().unwrap();
+        let num_threads = 8;
+
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("code_{i}.rs"));
+            fs::write(&file, format!("fn func_{i}() {{}}\n")).unwrap();
+        }
+
+        std::thread::scope(|s| {
+            let dir_path = dir.path();
+            for i in 0..num_threads {
+                s.spawn(move || {
+                    let file = dir_path.join(format!("code_{i}.rs"));
+                    let result = replace_text(
+                        &file,
+                        &format!("func_{i}"),
+                        &format!("renamed_{i}"),
+                        &ReplaceOptions::default(),
+                        ApplyMode::Apply,
+                    )
+                    .unwrap();
+                    assert!(result.changed);
+                    assert!(result.applied);
+                });
+            }
+        });
+
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("code_{i}.rs"));
+            let content = fs::read_to_string(&file).unwrap();
+            assert!(
+                content.contains(&format!("renamed_{i}")),
+                "file {i} should contain renamed_{i}, got: {content}"
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_md_operations() {
+        let dir = TempDir::new().unwrap();
+        let num_threads = 4;
+
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("doc_{i}.md"));
+            fs::write(&file, format!("# Section {i}\n\nOriginal body.\n")).unwrap();
+        }
+
+        std::thread::scope(|s| {
+            let dir_path = dir.path();
+            for i in 0..num_threads {
+                s.spawn(move || {
+                    let file = dir_path.join(format!("doc_{i}.md"));
+                    let result = md_replace_section(
+                        &file,
+                        &format!("Section {i}"),
+                        &format!("Updated body {i}.\n"),
+                        ApplyMode::Apply,
+                    )
+                    .unwrap();
+                    assert!(result.changed);
+                    assert!(result.applied);
+                });
+            }
+        });
+
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("doc_{i}.md"));
+            let content = fs::read_to_string(&file).unwrap();
+            assert!(content.contains(&format!("Updated body {i}.")));
+        }
+    }
+
+    #[test]
+    fn concurrent_file_create() {
+        let dir = TempDir::new().unwrap();
+        let num_threads = 8;
+
+        std::thread::scope(|s| {
+            let dir_path = dir.path();
+            for i in 0..num_threads {
+                s.spawn(move || {
+                    let file = dir_path.join(format!("new_{i}.txt"));
+                    let result =
+                        file_create(&file, &format!("content_{i}\n"), false, ApplyMode::Apply)
+                            .unwrap();
+                    assert!(result.applied);
+                });
+            }
+        });
+
+        for i in 0..num_threads {
+            let file = dir.path().join(format!("new_{i}.txt"));
+            assert!(file.exists());
+            let content = fs::read_to_string(&file).unwrap();
+            assert_eq!(content, format!("content_{i}\n"));
+        }
     }
 }
