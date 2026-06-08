@@ -1139,7 +1139,7 @@ mod tests {
         let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
         // Default: shows diff containing the new key.
-        assert!(output.contains("+"));
+        assert!(output.contains("+ "), "diff should show an added line");
         assert!(output.contains("age"));
     }
 
@@ -1171,7 +1171,7 @@ mod tests {
         let ctx = WriteContext::default();
         let (output, code) = execute_write(&action, &ctx, dir.path()).unwrap();
         assert_eq!(code, exit::SUCCESS);
-        assert!(output.contains("-"));
+        assert!(output.contains("- "), "diff should show a removed line");
         assert!(output.contains("age"));
     }
 

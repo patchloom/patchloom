@@ -3214,8 +3214,8 @@ fn test_read_multiple_files_with_lines() {
     let dir = TempDir::new().unwrap();
     let f1 = dir.path().join("long.txt");
     let f2 = dir.path().join("short.txt");
-    fs::write(&f1, "a\nb\nc\nd\ne\n").unwrap();
-    fs::write(&f2, "x\ny\n").unwrap();
+    fs::write(&f1, "alpha\nbravo\ncharlie\ndelta\necho\n").unwrap();
+    fs::write(&f2, "xray\nyankee\n").unwrap();
 
     // --lines 2:4 on a 5-line file gives lines 2-4; on a 2-line file gives line 2 only
     let output = Command::cargo_bin("patchloom")
@@ -3230,11 +3230,35 @@ fn test_read_multiple_files_with_lines() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("b\nc\nd"));
-    assert!(stdout.contains("y"));
-    // "aaa" and "eee" should not appear (outside the range for the first file)
-    assert!(!stdout.contains("aaa"));
-    assert!(!stdout.contains("eee"));
+    assert!(
+        stdout.contains("bravo"),
+        "line 2 of first file should be present"
+    );
+    assert!(
+        stdout.contains("charlie"),
+        "line 3 of first file should be present"
+    );
+    assert!(
+        stdout.contains("delta"),
+        "line 4 of first file should be present"
+    );
+    assert!(
+        stdout.contains("yankee"),
+        "line 2 of second file should be present"
+    );
+    // Lines outside the range should not appear
+    assert!(
+        !stdout.contains("alpha"),
+        "line 1 of first file should be excluded"
+    );
+    assert!(
+        !stdout.contains("echo"),
+        "line 5 of first file should be excluded"
+    );
+    assert!(
+        !stdout.contains("xray"),
+        "line 1 of second file should be excluded"
+    );
 }
 
 // ── status command ─────────────────────────────────────────────────
@@ -3711,7 +3735,7 @@ fn test_doc_get_yaml_merge_key_resolved() {
         .arg("staging.retries")
         .assert()
         .success()
-        .stdout(predicate::str::contains("3"));
+        .stdout(predicate::str::starts_with("3"));
 }
 
 #[test]
@@ -3795,7 +3819,7 @@ fn test_doc_len_array() {
         .arg("items")
         .assert()
         .success()
-        .stdout(predicate::str::contains("5"));
+        .stdout(predicate::str::starts_with("5"));
 }
 
 #[test]

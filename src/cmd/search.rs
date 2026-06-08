@@ -658,7 +658,7 @@ mod tests {
         assert_eq!(results.matches.len(), 2);
         for m in &results.matches {
             assert!(m.text.contains("Hello"));
-            assert!(m.text.contains("!"));
+            assert!(m.text.ends_with('!'), "regex match should end with '!'");
         }
     }
 
