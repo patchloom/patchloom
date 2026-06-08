@@ -15,6 +15,7 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
 [![FOSSA Status](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml)
+[![Docs](https://img.shields.io/badge/docs-patchloom.github.io-blue?logo=mdbook)](https://patchloom.github.io/patchloom/)
 
 [![crates.io downloads](https://img.shields.io/crates/d/patchloom?logo=rust)](https://crates.io/crates/patchloom)
 
@@ -288,11 +289,11 @@ All API types are `Send + Sync`. See the `patchloom::api` module docs for the fu
 
 | Resource | What you'll learn |
 |---|---|
-| [Installation](./docs/getting-started/installation.md) | Install options and shell completions |
-| [Core concepts](./docs/getting-started/concepts.md) | Write modes, transaction plans, exit codes |
-| [MCP setup](./docs/getting-started/mcp-setup.md) | Configure patchloom as an MCP server for your agent |
-| [Quickstart](./docs/getting-started/quickstart.md) | 5-minute walkthrough |
-| [Reference](./docs/reference/README.md) | Every command, operation, and mode |
+| [Installation](https://patchloom.github.io/patchloom/getting-started/installation.html) | Install options and shell completions |
+| [Core concepts](https://patchloom.github.io/patchloom/getting-started/concepts.html) | Write modes, transaction plans, exit codes |
+| [MCP setup](https://patchloom.github.io/patchloom/getting-started/mcp-setup.html) | Configure patchloom as an MCP server for your agent |
+| [Quickstart](https://patchloom.github.io/patchloom/getting-started/quickstart.html) | 5-minute walkthrough |
+| [Reference](https://patchloom.github.io/patchloom/reference/) | Every command, operation, and mode |
 | [Examples](./examples/README.md) | Transaction plan templates |
 
 ## Commands
@@ -417,7 +418,7 @@ flowchart LR
 
 ## Full command reference
 
-Every command, flag, transaction operation, and exit code is documented in the **[Command Reference](docs/reference/README.md)**.
+Every command, flag, transaction operation, and exit code is documented in the **[Command Reference](https://patchloom.github.io/patchloom/reference/)** (also available at [docs/reference/README.md](docs/reference/README.md)).
 
 ## License
 
