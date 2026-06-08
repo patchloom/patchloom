@@ -439,8 +439,20 @@ fn extract_identifiers(line: &str) -> Vec<String> {
 }
 
 /// Truncate a string for display in error messages.
+///
+/// Truncates at the last char boundary at or before `max_len` bytes,
+/// so this is safe for multi-byte UTF-8 input.
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len { s } else { &s[..max_len] }
+    if s.len() <= max_len {
+        s
+    } else {
+        // Find the last char boundary at or before max_len.
+        let mut end = max_len;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    }
 }
 
 #[cfg(test)]
@@ -699,6 +711,65 @@ mod tests {
         let deserialized: ValidationResult = serde_json::from_str(&json).unwrap();
         assert!(deserialized.valid);
         assert_eq!(deserialized.warnings.len(), 1);
+    }
+
+    #[test]
+    fn truncate_safe_on_multibyte_utf8() {
+        // "café" has bytes: c(1) a(1) f(1) é(2) = 5 bytes, 4 chars.
+        let s = "café";
+        assert_eq!(s.len(), 5);
+        // Truncate at 4 would land in the middle of 'é' (bytes 3-4).
+        // Must not panic; should truncate before the multi-byte char.
+        let t = truncate(s, 4);
+        assert_eq!(t, "caf");
+        // Truncate at 5 returns the whole string.
+        assert_eq!(truncate(s, 5), "café");
+        // Truncate at 3 is a clean boundary.
+        assert_eq!(truncate(s, 3), "caf");
+        // Truncate at 0.
+        assert_eq!(truncate(s, 0), "");
+    }
+
+    #[test]
+    fn validate_edit_toml_syntax_check() {
+        let toml = "[database]\nhost = \"localhost\"\n";
+        // Valid replacement.
+        let result = validate_edit(toml, "localhost", "remotehost", Some("config.toml"));
+        assert!(result.valid);
+
+        // Invalid replacement (breaks TOML).
+        let result = validate_edit(
+            toml,
+            "[database]",
+            "not valid toml {{{{",
+            Some("config.toml"),
+        );
+        assert!(!result.valid);
+        assert!(result.errors[0].contains("invalid TOML"));
+    }
+
+    #[test]
+    fn find_similar_targets_multi_word_pattern() {
+        let content = "fn process_all_requests(data: &str) -> bool {\n    true\n}\n";
+        // Multi-word pattern triggers whole-line matching path.
+        let similar = find_similar_targets(content, "fn process_all_reqests(data: &str)", 3);
+        assert!(
+            !similar.is_empty(),
+            "should find similar multi-word targets"
+        );
+    }
+
+    #[test]
+    fn resolve_fallback_multi_line_no_similarity() {
+        // Multi-line targets skip the similarity path and go to error.
+        let content = "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n";
+        let result = resolve_with_fallback(content, "fn alphax() {}\nfn betax() {}", None, None);
+        assert!(
+            result.is_err(),
+            "multi-line targets without context should not match via similarity"
+        );
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, EditErrorKind::NoMatch);
     }
 
     // Static assertions: types must be Send + Sync.
