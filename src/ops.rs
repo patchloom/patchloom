@@ -904,10 +904,8 @@ pub mod doc {
     fn json_to_yaml_node(val: &serde_json::Value) -> anyhow::Result<yaml_edit::YamlNode> {
         use std::str::FromStr;
         let wrapper = serde_json::json!({ "__v__": val });
-        let yaml_text = serde_yaml_ng::to_string(&wrapper).unwrap_or_else(|_| {
-            // Shouldn't happen, but fall back to a null literal.
-            "__v__: null\n".to_string()
-        });
+        let yaml_text = serde_yaml_ng::to_string(&wrapper)
+            .map_err(|e| anyhow::anyhow!("YAML serialization failed: {e}"))?;
         let doc = yaml_edit::Document::from_str(&yaml_text)
             .map_err(|e| anyhow::anyhow!("YAML CST re-parse failed: {e}"))?;
         doc.as_mapping()
@@ -957,7 +955,7 @@ pub mod doc {
                     match merge_val {
                         serde_json::Value::Object(merged) => {
                             for (k, v) in merged {
-                                map.entry(&k).or_insert(v);
+                                map.entry(k).or_insert(v);
                             }
                         }
                         serde_json::Value::Array(arr) => {
@@ -965,7 +963,7 @@ pub mod doc {
                             for item in arr {
                                 if let serde_json::Value::Object(merged) = item {
                                     for (k, v) in merged {
-                                        map.entry(&k).or_insert(v);
+                                        map.entry(k).or_insert(v);
                                     }
                                 }
                             }
