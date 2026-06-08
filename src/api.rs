@@ -1135,6 +1135,79 @@ mod tests {
         assert!(result.new_content.contains("Inserted before second."));
     }
 
+    #[test]
+    fn md_insert_after_heading_works() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(&file, "# First\n\nBody 1.\n\n# Second\n\nBody 2.\n").unwrap();
+
+        let result = md_insert_after_heading(
+            &file,
+            "First",
+            "Inserted after first.\n\n",
+            ApplyMode::Preview,
+        )
+        .unwrap();
+
+        assert!(result.changed);
+        assert!(!result.applied);
+        assert!(result.new_content.contains("Inserted after first."));
+        // Verify insertion is after the heading, not before.
+        let pos_heading = result.new_content.find("# First").unwrap();
+        let pos_insertion = result.new_content.find("Inserted after first.").unwrap();
+        assert!(pos_insertion > pos_heading);
+    }
+
+    #[test]
+    fn apply_patch_file_applies_multi_file_patch() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "aaa\n").unwrap();
+        fs::write(&b, "bbb\n").unwrap();
+
+        let patch = "\
+--- a/a.txt\n\
++++ b/a.txt\n\
+@@ -1 +1 @@\n\
+-aaa\n\
++AAA\n\
+--- a/b.txt\n\
++++ b/b.txt\n\
+@@ -1 +1 @@\n\
+-bbb\n\
++BBB\n";
+
+        let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.changed && r.applied));
+        assert_eq!(fs::read_to_string(&a).unwrap(), "AAA\n");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "BBB\n");
+    }
+
+    #[test]
+    fn make_write_policy_maps_options() {
+        let opts = WritePolicyOptions {
+            ensure_final_newline: true,
+            normalize_eol: Some(EolNormalization::Lf),
+            trim_trailing_whitespace: true,
+        };
+        let policy = make_write_policy(&opts);
+        assert!(policy.ensure_final_newline);
+        assert!(policy.trim_trailing_whitespace);
+        // normalize_eol should be Lf, verify by checking it's not Keep.
+        assert_ne!(
+            format!("{:?}", policy.normalize_eol),
+            "Keep",
+            "should map Lf, not Keep"
+        );
+
+        // Default options should produce default policy.
+        let default_policy = make_write_policy(&WritePolicyOptions::default());
+        assert!(!default_policy.ensure_final_newline);
+        assert!(!default_policy.trim_trailing_whitespace);
+    }
+
     // Static assertions: all public API types must be Send + Sync.
     const _: () = {
         fn _assert<T: Send + Sync>() {}
