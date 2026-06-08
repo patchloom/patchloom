@@ -373,13 +373,14 @@ pub fn replace_text(
         opts.multiline,
     )?;
 
+    let direct_to = if opts.insert_before.is_none() && opts.insert_after.is_none() {
+        Some(to.to_string())
+    } else {
+        None
+    };
     let replacement = ops::replace::replacement_text(
         from,
-        &if opts.insert_before.is_none() && opts.insert_after.is_none() {
-            Some(to.to_string())
-        } else {
-            None
-        },
+        &direct_to,
         &opts.insert_before,
         &opts.insert_after,
         compiled_re.is_some(),
@@ -520,7 +521,8 @@ pub fn file_create(
     }
 
     let original = if path.exists() {
-        std::fs::read_to_string(path).unwrap_or_default()
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read existing file: {}", path.display()))?
     } else {
         String::new()
     };
@@ -910,6 +912,25 @@ mod tests {
         let result = file_delete(&file, ApplyMode::Apply).unwrap();
         assert!(result.applied);
         assert!(!file.exists());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn file_create_force_propagates_read_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("unreadable.txt");
+        fs::write(&file, "original").unwrap();
+        fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let err = file_create(&file, "new", true, ApplyMode::Apply).unwrap_err();
+        // Restore permissions so TempDir cleanup succeeds.
+        fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            err.to_string().contains("failed to read existing file"),
+            "expected read error, got: {err}"
+        );
     }
 
     #[test]
