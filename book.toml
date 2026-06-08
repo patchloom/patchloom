@@ -1,0 +1,14 @@
+[book]
+title = "Patchloom"
+description = "Structured file edits for AI agents"
+authors = ["Sebastien Tardif"]
+language = "en"
+src = "docs"
+
+[build]
+build-dir = "book-output"
+
+[output.html]
+git-repository-url = "https://github.com/patchloom/patchloom"
+edit-url-template = "https://github.com/patchloom/patchloom/edit/main/{path}"
+no-section-label = true

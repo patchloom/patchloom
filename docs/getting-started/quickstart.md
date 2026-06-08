@@ -238,6 +238,6 @@ This is safe; the next `--apply` run will create a fresh backup directory.
 
 ## Next steps
 
-- Browse the [examples/](../../examples/) directory for more tx plan patterns
+- Browse the [examples](https://github.com/patchloom/patchloom/tree/main/examples) directory for more tx plan patterns
 - See the full [reference guide](../reference/README.md) for command, operation, and notable mode guidance
 - Read [concepts.md](concepts.md) for write modes, exit codes, and glob filtering

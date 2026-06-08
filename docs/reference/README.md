@@ -222,7 +222,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Runs multiple operations atomically, then optional format and validate steps.
 - **Use when:** Editing 3 or more files in one task. Batches N operations into 1 tool call, eliminating agent round-trips. Also provides atomicity, rollback, and format/validate lifecycle. For AI agents, this is the primary speed advantage: one call instead of N.
 - **Prefer instead:** Use standalone commands when one direct operation is enough.
-- **Related:** [examples/README.md](../../examples/README.md), `tx` fields, `tx` operations
+- **Related:** [examples](https://github.com/patchloom/patchloom/tree/main/examples), `tx` fields, `tx` operations
 
 <!-- ref:command:batch -->
 ## `batch`
@@ -699,7 +699,7 @@ Use these when newline and whitespace correctness is the main concern.
 
 ## `tx` reference
 
-`tx` is the place where Patchloom's features compose. Use [Core Concepts](../getting-started/concepts.md) for the canonical explanation of rollback and exit codes, and [examples/README.md](../../examples/README.md) for plan templates.
+`tx` is the place where Patchloom's features compose. Use [Core Concepts](../getting-started/concepts.md) for the canonical explanation of rollback and exit codes, and [examples](https://github.com/patchloom/patchloom/tree/main/examples) for plan templates.
 
 ### Plan fields
 
