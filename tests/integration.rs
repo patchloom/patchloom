@@ -14377,9 +14377,9 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,195 tests"));
+    assert!(launch.contains("1,311 tests"));
     assert!(
-        launch.contains("19 commands"),
+        launch.contains("20 commands"),
         "launch announcement CLI command count drifted"
     );
     assert!(

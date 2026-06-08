@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/github/v/release/patchloom/patchloom?logo=github&sort=semver)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-1307%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1311%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -251,6 +251,39 @@ patchloom mcp-server --allow-shell
 
 See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
+### As a Rust library
+
+Add patchloom as a dependency (omit the MCP server with `default-features = false`):
+
+```toml
+[dependencies]
+patchloom = { version = "0.1", default-features = false }
+```
+
+```rust
+use patchloom::api::{self, ApplyMode};
+use std::path::Path;
+
+// Replace text (preview only, no disk write)
+let result = api::replace_text(
+    Path::new("src/config.rs"),
+    "old_value", "new_value",
+    &api::ReplaceOptions::default(),
+    ApplyMode::Preview,
+)?;
+println!("{}", result.diff);
+
+// Set a value in a JSON file
+api::doc_set(
+    Path::new("config.json"),
+    "version",
+    serde_json::json!("2.0"),
+    ApplyMode::Apply,
+)?;
+```
+
+All API types are `Send + Sync`. See the `patchloom::api` module docs for the full surface.
+
 ## Getting started
 
 | Resource | What you'll learn |
@@ -291,6 +324,7 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 | `undo` | Restore files from a backup created by `--apply` |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 | `init` | Set up patchloom in a project (agent rules, completions, MCP) |
+| `schema` | Export operation schemas with tier filtering and system prompts |
 | `agent-rules` | Generate agent instructions for your project |
 
 ## How patchloom compares
@@ -379,7 +413,7 @@ flowchart LR
 
 ## Status
 
-1307 passing tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1311 passing tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

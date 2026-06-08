@@ -202,17 +202,13 @@ pub fn doc_set(
     let format = ops::doc::detect_format(&path_str)?;
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
-    let mut doc = ops::doc::parse_doc(&original, &format)?;
+    let old_value = ops::doc::parse_doc(&original, &format)?;
+    let mut doc = old_value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::set_at_path(&mut doc, &segments, value)?;
 
-    let new_content = ops::doc::serialize_value_preserving(
-        &original,
-        &{ ops::doc::parse_doc(&original, &format)? },
-        &doc,
-        &format,
-    )?;
+    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy)?;
