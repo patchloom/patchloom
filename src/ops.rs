@@ -256,10 +256,8 @@ pub mod doc {
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     toml_edit::Value::from(i)
-                } else if let Some(f) = n.as_f64() {
-                    toml_edit::Value::from(f)
                 } else {
-                    // u64 that doesn't fit in i64; store as float.
+                    // Covers u64 > i64::MAX and float values.
                     toml_edit::Value::from(n.as_f64().unwrap_or(0.0))
                 }
             }
