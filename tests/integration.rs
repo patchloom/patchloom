@@ -15143,8 +15143,8 @@ fn test_doc_merge_check_exits_2() {
         .code(2);
 
     let content = fs::read_to_string(&file).unwrap();
-    assert!(
-        !content.contains("b"),
+    assert_eq!(
+        content, r#"{"a":1}"#,
         "file should be unchanged in --check mode"
     );
 }
