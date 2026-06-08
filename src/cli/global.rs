@@ -14,7 +14,7 @@ pub enum ColorMode {
 }
 
 /// Write policy for EOL normalization.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum EolMode {
     /// Keep existing line endings.
     #[default]

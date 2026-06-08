@@ -2389,8 +2389,8 @@ mod tests {
             let new = json!(["a", "b"]);
 
             let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-            assert!(result.contains("a"), "array item missing: {result}");
-            assert!(result.contains("b"), "array item missing: {result}");
+            assert!(result.contains("- a"), "array item '- a' missing: {result}");
+            assert!(result.contains("- b"), "array item '- b' missing: {result}");
         }
 
         #[test]
