@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides nineteen commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
 
 ## Dev commands
 
@@ -60,6 +60,7 @@ src/
   cmd/tidy.rs          Final newline, line ending, and trailing whitespace normalization
   cmd/create.rs        Create a new file with content
   cmd/read.rs          Read file contents with optional line range
+  cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
   cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
   cmd/explain.rs       Parse a tx plan and print a human-readable summary
@@ -67,6 +68,10 @@ src/
   cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
   config.rs            Project config file (.patchloom.toml) loading and merging
   backup.rs            Backup session management for undo safety net
+  schema.rs            Intent format spec: OperationSchema, Tier, operation_schemas(),
+                       operations_for_tier(), system_prompt_for_tier(), INTENT_FORMAT_VERSION
+  fallback.rs          Multi-strategy fallback chain: EditError, EditErrorKind, validate_edit(),
+                       find_similar_targets(), anchor_match(), resolve_with_fallback()
   selector/mod.rs      Re-exports selector parser and evaluator
   selector/parser.rs   Path selector parser (key, index, wildcard, predicate segments)
   selector/eval.rs     Evaluate parsed selectors against serde_json::Value trees
@@ -201,7 +206,12 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 6. Add tests that cover success, failure, and edge-case exit codes.
 
-7. Run `make check`.
+7. Update ancillary files that integration tests auto-verify:
+   - `tests/agent/drivers/base.py`: add the command name to `_PATCHLOOM_SUBCOMMANDS`.
+   - `docs/reference/README.md`: add a `<!-- ref:command:<name> -->` marker with a `## \`<name>\`` heading, description, **Use when:** stanza, and **Related:** links.
+   - `docs/blog/launch-announcement.md`: update the command count ("N commands cover...").
+
+8. Run `make sync-patchloom-md && make update-readme && make check`.
 
 ## Adding a new MCP tool
 
@@ -280,6 +290,25 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
 - Internal refactors and performance optimizations (no user-visible behavior change) still require a targeted unit or integration test on the changed helper or code path. Existing higher-level tests may provide coverage, but a focused test prevents silent regression of the optimization or guard in future refactors.
+
+- When asserting `Send + Sync` bounds on public types, use the `const` static assertion pattern (compile-time, no dead-code warnings):
+
+```rust
+const _: () = {
+    fn _assert<T: Send + Sync>() {}
+    let _ = _assert::<MyType>;
+};
+```
+
+  Do NOT use a named function calling a named helper (produces dead_code warnings):
+
+```rust
+// BAD: generates dead_code warning
+fn assert_send_sync<T: Send + Sync>() {}
+fn check() { assert_send_sync::<MyType>(); }
+```
+
+- Clippy `collapsible_if` with `if let` chains (Rust 2024 edition): nested `} else if cond { if let Err(e) = expr {` must be collapsed to `} else if cond && let Err(e) = expr {`. This fires frequently when validating structured file formats (JSON/YAML/TOML) by file extension.
 
 ## Safety rules
 

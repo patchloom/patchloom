@@ -1,14 +1,61 @@
 #![deny(unsafe_code)]
+//! Patchloom: agent-grade repo operations as a Rust library.
+//!
+//! This crate provides both a CLI binary and a library API for structured
+//! file editing operations. The [`api`] module is the main entry point for
+//! library consumers.
+//!
+//! # Feature flags
+//!
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `core`  | no      | Marker feature for core library usage (no extra deps) |
+//! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
+//! | `full`  | no      | Everything: currently equivalent to `mcp` |
+//!
+//! ## Embedding as a library
+//!
+//! To use patchloom as a library without the MCP server overhead:
+//!
+//! ```toml
+//! [dependencies]
+//! patchloom = { version = "0.1", default-features = false }
+//! ```
+//!
+//! This gives you the full [`api`] module (doc/replace/md/file/patch operations)
+//! and the [`ops`] module for lower-level access, without pulling in `tokio`
+//! or other async runtime dependencies.
+//!
+//! ## Thread safety
+//!
+//! All public API types ([`api::EditResult`], [`api::ApplyMode`], etc.) are
+//! `Send + Sync`. Library functions are safe to call concurrently from
+//! multiple threads with one constraint:
+//!
+//! - **Different files**: fully safe. Multiple threads can edit different files
+//!   simultaneously with no coordination.
+//! - **Same file**: the caller must serialize access. Concurrent writes to the
+//!   same file are inherently racy (last writer wins). Use a mutex or other
+//!   synchronization if you need to coordinate edits to a single file.
+//!
+//! Backup sessions use unique directory names (nanosecond timestamp +
+//! monotonic counter) so concurrent backup creation never collides.
+//!
+//! Configuration can be loaded once with [`config::CachedConfig`] and reused
+//! across threads, avoiding repeated disk reads.
 
+pub mod api;
 pub mod backup;
 pub mod cli;
 pub mod cmd;
 pub mod config;
 pub mod diff;
 pub mod exit;
+pub mod fallback;
 pub(crate) mod files;
 pub mod ops;
 pub mod plan;
+pub mod schema;
 pub mod selector;
 pub mod write;
 

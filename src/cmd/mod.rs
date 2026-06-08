@@ -11,6 +11,7 @@ pub mod patch;
 pub mod read;
 pub mod rename;
 pub mod replace;
+pub mod schema;
 pub mod search;
 pub mod status;
 pub mod tidy;
@@ -52,6 +53,8 @@ pub enum Command {
     Explain(explain::ExplainArgs),
     /// Restore files from a backup created by --apply.
     Undo(undo::UndoArgs),
+    /// Export operation schemas, tier-filtered listings, or system prompt fragments.
+    Schema(schema::SchemaArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
     AgentRules(AgentRulesArgs),
     /// Set up patchloom in the current project.
@@ -395,6 +398,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             load_project_config(&mut global);
             mcp::run_mcp_server(&global, allow_shell, log)
         }
+        Command::Schema(args) => schema::run(args, &global),
         Command::AgentRules(args) => {
             let output = generate_agent_rules(&args);
             print!("{output}");

@@ -30,7 +30,13 @@ exclude = [
 
 [features]
 default = ["mcp"]
+# Core library: all editing operations, no MCP server, no tree-sitter grammars.
+# Use this when embedding patchloom as a library dependency.
+core = []
+# MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
+# Full: everything. Equivalent to default today.
+full = ["mcp"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -44,6 +50,7 @@ globset = "0.4"
 memchr = "2"
 regex = "1"
 similar = { version = "3", features = ["text"] }
+strsim = "0.11"
 tempfile = "3"
 anyhow = "1"
 anstream = "1"
