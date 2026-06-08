@@ -1076,6 +1076,65 @@ mod tests {
         assert!(on_disk.contains("goodbye"));
     }
 
+    #[test]
+    fn apply_patch_works() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "fn hello() {\n    println!(\"hi\");\n}\n").unwrap();
+
+        let patch = format!(
+            "--- a/{f}\n+++ b/{f}\n@@ -1,3 +1,3 @@\n fn hello() {{\n-    println!(\"hi\");\n+    println!(\"hello world\");\n }}\n",
+            f = "code.rs"
+        );
+
+        let result = apply_patch(&file, &patch, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        assert!(!result.applied);
+        assert!(result.new_content.contains("hello world"));
+
+        // File should be unchanged on disk.
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("\"hi\""));
+    }
+
+    #[test]
+    fn md_table_append_adds_row() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("table.md");
+        fs::write(
+            &file,
+            "# Data\n\n| Name | Value |\n|------|-------|\n| a    | 1     |\n",
+        )
+        .unwrap();
+
+        let result =
+            md_table_append(&file, "# Data", "| b    | 2     |", ApplyMode::Apply).unwrap();
+
+        assert!(result.changed);
+        assert!(result.applied);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("| b    | 2     |"));
+    }
+
+    #[test]
+    fn md_insert_before_heading_works() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(&file, "# First\n\nBody 1.\n\n# Second\n\nBody 2.\n").unwrap();
+
+        let result = md_insert_before_heading(
+            &file,
+            "Second",
+            "Inserted before second.\n\n",
+            ApplyMode::Preview,
+        )
+        .unwrap();
+
+        assert!(result.changed);
+        assert!(!result.applied);
+        assert!(result.new_content.contains("Inserted before second."));
+    }
+
     // Static assertions: all public API types must be Send + Sync.
     const _: () = {
         fn _assert<T: Send + Sync>() {}
