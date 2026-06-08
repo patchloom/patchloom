@@ -475,7 +475,10 @@ fn write_result(
 ) -> anyhow::Result<(String, u8)> {
     if ctx.check {
         if original != new_content {
-            return Ok((String::new(), exit::CHANGES_DETECTED));
+            return Ok((
+                format!("would modify {display_path}"),
+                exit::CHANGES_DETECTED,
+            ));
         }
         return Ok((String::new(), exit::SUCCESS));
     }
@@ -921,10 +924,28 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let (output, code) = execute_write(&args.action, &ctx, &cwd)?;
         if code == exit::FAILURE && !output.is_empty() {
             if global.json || global.jsonl {
-                anyhow::bail!(output);
-            }
-            if !global.quiet {
+                let err_obj = serde_json::json!({"ok": false, "error": &output});
+                if global.json {
+                    println!("{}", serde_json::to_string_pretty(&err_obj)?);
+                } else {
+                    println!("{}", serde_json::to_string(&err_obj)?);
+                }
+            } else if !global.quiet {
                 eprintln!("{output}");
+            }
+            return Ok(code);
+        }
+        if code == exit::CHANGES_DETECTED && !output.is_empty() {
+            if global.json || global.jsonl {
+                let check_obj =
+                    serde_json::json!({"ok": true, "has_changes": true, "message": &output});
+                if global.json {
+                    println!("{}", serde_json::to_string_pretty(&check_obj)?);
+                } else {
+                    println!("{}", serde_json::to_string(&check_obj)?);
+                }
+            } else if !global.quiet {
+                println!("{output}");
             }
             return Ok(code);
         }

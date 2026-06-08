@@ -17425,3 +17425,168 @@ fn test_schema_invalid_tier_fails() {
         .assert()
         .failure();
 }
+
+// ---------------------------------------------------------------------------
+// md --check produces stdout output (#544)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_check_produces_stdout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(
+        &file,
+        "# Title\n\n## Section\n\nold content\n\n## Other\n\nkept\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("replace-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Section")
+        .arg("--content")
+        .arg("new content")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would modify"),
+        "md --check should produce stdout, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_md_check_json_produces_structured_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(
+        &file,
+        "# Title\n\n## Section\n\nold content\n\n## Other\n\nkept\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("replace-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Section")
+        .arg("--content")
+        .arg("new content")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], true, "check output should have ok=true");
+    assert_eq!(
+        json["has_changes"], true,
+        "check output should have has_changes=true"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc --check produces stdout output (#544)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_check_produces_stdout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would modify"),
+        "doc --check should produce stdout, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_doc_check_json_produces_structured_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], true, "check output should have ok=true");
+    assert_eq!(
+        json["has_changes"], true,
+        "check output should have has_changes=true"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc --json failure produces structured error on stdout (#545)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_json_failure_structured_on_stdout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("name")
+        .arg("\"x\"")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    // Stderr should be empty; error goes to stdout as JSON.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).trim().is_empty(),
+        "stderr should be empty in --json mode"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"].as_str().unwrap().contains("not an array"),
+        "error should mention 'not an array'"
+    );
+}

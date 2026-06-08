@@ -135,6 +135,20 @@ fn apply_mutation(
     }
 
     if global.check && has_changes {
+        #[derive(Serialize)]
+        struct CheckOutput<'a> {
+            ok: bool,
+            path: &'a str,
+            has_changes: bool,
+        }
+        let output = CheckOutput {
+            ok: true,
+            path: display_path,
+            has_changes: true,
+        };
+        if !global.emit_json(&output)? && !global.quiet {
+            println!("would modify {display_path}");
+        }
         return Ok(exit::CHANGES_DETECTED);
     }
 
