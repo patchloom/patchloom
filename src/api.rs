@@ -816,7 +816,13 @@ mod tests {
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
-        assert!(on_disk.contains("\"b\""));
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(
+            parsed["a"],
+            serde_json::json!(1),
+            "merge must preserve existing keys"
+        );
+        assert_eq!(parsed["b"], serde_json::json!(2), "merge must add new keys");
     }
 
     #[test]
@@ -917,6 +923,11 @@ mod tests {
         assert!(result.applied);
         assert!(!src.exists());
         assert!(dst.exists());
+        let dst_content = fs::read_to_string(&dst).unwrap();
+        assert_eq!(
+            dst_content, "content\n",
+            "rename must preserve file content"
+        );
     }
 
     #[test]
