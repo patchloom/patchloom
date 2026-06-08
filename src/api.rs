@@ -1195,11 +1195,10 @@ mod tests {
         let policy = make_write_policy(&opts);
         assert!(policy.ensure_final_newline);
         assert!(policy.trim_trailing_whitespace);
-        // normalize_eol should be Lf, verify by checking it's not Keep.
-        assert_ne!(
-            format!("{:?}", policy.normalize_eol),
-            "Keep",
-            "should map Lf, not Keep"
+        assert_eq!(
+            policy.normalize_eol,
+            crate::cli::global::EolMode::Lf,
+            "should map EolNormalization::Lf to EolMode::Lf"
         );
 
         // Default options should produce default policy.
