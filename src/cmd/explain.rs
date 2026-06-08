@@ -322,9 +322,10 @@ mod tests {
             if_exists: false,
         };
         let desc = describe_operation(&op);
-        assert!(desc.contains("regex"));
-        assert!(desc.contains("#1"));
-        assert!(desc.contains("case-insensitive"));
+        assert_eq!(
+            desc,
+            r#"Replace "fn\s+main" with "fn entry" in src/lib.rs (regex, occurrence #1, case-insensitive)"#
+        );
     }
 
     #[test]

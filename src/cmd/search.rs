@@ -497,6 +497,9 @@ pub(crate) fn format_results(
 }
 
 pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    if args.pattern.is_empty() {
+        bail!("search pattern must not be empty");
+    }
     if args.invert_match && args.multiline {
         bail!("--invert-match and --multiline cannot be combined");
     }
@@ -622,6 +625,19 @@ mod tests {
             case_insensitive: false,
             assert_count: None,
         }
+    }
+
+    #[test]
+    fn empty_pattern_rejected() {
+        let dir = make_test_dir();
+        let args = make_args("", vec![dir.path().to_string_lossy().into_owned()]);
+        let result = run(args, &default_global());
+        assert!(result.is_err(), "empty pattern should be rejected");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("must not be empty"),
+            "error should mention empty pattern: {msg}"
+        );
     }
 
     #[test]
@@ -874,14 +890,26 @@ mod tests {
         assert_eq!(v["file_count"], serde_json::json!(1));
         let matches = v["matches"].as_array().expect("matches is array");
         assert_eq!(matches.len(), 2);
+        // Matches are ordered by line within the file.
         for m in matches {
             let path = m["path"].as_str().unwrap();
             assert!(path.ends_with("hello.txt"), "unexpected path: {path}");
-            assert!(m["line"].as_u64().unwrap() > 0);
-            assert!(m["column"].as_u64().unwrap() > 0);
             let text = m["text"].as_str().unwrap();
             assert!(text.contains("Hello"), "match text missing 'Hello': {text}");
         }
+        // "Hello" appears at column 1 on lines 1 ("Hello, world!") and 3 ("Hello again!").
+        assert_eq!(matches[0]["line"].as_u64().unwrap(), 1, "first match line");
+        assert_eq!(
+            matches[0]["column"].as_u64().unwrap(),
+            1,
+            "first match column"
+        );
+        assert_eq!(matches[1]["line"].as_u64().unwrap(), 3, "second match line");
+        assert_eq!(
+            matches[1]["column"].as_u64().unwrap(),
+            1,
+            "second match column"
+        );
     }
 
     #[test]

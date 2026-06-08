@@ -1658,38 +1658,59 @@ mod tests {
 
     #[test]
     fn path_rejects_absolute() {
-        assert!(validate_path_contained("/etc/passwd").is_err());
+        assert!(
+            validate_path_contained("/etc/passwd").is_err(),
+            "absolute path should be rejected"
+        );
     }
 
     #[test]
     fn path_rejects_traversal() {
-        assert!(validate_path_contained("../../etc/passwd").is_err());
+        assert!(
+            validate_path_contained("../../etc/passwd").is_err(),
+            "parent traversal should be rejected"
+        );
     }
 
     #[test]
     fn path_rejects_deep_traversal() {
-        assert!(validate_path_contained("a/b/../../../escape").is_err());
+        assert!(
+            validate_path_contained("a/b/../../../escape").is_err(),
+            "deep traversal escaping cwd should be rejected"
+        );
     }
 
     #[test]
     fn path_allows_relative() {
-        assert!(validate_path_contained("src/main.rs").is_ok());
+        assert!(
+            validate_path_contained("src/main.rs").is_ok(),
+            "simple relative path should be allowed"
+        );
     }
 
     #[test]
     fn path_allows_dot_relative() {
-        assert!(validate_path_contained("./foo/bar.json").is_ok());
+        assert!(
+            validate_path_contained("./foo/bar.json").is_ok(),
+            "dot-relative path should be allowed"
+        );
     }
 
     #[test]
     fn path_allows_safe_parent() {
         // a/../b resolves within cwd
-        assert!(validate_path_contained("a/../b").is_ok());
+        assert!(
+            validate_path_contained("a/../b").is_ok(),
+            "parent that resolves within cwd should be allowed"
+        );
     }
 
     #[test]
     fn path_rejects_single_parent() {
-        assert!(validate_path_contained("..").is_err());
+        assert!(
+            validate_path_contained("..").is_err(),
+            "bare parent directory should be rejected"
+        );
     }
 
     #[test]
@@ -1697,7 +1718,10 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("safe.txt"), "ok").unwrap();
         let canon = dir.path().canonicalize().unwrap();
-        assert!(validate_path_resolved("safe.txt", dir.path(), &canon).is_ok());
+        assert!(
+            validate_path_resolved("safe.txt", dir.path(), &canon).is_ok(),
+            "existing file inside cwd should be allowed"
+        );
     }
 
     #[test]
@@ -1705,7 +1729,10 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         // Non-existent files with safe ancestors are allowed.
         let canon = dir.path().canonicalize().unwrap();
-        assert!(validate_path_resolved("new_file.txt", dir.path(), &canon).is_ok());
+        assert!(
+            validate_path_resolved("new_file.txt", dir.path(), &canon).is_ok(),
+            "nonexistent file with safe ancestor should be allowed"
+        );
     }
 
     #[cfg(unix)]

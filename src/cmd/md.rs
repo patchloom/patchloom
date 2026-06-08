@@ -118,7 +118,9 @@ fn apply_mutation(
     let final_content = crate::write::apply_policy(new_content, &policy);
     let has_changes = original != final_content;
 
-    if global.diff || global.confirm {
+    // Show diff in default mode (no write flags), explicit --diff, or --confirm.
+    // Skip when --apply or --check is set without --diff.
+    if (!global.apply && !global.check) || global.diff || global.confirm {
         let d = unified_diff(display_path, original, &final_content);
         if d.has_changes {
             let result = DiffResult {
