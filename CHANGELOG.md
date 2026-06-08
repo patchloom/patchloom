@@ -4,6 +4,26 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.5...patchloom-v0.1.6) (2026-06-08)
+
+
+### Features
+
+* public Rust library API with thread safety, intent format, and fallback chain ([#530](https://github.com/patchloom/patchloom/issues/530)) ([093eb8b](https://github.com/patchloom/patchloom/commit/093eb8bc0abf4d567027fd9a726934943823e1e2))
+
+
+### Bug Fixes
+
+* add error context to backup restore and rename cross-device paths ([#543](https://github.com/patchloom/patchloom/issues/543)) ([69018e7](https://github.com/patchloom/patchloom/commit/69018e784e9a5594b70000275167d15d67a1a0a0))
+* **ci:** use App token in update-branches to trigger CI on updated PRs ([#523](https://github.com/patchloom/patchloom/issues/523)) ([e51cdae](https://github.com/patchloom/patchloom/commit/e51cdae6ac200ac443ec1bc923b3c9c27c02a3e3))
+* correct pinned action SHAs in docs workflow ([#549](https://github.com/patchloom/patchloom/issues/549)) ([b1fabf6](https://github.com/patchloom/patchloom/commit/b1fabf6895ec73560d7d380c6bc6a5f82469741c))
+* improvement cycle (UTF-8 truncate, doc_set double-parse, docs freshness) ([#531](https://github.com/patchloom/patchloom/issues/531)) ([a8dffb9](https://github.com/patchloom/patchloom/commit/a8dffb9c8a5c1588dfa7b9a0f6d003772e41b6d4))
+* md silent default mode, search empty-pattern guard, strengthen assertions ([#542](https://github.com/patchloom/patchloom/issues/542)) ([45d3239](https://github.com/patchloom/patchloom/commit/45d323976bdc19e4bb9d37f23ba60566f0dc43a9))
+* md/doc --check produce stdout output and doc --json errors use structured JSON ([#546](https://github.com/patchloom/patchloom/issues/546)) ([819fb7c](https://github.com/patchloom/patchloom/commit/819fb7c1a2190e74445672a1dbb3c77f09496e9a)), closes [#544](https://github.com/patchloom/patchloom/issues/544) [#545](https://github.com/patchloom/patchloom/issues/545)
+* propagate read errors in file_create and extract inline conditional ([#533](https://github.com/patchloom/patchloom/issues/533)) ([26ab09c](https://github.com/patchloom/patchloom/commit/26ab09cca8c5a3229a4de6350137aded69e4ec1a))
+* propagate YAML serialization error and remove unnecessary borrows in ops.rs ([#537](https://github.com/patchloom/patchloom/issues/537)) ([24e67f4](https://github.com/patchloom/patchloom/commit/24e67f40755606863add7d83468a28583a42f7d5))
+* remove documentation field so crates.io auto-links to docs.rs ([#547](https://github.com/patchloom/patchloom/issues/547)) ([f6bbd10](https://github.com/patchloom/patchloom/commit/f6bbd10d30d60c6964d68a8d45d2c72ed14aaa1a))
+
 ## [0.1.5](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.4...patchloom-v0.1.5) (2026-06-07)
 
 
