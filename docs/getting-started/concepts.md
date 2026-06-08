@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 19 commands:
+Patchloom has 20 commands:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
@@ -16,6 +16,7 @@ Patchloom has 19 commands:
 - **batch** -- line-oriented multi-operation format (delegates to tx engine)
 - **completions** -- shell completion generation
 - **agent-rules** -- print end-user agent documentation for patchloom
+- **schema** -- export operation schemas with tier filtering and system prompts
 - **explain** -- summarize a tx plan in plain English before applying
 - **undo** -- restore files from a backup created by `--apply`
 - **init** -- set up patchloom in a project (agent rules, completions, MCP)
