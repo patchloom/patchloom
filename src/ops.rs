@@ -3089,8 +3089,8 @@ mod tests {
         #[test]
         fn find_section_with_hashes_in_query() {
             let content = "## API\nsome text\n";
-            let result = find_section(content, "## API");
-            assert!(result.is_some());
+            let (start, end) = find_section(content, "## API").unwrap();
+            assert_eq!(&content[start..end], "some text\n");
         }
 
         #[test]
