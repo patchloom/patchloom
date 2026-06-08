@@ -1063,7 +1063,7 @@ fn test_search_multiline_spans_lines() {
         .assert()
         .success()
         .stdout(predicate::str::contains("fn main()"))
-        .stdout(predicate::str::contains("}"));
+        .stdout(predicate::str::contains("println!"));
 }
 
 #[test]
@@ -2687,6 +2687,52 @@ fn test_md_replace_section() {
     assert!(
         content.contains("kept"),
         "Other section content should be intact"
+    );
+}
+
+#[test]
+fn test_md_default_mode_shows_diff() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(
+        &file,
+        "# Title\n\n## Section\n\nold content\n\n## Other\n\nkept\n",
+    )
+    .unwrap();
+
+    // Default mode (no --apply/--check/--diff) should show a unified diff preview.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("replace-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("## Section")
+        .arg("--content")
+        .arg("new content")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--- a/"),
+        "default mode should show diff header: {stdout}"
+    );
+    assert!(
+        stdout.contains("-old content"),
+        "default mode should show removed line: {stdout}"
+    );
+    assert!(
+        stdout.contains("+new content"),
+        "default mode should show added line: {stdout}"
+    );
+
+    // File should NOT be modified in default mode.
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("old content"),
+        "default mode should not modify the file"
     );
 }
 

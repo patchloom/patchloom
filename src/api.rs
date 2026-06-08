@@ -270,7 +270,11 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
     let result = selector::eval(&doc, &segments);
     match result.len() {
         0 => bail!("selector '{}' matched nothing", selector),
-        1 => Ok(result.into_iter().next().unwrap().clone()),
+        1 => Ok(result
+            .into_iter()
+            .next()
+            .expect("len==1 guarantees element")
+            .clone()),
         _ => Ok(serde_json::Value::Array(
             result.into_iter().cloned().collect(),
         )),
