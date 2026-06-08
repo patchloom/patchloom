@@ -261,7 +261,7 @@ fn do_rename(
         } else {
             atomic_create_new(dst, &content, policy)?;
         }
-        fs::remove_file(src)?;
+        fs::remove_file(src).with_context(|| format!("removing source file {}", src.display()))?;
     }
     Ok(())
 }
@@ -284,8 +284,12 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
     match fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
-            fs::copy(src, dst)?;
-            fs::remove_file(src)?;
+            fs::copy(src, dst).with_context(|| {
+                format!("cross-device copy {} -> {}", src.display(), dst.display())
+            })?;
+            fs::remove_file(src).with_context(|| {
+                format!("removing source after cross-device copy: {}", src.display())
+            })?;
             Ok(())
         }
         Err(e) => Err(e.into()),

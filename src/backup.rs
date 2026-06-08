@@ -159,9 +159,11 @@ impl BackupSession {
         if file_path.exists() {
             let backup_path = self.session_dir.join(&rel_str);
             if let Some(parent) = backup_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating backup dir for {rel_str}"))?;
             }
-            std::fs::copy(file_path, &backup_path)?;
+            std::fs::copy(file_path, &backup_path)
+                .with_context(|| format!("backing up {rel_str} before delete"))?;
         }
 
         self.entries.push(ManifestEntry {
@@ -253,7 +255,8 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
 
     let content = std::fs::read_to_string(&manifest_path)
         .with_context(|| format!("no backup session found for {timestamp}"))?;
-    let manifest: Manifest = serde_json::from_str(&content)?;
+    let manifest: Manifest = serde_json::from_str(&content)
+        .with_context(|| format!("parsing backup manifest for session {timestamp}"))?;
 
     let mut restored = 0;
     for entry in &manifest.entries {
@@ -270,16 +273,21 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
                 let backup = session_dir.join(&entry.path);
                 if backup.exists() {
                     if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
+                        std::fs::create_dir_all(parent).with_context(|| {
+                            format!("creating parent dir for restore target {}", entry.path)
+                        })?;
                     }
-                    std::fs::copy(&backup, &target)?;
+                    std::fs::copy(&backup, &target)
+                        .with_context(|| format!("restoring modified file {}", entry.path))?;
                     restored += 1;
                 }
             }
             FileAction::Created => {
                 // File was newly created by the apply; remove it.
                 if target.exists() {
-                    std::fs::remove_file(&target)?;
+                    std::fs::remove_file(&target).with_context(|| {
+                        format!("removing created file {} during undo", entry.path)
+                    })?;
                     restored += 1;
                 }
             }
@@ -287,9 +295,12 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
                 let backup = session_dir.join(&entry.path);
                 if backup.exists() {
                     if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
+                        std::fs::create_dir_all(parent).with_context(|| {
+                            format!("creating parent dir for restore target {}", entry.path)
+                        })?;
                     }
-                    std::fs::copy(&backup, &target)?;
+                    std::fs::copy(&backup, &target)
+                        .with_context(|| format!("restoring deleted file {}", entry.path))?;
                     restored += 1;
                 }
             }
