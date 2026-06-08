@@ -251,6 +251,39 @@ patchloom mcp-server --allow-shell
 
 See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
+### As a Rust library
+
+Add patchloom as a dependency (omit the MCP server with `default-features = false`):
+
+```toml
+[dependencies]
+patchloom = { version = "0.1", default-features = false }
+```
+
+```rust
+use patchloom::api::{self, ApplyMode};
+use std::path::Path;
+
+// Replace text (preview only, no disk write)
+let result = api::replace_text(
+    Path::new("src/config.rs"),
+    "old_value", "new_value",
+    &api::ReplaceOptions::default(),
+    ApplyMode::Preview,
+)?;
+println!("{}", result.diff);
+
+// Set a value in a JSON file
+api::doc_set(
+    Path::new("config.json"),
+    "version",
+    serde_json::json!("2.0"),
+    ApplyMode::Apply,
+)?;
+```
+
+All API types are `Send + Sync`. See the `patchloom::api` module docs for the full surface.
+
 ## Getting started
 
 | Resource | What you'll learn |
@@ -291,6 +324,7 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 | `undo` | Restore files from a backup created by `--apply` |
 | `completions` | Generate shell completions (bash, zsh, fish, elvish) |
 | `init` | Set up patchloom in a project (agent rules, completions, MCP) |
+| `schema` | Export operation schemas with tier filtering and system prompts |
 | `agent-rules` | Generate agent instructions for your project |
 
 ## How patchloom compares
