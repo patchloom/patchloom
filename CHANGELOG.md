@@ -4,6 +4,19 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.6...patchloom-v0.1.7) (2026-06-12)
+
+
+### Features
+
+* md.move-section -- move a heading section between files ([#554](https://github.com/patchloom/patchloom/issues/554)) ([d6f42e7](https://github.com/patchloom/patchloom/commit/d6f42e7e97db115d3506ab8295c4e261aee2f67e)), closes [#553](https://github.com/patchloom/patchloom/issues/553)
+
+
+### Bug Fixes
+
+* md move-section same-file path detection and cross-file --check mode ([#556](https://github.com/patchloom/patchloom/issues/556)) ([da76cc5](https://github.com/patchloom/patchloom/commit/da76cc5cb0ce1ecfee8027ba7b7d1c3d6a577bdf))
+* rename same-file detection via path canonicalization ([#557](https://github.com/patchloom/patchloom/issues/557)) ([a1b5573](https://github.com/patchloom/patchloom/commit/a1b5573a573744ebcd5806beae187e8e232ec5aa))
+
 ## [0.1.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.5...patchloom-v0.1.6) (2026-06-08)
 
 
