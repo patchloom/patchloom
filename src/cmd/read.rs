@@ -277,6 +277,42 @@ mod tests {
     }
 
     #[test]
+    fn parse_range_non_numeric_single_fails() {
+        let err = parse_line_range("abc").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid line number"),
+            "expected 'invalid line number', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_range_single_zero_fails() {
+        let err = parse_line_range("0").unwrap_err();
+        assert!(
+            err.to_string().contains("1-based"),
+            "expected '1-based', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_range_non_numeric_start_fails() {
+        let err = parse_line_range("abc:10").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid start line"),
+            "expected 'invalid start line', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_range_non_numeric_end_fails() {
+        let err = parse_line_range("5:xyz").unwrap_err();
+        assert!(
+            err.to_string().contains("invalid end line"),
+            "expected 'invalid end line', got: {err}"
+        );
+    }
+
+    #[test]
     fn read_one_file_empty_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let file = dir.path().join("empty.txt");
