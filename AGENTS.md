@@ -85,7 +85,7 @@ src/
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
-                       23 operation types including all doc/md/replace/tidy/file/patch/read/search ops
+                       25 operation types including all doc/md/replace/tidy/file/patch/read/search ops
 tests/
   integration.rs       Rust integration tests (cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom

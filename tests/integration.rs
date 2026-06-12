@@ -14854,7 +14854,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,318 tests"));
+    assert!(launch.contains("1,361 tests"));
     assert!(
         launch.contains("20 commands"),
         "launch announcement CLI command count drifted"
@@ -15273,7 +15273,7 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
     );
     assert!(
         agents.contains(
-            "23 operation types including all doc/md/replace/tidy/file/patch/read/search ops"
+            "25 operation types including all doc/md/replace/tidy/file/patch/read/search ops"
         ),
         "AGENTS.md should describe the current tx operation count"
     );
