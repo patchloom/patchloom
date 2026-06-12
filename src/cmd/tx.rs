@@ -1215,8 +1215,13 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 anyhow::bail!("destination is not a file: {to}");
             }
 
-            // If source and destination are the same path, no-op.
-            if src_path == dst_path {
+            // If source and destination resolve to the same file, no-op.
+            if src_path == dst_path
+                || matches!(
+                    (src_path.canonicalize(), dst_path.canonicalize()),
+                    (Ok(ref s), Ok(ref d)) if s == d
+                )
+            {
                 return Ok(0);
             }
 

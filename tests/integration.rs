@@ -4692,6 +4692,29 @@ fn test_rename_same_path_without_force_is_noop() {
 }
 
 #[test]
+fn test_rename_same_file_via_different_path_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("same.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    // Use ./same.txt as destination - different string, same file.
+    let alt_path = dir.path().join("./same.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg(&file)
+        .arg(&alt_path)
+        .arg("--apply")
+        .arg("--force")
+        .assert()
+        .success();
+
+    assert!(file.exists(), "file must not be deleted");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "content\n");
+}
+
+#[test]
 fn test_rename_force_overwrites() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");
@@ -7490,6 +7513,40 @@ fn test_tx_file_rename_same_path_is_noop() {
         .assert()
         .success();
 
+    assert_eq!(
+        fs::read_to_string(dir.path().join("same.txt")).unwrap(),
+        "keep me\n"
+    );
+}
+
+#[test]
+fn test_tx_file_rename_same_file_via_different_path_is_noop() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("same.txt"), "keep me\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "file.rename", "from": "same.txt", "to": "./same.txt", "force": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(
+        dir.path().join("same.txt").exists(),
+        "file must not be deleted"
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("same.txt")).unwrap(),
         "keep me\n"
