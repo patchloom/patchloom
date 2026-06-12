@@ -5982,6 +5982,40 @@ fn test_md_move_section_same_file_reorder() {
 }
 
 #[test]
+fn test_md_move_section_explicit_to_same_file_reorders() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("C")
+        .arg("--to")
+        .arg(&file)
+        .arg("--before")
+        .arg("B")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let a_pos = content.find("# A").unwrap();
+    let c_pos = content.find("# C").unwrap();
+    let b_pos = content.find("# B").unwrap();
+    assert!(c_pos < b_pos, "C should be before B after move");
+    assert!(a_pos < c_pos, "A should still be first");
+    assert_eq!(
+        content.matches("# C").count(),
+        1,
+        "section C must not be duplicated"
+    );
+}
+
+#[test]
 fn test_md_move_section_cross_file() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("source.md");
