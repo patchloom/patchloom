@@ -164,7 +164,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-llvm-cov
 
@@ -246,7 +246,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Install hyperfine
-        uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: hyperfine@1.20.0
 
@@ -348,7 +348,7 @@ jobs:
           cache-on-failure: "true"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-fuzz
 
@@ -395,7 +395,7 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2
         with:
           tool: cargo-audit
 
