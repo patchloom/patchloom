@@ -57,7 +57,12 @@ fn validate_rename_paths(
     if dst.exists() && !dst.is_file() {
         anyhow::bail!("destination is not a file: {dst_label}");
     }
-    if src == dst {
+    if src == dst
+        || matches!(
+            (src.canonicalize(), dst.canonicalize()),
+            (Ok(ref s), Ok(ref d)) if s == d
+        )
+    {
         return Ok(RenameValidation::NoOp);
     }
     if !force && dst.exists() {
@@ -497,6 +502,29 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(file.exists(), "file should still exist");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+    }
+
+    #[test]
+    fn rename_same_file_via_different_path_is_noop() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("same.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let mut global = global_for(&dir);
+        global.apply = true;
+
+        // Use "./same.txt" as destination - different string, same file.
+        let args = RenameArgs {
+            from: file.to_string_lossy().into_owned(),
+            to: dir.path().join("./same.txt").to_string_lossy().into_owned(),
+            force: true,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(file.exists(), "file must not be deleted");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
     }
 
