@@ -406,8 +406,12 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 _ => anyhow::bail!("exactly one of --before or --after must be provided"),
             };
 
-            let same_file = to.is_none();
             let dest_file = to.as_deref().unwrap_or(&file);
+            let same_file = to.is_none()
+                || matches!(
+                    (cwd.join(&file).canonicalize(), cwd.join(dest_file).canonicalize()),
+                    (Ok(ref s), Ok(ref d)) if s == d
+                );
             let source_original = read(&file)?;
             let dest_original = if same_file {
                 source_original.clone()
@@ -426,12 +430,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if same_file {
                         apply(&file, &source_original, &new_source)
                     } else {
-                        // Apply both files. If either fails, the caller sees the error.
-                        let code = apply(&file, &source_original, &new_source)?;
-                        if code != exit::SUCCESS {
-                            return Ok(code);
-                        }
-                        apply(dest_file, &dest_original, &new_dest)
+                        // Apply both files. Process both even in --check mode
+                        // so that both files are reported as changed.
+                        let source_code = apply(&file, &source_original, &new_source)?;
+                        let dest_code = apply(dest_file, &dest_original, &new_dest)?;
+                        Ok(source_code.max(dest_code))
                     }
                 }
                 None => Ok(exit::NO_MATCHES),
@@ -1055,6 +1058,44 @@ mod tests {
         let c_pos = result.find("# C").unwrap();
         assert!(b_pos < a_pos, "B should come before A after move");
         assert!(a_pos < c_pos, "A should come before C");
+    }
+
+    #[test]
+    fn move_section_explicit_to_same_file_reorders_not_duplicates() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
+
+        let path_str = file.to_str().unwrap().to_string();
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: path_str.clone(),
+                heading: "C".into(),
+                to: Some(path_str),
+                before: Some("B".into()),
+                after: None,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let result = fs::read_to_string(&file).unwrap();
+        let a_pos = result.find("# A").unwrap();
+        let c_pos = result.find("# C").unwrap();
+        let b_pos = result.find("# B").unwrap();
+        assert!(a_pos < c_pos, "A should come before C");
+        assert!(c_pos < b_pos, "C should come before B after move");
+        assert_eq!(
+            result.matches("# C").count(),
+            1,
+            "section C must appear exactly once (not duplicated)"
+        );
+        assert_eq!(
+            result.matches("c-content").count(),
+            1,
+            "content must not be duplicated"
+        );
     }
 
     #[test]
