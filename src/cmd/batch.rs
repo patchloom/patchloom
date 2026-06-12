@@ -30,6 +30,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.replace_section <path> <heading> <content>
 /// md.insert_after_heading <path> <heading> <content>
 /// md.insert_before_heading <path> <heading> <content>
+/// md.move_section <path> <heading> before|after <target_heading>
+/// md.move_section <path> <heading> <to> before|after <target_heading>
 /// md.dedupe_headings <path>
 /// md.lint_agents <path>
 /// tidy.fix <path>
@@ -43,7 +45,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   doc.update, doc.move, doc.delete_where, replace, file.create,
   file.delete, file.rename, md.upsert_bullet, md.table_append,
   md.replace_section, md.insert_after_heading, md.insert_before_heading,
-  md.dedupe_headings, md.lint_agents, tidy.fix
+  md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix
 
 EXAMPLES:
   printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
@@ -224,6 +226,33 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 content: args[2].clone(),
             })
         }
+        "md.move_section" => {
+            // 4 args: md.move_section <path> <heading> before|after <target_heading>
+            // 5 args: md.move_section <path> <heading> <to> before|after <target_heading>
+            if args.len() == 4 {
+                let (before, after) = parse_position_keyword(&args[2], line_num)?;
+                Ok(Operation::MdMoveSection {
+                    path: args[0].clone(),
+                    heading: args[1].clone(),
+                    to: None,
+                    before: before.map(|_| args[3].clone()),
+                    after: after.map(|_| args[3].clone()),
+                })
+            } else if args.len() == 5 {
+                let (before, after) = parse_position_keyword(&args[3], line_num)?;
+                Ok(Operation::MdMoveSection {
+                    path: args[0].clone(),
+                    heading: args[1].clone(),
+                    to: Some(args[2].clone()),
+                    before: before.map(|_| args[4].clone()),
+                    after: after.map(|_| args[4].clone()),
+                })
+            } else {
+                anyhow::bail!(
+                    "line {line_num}: md.move_section requires 4 args (same-file) or 5 args (cross-file)"
+                )
+            }
+        }
         "md.dedupe_headings" => {
             require_args(op, args, 1, line_num)?;
             Ok(Operation::MdDedupeHeadings {
@@ -250,6 +279,18 @@ pub fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
 }
 
 /// Check that the exact number of arguments were provided.
+/// Parse a position keyword ("before" or "after") and return which one was given.
+fn parse_position_keyword(
+    keyword: &str,
+    line_num: usize,
+) -> anyhow::Result<(Option<()>, Option<()>)> {
+    match keyword {
+        "before" => Ok((Some(()), None)),
+        "after" => Ok((None, Some(()))),
+        _ => anyhow::bail!("line {line_num}: expected 'before' or 'after', got '{keyword}'"),
+    }
+}
+
 fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {
     if args.len() != expected {
         anyhow::bail!(
@@ -782,5 +823,45 @@ file.create hello.txt "Hello, World!"
             operations.push(parse_line(trimmed, i + 1).unwrap());
         }
         assert_eq!(operations.len(), 4);
+    }
+
+    #[test]
+    fn parse_line_md_move_section_same_file() {
+        let op = parse_line("md.move_section README.md \"FAQ\" before \"License\"", 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::MdMoveSection { path, heading, to, before, after }
+            if path == "README.md" && heading == "FAQ" && to.is_none()
+               && before.as_deref() == Some("License") && after.is_none()
+        ));
+    }
+
+    #[test]
+    fn parse_line_md_move_section_cross_file() {
+        let op = parse_line(
+            "md.move_section spec.md \"Appendix\" dest.md after \"Layer 4\"",
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            op,
+            Operation::MdMoveSection { path, heading, to, before, after }
+            if path == "spec.md" && heading == "Appendix"
+               && to.as_deref() == Some("dest.md")
+               && before.is_none() && after.as_deref() == Some("Layer 4")
+        ));
+    }
+
+    #[test]
+    fn parse_line_md_move_section_bad_keyword() {
+        let err =
+            parse_line("md.move_section README.md \"FAQ\" between \"License\"", 1).unwrap_err();
+        assert!(err.to_string().contains("expected 'before' or 'after'"));
+    }
+
+    #[test]
+    fn parse_line_md_move_section_wrong_arg_count() {
+        let err = parse_line("md.move_section README.md", 1).unwrap_err();
+        assert!(err.to_string().contains("requires 4 args"));
     }
 }

@@ -161,6 +161,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
+             | Move a heading section (same file or cross-file) | `md_move_section` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
              | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\

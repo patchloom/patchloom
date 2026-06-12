@@ -139,6 +139,17 @@ pub enum Operation {
         heading: String,
         row: String,
     },
+    #[serde(rename = "md.move_section", alias = "md_move_section")]
+    MdMoveSection {
+        path: String,
+        heading: String,
+        /// Destination file. When omitted, reorder within the same file.
+        to: Option<String>,
+        /// Insert before this heading at the destination.
+        before: Option<String>,
+        /// Insert after this heading at the destination.
+        after: Option<String>,
+    },
     #[serde(rename = "md.dedupe_headings", alias = "md_dedupe_headings")]
     MdDedupeHeadings { path: String },
     #[serde(rename = "tidy.fix", alias = "fix_whitespace")]
@@ -326,6 +337,8 @@ mod tests {
             {"op": "md.insert_before_heading", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
             {"op": "md.table_append", "path": "f.md", "heading": "H", "row": "| a | b |"},
+            {"op": "md.move_section", "path": "src.md", "heading": "FAQ", "before": "License"},
+            {"op": "md.move_section", "path": "src.md", "heading": "Appendix", "to": "dest.md", "after": "Body"},
             {"op": "md.dedupe_headings", "path": "f.md"},
             {"op": "tidy.fix", "path": "f.txt"},
             {"op": "tidy.fix", "path": "f.txt", "trim_trailing_whitespace": true, "normalize_eol": "lf"},
@@ -342,7 +355,7 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 30);
+        assert_eq!(plan.operations.len(), 32);
     }
 
     #[test]
@@ -357,6 +370,7 @@ mod tests {
             {"op": "doc_append", "path": "f.json", "selector": "arr", "value": 1},
             {"op": "doc_ensure", "path": "f.json", "selector": "k", "value": 1},
             {"op": "doc_delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"},
+            {"op": "md_move_section", "path": "f.md", "heading": "H", "before": "X"},
             {"op": "md_replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
             {"op": "md_table_append", "path": "f.md", "heading": "H", "row": "| a |"},
@@ -370,7 +384,7 @@ mod tests {
             {"op": "md_lint", "path": "f.md"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 18);
+        assert_eq!(plan.operations.len(), 19);
     }
 
     #[test]

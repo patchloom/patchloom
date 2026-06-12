@@ -1544,6 +1544,77 @@ pub mod md {
         None
     }
 
+    /// Return the full byte range of a section INCLUDING its heading line.
+    ///
+    /// Unlike `find_section` which returns only the body range (after the
+    /// heading), this returns `(section_start, section_end)` where
+    /// `section_start` is the first byte of the heading line itself.
+    pub fn section_range(content: &str, heading: &str) -> Option<(usize, usize)> {
+        let headings = parse_headings(content);
+        let offsets = line_byte_starts(content);
+        let query = normalize_heading_query(heading);
+
+        for h in &headings {
+            if h.text.trim() == query {
+                let section_start = offsets[h.line_start];
+                let section_end = if h.line_end < offsets.len() {
+                    offsets[h.line_end]
+                } else {
+                    content.len()
+                };
+                return Some((section_start, section_end));
+            }
+        }
+        None
+    }
+
+    /// Move a heading section to a new location, either within the same file
+    /// or from one file to another.
+    ///
+    /// Returns `(new_source, new_dest)`. For same-file moves the caller
+    /// should use only `new_source` (both values are identical).
+    ///
+    /// `position` is `("before", heading)` or `("after", heading)`.
+    pub fn move_section_in(
+        source_content: &str,
+        heading: &str,
+        dest_content: &str,
+        position: (&str, &str),
+        same_file: bool,
+    ) -> Option<(String, String)> {
+        let (section_start, section_end) = section_range(source_content, heading)?;
+        let section_text = &source_content[section_start..section_end];
+
+        if same_file {
+            // Same-file reorder: remove the section first, then insert into
+            // the resulting content. This avoids complex offset adjustment.
+            let without_section = format!(
+                "{}{}",
+                &source_content[..section_start],
+                &source_content[section_end..]
+            );
+            let result = match position.0 {
+                "before" => insert_before_heading_in(&without_section, position.1, section_text)?,
+                "after" => insert_after_heading_in(&without_section, position.1, section_text)?,
+                _ => return None,
+            };
+            Some((result.clone(), result))
+        } else {
+            // Cross-file move: remove from source, insert into dest.
+            let new_source = format!(
+                "{}{}",
+                &source_content[..section_start],
+                &source_content[section_end..]
+            );
+            let new_dest = match position.0 {
+                "before" => insert_before_heading_in(dest_content, position.1, section_text)?,
+                "after" => insert_after_heading_in(dest_content, position.1, section_text)?,
+                _ => return None,
+            };
+            Some((new_source, new_dest))
+        }
+    }
+
     pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
         let (body_start, body_end) = find_section(content, heading)?;
         let mut out = String::with_capacity(content.len());
@@ -3205,6 +3276,80 @@ mod tests {
             let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
             let result = table_append_for_tx(content, "API", "| b | 2 |").unwrap();
             assert!(result.contains("| a | 1 |\n| b | 2 |\n"));
+        }
+
+        #[test]
+        fn section_range_includes_heading() {
+            let content = "# A\nbody a\n# B\nbody b\n";
+            let (start, end) = section_range(content, "A").unwrap();
+            assert_eq!(&content[start..end], "# A\nbody a\n");
+        }
+
+        #[test]
+        fn section_range_last_section() {
+            let content = "# A\nbody a\n# B\nbody b\n";
+            let (start, end) = section_range(content, "B").unwrap();
+            assert_eq!(&content[start..end], "# B\nbody b\n");
+        }
+
+        #[test]
+        fn section_range_missing() {
+            let content = "# A\nbody\n";
+            assert!(section_range(content, "Missing").is_none());
+        }
+
+        #[test]
+        fn move_section_same_file_before() {
+            let content = "# A\na body\n# B\nb body\n# C\nc body\n";
+            let (result, _) =
+                move_section_in(content, "C", content, ("before", "B"), true).unwrap();
+            let a_pos = result.find("# A").unwrap();
+            let c_pos = result.find("# C").unwrap();
+            let b_pos = result.find("# B").unwrap();
+            assert!(a_pos < c_pos);
+            assert!(c_pos < b_pos);
+            assert!(result.contains("a body"));
+            assert!(result.contains("b body"));
+            assert!(result.contains("c body"));
+        }
+
+        #[test]
+        fn move_section_same_file_after() {
+            let content = "# A\na body\n# B\nb body\n# C\nc body\n";
+            let (result, _) = move_section_in(content, "A", content, ("after", "B"), true).unwrap();
+            let b_pos = result.find("# B").unwrap();
+            let a_pos = result.find("# A").unwrap();
+            let c_pos = result.find("# C").unwrap();
+            assert!(b_pos < a_pos);
+            assert!(a_pos < c_pos);
+        }
+
+        #[test]
+        fn move_section_cross_file() {
+            let source = "# Keep\nkept\n# Move\nmoved\n# Stay\nstayed\n";
+            let dest = "# Intro\nintro\n# End\nend\n";
+            let (new_src, new_dst) =
+                move_section_in(source, "Move", dest, ("before", "End"), false).unwrap();
+            assert!(!new_src.contains("# Move"));
+            assert!(!new_src.contains("moved"));
+            assert!(new_src.contains("# Keep"));
+            assert!(new_src.contains("# Stay"));
+            assert!(new_dst.contains("# Move\nmoved"));
+            let move_pos = new_dst.find("# Move").unwrap();
+            let end_pos = new_dst.find("# End").unwrap();
+            assert!(move_pos < end_pos);
+        }
+
+        #[test]
+        fn move_section_missing_source_heading() {
+            let content = "# A\nbody\n";
+            assert!(move_section_in(content, "Missing", content, ("before", "A"), true).is_none());
+        }
+
+        #[test]
+        fn move_section_missing_target_heading() {
+            let content = "# A\nbody\n# B\nbody\n";
+            assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_none());
         }
     }
 

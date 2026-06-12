@@ -3,7 +3,8 @@ use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
-    non_fenced_lines, parse_headings, replace_section_in, table_append_in, upsert_bullet_in,
+    move_section_in, non_fenced_lines, parse_headings, replace_section_in, table_append_in,
+    upsert_bullet_in,
 };
 use crate::write::policy_from_flags;
 use anyhow::Context;
@@ -84,6 +85,23 @@ pub enum MdAction {
         /// The row to append, in markdown table format (e.g., "| col1 | col2 | col3 |").
         #[arg(long)]
         row: String,
+    },
+    /// Move a heading section to a new location (same file or different file).
+    MoveSection {
+        /// Source file containing the section to move.
+        file: String,
+        /// Heading of the section to move (e.g., "## FAQ").
+        #[arg(long)]
+        heading: String,
+        /// Destination file. Omit for same-file reorder.
+        #[arg(long)]
+        to: Option<String>,
+        /// Insert before this heading at the destination.
+        #[arg(long, conflicts_with = "after")]
+        before: Option<String>,
+        /// Insert after this heading at the destination.
+        #[arg(long, conflicts_with = "before")]
+        after: Option<String>,
     },
 }
 
@@ -372,6 +390,51 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         }
                     }
                 }
+            }
+        }
+
+        MdAction::MoveSection {
+            file,
+            heading,
+            to,
+            before,
+            after,
+        } => {
+            let position = match (&before, &after) {
+                (Some(b), None) => ("before", b.as_str()),
+                (None, Some(a)) => ("after", a.as_str()),
+                _ => anyhow::bail!("exactly one of --before or --after must be provided"),
+            };
+
+            let same_file = to.is_none();
+            let dest_file = to.as_deref().unwrap_or(&file);
+            let source_original = read(&file)?;
+            let dest_original = if same_file {
+                source_original.clone()
+            } else {
+                read(dest_file)?
+            };
+
+            match move_section_in(
+                &source_original,
+                &heading,
+                &dest_original,
+                position,
+                same_file,
+            ) {
+                Some((new_source, new_dest)) => {
+                    if same_file {
+                        apply(&file, &source_original, &new_source)
+                    } else {
+                        // Apply both files. If either fails, the caller sees the error.
+                        let code = apply(&file, &source_original, &new_source)?;
+                        if code != exit::SUCCESS {
+                            return Ok(code);
+                        }
+                        apply(dest_file, &dest_original, &new_dest)
+                    }
+                }
+                None => Ok(exit::NO_MATCHES),
             }
         }
     }
@@ -933,5 +996,158 @@ mod tests {
             "next section damaged"
         );
         assert!(result.contains("| B |"), "new row missing");
+    }
+
+    // -- move-section -------------------------------------------------------
+
+    #[test]
+    fn move_section_same_file_reorder_before() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "C".into(),
+                to: None,
+                before: Some("B".into()),
+                after: None,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let result = fs::read_to_string(&file).unwrap();
+        let a_pos = result.find("# A").unwrap();
+        let c_pos = result.find("# C").unwrap();
+        let b_pos = result.find("# B").unwrap();
+        assert!(a_pos < c_pos, "A should come before C");
+        assert!(c_pos < b_pos, "C should come before B after move");
+        assert!(result.contains("a-content"), "A content lost");
+        assert!(result.contains("b-content"), "B content lost");
+        assert!(result.contains("c-content"), "C content lost");
+    }
+
+    #[test]
+    fn move_section_same_file_reorder_after() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "A".into(),
+                to: None,
+                before: None,
+                after: Some("B".into()),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let result = fs::read_to_string(&file).unwrap();
+        let b_pos = result.find("# B").unwrap();
+        let a_pos = result.find("# A").unwrap();
+        let c_pos = result.find("# C").unwrap();
+        assert!(b_pos < a_pos, "B should come before A after move");
+        assert!(a_pos < c_pos, "A should come before C");
+    }
+
+    #[test]
+    fn move_section_cross_file() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("source.md");
+        let dst = dir.path().join("dest.md");
+        fs::write(
+            &src,
+            "# Keep\nkept\n# Move Me\nmoved content\n# Also Keep\nalso\n",
+        )
+        .unwrap();
+        fs::write(&dst, "# Intro\nintro text\n# End\nend text\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: src.to_str().unwrap().to_string(),
+                heading: "Move Me".into(),
+                to: Some(dst.to_str().unwrap().to_string()),
+                before: Some("End".into()),
+                after: None,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let src_result = fs::read_to_string(&src).unwrap();
+        assert!(
+            !src_result.contains("# Move Me"),
+            "section not removed from source"
+        );
+        assert!(
+            !src_result.contains("moved content"),
+            "section body not removed from source"
+        );
+        assert!(src_result.contains("# Keep"), "kept section lost");
+        assert!(src_result.contains("# Also Keep"), "other section lost");
+
+        let dst_result = fs::read_to_string(&dst).unwrap();
+        assert!(
+            dst_result.contains("# Move Me"),
+            "section not added to dest"
+        );
+        assert!(
+            dst_result.contains("moved content"),
+            "section body not in dest"
+        );
+        let move_pos = dst_result.find("# Move Me").unwrap();
+        let end_pos = dst_result.find("# End").unwrap();
+        assert!(move_pos < end_pos, "section not inserted before End");
+    }
+
+    #[test]
+    fn move_section_missing_heading_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# A\ncontent\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                to: None,
+                before: Some("A".into()),
+                after: None,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn move_section_no_before_or_after_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# A\ncontent\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::MoveSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "A".into(),
+                to: None,
+                before: None,
+                after: None,
+            },
+            write: Default::default(),
+        };
+        let result = run(args, &default_global());
+        assert!(
+            result.is_err(),
+            "expected error when neither --before nor --after is provided"
+        );
     }
 }

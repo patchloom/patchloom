@@ -228,7 +228,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 21 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.dedupe_headings, md.lint_agents, tidy.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 22 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
@@ -660,6 +660,13 @@ Use these when markdown structure matters more than raw text matching.
 - **What it does:** Appends a row to the markdown table under a heading.
 - **Use when:** A docs table should grow without manually rebuilding its existing rows.
 - **Prefer instead:** Use `md replace-section` when the whole table should be regenerated from source data.
+
+<!-- ref:md-action:move-section -->
+### `md move-section`
+
+- **What it does:** Moves a heading section to a new position, either within the same file (reorder) or to a different file. The section (heading plus body) is extracted from the source and inserted at the target location. Both files are updated atomically.
+- **Use when:** Reorganizing documentation structure by moving sections between files or reordering sections within a file.
+- **Prefer instead:** Use `md replace-section` for rewriting content in place, or manual cut and paste when the move involves non-contiguous content.
 
 ## `patch` actions
 
