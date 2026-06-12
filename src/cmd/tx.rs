@@ -1073,10 +1073,14 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 (None, Some(a)) => ("after", a),
                 _ => anyhow::bail!("md.move_section requires exactly one of 'before' or 'after'"),
             };
-            let same_file = to.is_none();
             let dest_path_str = to.as_deref().unwrap_or(path.as_str());
             let source_path = tx.cwd.join(path);
             let dest_path = tx.cwd.join(dest_path_str);
+            let same_file = to.is_none()
+                || matches!(
+                    (source_path.canonicalize(), dest_path.canonicalize()),
+                    (Ok(ref s), Ok(ref d)) if s == d
+                );
             let source_content = read_file_content(tx.pending, &source_path)?.to_owned();
             let dest_content = if same_file {
                 source_content.clone()

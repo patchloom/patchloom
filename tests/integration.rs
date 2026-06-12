@@ -9967,6 +9967,46 @@ fn test_tx_md_move_section_same_file_in_plan() {
 }
 
 #[test]
+fn test_tx_md_move_section_explicit_to_same_file_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# A\na-body\n# B\nb-body\n# C\nc-body\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "md.move_section",
+            "path": file.to_str().unwrap(),
+            "heading": "C",
+            "to": file.to_str().unwrap(),
+            "before": "B"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let a_pos = content.find("# A").unwrap();
+    let c_pos = content.find("# C").unwrap();
+    let b_pos = content.find("# B").unwrap();
+    assert!(a_pos < c_pos, "A should come before C");
+    assert!(c_pos < b_pos, "C should come before B after move");
+    assert_eq!(
+        content.matches("# C").count(),
+        1,
+        "section must not be duplicated"
+    );
+}
+
+#[test]
 fn test_tx_md_move_section_cross_file_in_plan() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("source.md");
