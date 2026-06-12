@@ -210,6 +210,24 @@ pub struct MdInsertParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct MdMoveSectionParams {
+    /// Source file path containing the section to move.
+    pub path: String,
+    /// Heading of the section to move (e.g., "## FAQ").
+    pub heading: String,
+    /// Destination file path. Omit for same-file reorder.
+    #[serde(default)]
+    pub to: Option<String>,
+    /// Insert before this heading at the destination.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Insert after this heading at the destination.
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TidyParams {
     /// File path to normalize.
     pub path: String,
@@ -532,12 +550,19 @@ fn validate_operation_paths(
             | Operation::MdUpsertBullet { path, .. }
             | Operation::MdTableAppend { path, .. }
             | Operation::MdDedupeHeadings { path, .. }
+            | Operation::MdLintAgents { path, .. }
             | Operation::TidyFix { path, .. }
             | Operation::FileCreate { path, .. }
             | Operation::FileDelete { path, .. }
             | Operation::Read { path, .. }
-            | Operation::Search { path, .. }
-            | Operation::MdLintAgents { path, .. } => vec![path.as_str()],
+            | Operation::Search { path, .. } => vec![path.as_str()],
+            Operation::MdMoveSection { path, to, .. } => {
+                let mut p = vec![path.as_str()];
+                if let Some(to) = to {
+                    p.push(to.as_str());
+                }
+                p
+            }
             Operation::DocMerge { path, .. } => vec![path.as_str()],
             Operation::Replace { path, glob, .. } => {
                 let mut p = Vec::new();
@@ -1253,6 +1278,41 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Move a markdown heading section to a new position (same file reorder or cross-file). Exactly one of before or after is required. Omit to for same-file reorder. Example: {\"path\": \"spec.md\", \"heading\": \"## Appendix\", \"to\": \"notes.md\", \"before\": \"## References\"}"
+    )]
+    async fn md_move_section(
+        &self,
+        Parameters(p): Parameters<MdMoveSectionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.check_path(&p.path)?;
+        if let Some(ref to) = p.to {
+            self.check_path(to)?;
+        }
+        if p.before.is_none() && p.after.is_none() {
+            return Err(McpError::invalid_params(
+                "exactly one of 'before' or 'after' must be provided",
+                None,
+            ));
+        }
+        if p.before.is_some() && p.after.is_some() {
+            return Err(McpError::invalid_params(
+                "'before' and 'after' cannot both be set",
+                None,
+            ));
+        }
+        execute_plan_validated(
+            make_plan(vec![Operation::MdMoveSection {
+                path: p.path,
+                heading: p.heading,
+                to: p.to,
+                before: p.before,
+                after: p.after,
+            }]),
+            &self.cwd,
+        )
+    }
+
+    #[tool(
         description = "Lint a markdown rules file for duplicate headings, dangerous git commands, and missing final newline. Example: {\"path\": \"AGENTS.md\"}"
     )]
     async fn md_lint(
@@ -1598,7 +1658,11 @@ mod tests {
             names.contains(&"md_insert_before_heading"),
             "missing md_insert_before_heading tool"
         );
-        assert_eq!(names.len(), 29, "expected 29 tools, got {}", names.len());
+        assert!(
+            names.contains(&"md_move_section"),
+            "missing md_move_section tool"
+        );
+        assert_eq!(names.len(), 30, "expected 30 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 

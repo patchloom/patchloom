@@ -6,8 +6,8 @@ use crate::ops::doc::{
     navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
 };
 use crate::ops::md::{
-    dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, replace_section_in,
-    table_append_for_tx, upsert_bullet_in,
+    dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, move_section_in,
+    replace_section_in, table_append_for_tx, upsert_bullet_in,
 };
 use crate::ops::patch::apply_patch_with_loader;
 use crate::ops::replace::{
@@ -269,6 +269,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
         Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
         Operation::MdTableAppend { .. } => "md.table_append",
+        Operation::MdMoveSection { .. } => "md.move_section",
         Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
         Operation::TidyFix { .. } => "tidy.fix",
         Operation::FileCreate { .. } => "file.create",
@@ -340,6 +341,15 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::Read { .. }
         | Operation::MdLintAgents { .. }
         | Operation::PatchApply { .. } => Ok(()),
+        Operation::MdMoveSection { before, after, .. } => {
+            if before.is_none() && after.is_none() {
+                anyhow::bail!("md.move_section requires either 'before' or 'after'");
+            }
+            if before.is_some() && after.is_some() {
+                anyhow::bail!("md.move_section: 'before' and 'after' cannot both be set");
+            }
+            Ok(())
+        }
         Operation::Search {
             invert_match,
             multiline,
@@ -884,6 +894,7 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::MdInsertBeforeHeading { .. }
             | Operation::MdUpsertBullet { .. }
             | Operation::MdTableAppend { .. }
+            | Operation::MdMoveSection { .. }
             | Operation::MdDedupeHeadings { .. }
             | Operation::PatchApply { .. }
             | Operation::Read { .. }
@@ -1048,6 +1059,39 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::MdTableAppend { path, heading, row } => {
             apply_md_heading_op(tx, path, heading, row, table_append_for_tx, "heading/table")?;
+        }
+
+        Operation::MdMoveSection {
+            path,
+            heading,
+            to,
+            before,
+            after,
+        } => {
+            let position = match (before.as_deref(), after.as_deref()) {
+                (Some(b), None) => ("before", b),
+                (None, Some(a)) => ("after", a),
+                _ => anyhow::bail!("md.move_section requires exactly one of 'before' or 'after'"),
+            };
+            let same_file = to.is_none();
+            let dest_path_str = to.as_deref().unwrap_or(path.as_str());
+            let source_path = tx.cwd.join(path);
+            let dest_path = tx.cwd.join(dest_path_str);
+            let source_content = read_file_content(tx.pending, &source_path)?.to_owned();
+            let dest_content = if same_file {
+                source_content.clone()
+            } else {
+                read_file_content(tx.pending, &dest_path)?.to_owned()
+            };
+            let (new_source, new_dest) =
+                move_section_in(&source_content, heading, &dest_content, position, same_file)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("md.move_section: heading or target not found")
+                    })?;
+            update_file_content(tx.pending, tx.deletions, &source_path, new_source);
+            if !same_file {
+                update_file_content(tx.pending, tx.deletions, &dest_path, new_dest);
+            }
         }
 
         Operation::MdDedupeHeadings { path } => {

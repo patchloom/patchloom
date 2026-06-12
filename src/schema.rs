@@ -414,6 +414,32 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
             examples: vec![],
         },
         OperationSchema {
+            name: "md.move_section".into(),
+            description: "Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "required": ["path", "heading"],
+                "properties": {
+                    "path": {"type": "string", "description": "Source file containing the section."},
+                    "heading": {"type": "string", "description": "Heading of the section to move."},
+                    "to": {"type": "string", "description": "Destination file (omit for same-file reorder)."},
+                    "before": {"type": "string", "description": "Insert before this heading."},
+                    "after": {"type": "string", "description": "Insert after this heading."}
+                }
+            }),
+            min_tier: Tier::Medium,
+            examples: vec![
+                OperationExample {
+                    description: "Reorder within same file".into(),
+                    args: serde_json::json!({"path": "README.md", "heading": "## FAQ", "before": "## License"}),
+                },
+                OperationExample {
+                    description: "Move section to another file".into(),
+                    args: serde_json::json!({"path": "spec.md", "heading": "## Appendix E", "to": "investigation.md", "after": "## Layer 4"}),
+                },
+            ],
+        },
+        OperationSchema {
             name: "patch.apply".into(),
             description: "Apply a unified diff patch to one or more files.".into(),
             parameters: serde_json::json!({

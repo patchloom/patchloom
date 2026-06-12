@@ -218,6 +218,27 @@ fn describe_operation(op: &Operation) -> String {
         Operation::MdTableAppend { path, heading, .. } => {
             format!("Append row to table under \"{heading}\" in {path}")
         }
+        Operation::MdMoveSection {
+            path,
+            heading,
+            to,
+            before,
+            after,
+        } => {
+            let dest = to.as_deref().unwrap_or(path.as_str());
+            let pos = if let Some(b) = before {
+                format!("before \"{b}\"")
+            } else if let Some(a) = after {
+                format!("after \"{a}\"")
+            } else {
+                "(no position)".to_string()
+            };
+            if to.is_some() {
+                format!("Move section \"{heading}\" from {path} to {dest} {pos}")
+            } else {
+                format!("Move section \"{heading}\" {pos} in {path}")
+            }
+        }
         Operation::MdDedupeHeadings { path } => {
             format!("Deduplicate headings in {path}")
         }
@@ -511,6 +532,36 @@ mod tests {
         assert_eq!(
             describe_operation(&op),
             "Lint AGENTS.md for AGENTS.md issues"
+        );
+    }
+
+    #[test]
+    fn describe_md_move_section_same_file() {
+        let op = Operation::MdMoveSection {
+            path: "README.md".into(),
+            heading: "FAQ".into(),
+            to: None,
+            before: Some("License".into()),
+            after: None,
+        };
+        assert_eq!(
+            describe_operation(&op),
+            r#"Move section "FAQ" before "License" in README.md"#
+        );
+    }
+
+    #[test]
+    fn describe_md_move_section_cross_file() {
+        let op = Operation::MdMoveSection {
+            path: "spec.md".into(),
+            heading: "Appendix".into(),
+            to: Some("notes.md".into()),
+            before: None,
+            after: Some("Body".into()),
+        };
+        assert_eq!(
+            describe_operation(&op),
+            r#"Move section "Appendix" from spec.md to notes.md after "Body""#
         );
     }
 }
