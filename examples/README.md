@@ -23,7 +23,7 @@ patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 |------|----------|-----------------|
 | [01-basic-replace.json](01-basic-replace.json) | Single-file text replacement | `replace` |
 | [02-multi-file-batch.json](02-multi-file-batch.json) | Atomic version bump across multiple files with format and validate steps | `replace`, `doc.set`, `format`, `validate` |
-| [03-markdown-editing.json](03-markdown-editing.json) | Update changelog, add rules, append table rows, deduplicate headings | `md.replace_section`, `md.upsert_bullet`, `md.table_append`, `md.dedupe_headings` |
+| [03-markdown-editing.json](03-markdown-editing.json) | Update changelog, add rules, append table rows, deduplicate headings, move sections | `md.replace_section`, `md.upsert_bullet`, `md.table_append`, `md.dedupe_headings`, `md.move_section` |
 | [04-doc-mutations.json](04-doc-mutations.json) | Structured config changes: set, ensure, merge, append, delete, delete-where | `doc.set`, `doc.ensure`, `doc.merge`, `doc.append`, `doc.delete`, `doc.delete_where` |
 | [05-strict-mode.json](05-strict-mode.json) | Create a module, wire it, update changelog; rolls back everything if build or tests fail | `file.create`, `replace`, `md.insert_after_heading`, `strict`, `format`, `validate` |
 | [06-batch-version-bump.txt](06-batch-version-bump.txt) | Version bump across JSON, YAML, and markdown using the batch line format | `doc.set`, `replace`, `md.upsert_bullet` |

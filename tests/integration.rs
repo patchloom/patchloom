@@ -13022,7 +13022,7 @@ fn seed_docs_smoke_fixture(root: &Path) {
     write_fixture_file(
         root,
         "AGENTS.md",
-        "# AGENTS.md\n\n## Safety rules\n\n- existing rule\n\n## Safety rules\n\n- duplicate rule\n",
+        "# AGENTS.md\n\n## Safety rules\n\n- existing rule\n\n## Safety rules\n\n- duplicate rule\n\n## FAQ\n\nQ: How?\nA: Like this.\n\n## License\n\nMIT\n",
     );
     write_fixture_file(
         root,
@@ -13118,6 +13118,17 @@ fn test_smoke_example_03_markdown_editing_plan() {
     let agents = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
     assert_eq!(agents.matches("## Safety rules").count(), 1);
     assert!(agents.contains("Always run `make check` before committing"));
+    // md.move_section moved FAQ before License.
+    let faq_pos = agents
+        .find("## FAQ")
+        .expect("FAQ section should exist after move");
+    let license_pos = agents
+        .find("## License")
+        .expect("License section should exist");
+    assert!(
+        faq_pos < license_pos,
+        "FAQ should appear before License after move"
+    );
 
     let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
     assert!(readme.contains("| `new-cmd` | Description of the new command |"));

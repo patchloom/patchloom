@@ -5,6 +5,7 @@
     { "op": "md.replace_section", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Added new feature\n- Fixed bug in parser" },
     { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "## Safety rules", "bullet": "- Always run `make check` before committing" },
     { "op": "md.table_append", "path": "README.md", "heading": "## Commands", "row": "| `new-cmd` | Description of the new command |" },
-    { "op": "md.dedupe_headings", "path": "AGENTS.md" }
+    { "op": "md.dedupe_headings", "path": "AGENTS.md" },
+    { "op": "md.move_section", "path": "AGENTS.md", "heading": "## FAQ", "before": "## License" }
   ]
 }
