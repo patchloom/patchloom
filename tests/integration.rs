@@ -5948,6 +5948,193 @@ fn test_md_lint_agents_jsonl_output() {
 }
 
 // ---------------------------------------------------------------------------
+// md move-section (CLI)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_move_section_same_file_reorder() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("C")
+        .arg("--before")
+        .arg("B")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let a_pos = content.find("# A").unwrap();
+    let c_pos = content.find("# C").unwrap();
+    let b_pos = content.find("# B").unwrap();
+    assert!(a_pos < c_pos, "A should come before C");
+    assert!(c_pos < b_pos, "C should come before B after move");
+    assert!(content.contains("a-content"));
+    assert!(content.contains("b-content"));
+    assert!(content.contains("c-content"));
+}
+
+#[test]
+fn test_md_move_section_cross_file() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("source.md");
+    let dst = dir.path().join("dest.md");
+    fs::write(&src, "# Keep\nkept\n# Move\nmoved\n# Stay\nstayed\n").unwrap();
+    fs::write(&dst, "# Intro\nintro\n# End\nend\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&src)
+        .arg("--heading")
+        .arg("Move")
+        .arg("--to")
+        .arg(&dst)
+        .arg("--before")
+        .arg("End")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let src_content = fs::read_to_string(&src).unwrap();
+    assert!(
+        !src_content.contains("# Move"),
+        "section should be removed from source"
+    );
+    assert!(
+        !src_content.contains("moved"),
+        "section body should be removed from source"
+    );
+    assert!(
+        src_content.contains("# Keep"),
+        "other sections should be preserved in source"
+    );
+    assert!(
+        src_content.contains("# Stay"),
+        "other sections should be preserved in source"
+    );
+
+    let dst_content = fs::read_to_string(&dst).unwrap();
+    assert!(
+        dst_content.contains("# Move"),
+        "section should appear in dest"
+    );
+    assert!(
+        dst_content.contains("moved"),
+        "section body should appear in dest"
+    );
+    let move_pos = dst_content.find("# Move").unwrap();
+    let end_pos = dst_content.find("# End").unwrap();
+    assert!(move_pos < end_pos, "moved section should be before # End");
+}
+
+#[test]
+fn test_md_move_section_missing_heading_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# A\ncontent\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("Missing")
+        .arg("--before")
+        .arg("A")
+        .arg("--apply")
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_md_move_section_check_mode_exits_2_no_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    let original = "# A\na-content\n# B\nb-content\n# C\nc-content\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&file)
+        .arg("--heading")
+        .arg("C")
+        .arg("--before")
+        .arg("B")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, original,
+        "file should be unchanged in --check mode"
+    );
+}
+
+#[test]
+fn test_md_move_section_cross_file_check_mode_reports_both_files() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("source.md");
+    let dst = dir.path().join("dest.md");
+    let src_original = "# Keep\nkept\n# Move\nmoved\n";
+    let dst_original = "# Intro\nintro\n# End\nend\n";
+    fs::write(&src, src_original).unwrap();
+    fs::write(&dst, dst_original).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("move-section")
+        .arg(&src)
+        .arg("--heading")
+        .arg("Move")
+        .arg("--to")
+        .arg(&dst)
+        .arg("--before")
+        .arg("End")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+
+    // Both files should be unchanged.
+    let src_content = fs::read_to_string(&src).unwrap();
+    assert_eq!(
+        src_content, src_original,
+        "source should be unchanged in --check mode"
+    );
+    let dst_content = fs::read_to_string(&dst).unwrap();
+    assert_eq!(
+        dst_content, dst_original,
+        "dest should be unchanged in --check mode"
+    );
+
+    // Both files should be mentioned in the output.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("source.md"),
+        "source file should be reported in --check output: {stdout}"
+    );
+    assert!(
+        stdout.contains("dest.md"),
+        "dest file should be reported in --check output: {stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // global flags: --jsonl, --files-from, --context, --literal
 // ---------------------------------------------------------------------------
 
@@ -9709,6 +9896,84 @@ fn test_tx_md_dedupe_headings_in_plan() {
     let content = fs::read_to_string(&file).unwrap();
     // Only one "## Dupe" heading should remain.
     assert_eq!(content.matches("## Dupe").count(), 1);
+}
+
+#[test]
+fn test_tx_md_move_section_same_file_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# A\na-body\n# B\nb-body\n# C\nc-body\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "md.move_section",
+            "path": file.to_str().unwrap(),
+            "heading": "C",
+            "before": "B"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    let a_pos = content.find("# A").unwrap();
+    let c_pos = content.find("# C").unwrap();
+    let b_pos = content.find("# B").unwrap();
+    assert!(a_pos < c_pos, "A should come before C");
+    assert!(c_pos < b_pos, "C should come before B after move");
+}
+
+#[test]
+fn test_tx_md_move_section_cross_file_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("source.md");
+    let dst = dir.path().join("dest.md");
+    fs::write(&src, "# Keep\nkept\n# Move\nmoved\n").unwrap();
+    fs::write(&dst, "# Intro\nintro\n# End\nend\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "md.move_section",
+            "path": src.to_str().unwrap(),
+            "heading": "Move",
+            "to": dst.to_str().unwrap(),
+            "before": "End"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let src_content = fs::read_to_string(&src).unwrap();
+    assert!(
+        !src_content.contains("# Move"),
+        "section removed from source"
+    );
+    assert!(src_content.contains("# Keep"), "other content preserved");
+
+    let dst_content = fs::read_to_string(&dst).unwrap();
+    assert!(dst_content.contains("# Move"), "section added to dest");
+    assert!(dst_content.contains("moved"), "section body added to dest");
+    let move_pos = dst_content.find("# Move").unwrap();
+    let end_pos = dst_content.find("# End").unwrap();
+    assert!(move_pos < end_pos, "moved section before End");
 }
 
 #[test]

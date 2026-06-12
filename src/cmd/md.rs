@@ -426,12 +426,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if same_file {
                         apply(&file, &source_original, &new_source)
                     } else {
-                        // Apply both files. If either fails, the caller sees the error.
-                        let code = apply(&file, &source_original, &new_source)?;
-                        if code != exit::SUCCESS {
-                            return Ok(code);
-                        }
-                        apply(dest_file, &dest_original, &new_dest)
+                        // Apply both files. Process both even in --check mode
+                        // so that both files are reported as changed.
+                        let source_code = apply(&file, &source_original, &new_source)?;
+                        let dest_code = apply(dest_file, &dest_original, &new_dest)?;
+                        Ok(source_code.max(dest_code))
                     }
                 }
                 None => Ok(exit::NO_MATCHES),
