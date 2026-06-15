@@ -168,17 +168,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Search across files | `search_files` |\n\n",
         );
     }
-    if show_cli && !show_mcp {
-        out.push_str(
-            "Use patchloom when:\n\
-             - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
-             - Editing markdown sections, bullets, or tables by heading\n\
-             - Batching edits across multiple files in one call\n\
-             - You need atomic rollback if any edit fails\n\n\
-             For single-file read, search, create, delete, or rename, your native agent tools are faster.\n\n",
-        );
-    }
-    if show_cli && show_mcp {
+    if show_cli {
         out.push_str(
             "Use patchloom when:\n\
              - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
@@ -186,6 +176,11 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - Batching edits across multiple files in one call\n\
              - You need atomic rollback if any edit fails\n\n",
         );
+        if !show_mcp {
+            out.push_str(
+                "For single-file read, search, create, delete, or rename, your native agent tools are faster.\n\n",
+            );
+        }
     }
 
     // MCP section
@@ -214,8 +209,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\"\n\
                  EOF\n\
                  ```\n\n\
-                 One line per operation. Double-quote values with spaces.\n\n\
-                 **Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes: `doc.set config.json version '\"1.0\"'`.\n\n",
+                 One line per operation. Double-quote values with spaces.\n\n",
             );
         }
 
@@ -232,11 +226,15 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             );
             if !show_linux {
                 out.push_str(
-                    "One line per operation in the file. Double-quote values with spaces.\n\n\
-                     **Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes: `doc.set config.json version '\"1.0\"'`.\n\n",
+                    "One line per operation in the file. Double-quote values with spaces.\n\n",
                 );
             }
         }
+
+        out.push_str(
+            "**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. \
+             To force a string, wrap in JSON quotes: `doc.set config.json version '\"1.0\"'`.\n\n",
+        );
 
         out.push_str(
             "For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:\n\n\
@@ -382,7 +380,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
 /// Load and apply project config from `.patchloom.toml`.
 fn load_project_config(global: &mut crate::cli::global::GlobalFlags) {
-    let cwd = global.resolve_cwd().unwrap_or_default();
+    let Ok(cwd) = global.resolve_cwd() else {
+        return;
+    };
     if let Some((config, _)) = crate::config::find_and_load(&cwd) {
         crate::config::apply_config(global, &config);
     }
