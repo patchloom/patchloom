@@ -17439,6 +17439,70 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
 }
 
 #[tokio::test]
+async fn test_mcp_replace_whole_line_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "fn main() {\n    dbg!(x);\n    let y = 1;\n    dbg!(y);\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "from": "dbg!",
+            "to": "",
+            "whole_line": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+    assert_eq!(content, "fn main() {\n    let y = 1;\n}\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_whole_line_with_range_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("data.txt"),
+        "aaa\nbbb\nccc\nbbb\neee\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "data.txt",
+            "from": "bbb",
+            "to": "",
+            "whole_line": true,
+            "range": "1:3"
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line+range replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("data.txt")).unwrap();
+    // Only the first "bbb" (line 2, within range 1:3) should be deleted.
+    assert_eq!(content, "aaa\nccc\nbbb\neee\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_query_unknown_action_returns_error() {
     if !has_mcp_support() {
         return;
