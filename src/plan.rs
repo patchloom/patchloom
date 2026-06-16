@@ -482,6 +482,8 @@ mod tests {
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.strict, None);
         assert!(effective_strict(plan.strict, None, false));
+        assert!(!effective_strict(plan.strict, None, true));
+        assert!(!effective_strict(Some(true), None, true));
     }
 
     #[test]
