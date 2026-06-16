@@ -1416,6 +1416,121 @@ pub mod replace {
             }
         }
     }
+
+    /// Whole-line replacement: when a line matches the pattern, the entire line
+    /// (including its newline) is replaced with `to`. When `to` is empty, the
+    /// line is deleted. Supports optional line-range restriction and nth match.
+    ///
+    /// For regex patterns, capture groups in `to` are expanded using the match
+    /// found on each line.
+    pub fn replace_whole_lines<'a>(
+        content: &'a str,
+        from: &str,
+        to: &str,
+        compiled_re: Option<&Regex>,
+        nth: Option<usize>,
+        range: Option<(usize, Option<usize>)>,
+    ) -> (std::borrow::Cow<'a, str>, usize) {
+        use std::borrow::Cow;
+
+        let mut result = String::with_capacity(content.len());
+        let mut match_count = 0usize;
+        let mut rest = content;
+        let mut line_num = 0usize; // 1-based
+
+        while !rest.is_empty() {
+            line_num += 1;
+
+            // Find line boundary.
+            let (line_content, line_with_ending, advance) = if let Some(pos) = rest.find('\n') {
+                (&rest[..pos], &rest[..=pos], pos + 1)
+            } else {
+                (rest, rest, rest.len())
+            };
+
+            // Check range restriction.
+            let in_range = match range {
+                Some((start, Some(end))) => line_num >= start && line_num <= end,
+                Some((start, None)) => line_num >= start,
+                None => true,
+            };
+
+            if !in_range {
+                result.push_str(line_with_ending);
+                rest = &rest[advance..];
+                continue;
+            }
+
+            // Check if this line matches the pattern.
+            let line_match = if let Some(re) = compiled_re {
+                re.captures(line_content)
+            } else if line_content.contains(from) {
+                None // Sentinel: literal match found, no captures.
+            } else {
+                // Use a special marker to distinguish "no match" from
+                // "literal match with no captures".
+                rest = &rest[advance..];
+                result.push_str(line_with_ending);
+                continue;
+            };
+
+            // For literal matches, we set a flag and handle below.
+            let is_literal_match = compiled_re.is_none() && line_content.contains(from);
+            let has_match = line_match.is_some() || is_literal_match;
+
+            if !has_match {
+                result.push_str(line_with_ending);
+                rest = &rest[advance..];
+                continue;
+            }
+
+            match_count += 1;
+
+            // Handle --nth: only act on the Nth occurrence.
+            if let Some(n) = nth
+                && match_count != n
+            {
+                result.push_str(line_with_ending);
+                rest = &rest[advance..];
+                continue;
+            }
+
+            // Replace the line.
+            if to.is_empty() {
+                // Delete the line entirely (don't append anything).
+            } else if let Some(ref caps) = line_match {
+                // Regex with captures: expand replacement text.
+                let mut expanded = String::new();
+                caps.expand(to, &mut expanded);
+                result.push_str(&expanded);
+                // Preserve the original line ending.
+                if line_with_ending.len() > line_content.len() {
+                    result.push('\n');
+                }
+            } else {
+                // Literal match: replacement is used as-is.
+                result.push_str(to);
+                if line_with_ending.len() > line_content.len() {
+                    result.push('\n');
+                }
+            }
+
+            rest = &rest[advance..];
+        }
+
+        // Determine actual match count for nth mode.
+        let effective_count = if let Some(n) = nth {
+            if match_count >= n { 1 } else { 0 }
+        } else {
+            match_count
+        };
+
+        if effective_count == 0 {
+            return (Cow::Borrowed(content), 0);
+        }
+
+        (Cow::Owned(result), effective_count)
+    }
 }
 
 pub mod md {
@@ -3027,6 +3142,82 @@ mod tests {
         fn compile_plain_literal_returns_none() {
             let re = compile_replace_regex("hello", false, false, false).unwrap();
             assert!(re.is_none());
+        }
+
+        // ── replace_whole_lines tests ─────────────────────────────────
+
+        #[test]
+        fn whole_lines_delete_literal() {
+            let content = "aaa\nbbb\nccc\nbbb\neee\n";
+            let (result, count) = replace_whole_lines(content, "bbb", "", None, None, None);
+            assert_eq!(count, 2);
+            assert_eq!(&*result, "aaa\nccc\neee\n");
+        }
+
+        #[test]
+        fn whole_lines_delete_regex() {
+            let re = compile_replace_regex(r"let _\w+", true, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "fn main() {\n    let _x = foo();\n    let y = bar();\n}\n";
+            let (result, count) = replace_whole_lines(content, "", "", Some(&re), None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "fn main() {\n    let y = bar();\n}\n");
+        }
+
+        #[test]
+        fn whole_lines_replace_with_text() {
+            let content = "alpha\nbeta\ngamma\n";
+            let (result, count) =
+                replace_whole_lines(content, "beta", "REPLACED", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "alpha\nREPLACED\ngamma\n");
+        }
+
+        #[test]
+        fn whole_lines_range_restriction() {
+            let content = "aaa\nbbb\nccc\nbbb\neee\n";
+            // Range 1:3 means lines 1-3 only. Second bbb is on line 4.
+            let (result, count) =
+                replace_whole_lines(content, "bbb", "", None, None, Some((1, Some(3))));
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\nccc\nbbb\neee\n");
+        }
+
+        #[test]
+        fn whole_lines_nth() {
+            let content = "aaa\nbbb\nccc\nbbb\neee\n";
+            let (result, count) = replace_whole_lines(content, "bbb", "", None, Some(2), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\nbbb\nccc\neee\n");
+        }
+
+        #[test]
+        fn whole_lines_no_match_returns_borrowed() {
+            let content = "aaa\nbbb\nccc\n";
+            let (result, count) = replace_whole_lines(content, "zzz", "", None, None, None);
+            assert_eq!(count, 0);
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+        }
+
+        #[test]
+        fn whole_lines_regex_capture_groups() {
+            let re = compile_replace_regex(r"version = (\d+)", true, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "name = foo\nversion = 3\nrelease = true\n";
+            let (result, count) =
+                replace_whole_lines(content, "", "version = ${1}00", Some(&re), None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "name = foo\nversion = 300\nrelease = true\n");
+        }
+
+        #[test]
+        fn whole_lines_last_line_no_newline() {
+            let content = "aaa\nbbb\nccc";
+            let (result, count) = replace_whole_lines(content, "ccc", "", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\nbbb\n");
         }
     }
 

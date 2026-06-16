@@ -131,6 +131,7 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
             Some(EolNormalization::Crlf) => EolMode::Crlf,
         },
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
+        collapse_blanks: false,
     }
 }
 

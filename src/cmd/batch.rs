@@ -137,6 +137,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 case_insensitive: false,
                 multiline: false,
                 if_exists: false,
+                whole_line: false,
+                range: None,
             })
         }
         "file.create" => {

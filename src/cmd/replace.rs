@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::replace::{
-    ReplaceModeError, compile_replace_regex, replace_content, replacement_text,
-    validate_replace_mode,
+    ReplaceModeError, compile_replace_regex, replace_content, replace_whole_lines,
+    replacement_text, validate_replace_mode,
 };
 use crate::write::policy_from_flags;
 use clap::Args;
@@ -55,6 +55,15 @@ pub struct ReplaceArgs {
     /// Case-insensitive matching.
     #[arg(long, short = 'i')]
     pub case_insensitive: bool,
+    // ref:replace-mode:whole-line
+    /// Replace the entire line containing each match, not just the matched span.
+    /// Useful for deleting lines (--whole-line --to '') or replacing full lines.
+    #[arg(long, short = 'L')]
+    pub whole_line: bool,
+    // ref:replace-mode:range
+    /// Restrict matching to a line range (e.g. '10:50'). 1-based, inclusive.
+    #[arg(long, short = 'R')]
+    pub range: Option<String>,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -103,6 +112,18 @@ fn apply_replacements(
     crate::backup::backup_write_files(cwd, &writes)
 }
 
+/// Parse `--range` argument into (start, optional_end). Reuses the line-range
+/// parser from the read command.
+fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<usize>)>> {
+    match spec {
+        None => Ok(None),
+        Some(s) => {
+            let (start, end) = crate::cmd::read::parse_line_range(s)?;
+            Ok(Some((start, end)))
+        }
+    }
+}
+
 fn build_replacement(args: &ReplaceArgs) -> String {
     replacement_text(
         &args.from,
@@ -134,13 +155,25 @@ fn collect_replacements(
 
     let from = &args.from;
     let nth = args.nth;
+    let whole_line = args.whole_line;
+    let range = parse_range_arg(args.range.as_deref())?;
 
     let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::read_text_file(path, "replace", quiet)?;
-            let (replaced, count) =
-                replace_content(&content, from, &replacement, compiled_re.as_ref(), nth);
+            let (replaced, count) = if whole_line {
+                replace_whole_lines(
+                    &content,
+                    from,
+                    &replacement,
+                    compiled_re.as_ref(),
+                    nth,
+                    range,
+                )
+            } else {
+                replace_content(&content, from, &replacement, compiled_re.as_ref(), nth)
+            };
             if count > 0 {
                 let replaced = replaced.into_owned();
                 let display_path = crate::files::relative_display(path, cwd_ref)
@@ -202,6 +235,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
     if args.nth == Some(0) {
         anyhow::bail!("--nth is 1-based; use --nth 1 for the first occurrence");
+    }
+    if args.range.is_some() && !args.whole_line {
+        anyhow::bail!("--range requires --whole-line");
+    }
+    if args.whole_line && args.multiline {
+        anyhow::bail!("--whole-line and --multiline cannot be combined");
     }
 
     match validate_replace_mode(
@@ -373,6 +412,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         }
     }
@@ -413,6 +454,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -440,6 +483,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -542,6 +587,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let code = run(args, &default_global()).unwrap();
@@ -566,6 +613,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -638,6 +687,8 @@ mod tests {
             multiline: true,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -665,6 +716,8 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &default_global()).unwrap();
@@ -756,9 +809,227 @@ mod tests {
             multiline: false,
             nth: Some(0),
             case_insensitive: false,
+            whole_line: false,
+            range: None,
             write: Default::default(),
         };
         let err = run(args, &default_global()).unwrap_err();
         assert!(err.to_string().contains("1-based"), "{err}");
+    }
+
+    #[test]
+    fn whole_line_deletes_matching_lines() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.rs");
+        fs::write(
+            &file,
+            "fn main() {\n    let _x = foo();\n    let y = bar();\n    let _z = baz();\n}\n",
+        )
+        .unwrap();
+
+        let args = ReplaceArgs {
+            from: "let _".to_string(),
+            to: Some(String::new()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            whole_line: true,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 2);
+        assert_eq!(
+            replacements[0].replaced,
+            "fn main() {\n    let y = bar();\n}\n"
+        );
+    }
+
+    #[test]
+    fn whole_line_regex_deletes_matching_lines() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.rs");
+        fs::write(
+            &file,
+            "use std::io;\nuse std::fmt;\nuse crate::foo;\nuse crate::bar;\n",
+        )
+        .unwrap();
+
+        let args = ReplaceArgs {
+            from: r"use crate::".to_string(),
+            to: Some(String::new()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: false,
+            regex: true,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            whole_line: true,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 2);
+        assert_eq!(replacements[0].replaced, "use std::io;\nuse std::fmt;\n");
+    }
+
+    #[test]
+    fn whole_line_replaces_entire_line() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "alpha\nbeta match\ngamma\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "match".to_string(),
+            to: Some("replaced line".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            whole_line: true,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].replaced, "alpha\nreplaced line\ngamma\n");
+    }
+
+    #[test]
+    fn whole_line_with_range_restricts_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "bbb".to_string(),
+            to: Some(String::new()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            whole_line: true,
+            range: Some("1:3".to_string()),
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        // Only the bbb on line 2 should be deleted; the one on line 4 is outside range.
+        assert_eq!(replacements[0].match_count, 1);
+        assert_eq!(replacements[0].replaced, "aaa\nccc\nbbb\neee\n");
+    }
+
+    #[test]
+    fn whole_line_nth_only_removes_nth_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "bbb".to_string(),
+            to: Some(String::new()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: Some(2),
+            case_insensitive: false,
+            whole_line: true,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 1);
+        // Second occurrence of bbb (line 4) is deleted.
+        assert_eq!(replacements[0].replaced, "aaa\nbbb\nccc\neee\n");
+    }
+
+    #[test]
+    fn range_requires_whole_line() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "hello".to_string(),
+            to: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            whole_line: false,
+            range: Some("1:5".to_string()),
+            write: Default::default(),
+        };
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(
+            err.to_string().contains("--range requires --whole-line"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn whole_line_and_multiline_conflict() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "hello".to_string(),
+            to: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: false,
+            regex: true,
+            if_exists: false,
+            multiline: true,
+            nth: None,
+            case_insensitive: false,
+            whole_line: true,
+            range: None,
+            write: Default::default(),
+        };
+        let err = run(args, &default_global()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--whole-line and --multiline cannot be combined"),
+            "{err}"
+        );
     }
 }

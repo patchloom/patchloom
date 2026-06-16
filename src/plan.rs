@@ -56,6 +56,10 @@ pub enum Operation {
         multiline: bool,
         #[serde(default)]
         if_exists: bool,
+        #[serde(default)]
+        whole_line: bool,
+        /// Line range restriction (e.g. "10:50"). Only valid with whole_line.
+        range: Option<String>,
     },
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {

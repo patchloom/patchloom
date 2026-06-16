@@ -76,6 +76,13 @@ These flags shape how written content is normalized before it reaches disk.
 - **Use when:** The repo already encodes formatting policy in `.editorconfig` and Patchloom should follow it automatically.
 - **Prefer instead:** Use explicit write flags, or `tx` `write_policy`, when the command should be self-contained and not depend on repo metadata.
 
+<!-- ref:write-flag:collapse-blanks -->
+### `--collapse-blanks`
+
+- **What it does:** Collapses consecutive blank lines into a single blank line after writing. Useful after line deletion to prevent double-blank gaps.
+- **Use when:** You are deleting lines (e.g. with `replace --whole-line --to ''`) and want to clean up the resulting blank line runs.
+- **Prefer instead:** Omit when consecutive blank lines are intentional (e.g. section separators in code).
+
 ### Output and scope flags
 
 These flags affect how Patchloom reports results or chooses which files to touch.
@@ -426,6 +433,20 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** Matches regardless of case during replacement.
 - **Use when:** The target text appears with inconsistent capitalization and should still be updated uniformly.
 - **Prefer instead:** Use case-sensitive replace when exact spelling is part of the safety boundary.
+
+<!-- ref:replace-mode:whole-line -->
+### `replace --whole-line`
+
+- **What it does:** Replaces (or deletes) entire lines that contain a match, instead of replacing only the matched span. When combined with `--to ''`, removes matching lines entirely.
+- **Use when:** You need to delete lines matching a pattern (dead code, lint suppressions, debug statements) or replace full lines based on a partial match.
+- **Prefer instead:** Use regular replace when only the matched text should change while the rest of the line stays intact.
+
+<!-- ref:replace-mode:range -->
+### `replace --range`
+
+- **What it does:** Restricts `--whole-line` matching to a line range (e.g. `--range 10:50`). Lines outside the range are not considered for matching. Requires `--whole-line`.
+- **Use when:** The pattern matches lines you want to keep in other parts of the file (e.g. removing dead code from implementation but not from tests).
+- **Prefer instead:** Omit when the pattern is specific enough to avoid false positives.
 
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`

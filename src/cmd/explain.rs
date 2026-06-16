@@ -122,6 +122,8 @@ fn describe_operation(op: &Operation) -> String {
             case_insensitive,
             insert_before,
             insert_after,
+            whole_line,
+            range,
             ..
         } => {
             let target = path.as_deref().or(glob.as_deref()).unwrap_or("(all files)");
@@ -144,8 +146,13 @@ fn describe_operation(op: &Operation) -> String {
             } else {
                 ""
             };
+            let wl_str = if *whole_line { ", whole-line" } else { "" };
+            let range_str = range
+                .as_deref()
+                .map(|r| format!(", lines {r}"))
+                .unwrap_or_default();
             format!(
-                "Replace \"{from}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str})"
+                "Replace \"{from}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{range_str})"
             )
         }
         Operation::DocSet {
@@ -322,6 +329,8 @@ mod tests {
             case_insensitive: false,
             multiline: false,
             if_exists: false,
+            whole_line: false,
+            range: None,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Replace "v1" with "v2" in README.md (literal)"#);
@@ -341,6 +350,8 @@ mod tests {
             case_insensitive: true,
             multiline: false,
             if_exists: false,
+            whole_line: false,
+            range: None,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -454,6 +465,8 @@ mod tests {
             case_insensitive: false,
             multiline: false,
             if_exists: false,
+            whole_line: false,
+            range: None,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -477,6 +490,8 @@ mod tests {
             case_insensitive: false,
             multiline: false,
             if_exists: false,
+            whole_line: false,
+            range: None,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Insert "// added" after "use crate" in lib.rs"#);

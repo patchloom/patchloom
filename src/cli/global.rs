@@ -81,6 +81,8 @@ pub struct GlobalFlags {
     #[clap(skip)]
     pub respect_editorconfig: bool,
     #[clap(skip)]
+    pub collapse_blanks: bool,
+    #[clap(skip)]
     pub confirm: bool,
 }
 
@@ -119,6 +121,10 @@ pub struct WriteFlags {
     #[arg(long, global = true)]
     pub respect_editorconfig: bool,
 
+    /// Collapse consecutive blank lines into a single blank line after writing.
+    #[arg(long, global = true)]
+    pub collapse_blanks: bool,
+
     /// Show diff then prompt before applying. Implies --apply on confirmation.
     #[arg(long, global = true, conflicts_with_all = ["apply", "check"])]
     pub confirm: bool,
@@ -150,6 +156,7 @@ impl GlobalFlags {
         self.normalize_eol = w.normalize_eol;
         self.trim_trailing_whitespace = w.trim_trailing_whitespace;
         self.respect_editorconfig = w.respect_editorconfig;
+        self.collapse_blanks = w.collapse_blanks;
     }
 
     /// Whether to proceed with the write after optional confirmation.
