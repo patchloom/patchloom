@@ -7012,6 +7012,41 @@ fn test_tx_write_policy_ensure_final_newline() {
     );
 }
 
+#[test]
+fn test_tx_write_policy_collapse_blanks() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep\n\nremove\n\nalso keep\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "write_policy": {
+            "collapse_blanks": true
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "test.txt",
+            "from": "remove",
+            "to": "",
+            "whole_line": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep\n\nalso keep\n");
+}
+
 // ---------------------------------------------------------------------------
 // doc/patch error paths
 // ---------------------------------------------------------------------------

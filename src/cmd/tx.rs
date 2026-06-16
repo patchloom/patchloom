@@ -1323,6 +1323,9 @@ fn build_write_policy(
     if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
         write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
     }
+    if let Some(collapse_blanks) = plan_write_policy.collapse_blanks {
+        write_policy.collapse_blanks = collapse_blanks;
+    }
 
     Ok(write_policy)
 }

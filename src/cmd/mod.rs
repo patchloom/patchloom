@@ -292,6 +292,16 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
 
         out.push_str(
+            "### Delete lines matching a pattern\n\n\
+             ```bash\n\
+             # Delete entire lines containing a pattern; collapse consecutive blanks\n\
+             patchloom replace 'dbg!' --whole-line --to '' src/ --collapse-blanks --apply\n\n\
+             # Restrict to a line range (e.g. implementation only, skip tests)\n\
+             patchloom replace 'TODO' --whole-line --range 10:200 --to '' notes.md --apply\n\
+             ```\n\n",
+        );
+
+        out.push_str(
             "### Edit a CI workflow\n\n\
              ```bash\n\
              # Set a value in a YAML workflow by selector (preserves comments and formatting)\n\
@@ -577,6 +587,13 @@ mod tests {
         // MCP-only mode must NOT have exit codes
         let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(!out.contains("## Exit codes"));
+    }
+
+    #[test]
+    fn workflow_includes_whole_line_delete_example() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(out.contains("--whole-line"));
+        assert!(out.contains("--collapse-blanks"));
     }
 
     #[test]

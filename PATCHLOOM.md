@@ -92,6 +92,16 @@ patchloom search --count "old_function_name" src/
 patchloom replace "old_function_name" --to "new_function_name" src/ --apply
 ```
 
+### Delete lines matching a pattern
+
+```bash
+# Delete entire lines containing a pattern; collapse consecutive blanks
+patchloom replace 'dbg!' --whole-line --to '' src/ --collapse-blanks --apply
+
+# Restrict to a line range (e.g. implementation only, skip tests)
+patchloom replace 'TODO' --whole-line --range 10:200 --to '' notes.md --apply
+```
+
 ### Edit a CI workflow
 
 ```bash
