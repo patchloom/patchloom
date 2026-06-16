@@ -217,6 +217,20 @@ jobs:
             echo "color=red" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Extract crate version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch crates.io download count
+        id: downloads
+        run: |
+          count=$(curl -fsSL -H "User-Agent: patchloom-ci" \
+            "https://crates.io/api/v1/crates/patchloom" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['crate']['downloads'])")
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
       - name: Update coverage badge
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
@@ -228,6 +242,42 @@ jobs:
           label: coverage
           message: ${{ steps.cov.outputs.percentage }}%
           color: ${{ steps.color.outputs.color }}
+
+      - name: Update release badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 6a26adf6bfae45f530465f626c9154f4
+          filename: release.json
+          label: release
+          message: v${{ steps.version.outputs.version }}
+          color: blue
+
+      - name: Update crates.io version badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 6a26adf6bfae45f530465f626c9154f4
+          filename: crate-version.json
+          label: crates.io
+          message: v${{ steps.version.outputs.version }}
+          color: orange
+
+      - name: Update crates.io downloads badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: 6a26adf6bfae45f530465f626c9154f4
+          filename: crates-downloads.json
+          label: downloads
+          message: ${{ steps.downloads.outputs.count }}
+          color: blue
 
   bench:
     runs-on: ubuntu-latest
