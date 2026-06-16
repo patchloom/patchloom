@@ -6105,7 +6105,9 @@ fn test_md_lint_agents_jsonl_output() {
     // Each line must be valid JSON with an "issue" string field
     for line in &lines {
         let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
-        let issue_val = parsed.get("issue").expect("issue field missing in JSONL line");
+        let issue_val = parsed
+            .get("issue")
+            .expect("issue field missing in JSONL line");
         assert!(
             issue_val.is_string(),
             "issue field should be a string: {issue_val}"
