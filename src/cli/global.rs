@@ -131,12 +131,25 @@ pub struct WriteFlags {
 }
 
 pub(crate) fn confirm_prompt(prompt: &str) -> bool {
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
+    confirm_prompt_interactive(prompt, is_tty, &mut std::io::stdin().lock())
+}
+
+/// Prompt for confirmation when stdin is an interactive TTY.
+///
+/// Returns `false` immediately when `is_tty` is false (safe fallback for
+/// pipes, CI, and `cargo test` without a pseudo-TTY).
+pub(crate) fn confirm_prompt_interactive(
+    prompt: &str,
+    is_tty: bool,
+    reader: &mut impl BufRead,
+) -> bool {
+    if !is_tty {
         return false;
     }
     eprint!("{prompt} [Y/n] ");
     let mut buf = String::new();
-    match std::io::stdin().read_line(&mut buf) {
+    match reader.read_line(&mut buf) {
         Ok(0) | Err(_) => false,
         Ok(_) => {
             let answer = buf.trim().to_lowercase();
@@ -277,9 +290,24 @@ mod tests {
     }
 
     #[test]
+    fn confirm_prompt_non_tty_returns_false() {
+        let mut reader = std::io::Cursor::new(b"y\n");
+        assert!(!confirm_prompt_interactive("Apply?", false, &mut reader));
+    }
+
+    #[test]
+    fn confirm_prompt_tty_accepts_default_yes() {
+        let mut reader = std::io::Cursor::new(b"\n");
+        assert!(confirm_prompt_interactive("Apply?", true, &mut reader));
+    }
+
+    #[test]
     fn should_apply_confirm_non_tty_returns_false() {
-        // In test environments, stdin is not a TTY, so --confirm should
-        // return false (safe fallback).
+        if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            // Docker and devcontainers often allocate a pseudo-TTY on stdin.
+            // Non-TTY behavior is covered by confirm_prompt_non_tty_returns_false.
+            return;
+        }
         let g = GlobalFlags {
             confirm: true,
             ..GlobalFlags::default()

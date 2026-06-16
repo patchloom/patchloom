@@ -1250,6 +1250,13 @@ mod tests {
         fs::write(&file, "original").unwrap();
         fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
 
+        // Root (common in Docker) can still read mode-000 files. Skip when
+        // permissions do not actually block reading.
+        if fs::read_to_string(&file).is_ok() {
+            fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+
         let err = file_create(&file, "new", true, ApplyMode::Apply).unwrap_err();
         // Restore permissions so TempDir cleanup succeeds.
         fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
