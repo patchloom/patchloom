@@ -18297,3 +18297,537 @@ fn test_doc_json_failure_structured_on_stdout() {
         "error should mention 'not an array'"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Symlink integration tests (#231 coverage)
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn test_replace_follows_symlink_within_cwd() {
+    let dir = TempDir::new().unwrap();
+    let real_file = dir.path().join("real.txt");
+    fs::write(&real_file, "hello world\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real_file, &link).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("hello")
+        .arg("--to")
+        .arg("goodbye")
+        .arg("--apply")
+        .arg(&link)
+        .assert()
+        .success();
+
+    // atomic_write replaces the symlink with a regular file (rename semantics).
+    // Reading the link path should show the replacement.
+    let content = fs::read_to_string(&link).unwrap();
+    assert_eq!(content, "goodbye world\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_search_follows_symlink_within_cwd() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("target.txt"), "needle in haystack\n").unwrap();
+    std::os::unix::fs::symlink(&sub, dir.path().join("link_dir")).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path().join("link_dir"))
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("needle"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_read_via_symlink_within_cwd() {
+    let dir = TempDir::new().unwrap();
+    let real_file = dir.path().join("data.txt");
+    fs::write(&real_file, "symlinked content\n").unwrap();
+    std::os::unix::fs::symlink(&real_file, dir.path().join("alias.txt")).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("read")
+        .arg(dir.path().join("alias.txt"))
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("symlinked content"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_symlink_outside_cwd_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let workspace = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.txt");
+    fs::write(&secret, "do not read\n").unwrap();
+
+    // Create a symlink inside the workspace that points outside.
+    std::os::unix::fs::symlink(&secret, workspace.path().join("escape.txt")).unwrap();
+
+    let client = spawn_mcp_client(workspace.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("read_file")
+        .with_arguments(serde_json::from_value(serde_json::json!({"path": "escape.txt"})).unwrap());
+    let result = client.peer().call_tool(params).await;
+    // Path validation returns McpError at the protocol level (Err), not a tool
+    // result with is_error=true.
+    match result {
+        Err(e) => {
+            let msg = format!("{e:?}");
+            assert!(
+                msg.contains("escapes") || msg.contains("escape"),
+                "error should mention path escape: {msg}"
+            );
+        }
+        Ok(r) => {
+            assert!(
+                r.is_error.unwrap_or(false),
+                "reading a symlink that escapes the workspace should fail"
+            );
+        }
+    }
+    client.cancel().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_symlink_dir_outside_cwd_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let workspace = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    fs::write(outside.path().join("secret.txt"), "hidden\n").unwrap();
+
+    // Symlink a directory inside the workspace pointing outside.
+    std::os::unix::fs::symlink(outside.path(), workspace.path().join("escape_dir")).unwrap();
+
+    let client = spawn_mcp_client(workspace.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("read_file").with_arguments(
+        serde_json::from_value(serde_json::json!({"path": "escape_dir/secret.txt"})).unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    match result {
+        Err(e) => {
+            let msg = format!("{e:?}");
+            assert!(
+                msg.contains("escapes") || msg.contains("escape"),
+                "error should mention path escape: {msg}"
+            );
+        }
+        Ok(r) => {
+            assert!(
+                r.is_error.unwrap_or(false),
+                "reading through a symlinked dir that escapes should fail"
+            );
+        }
+    }
+    client.cancel().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_symlink_within_cwd_allowed() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("real");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("data.txt"), "safe content\n").unwrap();
+    std::os::unix::fs::symlink(sub.join("data.txt"), dir.path().join("link.txt")).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "read_file",
+        serde_json::json!({"path": "link.txt"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "symlink within workspace should be allowed: {text}"
+    );
+    assert!(text.contains("safe content"));
+    client.cancel().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Permission error integration tests (unix only)
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn test_replace_apply_readonly_dir_fails_gracefully() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("locked");
+    fs::create_dir(&sub).unwrap();
+    let file = sub.join("target.txt");
+    fs::write(&file, "hello world\n").unwrap();
+    // Make the directory read-only so atomic_write's rename fails.
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("hello")
+        .arg("--to")
+        .arg("goodbye")
+        .arg("--apply")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    // Should fail (exit code 1), not panic.
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "write in readonly dir should fail"
+    );
+    // File should be unchanged.
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "hello world\n");
+
+    // Restore for cleanup.
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn test_tidy_apply_readonly_dir_fails_gracefully() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("locked");
+    fs::create_dir(&sub).unwrap();
+    let file = sub.join("target.txt");
+    fs::write(&file, "trailing spaces   \n").unwrap();
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&file)
+        .arg("--trim-trailing-whitespace")
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "write in readonly dir should fail"
+    );
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "trailing spaces   \n", "file should be unchanged");
+
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn test_create_in_readonly_dir_fails_gracefully() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("locked");
+    fs::create_dir(&sub).unwrap();
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(sub.join("newfile.txt"))
+        .arg("--content")
+        .arg("test")
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "create in readonly dir should fail"
+    );
+
+    // Restore for cleanup.
+    fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// EditorConfig integration tests (end-to-end)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_editorconfig_trim_trailing_whitespace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ntrim_trailing_whitespace = true\n",
+    )
+    .unwrap();
+
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello   \nworld  \n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "hello\nworld\n",
+        "trailing whitespace should be trimmed"
+    );
+}
+
+#[test]
+fn test_editorconfig_end_of_line_crlf() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\nend_of_line = crlf\n",
+    )
+    .unwrap();
+
+    let file = dir.path().join("unix.txt");
+    fs::write(&file, "line1\nline2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let bytes = fs::read(&file).unwrap();
+    let content = String::from_utf8_lossy(&bytes);
+    assert!(
+        content.contains("\r\n"),
+        "EditorConfig end_of_line=crlf should convert LF to CRLF"
+    );
+    assert!(
+        !content.contains("\n\n"),
+        "should not have bare LF after CRLF conversion"
+    );
+}
+
+#[test]
+fn test_editorconfig_replace_apply_respects_final_newline() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ninsert_final_newline = true\n",
+    )
+    .unwrap();
+
+    let file = dir.path().join("noeol.txt");
+    fs::write(&file, "old value").unwrap(); // no trailing newline
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("old")
+        .arg("--to")
+        .arg("new")
+        .arg(&file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.ends_with('\n'),
+        "EditorConfig insert_final_newline should add trailing newline on replace"
+    );
+    assert!(content.contains("new value"));
+}
+
+#[test]
+fn test_editorconfig_per_extension_override() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*.md]\ninsert_final_newline = true\n\n[*.txt]\ninsert_final_newline = false\n",
+    )
+    .unwrap();
+
+    let md_file = dir.path().join("doc.md");
+    let txt_file = dir.path().join("notes.txt");
+    fs::write(&md_file, "# Title").unwrap(); // no trailing newline
+    fs::write(&txt_file, "notes").unwrap(); // no trailing newline
+
+    // Fix the .md file: should get a newline.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&md_file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let md_content = fs::read_to_string(&md_file).unwrap();
+    assert!(
+        md_content.ends_with('\n'),
+        ".md file should get final newline from EditorConfig"
+    );
+
+    // The .txt file should NOT get a newline (insert_final_newline = false).
+    // tidy fix with only --respect-editorconfig and no explicit flags should
+    // not add a newline when EditorConfig says false.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tidy")
+        .arg("fix")
+        .arg(&txt_file)
+        .arg("--respect-editorconfig")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let txt_content = fs::read_to_string(&txt_file).unwrap();
+    assert!(
+        !txt_content.ends_with('\n'),
+        ".txt file should NOT get final newline when EditorConfig says false"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent MCP requests to the same file
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mcp_concurrent_doc_set_same_file() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"a":"old_a","b":"old_b","c":"old_c"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+
+    // Fire three doc_set calls concurrently targeting different keys in the same file.
+    let (r1, r2, r3) = tokio::join!(
+        call_tool_text(
+            &client,
+            "doc_set",
+            serde_json::json!({"path": "config.json", "selector": "a", "value": "new_a"}),
+        ),
+        call_tool_text(
+            &client,
+            "doc_set",
+            serde_json::json!({"path": "config.json", "selector": "b", "value": "new_b"}),
+        ),
+        call_tool_text(
+            &client,
+            "doc_set",
+            serde_json::json!({"path": "config.json", "selector": "c", "value": "new_c"}),
+        ),
+    );
+
+    // All three should succeed (no panics, no corruption).
+    assert!(!r1.0, "doc_set a should succeed: {}", r1.1);
+    assert!(!r2.0, "doc_set b should succeed: {}", r2.1);
+    assert!(!r3.0, "doc_set c should succeed: {}", r3.1);
+
+    // At least one of the writes must have taken effect. With serial
+    // processing, all three should be present. With truly concurrent writes,
+    // the last writer wins and may overwrite earlier changes. Either way,
+    // the file must be valid JSON (no corruption from partial writes).
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content)
+        .unwrap_or_else(|_| panic!("file should be valid JSON after concurrent writes: {content}"));
+    // The file should have all three keys.
+    assert!(v.get("a").is_some(), "key 'a' should exist");
+    assert!(v.get("b").is_some(), "key 'b' should exist");
+    assert!(v.get("c").is_some(), "key 'c' should exist");
+
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_concurrent_replace_different_files() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    for i in 0..5 {
+        fs::write(dir.path().join(format!("f{i}.txt")), "old_value\n").unwrap();
+    }
+
+    let client = spawn_mcp_client(dir.path()).await;
+
+    // Fire 5 replace calls in parallel, each targeting a different file.
+    let (r0, r1, r2, r3, r4) = tokio::join!(
+        call_tool_text(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "f0.txt", "from": "old_value", "to": "new_0"}),
+        ),
+        call_tool_text(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "f1.txt", "from": "old_value", "to": "new_1"}),
+        ),
+        call_tool_text(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "f2.txt", "from": "old_value", "to": "new_2"}),
+        ),
+        call_tool_text(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "f3.txt", "from": "old_value", "to": "new_3"}),
+        ),
+        call_tool_text(
+            &client,
+            "replace_text",
+            serde_json::json!({"path": "f4.txt", "from": "old_value", "to": "new_4"}),
+        ),
+    );
+    assert!(!r0.0, "replace on f0.txt should succeed: {}", r0.1);
+    assert!(!r1.0, "replace on f1.txt should succeed: {}", r1.1);
+    assert!(!r2.0, "replace on f2.txt should succeed: {}", r2.1);
+    assert!(!r3.0, "replace on f3.txt should succeed: {}", r3.1);
+    assert!(!r4.0, "replace on f4.txt should succeed: {}", r4.1);
+
+    // Verify each file was updated.
+    for i in 0..5 {
+        let content = fs::read_to_string(dir.path().join(format!("f{i}.txt"))).unwrap();
+        assert_eq!(content, format!("new_{i}\n"), "f{i}.txt should be updated");
+    }
+
+    client.cancel().await.unwrap();
+}

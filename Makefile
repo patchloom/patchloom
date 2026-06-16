@@ -99,7 +99,7 @@ FUZZ_TIME ?= 60
 
 fuzz: ## Run fuzz tests (requires nightly). Use FUZZ_TIME=N for seconds per target.
 	@NIGHTLY_BIN=$$(rustup run nightly rustc --print sysroot)/bin; \
-	for target in fuzz_selector_parse fuzz_patch_parse fuzz_patch_apply fuzz_batch_tokenize fuzz_selector_eval; do \
+	for target in fuzz_selector_parse fuzz_patch_parse fuzz_patch_apply fuzz_batch_tokenize fuzz_selector_eval fuzz_doc_parse; do \
 		echo "==> Fuzzing $$target for $(FUZZ_TIME)s..."; \
 		PATH="$$NIGHTLY_BIN:$$PATH" cargo fuzz run $$target -- -max_total_time=$(FUZZ_TIME) || exit 1; \
 	done; \
