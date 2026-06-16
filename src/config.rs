@@ -363,4 +363,33 @@ color = "always"
         // Unrecognized color value falls through to Auto.
         assert!(matches!(global.color, crate::cli::global::ColorMode::Auto));
     }
+
+    #[test]
+    fn cached_config_load_with_file() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensure_final_newline = true\n",
+        )
+        .unwrap();
+
+        let cached = CachedConfig::load(dir.path());
+        assert_eq!(
+            cached.project_config().write_policy.ensure_final_newline,
+            Some(true)
+        );
+        assert_eq!(cached.config_dir(), Some(dir.path()));
+    }
+
+    #[test]
+    fn cached_config_load_defaults_when_missing() {
+        let dir = TempDir::new().unwrap();
+
+        let cached = CachedConfig::load(dir.path());
+        assert_eq!(
+            cached.project_config().write_policy.ensure_final_newline,
+            None
+        );
+        assert!(cached.config_dir().is_none());
+    }
 }
