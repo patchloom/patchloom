@@ -69,6 +69,9 @@ normalize_eol = "lf"
 trim_trailing_whitespace = true
 collapse_blanks = true
 
+[tx]
+strict = false
+
 [exclude]
 globs = ["target/**", "node_modules/**"]
 
@@ -102,7 +105,7 @@ Machine-readable modes (`--json`, `--jsonl`, `--quiet`) never produce color.
 
 ## Transaction plans
 
-The `tx` command runs multiple operations atomically. If any operation fails, all changes are rolled back and no files are written.
+The `tx` command runs multiple operations atomically. If any operation fails during staging, no files are written (exit 4, `operation_failed`). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7, `rollback`).
 
 Plans are JSON objects with three lifecycle arrays:
 
@@ -110,7 +113,7 @@ Plans are JSON objects with three lifecycle arrays:
 2. **format** -- shell commands that run after writes (e.g., `cargo fmt`)
 3. **validate** -- shell commands that verify correctness (e.g., `make check`)
 
-With `"strict": true`, a format or validation failure reverts all writes (exit 7). Without strict mode, writes stay on disk (exit 6).
+Strict mode defaults to on. Use `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to keep writes on disk when format/validate fails (exit 6). With strict mode, a format or validation failure reverts all writes (exit 7).
 
 ## Exit codes
 
@@ -122,7 +125,7 @@ Every command returns a specific exit code:
 | 1 | General error |
 | 2 | Changes detected (with `--check`) |
 | 3 | No matches found |
-| 4 | Parse error in input |
+| 4 | Parse error in input, or tx operation staging failure (`operation_failed`) |
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
 | 7 | Rollback (strict mode, no writes remain) |

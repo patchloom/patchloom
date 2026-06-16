@@ -443,12 +443,14 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
         },
         OperationSchema {
             name: "patch.apply".into(),
-            description: "Apply a unified diff patch to one or more files.".into(),
+            description: "Apply a unified diff patch to one or more files. Supports three-way merge on stale context.".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "required": ["diff"],
                 "properties": {
-                    "diff": {"type": "string", "description": "Unified diff text."}
+                    "diff": {"type": "string", "description": "Unified diff text."},
+                    "on_stale": {"type": "string", "enum": ["fail", "merge"], "default": "fail"},
+                    "allow_conflicts": {"type": "boolean", "default": false}
                 }
             }),
             min_tier: Tier::Medium,

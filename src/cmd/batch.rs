@@ -403,7 +403,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             version: crate::plan::SCHEMA_VERSION.to_string(),
             cwd: None,
             write_policy: None,
-            strict: false,
+            strict: None,
             operations,
             format: None,
             validate: None,
@@ -422,6 +422,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .ok_or_else(|| anyhow::anyhow!("temp file path is not valid UTF-8"))?
             .to_string(),
         plan_format: None,
+        no_strict: false,
         write: args.write,
     };
     crate::cmd::tx::run(tx_args, global)

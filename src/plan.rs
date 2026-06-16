@@ -5,6 +5,25 @@ use serde::{Deserialize, Serialize};
 /// Current plan schema version.
 pub const SCHEMA_VERSION: &str = "1";
 
+fn default_strict_true() -> bool {
+    true
+}
+
+/// Resolve effective strict mode: `--no-strict` > plan field > config > default true.
+pub fn effective_strict(
+    plan_strict: Option<bool>,
+    config_strict: Option<bool>,
+    no_strict: bool,
+) -> bool {
+    if no_strict {
+        false
+    } else {
+        plan_strict
+            .or(config_strict)
+            .unwrap_or_else(default_strict_true)
+    }
+}
+
 /// A transaction plan containing multiple operations to execute atomically.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Plan {
@@ -12,8 +31,9 @@ pub struct Plan {
     pub version: String,
     pub cwd: Option<String>,
     pub write_policy: Option<PlanWritePolicy>,
+    /// When omitted from the plan, defaults to strict mode at execution time.
     #[serde(default)]
-    pub strict: bool,
+    pub strict: Option<bool>,
     pub operations: Vec<Operation>,
     pub format: Option<Vec<FormatStep>>,
     pub validate: Option<Vec<ValidationStep>>,
@@ -182,8 +202,11 @@ pub enum Operation {
     },
     #[serde(rename = "patch.apply", alias = "apply_patch")]
     PatchApply {
-        /// Inline diff text to apply.
         diff: String,
+        #[serde(default)]
+        on_stale: crate::ops::patch::OnStale,
+        #[serde(default)]
+        allow_conflicts: bool,
     },
     #[serde(rename = "search", alias = "search_files")]
     Search {
@@ -454,6 +477,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_plan_defaults_strict_when_omitted() {
+        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.strict, None);
+        assert!(effective_strict(plan.strict, None, false));
+    }
+
+    #[test]
     fn parse_plan_strict_and_all_policy_fields() {
         let json = r#"{
             "version": "1",
@@ -469,7 +500,7 @@ mod tests {
             "validate": [{"cmd": "check", "required": true, "timeout": 120}]
         }"#;
         let plan = parse_plan(json).unwrap();
-        assert!(plan.strict);
+        assert_eq!(plan.strict, Some(true));
         let wp = plan.write_policy.unwrap();
         assert_eq!(wp.ensure_final_newline, Some(true));
         assert_eq!(wp.normalize_eol.as_deref(), Some("crlf"));

@@ -173,7 +173,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Checks or applies a unified diff.
 - **Use when:** The change already exists as a patch, or you want stale context detection instead of search and replace semantics.
 - **Prefer instead:** Use `replace`, `doc`, or `md` when you want to describe the mutation directly instead of carrying a diff artifact.
-- **Related:** `patch check`, `patch apply`, `tx patch.apply`
+- **Related:** `patch check`, `patch apply`, `patch merge`, `tx patch.apply`
 
 <!-- ref:command:md -->
 ## `md`
@@ -703,9 +703,16 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:apply -->
 ### `patch apply`
 
-- **What it does:** Applies a unified diff.
+- **What it does:** Applies a unified diff. Use `--on-stale merge` to retry with three-way merge when context is stale.
 - **Use when:** The desired change is already available as patch text and should be replayed directly.
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
+
+<!-- ref:patch-action:merge -->
+### `patch merge`
+
+- **What it does:** Three-way merges a unified diff. Conflicts emit `<<<<<<< patchloom (ours)` / `=======` / `>>>>>>> patch (theirs)` markers.
+- **Use when:** Patch context is stale but you still want partial replay instead of regenerating the diff.
+- **Flags:** `--check` reports `clean`/`merged`/`conflict` per file. Conflicts block `--apply` unless `--allow-conflicts`. Exit **8** (`CONFLICTS`) when conflicts remain.
 
 ## `tidy` actions
 
@@ -758,9 +765,9 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:strict -->
 ### `strict`
 
-- **What it does:** Rolls back file writes when a format or validation step fails.
-- **Use when:** Partial writes are unacceptable and post write failure should behave like a full transaction failure.
-- **Prefer instead:** Leave strict mode off when writes may stay on disk even if later validation reports a problem.
+- **What it does:** Rolls back file writes when a format or validation step fails. Defaults to `true` when omitted from the plan.
+- **Use when:** Partial writes are unacceptable and post-write failure should behave like a full transaction failure (the default for agent workflows).
+- **Prefer instead:** Set `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx plan.json --apply --no-strict` when writes may stay on disk even if later validation reports a problem.
 
 <!-- ref:tx-field:operations -->
 ### `operations`

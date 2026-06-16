@@ -4,6 +4,7 @@
 #   patchloom tx examples/07-yaml-plan.yaml --apply
 
 version: "1"
+strict: false
 write_policy:
   ensure_final_newline: true
   trim_trailing_whitespace: true
