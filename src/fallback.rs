@@ -772,6 +772,45 @@ mod tests {
         assert_eq!(err.kind, EditErrorKind::NoMatch);
     }
 
+    #[test]
+    fn resolve_with_fallback_multi_line_anchor_match() {
+        // Multi-line target with context should resolve via anchor matching
+        // through the full fallback chain (not just the anchor_match helper).
+        let content = "fn header() {}\nfn proccess_data(x: i32) {\n    x + 1\n}\nfn footer() {}\n";
+        let result = resolve_with_fallback(
+            content,
+            "fn process_data(x: i32) {\n    x + 1\n}",
+            Some("fn header() {}"),
+            Some("fn footer() {}"),
+        );
+        assert!(result.is_ok(), "multi-line anchor should succeed");
+        let r = result.unwrap();
+        assert_eq!(r.strategy, MatchStrategy::Anchor);
+        assert!(r.matched_text.contains("proccess_data"));
+        assert!(r.matched_text.contains("x + 1"));
+    }
+
+    #[test]
+    fn validate_edit_yml_extension() {
+        // The .yml extension (not just .yaml) should trigger YAML validation.
+        let yaml = "key: value\nlist:\n  - item1\n";
+        // Valid replacement.
+        let result = validate_edit(yaml, "value", "new_value", Some("config.yml"));
+        assert!(result.valid);
+
+        // Invalid replacement that breaks YAML structure.
+        let result = validate_edit(yaml, "key: value", ":\n  :\n  - :", Some("config.yml"));
+        assert!(
+            !result.valid,
+            ".yml extension should trigger YAML validation"
+        );
+        assert!(
+            result.errors[0].contains("invalid YAML"),
+            "expected YAML error, got: {}",
+            result.errors[0]
+        );
+    }
+
     // Static assertions: types must be Send + Sync.
     const _: () = {
         fn _assert<T: Send + Sync>() {}
