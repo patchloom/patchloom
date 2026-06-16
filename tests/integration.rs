@@ -17475,11 +17475,7 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
         return;
     }
     let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("data.txt"),
-        "aaa\nbbb\nccc\nbbb\neee\n",
-    )
-    .unwrap();
+    fs::write(dir.path().join("data.txt"), "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, _text) = call_tool_text(
@@ -17981,7 +17977,10 @@ fn test_schema_json_output() {
         .get("operations")
         .and_then(|v| v.as_array())
         .expect("operations must be an array");
-    assert!(!ops.is_empty(), "schema should return at least one operation");
+    assert!(
+        !ops.is_empty(),
+        "schema should return at least one operation"
+    );
 
     // Every operation must have name, description, parameters, min_tier.
     for op in ops {
