@@ -2474,7 +2474,7 @@ mod tests {
             let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
             assert!(result.contains("# Section B"), "section B comment missing");
             assert!(result.contains("# Section C"), "section C comment missing");
-            assert!(result.contains("99"), "new value missing");
+            assert!(result.contains("b: 99"), "new value missing");
             assert!(!result.contains("b: 2"), "old value still present");
         }
 

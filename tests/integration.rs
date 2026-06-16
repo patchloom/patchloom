@@ -3668,11 +3668,7 @@ fn test_tx_multi_op_plan() {
         .success();
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
-    assert!(txt_content.contains("hi"), "text file should be modified");
-    assert!(
-        !txt_content.contains("hello"),
-        "old text should be replaced"
-    );
+    assert_eq!(txt_content, "hi world\n", "replace should swap hello->hi");
 
     let json_content = fs::read_to_string(&json_file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&json_content).unwrap();
@@ -6069,8 +6065,18 @@ fn test_md_lint_agents_json_output() {
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let arr = parsed.as_array().unwrap();
     assert!(!arr.is_empty());
-    // Each issue must have an "issue" field
-    assert!(arr[0].get("issue").is_some());
+    // Each issue must have an "issue" string and a "heading" identifying it
+    let issue_val = arr[0].get("issue").expect("issue field missing");
+    let issue_str = issue_val.as_str().expect("issue field should be a string");
+    assert!(
+        issue_str.contains("duplicate"),
+        "should report a duplicate heading issue: {issue_str}"
+    );
+    let heading_val = arr[0].get("heading").expect("heading field missing");
+    assert!(
+        heading_val.as_str().unwrap().contains("Build"),
+        "heading should reference 'Build': {heading_val}"
+    );
 }
 
 #[test]
@@ -6096,10 +6102,14 @@ fn test_md_lint_agents_jsonl_output() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     let lines: Vec<&str> = stdout.trim().lines().collect();
     assert!(!lines.is_empty());
-    // Each line must be valid JSON with an "issue" field
+    // Each line must be valid JSON with an "issue" string field
     for line in &lines {
         let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
-        assert!(parsed.get("issue").is_some());
+        let issue_val = parsed.get("issue").expect("issue field missing in JSONL line");
+        assert!(
+            issue_val.is_string(),
+            "issue field should be a string: {issue_val}"
+        );
     }
 }
 
