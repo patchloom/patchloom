@@ -606,7 +606,10 @@ mod tests {
     }
 
     fn default_global() -> GlobalFlags {
-        GlobalFlags::default()
+        GlobalFlags {
+            color: crate::cli::global::ColorMode::Never,
+            ..GlobalFlags::default()
+        }
     }
 
     fn make_args(pattern: &str, paths: Vec<String>) -> SearchArgs {
