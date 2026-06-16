@@ -67,13 +67,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
             content.push('\n');
             content.push_str(&rules);
-            std::fs::write(&target_path, content)?;
+            std::fs::write(&target_path, content)
+                .with_context(|| format!("writing {}", target_path.display()))?;
             status!("appended patchloom rules to {rel_target}");
         } else {
             status!("skipped {rel_target}");
         }
     } else if auto_yes || confirm(&format!("Create {rel_target}?")) {
-        std::fs::write(&target_path, &rules)?;
+        std::fs::write(&target_path, &rules)
+            .with_context(|| format!("writing {}", target_path.display()))?;
         status!("created {rel_target}");
     } else {
         status!("skipped {rel_target}");
@@ -220,9 +222,11 @@ fn generate_completions(shell: &str, target: &Path) -> anyhow::Result<()> {
     let mut buf = Vec::new();
     clap_complete::generate(clap_shell, &mut cmd, "patchloom", &mut buf);
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating directory {}", parent.display()))?;
     }
-    std::fs::write(target, buf)?;
+    std::fs::write(target, buf)
+        .with_context(|| format!("writing completions to {}", target.display()))?;
     Ok(())
 }
 
