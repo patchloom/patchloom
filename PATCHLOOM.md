@@ -51,7 +51,7 @@ On Windows (where heredocs are not available), write operations to a file and pa
 patchloom batch ops.txt --apply
 ```
 
-**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes: `doc.set config.json version '"1.0"'`.
+**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes. Unix-like shells (bash/zsh): `doc.set config.json version '"1.0"'`. Windows (`cmd.exe`/PowerShell): `doc.set config.json version "\"1.0\""`.
 
 For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:
 

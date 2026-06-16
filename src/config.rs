@@ -74,16 +74,14 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.ensure_final_newline = true;
     }
     if global.normalize_eol.is_none() {
-        global.normalize_eol =
-            config
-                .write_policy
-                .normalize_eol
-                .as_deref()
-                .and_then(|eol| match eol {
-                    "lf" => Some(crate::cli::global::EolMode::Lf),
-                    "crlf" => Some(crate::cli::global::EolMode::Crlf),
-                    _ => None,
-                });
+        match config.write_policy.normalize_eol.as_deref() {
+            Some("lf") => global.normalize_eol = Some(crate::cli::global::EolMode::Lf),
+            Some("crlf") => global.normalize_eol = Some(crate::cli::global::EolMode::Crlf),
+            Some(invalid) => {
+                eprintln!("{}", invalid_normalize_eol_warning(invalid));
+            }
+            None => {}
+        }
     }
     if !global.trim_trailing_whitespace
         && config.write_policy.trim_trailing_whitespace == Some(true)
@@ -108,9 +106,24 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.color = match color.as_str() {
             "always" => crate::cli::global::ColorMode::Always,
             "never" => crate::cli::global::ColorMode::Never,
-            _ => crate::cli::global::ColorMode::Auto,
+            invalid => {
+                eprintln!("{}", invalid_output_color_warning(invalid));
+                crate::cli::global::ColorMode::Auto
+            }
         };
     }
+}
+
+fn invalid_normalize_eol_warning(invalid: &str) -> String {
+    format!(
+        "warning: invalid write_policy.normalize_eol value {invalid:?}; expected \"lf\" or \"crlf\""
+    )
+}
+
+fn invalid_output_color_warning(invalid: &str) -> String {
+    format!(
+        "warning: invalid output.color value {invalid:?}; expected \"always\" or \"never\". Using \"auto\"."
+    )
 }
 
 /// A cached project configuration that can be loaded once and reused across
@@ -327,8 +340,11 @@ color = "always"
         let mut global = crate::cli::global::GlobalFlags::default();
         apply_config(&mut global, &config);
 
-        // Unrecognized normalize_eol value is silently ignored (stays None).
         assert!(global.normalize_eol.is_none());
+        let warning = invalid_normalize_eol_warning("CRLF");
+        assert!(warning.contains("CRLF"));
+        assert!(warning.contains("lf"));
+        assert!(warning.contains("crlf"));
     }
 
     #[test]
@@ -360,8 +376,11 @@ color = "always"
         let mut global = crate::cli::global::GlobalFlags::default();
         apply_config(&mut global, &config);
 
-        // Unrecognized color value falls through to Auto.
         assert!(matches!(global.color, crate::cli::global::ColorMode::Auto));
+        let warning = invalid_output_color_warning("yes");
+        assert!(warning.contains("yes"));
+        assert!(warning.contains("always"));
+        assert!(warning.contains("never"));
     }
 
     #[test]
