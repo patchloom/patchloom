@@ -67,6 +67,7 @@ Create a `.patchloom.toml` in your project root to set per-project defaults. CLI
 ensure_final_newline = true
 normalize_eol = "lf"
 trim_trailing_whitespace = true
+collapse_blanks = true
 
 [exclude]
 globs = ["target/**", "node_modules/**"]
