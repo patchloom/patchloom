@@ -206,13 +206,17 @@ fn strip_inline_code(line: &str) -> Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// A lint issue found in a markdown file.
 #[derive(Debug, Serialize)]
-pub(crate) struct LintIssue {
-    issue: &'static str,
+pub struct LintIssue {
+    /// Description of the issue.
+    pub issue: &'static str,
+    /// Line number where the issue was found (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
-    line: Option<usize>,
+    pub line: Option<usize>,
+    /// Heading text related to the issue (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
-    heading: Option<String>,
+    pub heading: Option<String>,
 }
 
 pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {

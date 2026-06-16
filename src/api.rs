@@ -94,6 +94,14 @@ pub struct ReplaceOptions {
     /// Text to insert after each match instead of replacing.
     /// Mutually exclusive with `to` (the replacement text) and `insert_before`.
     pub insert_after: Option<String>,
+    /// Delete/replace entire lines containing the match rather than just the
+    /// matched text. When `to` is empty, matching lines are removed.
+    pub whole_line: bool,
+    /// Restrict matching to a 1-based inclusive line range `(start, end)`.
+    /// Requires `whole_line` to be `true`.
+    pub range: Option<(usize, Option<usize>)>,
+    /// Return success (no error) even when the pattern matches nothing.
+    pub if_exists: bool,
 }
 
 /// Write policy options for controlling file write transformations.
@@ -105,6 +113,8 @@ pub struct WritePolicyOptions {
     pub normalize_eol: Option<EolNormalization>,
     /// Remove trailing whitespace from each line.
     pub trim_trailing_whitespace: bool,
+    /// Collapse consecutive blank lines into a single blank line.
+    pub collapse_blanks: bool,
 }
 
 /// Line ending normalization mode.
@@ -131,7 +141,7 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
             Some(EolNormalization::Crlf) => EolMode::Crlf,
         },
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
-        collapse_blanks: false,
+        collapse_blanks: opts.collapse_blanks,
     }
 }
 
@@ -323,6 +333,113 @@ pub fn doc_append(
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
+/// Prepend a value to an array at a selector path.
+pub fn doc_prepend(
+    path: &Path,
+    selector: &str,
+    value: serde_json::Value,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let old_value = ops::doc::parse_doc(&original, &format)?;
+    let mut doc = old_value.clone();
+
+    let segments = selector::parse_anyhow(selector)?;
+    let target = ops::doc::navigate_mut(&mut doc, &segments, false)?;
+    let arr = target
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
+    arr.insert(0, value);
+
+    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
+/// Update all values matching a selector with a new value.
+///
+/// Returns an `EditResult`. The number of matches updated is reflected in
+/// whether the content changed.
+pub fn doc_update(
+    path: &Path,
+    selector: &str,
+    value: serde_json::Value,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let old_value = ops::doc::parse_doc(&original, &format)?;
+    let mut doc = old_value.clone();
+
+    let segments = selector::parse_anyhow(selector)?;
+    ops::doc::update_matching(&mut doc, &segments, &value);
+
+    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
+/// Ensure a value exists at a selector path; set it only if missing.
+pub fn doc_ensure(
+    path: &Path,
+    selector: &str,
+    value: serde_json::Value,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let old_value = ops::doc::parse_doc(&original, &format)?;
+    let mut doc = old_value.clone();
+
+    let segments = selector::parse_anyhow(selector)?;
+    // Only set if the path does not already exist.
+    let existing = selector::eval(&doc, &segments);
+    if existing.is_empty() {
+        ops::doc::set_at_path(&mut doc, &segments, value)?;
+    }
+
+    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
+/// Delete array elements matching a predicate (e.g., `"name=old"`).
+pub fn doc_delete_where(
+    path: &Path,
+    selector: &str,
+    predicate: &str,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let old_value = ops::doc::parse_doc(&original, &format)?;
+    let mut doc = old_value.clone();
+
+    let segments = selector::parse_anyhow(selector)?;
+    ops::doc::delete_where(&mut doc, &segments, predicate)?;
+
+    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
 /// Move a value from one selector path to another within the same file.
 pub fn doc_move(
     path: &Path,
@@ -370,6 +487,12 @@ pub fn replace_text(
     if from.is_empty() && !opts.regex {
         bail!("empty search pattern");
     }
+    if opts.range.is_some() && !opts.whole_line {
+        bail!("range requires whole_line to be true");
+    }
+    if opts.whole_line && opts.multiline {
+        bail!("whole_line and multiline cannot be combined");
+    }
 
     let compiled_re = ops::replace::compile_replace_regex(
         from,
@@ -391,14 +514,34 @@ pub fn replace_text(
         compiled_re.is_some(),
     );
 
-    let (new_content, _count) = ops::replace::replace_content(
-        &original,
-        from,
-        &replacement,
-        compiled_re.as_ref(),
-        opts.nth,
-    );
+    let (new_content, count) = if opts.whole_line {
+        ops::replace::replace_whole_lines(
+            &original,
+            from,
+            &replacement,
+            compiled_re.as_ref(),
+            opts.nth,
+            opts.range,
+        )
+    } else {
+        ops::replace::replace_content(
+            &original,
+            from,
+            &replacement,
+            compiled_re.as_ref(),
+            opts.nth,
+        )
+    };
     let new_content = new_content.into_owned();
+
+    if count == 0 && opts.if_exists {
+        return Ok(build_edit_result(
+            &path_str,
+            original.clone(),
+            original,
+            false,
+        ));
+    }
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy)?;
@@ -485,6 +628,67 @@ pub fn md_insert_after_heading(
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
+/// Move a markdown section to a position relative to another heading.
+///
+/// For same-file moves, pass `to` as `None`. For cross-file moves, pass the
+/// destination file path in `to`.
+pub fn md_move_section(
+    path: &Path,
+    heading: &str,
+    position: (&str, &str),
+    to: Option<&Path>,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let dest_content = match to {
+        Some(dest_path) => std::fs::read_to_string(dest_path)
+            .with_context(|| format!("failed to read {}", dest_path.display()))?,
+        None => original.clone(),
+    };
+
+    let (new_source, _new_dest) =
+        ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
+            .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_source, mode, &policy)?;
+    Ok(build_edit_result(&path_str, original, new_source, applied))
+}
+
+/// Remove duplicate headings at the same level in a markdown file.
+///
+/// Returns the `EditResult` and a list of removed duplicate heading texts.
+pub fn md_dedupe_headings(
+    path: &Path,
+    mode: ApplyMode,
+) -> anyhow::Result<(EditResult, Vec<String>)> {
+    let path_str = path.to_string_lossy();
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let (new_content, removed) = ops::md::dedupe_headings_in(&original);
+
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok((
+        build_edit_result(&path_str, original, new_content, applied),
+        removed,
+    ))
+}
+
+/// Lint a markdown file for common agent-rules issues (duplicate headings,
+/// missing sections, etc.).
+///
+/// Returns a list of lint issues found. This is a read-only operation.
+pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<crate::cmd::md::LintIssue>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    Ok(crate::cmd::md::lint_agents_content(&content))
 }
 
 /// Insert content before a markdown heading.
@@ -715,6 +919,123 @@ pub fn apply_patch_file(
         results.push(build_edit_result(&pf.path, original, new_content, applied));
     }
     Ok(results)
+}
+
+// ---------------------------------------------------------------------------
+// Tidy operations
+// ---------------------------------------------------------------------------
+
+/// Apply whitespace normalization to a file using the given write policy.
+///
+/// Normalizes final newlines, line endings, trailing whitespace, and
+/// consecutive blank lines according to the policy options.
+pub fn tidy(
+    path: &Path,
+    policy_opts: &WritePolicyOptions,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy();
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let policy = make_write_policy(policy_opts);
+    let new_content = crate::write::apply_policy(&original, &policy).into_owned();
+
+    // Use a default (no-op) policy for writing since we already applied
+    // the transformations above.
+    let noop_policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &noop_policy)?;
+    Ok(build_edit_result(&path_str, original, new_content, applied))
+}
+
+// ---------------------------------------------------------------------------
+// Search operations
+// ---------------------------------------------------------------------------
+
+/// A single search match.
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    /// 1-based line number.
+    pub line_number: usize,
+    /// The matched line content.
+    pub line: String,
+}
+
+/// Search for a pattern in a file, returning all matching lines.
+///
+/// This is a read-only operation.
+pub fn search(
+    path: &Path,
+    pattern: &str,
+    regex: bool,
+    case_insensitive: bool,
+) -> anyhow::Result<Vec<SearchMatch>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    if pattern.is_empty() {
+        bail!("search pattern must not be empty");
+    }
+
+    let compiled_re = if regex || case_insensitive {
+        Some(ops::replace::compile_replace_regex(
+            pattern,
+            regex,
+            case_insensitive,
+            false,
+        )?)
+    } else {
+        None
+    };
+
+    let mut matches = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let matched = match &compiled_re {
+            Some(Some(re)) => re.is_match(line),
+            _ => line.contains(pattern),
+        };
+        if matched {
+            matches.push(SearchMatch {
+                line_number: i + 1,
+                line: line.to_string(),
+            });
+        }
+    }
+    Ok(matches)
+}
+
+// ---------------------------------------------------------------------------
+// Read operations
+// ---------------------------------------------------------------------------
+
+/// Read a file's content, optionally restricted to a line range.
+///
+/// Line numbers are 1-based inclusive. This is a read-only operation.
+pub fn read(
+    path: &Path,
+    start_line: Option<usize>,
+    end_line: Option<usize>,
+) -> anyhow::Result<String> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    match (start_line, end_line) {
+        (None, None) => Ok(content),
+        (start, end) => {
+            let start = start.unwrap_or(1).saturating_sub(1); // convert to 0-based
+            let lines: Vec<&str> = content.lines().collect();
+            let end = end.unwrap_or(lines.len()).min(lines.len());
+            if start >= lines.len() {
+                return Ok(String::new());
+            }
+            let selected: Vec<&str> = lines[start..end].to_vec();
+            let mut result = selected.join("\n");
+            if !result.is_empty() {
+                result.push('\n');
+            }
+            Ok(result)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1196,10 +1517,12 @@ mod tests {
             ensure_final_newline: true,
             normalize_eol: Some(EolNormalization::Lf),
             trim_trailing_whitespace: true,
+            collapse_blanks: true,
         };
         let policy = make_write_policy(&opts);
         assert!(policy.ensure_final_newline);
         assert!(policy.trim_trailing_whitespace);
+        assert!(policy.collapse_blanks);
         assert_eq!(
             policy.normalize_eol,
             crate::cli::global::EolMode::Lf,
@@ -1210,6 +1533,288 @@ mod tests {
         let default_policy = make_write_policy(&WritePolicyOptions::default());
         assert!(!default_policy.ensure_final_newline);
         assert!(!default_policy.trim_trailing_whitespace);
+        assert!(!default_policy.collapse_blanks);
+    }
+
+    // --- New API function tests (#573) ---
+
+    #[test]
+    fn doc_prepend_adds_to_front() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.json");
+        fs::write(&file, r#"{"items": [2, 3]}"#).unwrap();
+
+        let result = doc_prepend(&file, "items", serde_json::json!(1), ApplyMode::Apply).unwrap();
+        assert!(result.changed);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(parsed["items"], serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn doc_update_changes_matching_values() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.json");
+        fs::write(
+            &file,
+            r#"{"items": [{"name": "a", "val": 1}, {"name": "b", "val": 2}]}"#,
+        )
+        .unwrap();
+
+        let result = doc_update(
+            &file,
+            "items[*].val",
+            serde_json::json!(99),
+            ApplyMode::Apply,
+        )
+        .unwrap();
+        assert!(result.changed);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(parsed["items"][0]["val"], serde_json::json!(99));
+        assert_eq!(parsed["items"][1]["val"], serde_json::json!(99));
+    }
+
+    #[test]
+    fn doc_ensure_sets_only_if_missing() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.json");
+        fs::write(&file, r#"{"existing": "keep"}"#).unwrap();
+
+        // Ensure a missing key - should be added.
+        let result = doc_ensure(
+            &file,
+            "new_key",
+            serde_json::json!("added"),
+            ApplyMode::Apply,
+        )
+        .unwrap();
+        assert!(result.changed);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("added"));
+
+        // Ensure an existing key - should NOT change.
+        let result = doc_ensure(
+            &file,
+            "existing",
+            serde_json::json!("overwrite"),
+            ApplyMode::Preview,
+        )
+        .unwrap();
+        assert!(!result.changed);
+    }
+
+    #[test]
+    fn doc_delete_where_removes_matching_elements() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.json");
+        fs::write(
+            &file,
+            r#"{"items": [{"name": "keep"}, {"name": "remove"}, {"name": "keep2"}]}"#,
+        )
+        .unwrap();
+
+        let result = doc_delete_where(&file, "items", "name=remove", ApplyMode::Apply).unwrap();
+        assert!(result.changed);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(!on_disk.contains("remove"));
+        assert!(on_disk.contains("keep"));
+        assert!(on_disk.contains("keep2"));
+    }
+
+    #[test]
+    fn md_move_section_reorders() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(
+            &file,
+            "# A\n\nBody A.\n\n# B\n\nBody B.\n\n# C\n\nBody C.\n",
+        )
+        .unwrap();
+
+        // Move section A to after section C.
+        let result = md_move_section(&file, "A", ("after", "C"), None, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        let pos_b = result.new_content.find("# B").unwrap();
+        let pos_a = result.new_content.find("# A").unwrap();
+        assert!(
+            pos_a > pos_b,
+            "A should appear after B after moving to after C"
+        );
+    }
+
+    #[test]
+    fn md_dedupe_headings_removes_duplicates() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        fs::write(
+            &file,
+            "# Title\n\nBody 1.\n\n# Title\n\nBody 2.\n\n## Other\n\nKeep.\n",
+        )
+        .unwrap();
+
+        let (result, removed) = md_dedupe_headings(&file, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        assert!(
+            removed.iter().any(|r| r.contains("Title")),
+            "should report removed duplicate heading"
+        );
+    }
+
+    #[test]
+    fn md_lint_agents_finds_issues() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(
+            &file,
+            "# Rules\n\nSome rules.\n\n# Rules\n\nDuplicate heading.\n",
+        )
+        .unwrap();
+
+        let issues = md_lint_agents(&file).unwrap();
+        assert!(
+            !issues.is_empty(),
+            "should find duplicate heading lint issue"
+        );
+    }
+
+    #[test]
+    fn tidy_normalizes_whitespace() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("messy.txt");
+        fs::write(&file, "line1  \nline2\t \n\n\n\nline3").unwrap();
+
+        let opts = WritePolicyOptions {
+            trim_trailing_whitespace: true,
+            ensure_final_newline: true,
+            collapse_blanks: true,
+            ..Default::default()
+        };
+        let result = tidy(&file, &opts, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        assert!(
+            !result.new_content.contains("  \n"),
+            "trailing whitespace should be removed"
+        );
+        assert!(
+            result.new_content.ends_with('\n'),
+            "should end with newline"
+        );
+        // Consecutive blank lines should be collapsed.
+        assert!(
+            !result.new_content.contains("\n\n\n"),
+            "should collapse consecutive blanks"
+        );
+    }
+
+    #[test]
+    fn search_finds_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "fn alpha() {}\nfn beta() {}\nfn alpha_beta() {}\n").unwrap();
+
+        let matches = search(&file, "alpha", false, false).unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].line_number, 1);
+        assert_eq!(matches[1].line_number, 3);
+    }
+
+    #[test]
+    fn search_regex_mode() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "version = 1\nname = test\nversion = 2\n").unwrap();
+
+        let matches = search(&file, r"version = \d+", true, false).unwrap();
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn read_full_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+        let content = read(&file, None, None).unwrap();
+        assert_eq!(content, "line1\nline2\nline3\n");
+    }
+
+    #[test]
+    fn read_line_range() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "line1\nline2\nline3\nline4\n").unwrap();
+
+        let content = read(&file, Some(2), Some(3)).unwrap();
+        assert_eq!(content, "line2\nline3\n");
+    }
+
+    #[test]
+    fn replace_text_whole_line_mode() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "keep this\nremove me\nalso keep\n").unwrap();
+
+        let opts = ReplaceOptions {
+            whole_line: true,
+            ..Default::default()
+        };
+        let result = replace_text(&file, "remove", "", &opts, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        assert!(!result.new_content.contains("remove me"));
+        assert!(result.new_content.contains("keep this"));
+    }
+
+    #[test]
+    fn replace_text_whole_line_with_range() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "a\nb\nc\nb\ne\n").unwrap();
+
+        let opts = ReplaceOptions {
+            whole_line: true,
+            range: Some((1, Some(3))),
+            ..Default::default()
+        };
+        let result = replace_text(&file, "b", "", &opts, ApplyMode::Preview).unwrap();
+        assert!(result.changed);
+        // Only the 'b' on line 2 (within range 1:3) should be removed.
+        // The 'b' on line 4 should remain.
+        let lines: Vec<&str> = result.new_content.lines().collect();
+        assert!(
+            lines.contains(&"b"),
+            "b outside range should remain: {:?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn replace_text_if_exists_no_error_on_miss() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let opts = ReplaceOptions {
+            if_exists: true,
+            ..Default::default()
+        };
+        let result = replace_text(&file, "missing", "x", &opts, ApplyMode::Preview).unwrap();
+        assert!(!result.changed);
+        assert!(!result.applied);
+    }
+
+    #[test]
+    fn replace_text_range_requires_whole_line() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let opts = ReplaceOptions {
+            range: Some((1, Some(5))),
+            ..Default::default()
+        };
+        let err = replace_text(&file, "hello", "x", &opts, ApplyMode::Preview).unwrap_err();
+        assert!(err.to_string().contains("range requires whole_line"));
     }
 
     // Static assertions: all public API types must be Send + Sync.

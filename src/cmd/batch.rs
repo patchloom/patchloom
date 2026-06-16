@@ -810,6 +810,62 @@ mod tests {
     }
 
     #[test]
+    fn parse_line_extra_args_rejected_all_operations() {
+        // 2-arg operations (require exactly 2)
+        let two_arg_ops = [
+            r#"doc.delete f.json sel extra"#,
+            r#"doc.merge f.json "{}" extra"#,
+            r#"file.create f.txt content extra"#,
+            r#"file.rename old.txt new.txt extra"#,
+        ];
+        for line in &two_arg_ops {
+            let err = parse_line(line, 1).unwrap_err();
+            assert!(
+                err.to_string().contains("requires exactly 2 arguments"),
+                "expected rejection for '{line}', got: {err}"
+            );
+        }
+
+        // 3-arg operations (require exactly 3)
+        let three_arg_ops = [
+            r#"doc.set f.json sel "v" extra"#,
+            r#"doc.ensure f.json sel "v" extra"#,
+            r#"doc.append f.json sel "v" extra"#,
+            r#"doc.prepend f.json sel "v" extra"#,
+            r#"doc.update f.json sel "v" extra"#,
+            r#"doc.move f.json from to extra"#,
+            r#"doc.delete_where f.json sel "k=v" extra"#,
+            r#"replace f.txt old new extra"#,
+            r##"md.upsert_bullet f.md "# H" "- b" extra"##,
+            r##"md.table_append f.md "# H" "| r |" extra"##,
+            r##"md.replace_section f.md "# H" body extra"##,
+            r##"md.insert_after_heading f.md "# H" text extra"##,
+            r##"md.insert_before_heading f.md "# H" text extra"##,
+        ];
+        for line in &three_arg_ops {
+            let err = parse_line(line, 1).unwrap_err();
+            assert!(
+                err.to_string().contains("requires exactly 3 arguments"),
+                "expected rejection for '{line}', got: {err}"
+            );
+        }
+
+        // 1-arg operations (require exactly 1)
+        let one_arg_ops = [
+            "md.dedupe_headings f.md extra",
+            "md.lint_agents f.md extra",
+            "tidy.fix f.txt extra",
+        ];
+        for line in &one_arg_ops {
+            let err = parse_line(line, 1).unwrap_err();
+            assert!(
+                err.to_string().contains("requires exactly 1 arguments"),
+                "expected rejection for '{line}', got: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn tokenize_error_includes_line_number() {
         // Unterminated quote should include the line number from parse_line.
         let err = parse_line(r#"doc.set f.json key "unterminated"#, 7).unwrap_err();
