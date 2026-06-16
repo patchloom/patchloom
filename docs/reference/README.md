@@ -765,9 +765,9 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:strict -->
 ### `strict`
 
-- **What it does:** Rolls back file writes when a format or validation step fails.
-- **Use when:** Partial writes are unacceptable and post write failure should behave like a full transaction failure.
-- **Prefer instead:** Leave strict mode off when writes may stay on disk even if later validation reports a problem.
+- **What it does:** Rolls back file writes when a format or validation step fails. Defaults to `true` when omitted from the plan.
+- **Use when:** Partial writes are unacceptable and post-write failure should behave like a full transaction failure (the default for agent workflows).
+- **Prefer instead:** Set `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx plan.json --apply --no-strict` when writes may stay on disk even if later validation reports a problem.
 
 <!-- ref:tx-field:operations -->
 ### `operations`
