@@ -114,7 +114,9 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                     "nth": {"type": "integer", "minimum": 1, "description": "Replace only the Nth match (1-based)."},
                     "case_insensitive": {"type": "boolean", "default": false},
                     "multiline": {"type": "boolean", "default": false},
-                    "if_exists": {"type": "boolean", "default": false, "description": "Do not error if no matches found."}
+                    "if_exists": {"type": "boolean", "default": false, "description": "Do not error if no matches found."},
+                    "whole_line": {"type": "boolean", "default": false, "description": "Replace the entire line containing each match."},
+                    "range": {"type": "string", "description": "Restrict matching to a line range (e.g. '10:50'). Requires whole_line."}
                 }
             }),
             min_tier: Tier::Weak,

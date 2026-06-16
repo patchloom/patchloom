@@ -137,6 +137,12 @@ pub struct ReplaceParams {
     /// Return success even if no matches found (idempotent mode).
     #[serde(default)]
     pub if_exists: bool,
+    /// Replace the entire line containing each match, not just the matched span.
+    /// When combined with to="" this deletes matching lines.
+    #[serde(default)]
+    pub whole_line: bool,
+    /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
+    pub range: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1142,7 +1148,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
+        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range. Set whole_line=true to replace entire lines containing a match (use with to=\"\" to delete lines). Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
     )]
     async fn replace_text(
         &self,
@@ -1177,6 +1183,8 @@ impl PatchloomService {
                 case_insensitive: p.case_insensitive,
                 multiline: p.multiline,
                 if_exists: p.if_exists,
+                whole_line: p.whole_line,
+                range: p.range,
             }]),
             &self.cwd,
         )
@@ -1468,6 +1476,8 @@ impl PatchloomService {
                 case_insensitive: p.case_insensitive,
                 multiline: p.multiline,
                 if_exists: false,
+                whole_line: false,
+                range: None,
             })
             .collect();
         execute_plan_validated(make_plan(ops), &self.cwd)
@@ -1626,7 +1636,7 @@ mod tests {
         assert_eq!(
             descriptions.get("replace_text"),
             Some(
-                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
+                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range. Set whole_line=true to replace entire lines containing a match (use with to=\"\" to delete lines). Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
             ),
             "replace_text description drifted"
         );

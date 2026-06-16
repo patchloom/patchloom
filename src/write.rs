@@ -12,6 +12,7 @@ pub struct WritePolicy {
     pub ensure_final_newline: bool,
     pub normalize_eol: EolMode,
     pub trim_trailing_whitespace: bool,
+    pub collapse_blanks: bool,
 }
 
 impl WritePolicy {
@@ -21,6 +22,7 @@ impl WritePolicy {
         !self.ensure_final_newline
             && matches!(self.normalize_eol, EolMode::Keep)
             && !self.trim_trailing_whitespace
+            && !self.collapse_blanks
     }
 }
 
@@ -30,6 +32,7 @@ impl Default for WritePolicy {
             ensure_final_newline: false,
             normalize_eol: EolMode::Keep,
             trim_trailing_whitespace: false,
+            collapse_blanks: false,
         }
     }
 }
@@ -148,6 +151,64 @@ pub fn trim_trailing_whitespace(content: &str) -> std::borrow::Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// Collapse consecutive blank lines into a single blank line.
+///
+/// A blank line is one that contains only whitespace. Two or more consecutive
+/// blank lines are reduced to one. Returns `Cow::Borrowed` when no collapsing
+/// is needed, avoiding allocation.
+pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+
+    let bytes = content.as_bytes();
+    // Quick scan: look for two consecutive line endings with only whitespace between.
+    let mut prev_blank = false;
+    let mut needs_collapse = false;
+    for line in content.lines() {
+        let is_blank = line.trim().is_empty();
+        if is_blank && prev_blank {
+            needs_collapse = true;
+            break;
+        }
+        prev_blank = is_blank;
+    }
+
+    if !needs_collapse {
+        return Cow::Borrowed(content);
+    }
+
+    let mut result = String::with_capacity(bytes.len());
+    let mut prev_blank = false;
+    let mut rest = content;
+
+    while !rest.is_empty() {
+        if let Some(pos) = rest.find('\n') {
+            let line_with_ending = &rest[..=pos];
+            let line_content = if pos > 0 && rest.as_bytes()[pos - 1] == b'\r' {
+                &rest[..pos - 1]
+            } else {
+                &rest[..pos]
+            };
+            let is_blank = line_content.trim().is_empty();
+            if is_blank && prev_blank {
+                // Skip this consecutive blank line.
+            } else {
+                result.push_str(line_with_ending);
+            }
+            prev_blank = is_blank;
+            rest = &rest[pos + 1..];
+        } else {
+            // Last line without trailing newline.
+            let is_blank = rest.trim().is_empty();
+            if !(is_blank && prev_blank) {
+                result.push_str(rest);
+            }
+            break;
+        }
+    }
+
+    Cow::Owned(result)
+}
+
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
 ///
 /// Returns `Cow::Borrowed` when the policy is a no-op, avoiding allocation.
@@ -166,6 +227,12 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
 
     if !matches!(policy.normalize_eol, EolMode::Keep)
         && let Cow::Owned(new) = normalize_eol(&s, policy.normalize_eol)
+    {
+        s = Cow::Owned(new);
+    }
+
+    if policy.collapse_blanks
+        && let Cow::Owned(new) = collapse_blanks(&s)
     {
         s = Cow::Owned(new);
     }
@@ -233,6 +300,7 @@ pub fn policy_from_flags(
         ensure_final_newline: efn,
         normalize_eol: eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: ttw,
+        collapse_blanks: global.collapse_blanks,
     }
 }
 
@@ -392,6 +460,7 @@ mod tests {
             trim_trailing_whitespace: true,
             normalize_eol: EolMode::Lf,
             ensure_final_newline: true,
+            ..Default::default()
         };
         // Trailing whitespace, CRLF endings, no final newline.
         let input = "hello  \r\nworld\t\r\n";
@@ -411,6 +480,7 @@ mod tests {
             ensure_final_newline: true,
             normalize_eol: EolMode::Lf,
             trim_trailing_whitespace: true,
+            ..Default::default()
         };
 
         atomic_write(&target, "foo  \r\nbar", &policy).unwrap();
@@ -540,6 +610,7 @@ mod tests {
             ensure_final_newline: true,
             normalize_eol: EolMode::Lf,
             trim_trailing_whitespace: false,
+            ..Default::default()
         };
 
         atomic_create_new(&target, "hello", &policy).unwrap();
@@ -569,5 +640,49 @@ mod tests {
         assert!(!policy.ensure_final_newline);
         assert!(matches!(policy.normalize_eol, EolMode::Keep));
         assert!(!policy.trim_trailing_whitespace);
+    }
+
+    #[test]
+    fn collapse_blanks_reduces_consecutive_blanks() {
+        let input = "line1\n\n\n\nline2\n\n\nline3\n";
+        let result = collapse_blanks(input);
+        assert_eq!(result, "line1\n\nline2\n\nline3\n");
+    }
+
+    #[test]
+    fn collapse_blanks_no_change_returns_borrowed() {
+        let input = "line1\n\nline2\nline3\n";
+        let result = collapse_blanks(input);
+        assert_eq!(result, input);
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "no-change should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
+    fn collapse_blanks_whitespace_only_lines_are_blank() {
+        let input = "line1\n  \n\t\n\nline2\n";
+        let result = collapse_blanks(input);
+        // "  " and "\t" and "" are all blank; three consecutive blanks become one.
+        assert_eq!(result, "line1\n  \nline2\n");
+    }
+
+    #[test]
+    fn collapse_blanks_no_blanks() {
+        let input = "line1\nline2\nline3\n";
+        let result = collapse_blanks(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn apply_policy_collapse_blanks() {
+        let policy = WritePolicy {
+            collapse_blanks: true,
+            ..Default::default()
+        };
+        let input = "a\n\n\nb\n";
+        let result = apply_policy(input, &policy);
+        assert_eq!(result, "a\n\nb\n");
     }
 }

@@ -11,8 +11,8 @@ use crate::ops::md::{
 };
 use crate::ops::patch::apply_patch_with_loader;
 use crate::ops::replace::{
-    ReplaceModeError, compile_replace_regex, replace_content, replacement_text,
-    validate_replace_mode,
+    ReplaceModeError, compile_replace_regex, replace_content, replace_whole_lines,
+    replacement_text, validate_replace_mode,
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
@@ -586,6 +586,8 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         insert_after,
         case_insensitive,
         multiline,
+        whole_line,
+        range,
         ..
     } = op
     else {
@@ -595,12 +597,26 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
     let use_regex = regex_mode || *case_insensitive;
     let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
     let compiled_re = compile_replace_regex(from, regex_mode, *case_insensitive, *multiline)?;
+    let parsed_range = range
+        .as_deref()
+        .map(crate::cmd::read::parse_line_range)
+        .transpose()?;
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
         let content = read_file_content(tx.pending, &file_path)?;
-        let (replaced, match_count) =
-            replace_content(content, from, &replacement, compiled_re.as_ref(), *nth);
+        let (replaced, match_count) = if *whole_line {
+            replace_whole_lines(
+                content,
+                from,
+                &replacement,
+                compiled_re.as_ref(),
+                *nth,
+                parsed_range,
+            )
+        } else {
+            replace_content(content, from, &replacement, compiled_re.as_ref(), *nth)
+        };
         if match_count > 0 {
             let owned = replaced.into_owned();
             update_file_content(tx.pending, tx.deletions, &file_path, owned);
@@ -674,8 +690,18 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
                     }
                 }
             };
-            let (replaced, match_count) =
-                replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth);
+            let (replaced, match_count) = if *whole_line {
+                replace_whole_lines(
+                    &content,
+                    from,
+                    &replacement,
+                    compiled_re.as_ref(),
+                    *nth,
+                    parsed_range,
+                )
+            } else {
+                replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth)
+            };
             total_matches += match_count;
             if match_count > 0 {
                 update_file_content(tx.pending, tx.deletions, &file_path, replaced.into_owned());
@@ -1121,6 +1147,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 } else {
                     EolMode::Keep
                 },
+                collapse_blanks: false,
             };
             let new = crate::write::apply_policy(&content, &policy);
             if content != *new {
