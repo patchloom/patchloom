@@ -21,6 +21,7 @@ pub struct WritePolicy {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
     pub trim_trailing_whitespace: Option<bool>,
+    pub collapse_blanks: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -88,6 +89,9 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         && config.write_policy.trim_trailing_whitespace == Some(true)
     {
         global.trim_trailing_whitespace = true;
+    }
+    if !global.collapse_blanks && config.write_policy.collapse_blanks == Some(true) {
+        global.collapse_blanks = true;
     }
 
     // Exclude globs: prepend config globs before user globs.
@@ -181,6 +185,7 @@ mod tests {
 [write_policy]
 ensure_final_newline = true
 normalize_eol = "lf"
+collapse_blanks = true
 
 [exclude]
 globs = ["target/**"]
@@ -195,6 +200,7 @@ color = "always"
         assert_eq!(found_dir, dir.path());
         assert_eq!(config.write_policy.ensure_final_newline, Some(true));
         assert_eq!(config.write_policy.normalize_eol.as_deref(), Some("lf"));
+        assert_eq!(config.write_policy.collapse_blanks, Some(true));
         assert_eq!(config.exclude.globs, vec!["target/**"]);
         assert_eq!(config.output.color.as_deref(), Some("always"));
     }
@@ -229,6 +235,7 @@ color = "always"
                 ensure_final_newline: Some(true),
                 normalize_eol: Some("lf".into()),
                 trim_trailing_whitespace: Some(true),
+                collapse_blanks: Some(true),
             },
             exclude: Exclude {
                 globs: vec!["target/**".into()],
@@ -246,6 +253,7 @@ color = "always"
             Some(crate::cli::global::EolMode::Lf)
         ));
         assert!(global.trim_trailing_whitespace);
+        assert!(global.collapse_blanks);
         assert_eq!(global.glob, vec!["target/**"]);
         assert!(matches!(
             global.color,

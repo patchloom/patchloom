@@ -8381,6 +8381,44 @@ fn test_project_config_sets_write_policy_defaults() {
 }
 
 #[test]
+fn test_project_config_collapse_blanks() {
+    let dir = TempDir::new().unwrap();
+
+    // Create .patchloom.toml with collapse_blanks enabled.
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[write_policy]\ncollapse_blanks = true\n",
+    )
+    .unwrap();
+
+    // File where whole-line delete leaves consecutive blanks.
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep\n\nremove\n\nalso keep\n").unwrap();
+
+    // Run replace --whole-line without --collapse-blanks CLI flag.
+    // Config should supply the default.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("remove")
+        .arg("--whole-line")
+        .arg("--to")
+        .arg("")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "keep\n\nalso keep\n",
+        "config collapse_blanks should collapse consecutive blank lines"
+    );
+}
+
+#[test]
 fn test_project_config_exclude_globs() {
     let dir = TempDir::new().unwrap();
 
