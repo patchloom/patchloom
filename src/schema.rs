@@ -563,6 +563,37 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
     ]
 }
 
+/// JSON Schema for plan-level `write_policy` envelope fields.
+///
+/// These fields are set at the plan level (not per-operation) and apply to all
+/// writes in a transaction. Agents using `patchloom schema` can discover these
+/// to build complete tx plans.
+pub fn plan_write_policy_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "description": "Write policy applied to all operations in the plan. Each field is optional; omitted fields inherit from CLI flags or project config.",
+        "properties": {
+            "ensure_final_newline": {
+                "type": "boolean",
+                "description": "Ensure every written file ends with a newline."
+            },
+            "normalize_eol": {
+                "type": "string",
+                "enum": ["keep", "lf", "crlf"],
+                "description": "Line ending normalization mode."
+            },
+            "trim_trailing_whitespace": {
+                "type": "boolean",
+                "description": "Remove trailing whitespace from every line."
+            },
+            "collapse_blanks": {
+                "type": "boolean",
+                "description": "Collapse consecutive blank lines into a single blank line."
+            }
+        }
+    })
+}
+
 /// Get operations available at a given capability tier (includes all lower tiers).
 pub fn operations_for_tier(tier: Tier) -> Vec<OperationSchema> {
     operation_schemas()
@@ -627,6 +658,29 @@ pub fn system_prompt_for_tier(tier: Tier) -> String {
             }
             out.push('\n');
         }
+    }
+
+    // Plan envelope: write_policy
+    out.push_str("## Plan Envelope: `write_policy`\n\n");
+    out.push_str("Set at the plan level (not per-operation) to apply write transformations to all operations.\n\n");
+    let wp_schema = plan_write_policy_schema();
+    if let Some(props) = wp_schema.get("properties")
+        && let Some(obj) = props.as_object()
+    {
+        out.push_str("**Fields:**\n\n");
+        for (key, schema) in obj {
+            let type_str = schema.get("type").and_then(|t| t.as_str()).unwrap_or("any");
+            let desc = schema
+                .get("description")
+                .and_then(|d| d.as_str())
+                .unwrap_or("");
+            out.push_str(&format!("- `{key}`: {type_str}"));
+            if !desc.is_empty() {
+                out.push_str(&format!(" -- {desc}"));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
     }
 
     out
@@ -810,6 +864,24 @@ mod tests {
         assert!(prompt.contains("replace"));
         assert!(prompt.contains("doc.set"));
         assert!(prompt.contains("search"));
+    }
+
+    #[test]
+    fn plan_write_policy_schema_has_all_fields() {
+        let schema = plan_write_policy_schema();
+        let props = schema.get("properties").unwrap().as_object().unwrap();
+        assert!(props.contains_key("ensure_final_newline"));
+        assert!(props.contains_key("normalize_eol"));
+        assert!(props.contains_key("trim_trailing_whitespace"));
+        assert!(props.contains_key("collapse_blanks"));
+    }
+
+    #[test]
+    fn system_prompt_includes_write_policy() {
+        let prompt = system_prompt_for_tier(Tier::Strong);
+        assert!(prompt.contains("write_policy"));
+        assert!(prompt.contains("collapse_blanks"));
+        assert!(prompt.contains("ensure_final_newline"));
     }
 
     #[test]

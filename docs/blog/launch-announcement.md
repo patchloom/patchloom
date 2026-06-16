@@ -107,7 +107,9 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 
 ## What comes next
 
-This is v0.1.0. We would love feedback on:
+Since launch, new capabilities have been added including line-oriented replace flags (`--whole-line`, `--range`, `--collapse-blanks`), project config defaults (`.patchloom.toml`), and expanded schema export. See the [reference guide](https://github.com/patchloom/patchloom/blob/main/docs/reference/README.md) for the full command reference and current feature set.
+
+We would love feedback on:
 
 - Which agent workflows hit friction that Patchloom could smooth
 - Missing operations or formats (`.env`? `.ini`? HCL?)

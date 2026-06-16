@@ -8381,6 +8381,44 @@ fn test_project_config_sets_write_policy_defaults() {
 }
 
 #[test]
+fn test_project_config_collapse_blanks() {
+    let dir = TempDir::new().unwrap();
+
+    // Create .patchloom.toml with collapse_blanks enabled.
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[write_policy]\ncollapse_blanks = true\n",
+    )
+    .unwrap();
+
+    // File where whole-line delete leaves consecutive blanks.
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep\n\nremove\n\nalso keep\n").unwrap();
+
+    // Run replace --whole-line without --collapse-blanks CLI flag.
+    // Config should supply the default.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("remove")
+        .arg("--whole-line")
+        .arg("--to")
+        .arg("")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "keep\n\nalso keep\n",
+        "config collapse_blanks should collapse consecutive blank lines"
+    );
+}
+
+#[test]
 fn test_project_config_exclude_globs() {
     let dir = TempDir::new().unwrap();
 
@@ -17401,6 +17439,66 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
 }
 
 #[tokio::test]
+async fn test_mcp_replace_whole_line_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "fn main() {\n    dbg!(x);\n    let y = 1;\n    dbg!(y);\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "from": "dbg!",
+            "to": "",
+            "whole_line": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+    assert_eq!(content, "fn main() {\n    let y = 1;\n}\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_whole_line_with_range_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "data.txt",
+            "from": "bbb",
+            "to": "",
+            "whole_line": true,
+            "range": "1:3"
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line+range replace should succeed");
+
+    let content = fs::read_to_string(dir.path().join("data.txt")).unwrap();
+    // Only the first "bbb" (line 2, within range 1:3) should be deleted.
+    assert_eq!(content, "aaa\nccc\nbbb\neee\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_query_unknown_action_returns_error() {
     if !has_mcp_support() {
         return;
@@ -17871,13 +17969,21 @@ fn test_schema_json_output() {
         .success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    let parsed: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Envelope must contain version, operations, and plan_envelope.
+    assert!(parsed.get("version").is_some(), "missing version");
+    let ops = parsed
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
     assert!(
-        !parsed.is_empty(),
+        !ops.is_empty(),
         "schema should return at least one operation"
     );
-    // Every entry must have name, description, parameters, min_tier.
-    for op in &parsed {
+
+    // Every operation must have name, description, parameters, min_tier.
+    for op in ops {
         assert!(op.get("name").is_some(), "missing name in schema entry");
         assert!(
             op.get("description").is_some(),
@@ -17892,6 +17998,15 @@ fn test_schema_json_output() {
             "missing min_tier in schema entry"
         );
     }
+
+    // Plan envelope must include write_policy with all fields.
+    let wp = parsed
+        .pointer("/plan_envelope/write_policy/properties")
+        .expect("plan_envelope.write_policy.properties must exist");
+    assert!(wp.get("ensure_final_newline").is_some());
+    assert!(wp.get("normalize_eol").is_some());
+    assert!(wp.get("trim_trailing_whitespace").is_some());
+    assert!(wp.get("collapse_blanks").is_some());
 }
 
 #[test]
@@ -17922,13 +18037,22 @@ fn test_schema_tier_filtering() {
         .assert()
         .success();
 
-    let weak: Vec<serde_json::Value> =
+    let weak_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(weak_output.get_output().stdout.clone()).unwrap())
             .unwrap();
-    let strong: Vec<serde_json::Value> = serde_json::from_str(
+    let strong_json: serde_json::Value = serde_json::from_str(
         &String::from_utf8(strong_output.get_output().stdout.clone()).unwrap(),
     )
     .unwrap();
+
+    let weak = weak_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("weak operations must be an array");
+    let strong = strong_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("strong operations must be an array");
 
     assert!(
         weak.len() < strong.len(),
@@ -17937,7 +18061,7 @@ fn test_schema_tier_filtering() {
         strong.len()
     );
     // All weak ops should have min_tier "weak".
-    for op in &weak {
+    for op in weak {
         assert_eq!(
             op.get("min_tier").and_then(|t| t.as_str()),
             Some("weak"),
@@ -17955,11 +18079,15 @@ fn test_schema_examples_flag() {
         .assert()
         .success();
 
-    let without: Vec<serde_json::Value> = serde_json::from_str(
+    let without_json: serde_json::Value = serde_json::from_str(
         &String::from_utf8(without_output.get_output().stdout.clone()).unwrap(),
     )
     .unwrap();
-    for op in &without {
+    let without = without_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
+    for op in without {
         assert!(
             op.get("examples").is_none(),
             "examples should be stripped without --examples flag"
@@ -17973,9 +18101,13 @@ fn test_schema_examples_flag() {
         .assert()
         .success();
 
-    let with: Vec<serde_json::Value> =
+    let with_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(with_output.get_output().stdout.clone()).unwrap())
             .unwrap();
+    let with = with_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
     assert!(
         with.iter().any(|op| op.get("examples").is_some()),
         "at least one op should have examples with --examples flag"
