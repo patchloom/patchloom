@@ -48,12 +48,13 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     match args.format {
         SchemaFormat::Json => {
-            let output = if args.examples {
-                serde_json::to_string_pretty(&ops)?
+            let ops_json: Vec<serde_json::Value> = if args.examples {
+                ops.iter()
+                    .map(|op| serde_json::to_value(op).unwrap_or_default())
+                    .collect()
             } else {
                 // Strip examples from the output.
-                let stripped: Vec<serde_json::Value> = ops
-                    .iter()
+                ops.iter()
                     .map(|op| {
                         let mut v = serde_json::to_value(op).unwrap_or_default();
                         if let Some(obj) = v.as_object_mut() {
@@ -61,9 +62,16 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         }
                         v
                     })
-                    .collect();
-                serde_json::to_string_pretty(&stripped)?
+                    .collect()
             };
+            let envelope = serde_json::json!({
+                "version": schema::INTENT_FORMAT_VERSION,
+                "operations": ops_json,
+                "plan_envelope": {
+                    "write_policy": schema::plan_write_policy_schema()
+                }
+            });
+            let output = serde_json::to_string_pretty(&envelope)?;
             if global.quiet {
                 return Ok(exit::SUCCESS);
             }

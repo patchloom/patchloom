@@ -17973,13 +17973,18 @@ fn test_schema_json_output() {
         .success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
-    let parsed: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
-    assert!(
-        !parsed.is_empty(),
-        "schema should return at least one operation"
-    );
-    // Every entry must have name, description, parameters, min_tier.
-    for op in &parsed {
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Envelope must contain version, operations, and plan_envelope.
+    assert!(parsed.get("version").is_some(), "missing version");
+    let ops = parsed
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
+    assert!(!ops.is_empty(), "schema should return at least one operation");
+
+    // Every operation must have name, description, parameters, min_tier.
+    for op in ops {
         assert!(op.get("name").is_some(), "missing name in schema entry");
         assert!(
             op.get("description").is_some(),
@@ -17994,6 +17999,15 @@ fn test_schema_json_output() {
             "missing min_tier in schema entry"
         );
     }
+
+    // Plan envelope must include write_policy with all fields.
+    let wp = parsed
+        .pointer("/plan_envelope/write_policy/properties")
+        .expect("plan_envelope.write_policy.properties must exist");
+    assert!(wp.get("ensure_final_newline").is_some());
+    assert!(wp.get("normalize_eol").is_some());
+    assert!(wp.get("trim_trailing_whitespace").is_some());
+    assert!(wp.get("collapse_blanks").is_some());
 }
 
 #[test]
@@ -18024,13 +18038,22 @@ fn test_schema_tier_filtering() {
         .assert()
         .success();
 
-    let weak: Vec<serde_json::Value> =
+    let weak_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(weak_output.get_output().stdout.clone()).unwrap())
             .unwrap();
-    let strong: Vec<serde_json::Value> = serde_json::from_str(
+    let strong_json: serde_json::Value = serde_json::from_str(
         &String::from_utf8(strong_output.get_output().stdout.clone()).unwrap(),
     )
     .unwrap();
+
+    let weak = weak_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("weak operations must be an array");
+    let strong = strong_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("strong operations must be an array");
 
     assert!(
         weak.len() < strong.len(),
@@ -18039,7 +18062,7 @@ fn test_schema_tier_filtering() {
         strong.len()
     );
     // All weak ops should have min_tier "weak".
-    for op in &weak {
+    for op in weak {
         assert_eq!(
             op.get("min_tier").and_then(|t| t.as_str()),
             Some("weak"),
@@ -18057,11 +18080,15 @@ fn test_schema_examples_flag() {
         .assert()
         .success();
 
-    let without: Vec<serde_json::Value> = serde_json::from_str(
+    let without_json: serde_json::Value = serde_json::from_str(
         &String::from_utf8(without_output.get_output().stdout.clone()).unwrap(),
     )
     .unwrap();
-    for op in &without {
+    let without = without_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
+    for op in without {
         assert!(
             op.get("examples").is_none(),
             "examples should be stripped without --examples flag"
@@ -18075,9 +18102,13 @@ fn test_schema_examples_flag() {
         .assert()
         .success();
 
-    let with: Vec<serde_json::Value> =
+    let with_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(with_output.get_output().stdout.clone()).unwrap())
             .unwrap();
+    let with = with_json
+        .get("operations")
+        .and_then(|v| v.as_array())
+        .expect("operations must be an array");
     assert!(
         with.iter().any(|op| op.get("examples").is_some()),
         "at least one op should have examples with --examples flag"
