@@ -561,15 +561,40 @@ mod bench {
             let batch_file = cwd.join("_bench_batch.txt");
             std::fs::write(&batch_file, batch_ops.join("\n")).unwrap();
 
+            // No single MCP tool exposes arbitrary batch operations (the
+            // CLI `batch` command has no MCP equivalent). Run each operation
+            // individually via MCP to measure the overhead of 6 MCP calls vs
+            // 1 CLI batch invocation.
             for i in 0..(WARMUP + ITERATIONS) {
                 reset_all_files(cwd);
                 let start = Instant::now();
-                call_tool(
-                    &client,
-                    "batch",
-                    serde_json::json!({"operations": batch_ops}),
-                )
-                .await;
+                for op in &batch_ops {
+                    // Parse the batch line and call the corresponding MCP tool
+                    if op.starts_with("doc.set") {
+                        // e.g. doc.set config.json version "v2.0.0"
+                        let parts: Vec<&str> = op.splitn(4, ' ').collect();
+                        let path = parts[1];
+                        let selector = parts[2];
+                        let value = parts[3].trim_matches('"');
+                        call_tool(
+                            &client,
+                            "doc_set",
+                            serde_json::json!({"path": path, "selector": selector, "value": value}),
+                        )
+                        .await;
+                    } else if op.starts_with("replace") {
+                        let parts: Vec<&str> = op.splitn(4, ' ').collect();
+                        let path = parts[1];
+                        let from = parts[2].trim_matches('"');
+                        let to = parts[3].trim_matches('"');
+                        call_tool(
+                            &client,
+                            "replace_text",
+                            serde_json::json!({"path": path, "from": from, "to": to}),
+                        )
+                        .await;
+                    }
+                }
                 let elapsed = start.elapsed();
                 if i >= WARMUP {
                     mcp_times.push(elapsed);
@@ -590,7 +615,7 @@ mod bench {
             let (mcp_mean, mcp_min, mcp_max) = stats(&mcp_times);
             let (cli_mean, cli_min, cli_max) = stats(&cli_times);
             results.push(BenchResult {
-                name: "batch (6 ops)".to_string(),
+                name: "batch (6 ops: MCP=6 calls, CLI=1 batch)".to_string(),
                 mcp_mean,
                 mcp_min,
                 mcp_max,
@@ -618,13 +643,33 @@ mod bench {
             let tx_file = cwd.join("_bench_tx.json");
             std::fs::write(&tx_file, &tx_plan_str).unwrap();
 
+            // No MCP tool exposes tx plans directly. Call 4 individual MCP
+            // tools to compare overhead of 4 MCP calls vs 1 CLI tx invocation.
             for i in 0..(WARMUP + ITERATIONS) {
                 reset_all_files(cwd);
                 let start = Instant::now();
                 call_tool(
                     &client,
-                    "transaction",
-                    serde_json::json!({"plan": tx_plan_str}),
+                    "doc_set",
+                    serde_json::json!({"path": "config.json", "selector": "version", "value": "v2.0.0"}),
+                )
+                .await;
+                call_tool(
+                    &client,
+                    "doc_set",
+                    serde_json::json!({"path": "config.yaml", "selector": "app.version", "value": "v2.0.0"}),
+                )
+                .await;
+                call_tool(
+                    &client,
+                    "replace_text",
+                    serde_json::json!({"path": "VERSION", "from": "v1.0.0", "to": "v2.0.0"}),
+                )
+                .await;
+                call_tool(
+                    &client,
+                    "md_upsert_bullet",
+                    serde_json::json!({"path": "README.md", "heading": "Changelog", "bullet": "- v2.0.0 release"}),
                 )
                 .await;
                 let elapsed = start.elapsed();
@@ -647,7 +692,7 @@ mod bench {
             let (mcp_mean, mcp_min, mcp_max) = stats(&mcp_times);
             let (cli_mean, cli_min, cli_max) = stats(&cli_times);
             results.push(BenchResult {
-                name: "transaction (4 ops)".to_string(),
+                name: "transaction (4 ops: MCP=4 calls, CLI=1 tx)".to_string(),
                 mcp_mean,
                 mcp_min,
                 mcp_max,
