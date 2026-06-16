@@ -41,3 +41,8 @@ doc = false
 name = "fuzz_selector_eval"
 path = "fuzz_targets/fuzz_selector_eval.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_doc_parse"
+path = "fuzz_targets/fuzz_doc_parse.rs"
+doc = false
