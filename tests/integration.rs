@@ -18481,6 +18481,24 @@ async fn test_mcp_symlink_within_cwd_allowed() {
 // Permission error integration tests (unix only)
 // ---------------------------------------------------------------------------
 
+/// chmod 555 on a directory and return whether writes are actually blocked.
+/// Root (common in Docker contributor containers) can still create files there.
+#[cfg(unix)]
+fn readonly_dir_blocks_writes(dir: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = dir.join(".write_probe");
+    match fs::write(&probe, "x") {
+        Ok(()) => {
+            let _ = fs::remove_file(&probe);
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+            false
+        }
+        Err(_) => true,
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn test_replace_apply_readonly_dir_fails_gracefully() {
@@ -18491,8 +18509,9 @@ fn test_replace_apply_readonly_dir_fails_gracefully() {
     fs::create_dir(&sub).unwrap();
     let file = sub.join("target.txt");
     fs::write(&file, "hello world\n").unwrap();
-    // Make the directory read-only so atomic_write's rename fails.
-    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+    if !readonly_dir_blocks_writes(&sub) {
+        return;
+    }
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -18529,7 +18548,9 @@ fn test_tidy_apply_readonly_dir_fails_gracefully() {
     fs::create_dir(&sub).unwrap();
     let file = sub.join("target.txt");
     fs::write(&file, "trailing spaces   \n").unwrap();
-    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+    if !readonly_dir_blocks_writes(&sub) {
+        return;
+    }
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -18560,7 +18581,9 @@ fn test_create_in_readonly_dir_fails_gracefully() {
     let dir = TempDir::new().unwrap();
     let sub = dir.path().join("locked");
     fs::create_dir(&sub).unwrap();
-    fs::set_permissions(&sub, fs::Permissions::from_mode(0o555)).unwrap();
+    if !readonly_dir_blocks_writes(&sub) {
+        return;
+    }
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
