@@ -233,7 +233,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
         out.push_str(
             "**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. \
-             To force a string, wrap in JSON quotes: `doc.set config.json version '\"1.0\"'`.\n\n",
+             To force a string, wrap in JSON quotes. Unix-like shells (bash/zsh): \
+             `doc.set config.json version '\"1.0\"'`. Windows (`cmd.exe`/PowerShell): \
+             `doc.set config.json version \"\\\"1.0\\\"\"`.\n\n",
         );
 
         out.push_str(
