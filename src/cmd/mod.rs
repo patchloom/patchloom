@@ -275,6 +275,22 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "Add `--apply` to all write commands. Without it, patchloom previews changes without writing.\n\n",
         );
+
+        out.push_str(
+            "## Project configuration\n\n\
+             Create `.patchloom.toml` in the project root to set defaults for all commands:\n\n\
+             ```toml\n\
+             [write_policy]\n\
+             ensure_final_newline = true\n\
+             normalize_eol = \"lf\"\n\
+             trim_trailing_whitespace = true\n\
+             collapse_blanks = true\n\
+             \n\
+             [exclude]\n\
+             globs = [\"target/**\", \"node_modules/**\"]\n\
+             ```\n\n\
+             CLI flags override config values. The file is searched upward from the working directory.\n\n",
+        );
     }
 
     // Workflow examples (CLI only)
@@ -594,6 +610,14 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(out.contains("--whole-line"));
         assert!(out.contains("--collapse-blanks"));
+    }
+
+    #[test]
+    fn agent_rules_includes_project_config_section() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(out.contains("## Project configuration"));
+        assert!(out.contains(".patchloom.toml"));
+        assert!(out.contains("collapse_blanks"));
     }
 
     #[test]

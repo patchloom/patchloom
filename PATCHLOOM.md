@@ -80,6 +80,23 @@ patchloom md table-append README.md --heading "## API" --row "| new | row |" --a
 
 Add `--apply` to all write commands. Without it, patchloom previews changes without writing.
 
+## Project configuration
+
+Create `.patchloom.toml` in the project root to set defaults for all commands:
+
+```toml
+[write_policy]
+ensure_final_newline = true
+normalize_eol = "lf"
+trim_trailing_whitespace = true
+collapse_blanks = true
+
+[exclude]
+globs = ["target/**", "node_modules/**"]
+```
+
+CLI flags override config values. The file is searched upward from the working directory.
+
 ## Workflow examples
 
 ### Rename a function across a codebase
