@@ -283,8 +283,11 @@ pub struct DeleteFileParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PatchParams {
-    /// Unified diff text to apply.
     pub diff: String,
+    #[serde(default)]
+    pub on_stale: crate::ops::patch::OnStale,
+    #[serde(default)]
+    pub allow_conflicts: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -1457,7 +1460,14 @@ impl PatchloomService {
         }
 
         execute_plan_validated(
-            make_plan_strict(vec![Operation::PatchApply { diff: p.diff }], Some(p.strict)),
+            make_plan_strict(
+                vec![Operation::PatchApply {
+                    diff: p.diff,
+                    on_stale: p.on_stale,
+                    allow_conflicts: p.allow_conflicts,
+                }],
+                Some(p.strict),
+            ),
             &self.cwd,
         )
     }
@@ -1734,6 +1744,8 @@ mod tests {
             "--- a/../../etc/passwd\n+++ b/../../etc/passwd\n@@ -1,1 +1,1 @@\n-root\n+hacked\n";
         let ops = vec![Operation::PatchApply {
             diff: evil_diff.to_string(),
+            on_stale: crate::ops::patch::OnStale::Fail,
+            allow_conflicts: false,
         }];
         let canon = dir.path().canonicalize().unwrap();
         let result = validate_operation_paths(&ops, dir.path(), &canon);
@@ -1749,6 +1761,8 @@ mod tests {
         let safe_diff = "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,1 +1,1 @@\n-old\n+new\n";
         let ops = vec![Operation::PatchApply {
             diff: safe_diff.to_string(),
+            on_stale: crate::ops::patch::OnStale::Fail,
+            allow_conflicts: false,
         }];
         let canon = dir.path().canonicalize().unwrap();
         let result = validate_operation_paths(&ops, dir.path(), &canon);

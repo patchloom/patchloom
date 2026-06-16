@@ -202,8 +202,11 @@ pub enum Operation {
     },
     #[serde(rename = "patch.apply", alias = "apply_patch")]
     PatchApply {
-        /// Inline diff text to apply.
         diff: String,
+        #[serde(default)]
+        on_stale: crate::ops::patch::OnStale,
+        #[serde(default)]
+        allow_conflicts: bool,
     },
     #[serde(rename = "search", alias = "search_files")]
     Search {

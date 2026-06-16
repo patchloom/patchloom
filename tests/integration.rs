@@ -4489,6 +4489,85 @@ fn test_patch_check_exits_5_when_stale() {
 }
 
 #[test]
+fn test_patch_merge_check_exits_8_on_conflict() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("merge")
+        .arg(&patch_file)
+        .arg("--check")
+        .assert()
+        .code(8);
+}
+
+#[test]
+fn test_patch_merge_apply_writes_clean_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\nextra\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("merge")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nnew line\nline3\nextra\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_on_stale_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\nextra\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--on-stale")
+        .arg("merge")
+        .arg("--apply")
+        .assert()
+        .code(0);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nnew line\nline3\nextra\n"
+    );
+}
+
+#[test]
 fn test_patch_check_exits_5_on_directory_read_error() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("test.txt");

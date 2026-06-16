@@ -9,7 +9,7 @@ use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, move_section_in,
     replace_section_in, table_append_for_tx, upsert_bullet_in,
 };
-use crate::ops::patch::apply_patch_with_loader;
+use crate::ops::patch::{ApplyHunksOptions, ApplyHunksStatus, apply_patch_with_loader};
 use crate::ops::replace::{
     ReplaceModeError, compile_replace_regex, replace_content, replace_whole_lines,
     replacement_text, validate_replace_mode,
@@ -1186,14 +1186,33 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             }
         }
 
-        Operation::PatchApply { diff } => {
-            let patched_files = apply_patch_with_loader(diff, |path| {
-                let file_path = tx.cwd.join(path);
-                Ok(read_file_content(tx.pending, &file_path)?.to_string())
-            })?;
-            for (rel_path, patched_content) in patched_files {
-                let file_path = tx.cwd.join(&rel_path);
-                update_file_content(tx.pending, tx.deletions, &file_path, patched_content);
+        Operation::PatchApply {
+            diff,
+            on_stale,
+            allow_conflicts,
+        } => {
+            let options = ApplyHunksOptions {
+                on_stale: *on_stale,
+                allow_conflicts: *allow_conflicts,
+            };
+            let patched_files = apply_patch_with_loader(
+                diff,
+                |path| {
+                    let file_path = tx.cwd.join(path);
+                    Ok(read_file_content(tx.pending, &file_path)?.to_string())
+                },
+                options,
+            )?;
+            for result in patched_files {
+                if result.status == ApplyHunksStatus::Conflict && !allow_conflicts {
+                    anyhow::bail!(
+                        "patch apply: {} -- merge produced {} conflict(s); set allow_conflicts to write conflict markers",
+                        result.path,
+                        result.conflicts.len()
+                    );
+                }
+                let file_path = tx.cwd.join(&result.path);
+                update_file_content(tx.pending, tx.deletions, &file_path, result.content);
             }
         }
 
