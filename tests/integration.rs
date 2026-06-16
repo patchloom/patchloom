@@ -1687,6 +1687,139 @@ fn test_replace_multiline_regex() {
 }
 
 // ---------------------------------------------------------------------------
+// replace --whole-line, --range, --collapse-blanks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_whole_line_deletes_matching_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(
+        &file,
+        "fn main() {\n    let _x = foo();\n    let y = bar();\n    let _z = baz();\n}\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("let _")
+        .arg("--whole-line")
+        .arg("--to")
+        .arg("")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn main() {\n    let y = bar();\n}\n"
+    );
+}
+
+#[test]
+fn test_replace_whole_line_with_range() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("bbb")
+        .arg("--whole-line")
+        .arg("--range")
+        .arg("1:3")
+        .arg("--to")
+        .arg("")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nccc\nbbb\neee\n");
+}
+
+#[test]
+fn test_replace_collapse_blanks_after_whole_line_delete() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    // Two blank lines surround "remove"; deleting it leaves consecutive blanks.
+    fs::write(&file, "keep\n\nremove\n\nalso keep\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("remove")
+        .arg("--whole-line")
+        .arg("--to")
+        .arg("")
+        .arg("--collapse-blanks")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep\n\nalso keep\n");
+}
+
+#[test]
+fn test_replace_range_requires_whole_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("hello")
+        .arg("--range")
+        .arg("1:5")
+        .arg("--to")
+        .arg("hi")
+        .arg(file.to_str().unwrap())
+        .assert()
+        .failure();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_tx_replace_whole_line_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "alpha\nbeta match\ngamma\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "match",
+            "to": "replaced line",
+            "whole_line": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha\nreplaced line\ngamma\n"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // doc
 // ---------------------------------------------------------------------------
 
@@ -6877,6 +7010,41 @@ fn test_tx_write_policy_ensure_final_newline() {
         String::from_utf8_lossy(&content).contains("has newline"),
         "replace should still work"
     );
+}
+
+#[test]
+fn test_tx_write_policy_collapse_blanks() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "keep\n\nremove\n\nalso keep\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "write_policy": {
+            "collapse_blanks": true
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "test.txt",
+            "from": "remove",
+            "to": "",
+            "whole_line": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep\n\nalso keep\n");
 }
 
 // ---------------------------------------------------------------------------

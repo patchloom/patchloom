@@ -498,6 +498,29 @@ mod tests {
     }
 
     #[test]
+    fn describe_replace_whole_line_with_range() {
+        let op = Operation::Replace {
+            path: Some("src/lib.rs".into()),
+            glob: None,
+            mode: None,
+            from: "dbg!".into(),
+            to: Some(String::new()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: true,
+            range: Some("10:50".into()),
+        };
+        let desc = describe_operation(&op);
+        assert!(desc.contains("whole-line"), "{desc}");
+        assert!(desc.contains("lines 10:50"), "{desc}");
+        assert!(desc.contains(r#"with """#), "{desc}");
+    }
+
+    #[test]
     fn describe_file_rename() {
         let op = Operation::FileRename {
             from: "old.rs".into(),

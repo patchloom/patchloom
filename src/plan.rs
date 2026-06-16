@@ -33,6 +33,7 @@ pub struct PlanWritePolicy {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
     pub trim_trailing_whitespace: Option<bool>,
+    pub collapse_blanks: Option<bool>,
 }
 
 /// A single operation within a plan.
@@ -460,7 +461,8 @@ mod tests {
             "write_policy": {
                 "ensure_final_newline": true,
                 "normalize_eol": "crlf",
-                "trim_trailing_whitespace": true
+                "trim_trailing_whitespace": true,
+                "collapse_blanks": true
             },
             "operations": [],
             "format": [{"cmd": "fmt", "timeout": 30}],
@@ -472,6 +474,7 @@ mod tests {
         assert_eq!(wp.ensure_final_newline, Some(true));
         assert_eq!(wp.normalize_eol.as_deref(), Some("crlf"));
         assert_eq!(wp.trim_trailing_whitespace, Some(true));
+        assert_eq!(wp.collapse_blanks, Some(true));
         let fmt = &plan.format.unwrap()[0];
         assert_eq!(fmt.timeout, Some(30));
         let val = &plan.validate.unwrap()[0];
