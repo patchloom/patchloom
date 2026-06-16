@@ -41,20 +41,25 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
+    let cwd = global.resolve_cwd()?;
+    let config_strict = crate::config::find_and_load(&cwd)
+        .map(|(config, _)| config.tx.strict)
+        .unwrap_or(None);
+    let strict = crate::plan::effective_strict(plan.strict, config_strict, false);
 
     if global.json || global.jsonl {
-        let summary = build_json_summary(&plan);
+        let summary = build_json_summary(&plan, strict);
         global.emit_json(&summary)?;
     } else if !global.quiet {
-        print_human_summary(&plan);
+        print_human_summary(&plan, strict);
     }
 
     Ok(exit::SUCCESS)
 }
 
-fn print_human_summary(plan: &Plan) {
+fn print_human_summary(plan: &Plan, strict: bool) {
     let n = plan.operations.len();
-    let mode = if plan.strict { "strict" } else { "normal" };
+    let mode = if strict { "strict" } else { "normal" };
     println!("Plan: {n} operation(s) ({mode} mode)\n");
 
     for (i, op) in plan.operations.iter().enumerate() {
@@ -287,7 +292,7 @@ fn describe_operation(op: &Operation) -> String {
     }
 }
 
-fn build_json_summary(plan: &Plan) -> serde_json::Value {
+fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
     let ops: Vec<serde_json::Value> = plan
         .operations
         .iter()
@@ -302,7 +307,7 @@ fn build_json_summary(plan: &Plan) -> serde_json::Value {
 
     serde_json::json!({
         "operation_count": plan.operations.len(),
-        "strict": plan.strict,
+        "strict": strict,
         "operations": ops,
         "has_write_policy": plan.write_policy.is_some(),
         "format_steps": plan.format.as_ref().map(|f| f.len()).unwrap_or(0),
@@ -406,7 +411,7 @@ mod tests {
             version: "1".into(),
             cwd: None,
             write_policy: None,
-            strict: true,
+            strict: Some(true),
             operations: vec![
                 Operation::FileCreate {
                     path: "test.txt".into(),
@@ -421,7 +426,7 @@ mod tests {
             validate: None,
         };
         // Just ensure it doesn't panic.
-        print_human_summary(&plan);
+        print_human_summary(&plan, true);
     }
 
     #[test]
@@ -430,7 +435,7 @@ mod tests {
             version: "1".into(),
             cwd: None,
             write_policy: None,
-            strict: false,
+            strict: Some(false),
             operations: vec![Operation::FileDelete {
                 path: "x.txt".into(),
             }],
@@ -444,7 +449,7 @@ mod tests {
                 timeout: None,
             }]),
         };
-        let json = build_json_summary(&plan);
+        let json = build_json_summary(&plan, false);
         assert_eq!(json["operation_count"], 1);
         assert_eq!(json["format_steps"], 1);
         assert_eq!(json["validate_steps"], 1);

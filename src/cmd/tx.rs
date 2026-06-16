@@ -48,6 +48,8 @@ struct TxOutput {
     error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 /// A single file change in the tx output.
@@ -110,6 +112,10 @@ pub struct TxArgs {
     /// Plan format when reading from stdin (json, yaml, toml). Auto-detected from file extension otherwise.
     #[arg(long)]
     pub plan_format: Option<String>,
+    /// Disable strict rollback on format/validate failure.
+    #[arg(long)]
+    pub no_strict: bool,
+
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -1399,6 +1405,7 @@ fn build_tx_output(
         lints: Vec::new(),
         error_kind: None,
         error: None,
+        backup_session: None,
     }
 }
 
@@ -1413,10 +1420,18 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
+fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
+    match backup_session {
+        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
+        None => error.to_string(),
+    }
+}
+
 fn build_error_output(
     error_kind: &'static str,
     legacy_error_prefix: &str,
     error: &str,
+    backup_session: Option<&str>,
 ) -> TxOutput {
     TxOutput {
         ok: false,
@@ -1429,7 +1444,11 @@ fn build_error_output(
         searches: Vec::new(),
         lints: Vec::new(),
         error_kind: Some(error_kind),
-        error: Some(format!("{legacy_error_prefix}: {error}")),
+        error: Some(format!(
+            "{legacy_error_prefix}: {}",
+            format_error_with_backup_hint(error, backup_session)
+        )),
+        backup_session: backup_session.map(str::to_string),
     }
 }
 
@@ -1445,16 +1464,28 @@ fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
     error: &str,
+    backup_session: Option<&str>,
     compact: bool,
 ) {
     emit_output_json(
-        &build_error_output(error_kind, legacy_error_prefix, error),
+        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
         compact,
     );
 }
 
-fn emit_error_json(error_kind: &'static str, error: &str, compact: bool) {
-    emit_error_json_with_prefix(error_kind, legacy_error_prefix(error_kind), error, compact);
+fn emit_error_json(
+    error_kind: &'static str,
+    error: &str,
+    backup_session: Option<&str>,
+    compact: bool,
+) {
+    emit_error_json_with_prefix(
+        error_kind,
+        legacy_error_prefix(error_kind),
+        error,
+        backup_session,
+        compact,
+    );
 }
 
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
@@ -1794,57 +1825,119 @@ pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathB
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
+/// Failure while committing staged changes to disk.
+#[derive(Debug)]
+pub struct CommitError {
+    pub message: String,
+    pub rollback_ok: bool,
+    pub backup_session: Option<String>,
+}
+
+impl std::fmt::Display for CommitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for CommitError {}
+
+fn commit_error(message: impl Into<String>) -> CommitError {
+    CommitError {
+        message: message.into(),
+        rollback_ok: true,
+        backup_session: None,
+    }
+}
+
 /// Apply pending changes to disk: backup originals, write modified files,
 /// delete removed files, finalize backup session.
+///
+/// If any write fails, restores all already-written files from the backup
+/// session before returning [`CommitError`].
 fn commit_changes(
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     cwd: &Path,
-) -> anyhow::Result<()> {
-    let mut backup = crate::backup::BackupSession::new(cwd)?;
+) -> Result<(), CommitError> {
+    let mut backup = crate::backup::BackupSession::new(cwd)
+        .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
     for (path, _, _) in changes {
         if deletions.contains(path) {
-            backup.save_before_delete(path)?;
+            backup
+                .save_before_delete(path)
+                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
         } else {
-            backup.save_before_write(path)?;
+            backup
+                .save_before_write(path)
+                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
         }
     }
     for path in deletions {
-        backup.save_before_delete(path)?;
+        backup
+            .save_before_delete(path)
+            .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
     }
 
+    // Finalize before writes so undo can recover from a mid-commit failure.
+    let backup_session = backup
+        .finalize()
+        .map_err(|e| commit_error(format!("finalizing backup session: {e}")))?;
+
     let noop_policy = WritePolicy::default();
-    for (path, _, new_content) in changes {
-        if deletions.contains(path) {
-            std::fs::remove_file(path).with_context(|| format!("deleting {}", path.display()))?;
-        } else {
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-                && !parent.exists()
-            {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating directory {}", parent.display()))?;
-            }
-            if !existed_before.contains(path) {
-                atomic_create_new(path, new_content, &noop_policy)?;
+    let write_result = (|| -> anyhow::Result<()> {
+        for (path, _, new_content) in changes {
+            if deletions.contains(path) {
+                std::fs::remove_file(path)
+                    .with_context(|| format!("deleting {}", path.display()))?;
             } else {
-                atomic_write(path, new_content, &noop_policy)?;
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creating directory {}", parent.display()))?;
+                }
+                if !existed_before.contains(path) {
+                    atomic_create_new(path, new_content, &noop_policy)?;
+                } else {
+                    atomic_write(path, new_content, &noop_policy)?;
+                }
             }
         }
-    }
-    for path in deletions {
-        if path.exists() {
-            std::fs::remove_file(path).with_context(|| format!("deleting {}", path.display()))?;
+        for path in deletions {
+            if path.exists() {
+                std::fs::remove_file(path)
+                    .with_context(|| format!("deleting {}", path.display()))?;
+            }
         }
+        Ok(())
+    })();
+
+    if let Err(e) = write_result {
+        let rollback_ok = if let Some(ref ts) = backup_session {
+            crate::backup::restore_session(cwd, ts).is_ok()
+        } else {
+            true
+        };
+        return Err(CommitError {
+            message: e.to_string(),
+            rollback_ok,
+            backup_session,
+        });
     }
-    backup.finalize()?;
+
     Ok(())
 }
 
 /// Build a JSON error string without writing to stdout.
-fn make_error_json(error_kind: &'static str, error: &str) -> String {
-    make_error_json_with_prefix(error_kind, legacy_error_prefix(error_kind), error)
+fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
+    make_error_json_with_prefix(
+        error_kind,
+        legacy_error_prefix(error_kind),
+        error,
+        backup_session,
+    )
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
@@ -1852,9 +1945,48 @@ fn make_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &str,
     error: &str,
+    backup_session: Option<&str>,
 ) -> String {
-    serde_json::to_string_pretty(&build_error_output(error_kind, legacy_error_prefix, error))
-        .unwrap_or_default()
+    serde_json::to_string_pretty(&build_error_output(
+        error_kind,
+        legacy_error_prefix,
+        error,
+        backup_session,
+    ))
+    .unwrap_or_default()
+}
+
+fn config_tx_strict(cwd: &Path) -> Option<bool> {
+    crate::config::find_and_load(cwd)
+        .map(|(config, _)| config.tx.strict)
+        .unwrap_or(None)
+}
+
+fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
+    let error_kind = if err.rollback_ok {
+        "rollback"
+    } else {
+        "rollback_failed"
+    };
+    let exit_code = if err.rollback_ok {
+        exit::ROLLBACK
+    } else {
+        exit::FAILURE
+    };
+    let backup_session = err.backup_session.as_deref();
+    if structured {
+        emit_error_json_with_prefix(
+            error_kind,
+            error_kind,
+            &err.message,
+            backup_session,
+            compact,
+        );
+    } else {
+        let msg = format_error_with_backup_hint(&err.message, backup_session);
+        eprintln!("tx: {msg}");
+    }
+    Ok(exit_code)
 }
 
 /// Execute a parsed [`Plan`] directly and return the exit code and JSON
@@ -1876,17 +2008,22 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
-        return Ok((exit::PARSE_ERROR, make_error_json("parse_error", &msg)));
+        return Ok((
+            exit::PARSE_ERROR,
+            make_error_json("parse_error", &msg, None),
+        ));
     }
     if let Err(e) = validate_plan_operations(&plan) {
         return Ok((
             exit::PARSE_ERROR,
-            make_error_json("parse_error", &e.to_string()),
+            make_error_json("parse_error", &e.to_string(), None),
         ));
     }
 
     // Resolve working directory (plan.cwd overrides argument).
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
+    let config_strict = config_tx_strict(&effective_cwd);
+    let strict = plan::effective_strict(plan.strict, config_strict, false);
 
     // Load project config so write_policy picks up .patchloom.toml settings.
     let mut global = GlobalFlags {
@@ -1901,7 +2038,10 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
     let result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
-            return Ok((exit::ROLLBACK, make_error_json("rollback", &e.to_string())));
+            return Ok((
+                exit::OPERATION_FAILED,
+                make_error_json("operation_failed", &e.to_string(), None),
+            ));
         }
     };
 
@@ -1926,16 +2066,36 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
     }
 
     // Apply: back up originals, write files.
-    commit_changes(
+    if let Err(err) = commit_changes(
         &result.changes,
         &result.deletions,
         &result.existed_before,
         &effective_cwd,
-    )?;
+    ) {
+        let error_kind = if err.rollback_ok {
+            "rollback"
+        } else {
+            "rollback_failed"
+        };
+        let exit_code = if err.rollback_ok {
+            exit::ROLLBACK
+        } else {
+            exit::FAILURE
+        };
+        return Ok((
+            exit_code,
+            make_error_json_with_prefix(
+                error_kind,
+                error_kind,
+                &err.message,
+                err.backup_session.as_deref(),
+            ),
+        ));
+    }
 
     // Run format steps, then validation steps.
     if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
-        if plan.strict {
+        if strict {
             rollback_strict(
                 &result.changes,
                 &result.pending,
@@ -1945,12 +2105,12 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
             return Ok((
                 exit::ROLLBACK,
-                make_error_json_with_prefix(err.kind, "rollback", &msg),
+                make_error_json_with_prefix(err.kind, "rollback", &msg, None),
             ));
         }
         return Ok((
             exit::VALIDATION_FAILED,
-            make_error_json(err.kind, &err.message),
+            make_error_json(err.kind, &err.message, None),
         ));
     }
 
@@ -2005,7 +2165,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Ok(p) => p,
         Err(e) => {
             if structured {
-                emit_error_json("parse_error", &e.to_string(), compact);
+                emit_error_json("parse_error", &e.to_string(), None, compact);
             } else {
                 eprintln!("tx: plan parse error: {e}");
             }
@@ -2020,7 +2180,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             crate::plan::SCHEMA_VERSION
         );
         if structured {
-            emit_error_json("parse_error", &msg, compact);
+            emit_error_json("parse_error", &msg, None, compact);
         } else {
             eprintln!("tx: {msg}");
         }
@@ -2029,7 +2189,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if let Err(e) = validate_plan_operations(&plan) {
         if structured {
-            emit_error_json("parse_error", &e.to_string(), compact);
+            emit_error_json("parse_error", &e.to_string(), None, compact);
         } else {
             eprintln!("tx: plan parse error: {e}");
         }
@@ -2039,6 +2199,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 3. Resolve working directory (plan.cwd overrides global --cwd).
     let base_cwd = global.resolve_cwd()?;
     let cwd = resolve_plan_cwd(&base_cwd, plan.cwd.as_deref());
+    let config_strict = config_tx_strict(&cwd);
+    let strict = plan::effective_strict(plan.strict, config_strict, args.no_strict);
 
     if plan.cwd.is_some() && !cwd.is_dir() {
         let msg = format!(
@@ -2046,7 +2208,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             plan.cwd.as_deref().expect("plan.cwd checked above")
         );
         if structured {
-            emit_error_json("parse_error", &msg, compact);
+            emit_error_json("parse_error", &msg, None, compact);
         } else {
             eprintln!("tx: {msg}");
         }
@@ -2059,11 +2221,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Err(e) => {
             let msg = e.to_string();
             if structured {
-                emit_error_json("rollback", &msg, compact);
+                emit_error_json("operation_failed", &msg, None, compact);
             } else {
                 eprintln!("tx: {msg}");
             }
-            return Ok(exit::ROLLBACK);
+            return Ok(exit::OPERATION_FAILED);
         }
     };
 
@@ -2120,12 +2282,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
-        commit_changes(
+        if let Err(err) = commit_changes(
             &result.changes,
             &result.deletions,
             &result.existed_before,
             &cwd,
-        )?;
+        ) {
+            return handle_commit_error(err, structured, compact);
+        }
 
         // Show diffs if --diff flag is set.
         if global.diff && !result.changes.is_empty() {
@@ -2134,7 +2298,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         // 6. Run format steps, then validation steps.
         if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
-            if plan.strict {
+            if strict {
                 rollback_strict(
                     &result.changes,
                     &result.pending,
@@ -2143,14 +2307,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 );
                 let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
                 if structured {
-                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, compact);
+                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, compact);
                 } else {
                     eprintln!("tx: {rollback_msg}");
                 }
                 return Ok(exit::ROLLBACK);
             }
             if structured {
-                emit_error_json(err.kind, &err.message, compact);
+                emit_error_json(err.kind, &err.message, None, compact);
             }
             return Ok(exit::VALIDATION_FAILED);
         }
@@ -2207,13 +2371,16 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
-    if !result.no_effective_changes && global.should_apply() {
-        commit_changes(
+    if !result.no_effective_changes
+        && global.should_apply()
+        && let Err(err) = commit_changes(
             &result.changes,
             &result.deletions,
             &result.existed_before,
             &cwd,
-        )?;
+        )
+    {
+        return handle_commit_error(err, structured, compact);
     }
 
     Ok(exit::SUCCESS)
@@ -2387,6 +2554,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2424,6 +2592,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2467,13 +2636,14 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::ROLLBACK);
+        assert_eq!(code, exit::OPERATION_FAILED);
 
         // Verify no files were modified.
         assert_eq!(fs::read_to_string(&txt).unwrap(), "hello world\n");
@@ -2488,7 +2658,7 @@ mod tests {
 
     #[test]
     fn build_error_output_produces_expected_shape() {
-        let output = build_error_output("rollback", "rollback", "disk full");
+        let output = build_error_output("rollback", "rollback", "disk full", None);
         assert!(!output.ok);
         assert_eq!(output.status, "error");
         assert_eq!(output.error_kind, Some("rollback"));
@@ -2514,6 +2684,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2530,6 +2701,7 @@ mod tests {
 
         let plan_json = serde_json::json!({
             "version": "1",
+            "strict": false,
             "operations": [],
             "validate": [
                 {"cmd": shell_false(), "required": true}
@@ -2542,6 +2714,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2570,6 +2743,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2597,6 +2771,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let global = default_global();
@@ -2706,6 +2881,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2743,13 +2919,14 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::ROLLBACK);
+        assert_eq!(code, exit::OPERATION_FAILED);
 
         // Verify the original file was NOT modified.
         assert_eq!(fs::read_to_string(&existing).unwrap(), "original content\n");
@@ -2845,6 +3022,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2881,6 +3059,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2914,13 +3093,14 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::ROLLBACK);
+        assert_eq!(code, exit::OPERATION_FAILED);
         // Both files unchanged.
         assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
         assert_eq!(fs::read_to_string(&dst).unwrap(), "dest\n");
@@ -2950,6 +3130,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -2989,6 +3170,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3014,6 +3196,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let global = default_global();
@@ -3049,6 +3232,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3124,6 +3308,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3132,8 +3317,8 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::ROLLBACK,
-            "doc.append to non-array should roll back"
+            exit::OPERATION_FAILED,
+            "doc.append to non-array should fail before commit"
         );
     }
 
@@ -3158,6 +3343,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3166,8 +3352,8 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::ROLLBACK,
-            "doc.prepend to non-array should roll back"
+            exit::OPERATION_FAILED,
+            "doc.prepend to non-array should fail before commit"
         );
     }
 
@@ -3192,6 +3378,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3200,8 +3387,8 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::ROLLBACK,
-            "doc.delete_where on non-array should roll back"
+            exit::OPERATION_FAILED,
+            "doc.delete_where on non-array should fail before commit"
         );
     }
 
@@ -3230,6 +3417,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3238,8 +3426,8 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::ROLLBACK,
-            "strict plan with failing op should roll back"
+            exit::OPERATION_FAILED,
+            "strict plan with failing op should fail before commit"
         );
 
         // File should remain untouched because execution failed before any writes.
@@ -3268,6 +3456,7 @@ mod tests {
         let args = TxArgs {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
+            no_strict: false,
             write: Default::default(),
         };
         let mut global = default_global();
@@ -3276,9 +3465,35 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::ROLLBACK,
-            "invalid normalize_eol should cause rollback"
+            exit::OPERATION_FAILED,
+            "invalid normalize_eol should fail before commit"
         );
+    }
+
+    #[test]
+    fn commit_changes_rolls_back_on_mid_write_failure() {
+        let dir = TempDir::new().unwrap();
+        let f1 = dir.path().join("a.txt");
+        let blocker = dir.path().join("blocker");
+        fs::write(&f1, "original-a").unwrap();
+        fs::write(&blocker, "blocker-is-file").unwrap();
+        let f2 = blocker.join("b.txt");
+
+        let changes = vec![
+            (f1.clone(), "original-a".to_string(), "new-a".to_string()),
+            (f2.clone(), String::new(), "new-b".to_string()),
+        ];
+        let deletions = HashSet::new();
+        let existed_before: HashSet<_> = [f1.clone()].into();
+
+        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
+        assert!(err.rollback_ok, "rollback should succeed");
+        assert!(
+            err.backup_session.is_some(),
+            "backup session should be recorded"
+        );
+        assert_eq!(fs::read_to_string(&f1).unwrap(), "original-a");
+        assert!(!f2.exists());
     }
 
     #[test]

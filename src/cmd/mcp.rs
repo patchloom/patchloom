@@ -26,6 +26,10 @@ use crate::plan::{Operation, Plan};
 // Tool parameter types
 // ---------------------------------------------------------------------------
 
+fn default_strict_true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DocSetParams {
@@ -35,6 +39,9 @@ pub struct DocSetParams {
     pub selector: String,
     /// Value to set (string, number, boolean, object, or array).
     pub value: serde_json::Value,
+    /// Roll back all writes when format/validate lifecycle steps fail.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -143,6 +150,9 @@ pub struct ReplaceParams {
     pub whole_line: bool,
     /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
     pub range: Option<String>,
+    /// Roll back all writes when format/validate lifecycle steps fail.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -275,6 +285,9 @@ pub struct DeleteFileParams {
 pub struct PatchParams {
     /// Unified diff text to apply.
     pub diff: String,
+    /// Roll back all writes when format/validate lifecycle steps fail.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -356,6 +369,9 @@ pub struct BatchReplaceParams {
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[serde(default)]
     pub multiline: bool,
+    /// Roll back all writes when format/validate lifecycle steps fail.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -363,6 +379,9 @@ pub struct BatchReplaceParams {
 pub struct BatchTidyParams {
     /// File paths to normalize (relative to working directory).
     pub files: Vec<String>,
+    /// Roll back all writes when format/validate lifecycle steps fail.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -581,7 +600,7 @@ fn validate_operation_paths(
                 p
             }
             Operation::FileRename { from, to, .. } => vec![from.as_str(), to.as_str()],
-            Operation::PatchApply { diff } => {
+            Operation::PatchApply { diff, .. } => {
                 // Validate paths embedded in the unified diff text (#229).
                 let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
                     McpError::invalid_params(
@@ -740,11 +759,15 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
 }
 
 fn make_plan(operations: Vec<Operation>) -> Plan {
+    make_plan_strict(operations, None)
+}
+
+fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
     Plan {
         version: crate::plan::SCHEMA_VERSION.to_string(),
         cwd: None,
         write_policy: None,
-        strict: false,
+        strict,
         operations,
         format: None,
         validate: None,
@@ -764,11 +787,14 @@ impl PatchloomService {
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
         execute_plan_validated(
-            make_plan(vec![Operation::DocSet {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            }]),
+            make_plan_strict(
+                vec![Operation::DocSet {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                }],
+                Some(p.strict),
+            ),
             &self.cwd,
         )
     }
@@ -1167,21 +1193,24 @@ impl PatchloomService {
             None
         };
         execute_plan_validated(
-            make_plan(vec![Operation::Replace {
-                glob: None,
-                path: Some(p.path),
-                mode,
-                from: p.from,
-                to: p.to,
-                nth: p.nth,
-                insert_before: p.insert_before,
-                insert_after: p.insert_after,
-                case_insensitive: p.case_insensitive,
-                multiline: p.multiline,
-                if_exists: p.if_exists,
-                whole_line: p.whole_line,
-                range: p.range,
-            }]),
+            make_plan_strict(
+                vec![Operation::Replace {
+                    glob: None,
+                    path: Some(p.path),
+                    mode,
+                    from: p.from,
+                    to: p.to,
+                    nth: p.nth,
+                    insert_before: p.insert_before,
+                    insert_after: p.insert_after,
+                    case_insensitive: p.case_insensitive,
+                    multiline: p.multiline,
+                    if_exists: p.if_exists,
+                    whole_line: p.whole_line,
+                    range: p.range,
+                }],
+                Some(p.strict),
+            ),
             &self.cwd,
         )
     }
@@ -1413,7 +1442,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\"}"
+        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -1428,7 +1457,7 @@ impl PatchloomService {
         }
 
         execute_plan_validated(
-            make_plan(vec![Operation::PatchApply { diff: p.diff }]),
+            make_plan_strict(vec![Operation::PatchApply { diff: p.diff }], Some(p.strict)),
             &self.cwd,
         )
     }
@@ -1476,7 +1505,7 @@ impl PatchloomService {
                 range: None,
             })
             .collect();
-        execute_plan_validated(make_plan(ops), &self.cwd)
+        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), &self.cwd)
     }
 
     #[tool(
@@ -1506,7 +1535,7 @@ impl PatchloomService {
                 normalize_eol: None,
             })
             .collect();
-        execute_plan_validated(make_plan(ops), &self.cwd)
+        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), &self.cwd)
     }
 }
 

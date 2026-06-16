@@ -13,6 +13,13 @@ pub struct ProjectConfig {
     pub write_policy: WritePolicy,
     pub exclude: Exclude,
     pub output: Output,
+    pub tx: TxConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TxConfig {
+    pub strict: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -236,6 +243,15 @@ color = "always"
     }
 
     #[test]
+    fn find_and_load_tx_strict_override() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".patchloom.toml"), "[tx]\nstrict = false\n").unwrap();
+
+        let (config, _) = find_and_load(dir.path()).unwrap();
+        assert_eq!(config.tx.strict, Some(false));
+    }
+
+    #[test]
     fn find_and_load_returns_none_when_missing() {
         let dir = TempDir::new().unwrap();
         assert!(find_and_load(dir.path()).is_none());
@@ -256,6 +272,7 @@ color = "always"
             output: Output {
                 color: Some("always".into()),
             },
+            tx: TxConfig::default(),
         };
         let mut global = crate::cli::global::GlobalFlags::default();
         apply_config(&mut global, &config);

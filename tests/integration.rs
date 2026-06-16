@@ -3711,12 +3711,12 @@ fn test_tx_rollback_on_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7);
+        .code(4);
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
     assert_eq!(
         txt_content, "hello world\n",
-        "file should not be modified on rollback"
+        "file should not be modified on operation failure"
     );
 }
 
@@ -3749,14 +3749,51 @@ fn test_tx_rollback_preserves_original_content() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 
-    // a.json should be unchanged (rolled back).
+    // a.json should be unchanged (no writes occurred).
     let content = fs::read_to_string(&file_a).unwrap();
     assert_eq!(
         content, r#"{"key": "original"}"#,
         "a.json should be rolled back"
     );
+}
+
+#[test]
+fn test_tx_mid_commit_failure_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let good = dir.path().join("good.txt");
+    fs::write(&good, "original\n").unwrap();
+    let blocker = dir.path().join("blocker");
+    fs::write(&blocker, "not-a-directory").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "file.create", "path": "good.txt", "content": "changed\n", "force": true},
+            {"op": "file.create", "path": "blocker/child.txt", "content": "fail\n"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(7)); // ROLLBACK after mid-commit failure
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "rollback");
+    assert!(json["backup_session"].is_string());
+    assert_eq!(fs::read_to_string(&good).unwrap(), "original\n");
+    assert!(!dir.path().join("blocker/child.txt").exists());
 }
 
 #[test]
@@ -6874,7 +6911,7 @@ fn test_tx_file_delete_directory_target_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
@@ -7248,6 +7285,7 @@ fn test_tx_validate_required_failure_exits_6() {
 
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [
             {"op": "replace", "path": "test.txt", "from": "old", "to": "new"}
         ],
@@ -7471,7 +7509,7 @@ fn test_tx_file_rename_directory_source_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("source is not a file"));
 
     assert!(src.is_dir(), "source directory should remain in place");
@@ -7535,8 +7573,8 @@ fn test_tx_file_rename_fails_if_dst_exists() {
         .output()
         .unwrap();
 
-    // Should roll back (exit 7).
-    assert_eq!(output.status.code(), Some(7));
+    // Operation fails before commit (exit 4).
+    assert_eq!(output.status.code(), Some(4));
     // Both files should be untouched.
     assert_eq!(
         fs::read_to_string(dir.path().join("old.txt")).unwrap(),
@@ -7602,7 +7640,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -7632,7 +7670,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
         .arg(&plan_file)
         .arg("--check")
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -7662,7 +7700,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -8508,7 +8546,7 @@ fn test_explain_json_output() {
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["operation_count"], 1);
-    assert_eq!(json["strict"], false);
+    assert_eq!(json["strict"], true);
     assert!(json["has_write_policy"].is_boolean());
     assert_eq!(json["format_steps"], 0);
     assert_eq!(json["validate_steps"], 0);
@@ -9727,7 +9765,7 @@ fn test_tx_file_create_force_directory_target_fails() {
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .assert()
-        .code(7)
+        .code(4)
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
@@ -9785,7 +9823,7 @@ fn test_tx_file_create_without_force_fails_on_existing() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
@@ -9879,7 +9917,7 @@ fn test_tx_doc_set_unsupported_format_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 
     // Original content must be preserved.
     assert_eq!(
@@ -10487,7 +10525,7 @@ fn test_tx_md_replace_section_nonexistent_file_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 }
 
 #[test]
@@ -10514,7 +10552,7 @@ fn test_tx_md_replace_section_missing_heading_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 
     // Original content must be preserved.
     assert_eq!(
@@ -11044,6 +11082,7 @@ fn test_tx_validate_timeout_kills_hanging_command() {
 
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -11077,6 +11116,7 @@ fn test_tx_format_timeout_kills_hanging_command() {
 
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12038,9 +12078,10 @@ fn test_tx_json_output_on_operation_failure() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    assert_eq!(output.status.code(), Some(4)); // OPERATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "operation_failed");
     assert!(
         json["error"]
             .as_str()
@@ -12223,6 +12264,7 @@ fn test_tx_validation_failure_redacts_shell_command_in_stderr() {
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12261,6 +12303,7 @@ fn test_tx_json_output_on_validation_failure_redacts_shell_command() {
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12303,6 +12346,7 @@ fn test_tx_json_output_on_validation_failure() {
 
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12456,6 +12500,7 @@ fn test_tx_non_strict_format_failure_exits_6_not_7() {
 
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12490,6 +12535,7 @@ fn test_tx_format_failure_redacts_shell_command_in_stderr() {
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -12527,6 +12573,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     let secret = "TOKEN=super-secret-value";
     let plan = serde_json::json!({
             "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -13060,7 +13107,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 
     // Original content unchanged.
     assert_eq!(
@@ -13093,7 +13140,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 }
 
 #[test]
@@ -13953,7 +14000,7 @@ fn test_batch_nonexistent_target_file_rollback() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(4); // OPERATION_FAILED
 }
 
 #[test]
@@ -14172,6 +14219,7 @@ fn test_tx_json_output_reports_lifecycle_cwd_for_relative_plan_cwd() {
 
     let plan = serde_json::json!({
         "version": "1",
+        "strict": false,
         "cwd": "nested",
         "operations": [{
             "op": "file.create",
@@ -14302,6 +14350,7 @@ fn test_tx_lifecycle_stderr_captured_in_validation_error() {
     let stderr_cmd = "echo 'CUSTOM_ERROR: something went wrong' >&2 && exit 1";
     let plan = serde_json::json!({
         "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -14345,6 +14394,7 @@ fn test_tx_lifecycle_stderr_captured_in_format_error() {
     let stderr_cmd = "echo 'FMT_FAIL: bad formatting' >&2 && exit 1";
     let plan = serde_json::json!({
         "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),
@@ -14389,6 +14439,7 @@ fn test_tx_lifecycle_stderr_truncated_when_exceeding_limit() {
     let stderr_cmd = "for i in 1 2 3 4 5 6 7 8 9 10; do echo \"LONGLINE_${i}_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\" >&2; done && exit 1";
     let plan = serde_json::json!({
         "version": "1",
+        "strict": false,
         "operations": [{
             "op": "replace",
             "path": file.to_str().unwrap(),

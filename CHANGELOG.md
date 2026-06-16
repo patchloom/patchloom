@@ -4,6 +4,12 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **tx** - **Breaking:** `strict` now defaults to `true` in plans, MCP write tools, and `batch`. Use `"strict": false`, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to opt out. Operation staging failures now exit 4 with `error_kind: operation_failed` (was exit 7). Mid-commit write failures roll back via the backup session (exit 7 `rollback`, or exit 1 `rollback_failed` if rollback is incomplete).
+
 ## [0.1.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.6...patchloom-v0.1.7) (2026-06-16)
 
 

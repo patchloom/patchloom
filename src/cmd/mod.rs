@@ -383,10 +383,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 1 | Failure (error during execution) |\n\
              | 2 | Changes detected (`--check` mode found pending changes) |\n\
              | 3 | No matches (search/replace found nothing matching the pattern) |\n\
-             | 4 | Parse error (malformed input file or plan) |\n\
+             | 4 | Parse error (malformed input file or plan), or tx operation staging failure (`operation_failed`) |\n\
              | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
              | 6 | Validation failed (tx plan validation step returned non-zero) |\n\
-             | 7 | Rollback (tx apply failed partway; changes were rolled back) |\n\n",
+             | 7 | Rollback (tx commit or strict lifecycle failure; changes were rolled back) |\n\n",
         );
     }
 
