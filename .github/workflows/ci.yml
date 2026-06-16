@@ -226,9 +226,15 @@ jobs:
       - name: Fetch crates.io download count
         id: downloads
         run: |
-          count=$(curl -fsSL -H "User-Agent: patchloom-ci" \
-            "https://crates.io/api/v1/crates/patchloom" \
-            | python3 -c "import json,sys; print(json.load(sys.stdin)['crate']['downloads'])")
+          count=$(python3 -c "
+          import json, urllib.request
+          req = urllib.request.Request(
+              'https://crates.io/api/v1/crates/patchloom',
+              headers={'User-Agent': 'patchloom-ci'},
+          )
+          with urllib.request.urlopen(req) as resp:
+              print(json.load(resp)['crate']['downloads'])
+          ")
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
       - name: Update coverage badge
