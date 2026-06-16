@@ -4,6 +4,29 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.6...patchloom-v0.1.7) (2026-06-16)
+
+
+### Features
+
+* add --whole-line, --range, and --collapse-blanks to replace ([#564](https://github.com/patchloom/patchloom/issues/564)) ([5651320](https://github.com/patchloom/patchloom/commit/56513207a0c7f7c18b3745825fc369eb04cc1271)), closes [#563](https://github.com/patchloom/patchloom/issues/563)
+* close [#573](https://github.com/patchloom/patchloom/issues/573) and [#574](https://github.com/patchloom/patchloom/issues/574) - complete API parity and edge case tests ([#576](https://github.com/patchloom/patchloom/issues/576)) ([d6fc1a9](https://github.com/patchloom/patchloom/commit/d6fc1a99fb1f36045bd309a4707d8f4a84919bb5))
+* md.move-section -- move a heading section between files ([#554](https://github.com/patchloom/patchloom/issues/554)) ([d6f42e7](https://github.com/patchloom/patchloom/commit/d6f42e7e97db115d3506ab8295c4e261aee2f67e)), closes [#553](https://github.com/patchloom/patchloom/issues/553)
+
+
+### Bug Fixes
+
+* improvement cycle 11 — config, schema, MCP tests, docs ([#568](https://github.com/patchloom/patchloom/issues/568)) ([ea4967b](https://github.com/patchloom/patchloom/commit/ea4967bc53f0d123fbdb6c9336a53f66638ab3be))
+* improvement cycle 11b - docs, CI hardening ([#569](https://github.com/patchloom/patchloom/issues/569)) ([5041287](https://github.com/patchloom/patchloom/commit/5041287207d695f45e82200b063b39ae3e6f4159))
+* improvement cycle 12 - Windows CI, fuzz CI matrix ([#572](https://github.com/patchloom/patchloom/issues/572)) ([c24792f](https://github.com/patchloom/patchloom/commit/c24792fe51a540c6afb2e8f66cf2f54648b561fe))
+* improvement cycle 13 - tests, inline refactor, error context ([#575](https://github.com/patchloom/patchloom/issues/575)) ([6208177](https://github.com/patchloom/patchloom/commit/6208177ad64228b4278310f39a4f23ccab50068b))
+* improvement cycle 14 - strengthen weak test assertions ([#577](https://github.com/patchloom/patchloom/issues/577)) ([2ba2396](https://github.com/patchloom/patchloom/commit/2ba2396ea310c7ccf78913dcfe1e82ca5610e311))
+* make unit tests portable in Docker and pseudo-TTY environments ([#579](https://github.com/patchloom/patchloom/issues/579)) ([591b4d8](https://github.com/patchloom/patchloom/commit/591b4d83db426ff7cea6c69926698e5bd3182d15))
+* md move-section same-file path detection and cross-file --check mode ([#556](https://github.com/patchloom/patchloom/issues/556)) ([da76cc5](https://github.com/patchloom/patchloom/commit/da76cc5cb0ce1ecfee8027ba7b7d1c3d6a577bdf))
+* rename same-file detection via path canonicalization ([#557](https://github.com/patchloom/patchloom/issues/557)) ([a1b5573](https://github.com/patchloom/patchloom/commit/a1b5573a573744ebcd5806beae187e8e232ec5aa))
+* replace broken shields.io badges with gist endpoints ([#578](https://github.com/patchloom/patchloom/issues/578)) ([23b14f3](https://github.com/patchloom/patchloom/commit/23b14f389a12c8d044cc79cb29ff6eb1b751f3de))
+* update MCP bench to use individual tool calls ([#570](https://github.com/patchloom/patchloom/issues/570)) ([655a1d2](https://github.com/patchloom/patchloom/commit/655a1d24b7d9e89c73d9f91a852957a2a8327681))
+
 ## [0.1.6](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.5...patchloom-v0.1.6) (2026-06-08)
 
 
