@@ -17,6 +17,7 @@ use crate::ops::replace::{
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::write::{WritePolicy, apply_policy, atomic_create_new, atomic_write};
+use anyhow::Context;
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -1816,13 +1817,14 @@ fn commit_changes(
     let noop_policy = WritePolicy::default();
     for (path, _, new_content) in changes {
         if deletions.contains(path) {
-            std::fs::remove_file(path)?;
+            std::fs::remove_file(path).with_context(|| format!("deleting {}", path.display()))?;
         } else {
             if let Some(parent) = path.parent()
                 && !parent.as_os_str().is_empty()
                 && !parent.exists()
             {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating directory {}", parent.display()))?;
             }
             if !existed_before.contains(path) {
                 atomic_create_new(path, new_content, &noop_policy)?;
@@ -1833,7 +1835,7 @@ fn commit_changes(
     }
     for path in deletions {
         if path.exists() {
-            std::fs::remove_file(path)?;
+            std::fs::remove_file(path).with_context(|| format!("deleting {}", path.display()))?;
         }
     }
     backup.finalize()?;

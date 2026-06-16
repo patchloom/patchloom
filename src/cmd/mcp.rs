@@ -702,10 +702,6 @@ impl PatchloomService {
 /// Each individual MCP tool validates paths via `check_path` before calling
 /// this function, so no redundant validation is needed here.
 fn execute_plan_validated(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
-    execute_plan_inner(plan, cwd)
-}
-
-fn execute_plan_inner(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
     let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd)
         .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
 

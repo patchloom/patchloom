@@ -526,6 +526,25 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_trailing_backslash_error() {
+        let err = tokenize(r#"doc.set f.json key "trail\"#).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("unexpected end of line after backslash"),
+            "expected backslash error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn tokenize_unterminated_quote_error() {
+        let err = tokenize(r#"doc.set f.json key "no close"#).unwrap_err();
+        assert!(
+            err.to_string().contains("unterminated double quote"),
+            "expected unterminated quote error, got: {err}"
+        );
+    }
+
+    #[test]
     fn parse_json_value_quoted_string() {
         let v = parse_json_value(r#""2.0.0""#).unwrap();
         assert_eq!(v, serde_json::json!("2.0.0"));

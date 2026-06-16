@@ -1378,6 +1378,93 @@ mod tests {
     }
 
     #[test]
+    fn doc_get_zero_match_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.json");
+        fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
+
+        let err = doc_get(&file, "nonexistent").unwrap_err();
+        assert!(
+            err.to_string().contains("matched nothing"),
+            "expected zero-match error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn doc_get_multi_match_returns_array() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.json");
+        fs::write(&file, r#"{"items": [{"name": "a"}, {"name": "b"}]}"#).unwrap();
+
+        let value = doc_get(&file, "items[*].name").unwrap();
+        assert_eq!(value, serde_json::json!(["a", "b"]));
+    }
+
+    #[test]
+    fn replace_text_regex_mode() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "version = 1\nversion = 2\n").unwrap();
+
+        let opts = ReplaceOptions {
+            regex: true,
+            ..ReplaceOptions::default()
+        };
+        let result = replace_text(
+            &file,
+            r"version = \d+",
+            "version = 99",
+            &opts,
+            ApplyMode::Preview,
+        )
+        .unwrap();
+
+        assert!(result.changed);
+        // Regex replaces all matches
+        assert_eq!(
+            result.new_content.matches("version = 99").count(),
+            2,
+            "regex should replace all occurrences"
+        );
+    }
+
+    #[test]
+    fn replace_text_nth_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "foo bar foo baz foo\n").unwrap();
+
+        let opts = ReplaceOptions {
+            nth: Some(2),
+            ..ReplaceOptions::default()
+        };
+        let result = replace_text(&file, "foo", "qux", &opts, ApplyMode::Preview).unwrap();
+
+        assert!(result.changed);
+        assert_eq!(result.new_content, "foo bar qux baz foo\n");
+    }
+
+    #[test]
+    fn replace_text_insert_after() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let opts = ReplaceOptions {
+            insert_after: Some(" beautiful".to_string()),
+            ..ReplaceOptions::default()
+        };
+        let result = replace_text(&file, "hello", "", &opts, ApplyMode::Preview).unwrap();
+
+        assert!(result.changed);
+        assert!(
+            result.new_content.contains("hello beautiful"),
+            "insert_after should add text after match: {}",
+            result.new_content
+        );
+    }
+
+    #[test]
     fn concurrent_file_create() {
         let dir = TempDir::new().unwrap();
         let num_threads = 8;
