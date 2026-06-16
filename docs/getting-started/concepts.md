@@ -129,6 +129,7 @@ Every command returns a specific exit code:
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
 | 7 | Rollback (strict mode, no writes remain) |
+| 8 | Patch merge conflicts detected (apply blocked unless `--allow-conflicts`) |
 
 These codes let CI pipelines and agent frameworks branch on outcomes without parsing output.
 

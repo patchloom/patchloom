@@ -12572,6 +12572,71 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
 }
 
 #[test]
+fn test_tx_default_strict_reverts_on_format_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": shell_exit_1()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(7);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+}
+
+#[test]
+fn test_tx_no_strict_cli_overrides_default_on_format_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": shell_exit_1()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--no-strict")
+        .assert()
+        .code(6);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+#[test]
 fn test_tx_non_strict_format_failure_exits_6_not_7() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
