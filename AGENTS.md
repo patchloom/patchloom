@@ -138,6 +138,8 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Test both the internal functions and the public `run()` function to verify exit codes.
 - When embedding file paths in YAML or TOML plan strings in integration tests, use `portable_path_str(&path)` (defined in `tests/integration.rs`) to convert backslashes to forward slashes. Windows paths like `C:\Users` contain `\U` which YAML and TOML parsers interpret as a unicode escape sequence.
 - For non-existent file paths in tests, use `nonexistent_path("name")` which returns a platform-appropriate path.
+- `cargo test --lib` runs tests in parallel (CI too). For test-only failure-injection hooks, use `thread_local!` plus an RAII guard (e.g. `RestoreFailGuard` in `src/cmd/tx.rs`), not a process-global `static`. Verify hook-related unit tests with `cargo test --lib <filter> -- --test-threads=16` before push.
+- Integration tests that need `#[cfg(test)]` hooks on tx commit/rollback paths must call in-process helpers such as `execute_plan_direct()` in `tests/integration.rs`. `assert_cmd::cargo_bin` subprocesses load the release binary and cannot see library `cfg(test)` hooks.
 
 ### Writes
 
