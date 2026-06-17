@@ -33,35 +33,35 @@ pub enum DocAction {
     Get {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
     },
     /// Check whether a selector path exists.
     Has {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
     },
     /// List object keys at a path.
     Keys {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
     },
     /// Count items in an array or object.
     Len {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
     },
     /// Set or create a value at a selector path.
     Set {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
         /// Value (JSON literal or bare string).
         value: String,
@@ -70,14 +70,14 @@ pub enum DocAction {
     Delete {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
     },
     /// Delete array items matching a predicate.
     DeleteWhere {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
         // ref:doc-mode:predicate
         /// Predicate in key=value format.
@@ -123,7 +123,7 @@ pub enum DocAction {
     Update {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[*].enabled).
+        /// Selector path (e.g. `server.port`, `items[*].enabled`).
         selector: String,
         /// New value (JSON literal or bare string).
         value: String,
@@ -141,7 +141,7 @@ pub enum DocAction {
     Ensure {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. server.port, items[0].name).
+        /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
         /// Value to set if missing (JSON literal or bare string).
         value: String,

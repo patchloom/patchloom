@@ -34,7 +34,7 @@ fn default_strict_true() -> bool {
 pub struct DocSetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Selector for the value to set (e.g., "version", "db.pool", "items[0].name").
+    /// Selector for the value to set (e.g., `version`, `db.pool`, `items[0].name`).
     pub selector: String,
     /// Value to set (string, number, boolean, object, or array).
     pub value: serde_json::Value,
@@ -88,7 +88,7 @@ pub struct DocEnsureParams {
 pub struct DocUpdateParams {
     /// File path.
     pub path: String,
-    /// Wildcard selector for items to update (e.g., "items[*]").
+    /// Wildcard selector for items to update (e.g., `items[*]`).
     pub selector: String,
     /// Value to set on each matched item.
     pub value: serde_json::Value,
