@@ -248,7 +248,7 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
     s
 }
 
-/// Build a [`WritePolicy`] from [`GlobalFlags`], optionally merging
+/// Build a [`WritePolicy`] from [`GlobalFlags`](crate::cli::global::GlobalFlags), optionally merging
 /// EditorConfig properties for the given file path.
 ///
 /// Explicit CLI flags always win.  When `--respect-editorconfig` is set and
