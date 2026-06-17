@@ -1874,6 +1874,23 @@ fn commit_error(message: impl Into<String>) -> CommitError {
 pub static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+/// RAII guard that forces restore failure for tests using [`FORCE_RESTORE_FAIL`].
+#[doc(hidden)]
+pub struct RestoreFailGuard;
+
+impl RestoreFailGuard {
+    pub fn engage() -> Self {
+        FORCE_RESTORE_FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for RestoreFailGuard {
+    fn drop(&mut self) {
+        FORCE_RESTORE_FAIL.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Restore files from a backup session after a failed commit. Returns `true`
 /// when restore completed successfully.
 fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
@@ -3531,9 +3548,8 @@ mod tests {
         let deletions = HashSet::new();
         let existed_before: HashSet<_> = [f1.clone()].into();
 
-        FORCE_RESTORE_FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _guard = RestoreFailGuard::engage();
         let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
-        FORCE_RESTORE_FAIL.store(false, std::sync::atomic::Ordering::SeqCst);
 
         assert!(!err.rollback_ok, "restore should be reported as failed");
         assert!(err.backup_session.is_some());
