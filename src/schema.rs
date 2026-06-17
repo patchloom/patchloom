@@ -433,11 +433,11 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
             examples: vec![
                 OperationExample {
                     description: "Reorder within same file".into(),
-                    args: serde_json::json!({"path": "README.md", "heading": "## FAQ", "before": "## License"}),
+                    args: serde_json::json!({"op": "md.move_section", "path": "README.md", "heading": "## FAQ", "before": "## License"}),
                 },
                 OperationExample {
                     description: "Move section to another file".into(),
-                    args: serde_json::json!({"path": "spec.md", "heading": "## Appendix E", "to": "investigation.md", "after": "## Layer 4"}),
+                    args: serde_json::json!({"op": "md.move_section", "path": "spec.md", "heading": "## Appendix E", "to": "investigation.md", "after": "## Layer 4"}),
                 },
             ],
         },
@@ -902,6 +902,29 @@ mod tests {
                 "schema {}: must have 'required' field",
                 schema.name
             );
+        }
+    }
+
+    #[test]
+    fn operation_examples_include_op_field() {
+        for schema in operation_schemas() {
+            for ex in &schema.examples {
+                let op = ex
+                    .args
+                    .get("op")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "schema {} example {:?}: missing 'op' field",
+                            schema.name, ex.description
+                        )
+                    });
+                assert_eq!(
+                    op, schema.name,
+                    "schema {} example {:?}: op must match operation name",
+                    schema.name, ex.description
+                );
+            }
         }
     }
 
