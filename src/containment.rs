@@ -308,6 +308,18 @@ mod tests {
         assert!(guard.check_path(abs.to_str().unwrap()).is_ok());
     }
 
+    /// Return an absolute path string that is guaranteed outside any temp dir.
+    fn outside_absolute_path() -> &'static str {
+        #[cfg(unix)]
+        {
+            "/etc/passwd"
+        }
+        #[cfg(windows)]
+        {
+            "C:\\Windows\\System32\\notepad.exe"
+        }
+    }
+
     #[test]
     fn absolute_path_outside_workspace_with_allow_if_contained() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -316,7 +328,7 @@ mod tests {
             AbsolutePathPolicy::AllowIfContained,
         )
         .unwrap();
-        let err = guard.check_path("/etc/passwd").unwrap_err();
+        let err = guard.check_path(outside_absolute_path()).unwrap_err();
         assert!(matches!(err, ContainmentError::Escaped { .. }));
     }
 
@@ -324,7 +336,7 @@ mod tests {
     fn absolute_path_with_reject_policy() {
         let dir = tempfile::TempDir::new().unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-        let err = guard.check_path("/etc/passwd").unwrap_err();
+        let err = guard.check_path(outside_absolute_path()).unwrap_err();
         assert!(matches!(err, ContainmentError::AbsolutePath(_)));
     }
 

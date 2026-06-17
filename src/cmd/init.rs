@@ -268,27 +268,24 @@ mod tests {
     fn find_agent_file_finds_agents_md() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("AGENTS.md"), "# Rules\n").unwrap();
-        let found = find_agent_file(dir.path());
-        assert!(found.is_some());
-        assert!(found.unwrap().ends_with("AGENTS.md"));
+        let found = find_agent_file(dir.path()).expect("should find AGENTS.md");
+        assert!(found.ends_with("AGENTS.md"));
     }
 
     #[test]
     fn find_agent_file_preserves_claude_md_case() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("Claude.md"), "# Rules\n").unwrap();
-        let found = find_agent_file(dir.path());
-        assert!(found.is_some());
-        assert!(found.unwrap().ends_with("Claude.md"));
+        let found = find_agent_file(dir.path()).expect("should find Claude.md");
+        assert!(found.ends_with("Claude.md"));
     }
 
     #[test]
     fn find_agent_file_supports_agents_md_variant() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("Agents.md"), "# Rules\n").unwrap();
-        let found = find_agent_file(dir.path());
-        assert!(found.is_some());
-        assert!(found.unwrap().ends_with("Agents.md"));
+        let found = find_agent_file(dir.path()).expect("should find Agents.md");
+        assert!(found.ends_with("Agents.md"));
     }
 
     #[test]

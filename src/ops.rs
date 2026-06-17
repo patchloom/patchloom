@@ -3476,9 +3476,10 @@ mod tests {
 
         #[test]
         fn compile_regex_mode_returns_some() {
-            let re = compile_replace_regex(r"\d+", true, false, false).unwrap();
-            assert!(re.is_some());
-            assert!(re.unwrap().is_match("abc123"));
+            let re = compile_replace_regex(r"\d+", true, false, false)
+                .unwrap()
+                .expect("regex mode should return Some");
+            assert!(re.is_match("abc123"));
         }
 
         #[test]
@@ -3500,9 +3501,10 @@ mod tests {
 
         #[test]
         fn compile_literal_case_insensitive_returns_some() {
-            let re = compile_replace_regex("hello", false, true, false).unwrap();
-            assert!(re.is_some());
-            assert!(re.unwrap().is_match("HELLO"));
+            let re = compile_replace_regex("hello", false, true, false)
+                .unwrap()
+                .expect("case-insensitive literal should return Some");
+            assert!(re.is_match("HELLO"));
         }
 
         #[test]
