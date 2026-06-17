@@ -37,7 +37,7 @@ pub struct TidyIssue {
 }
 
 fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
-    let Some(text) = crate::read_text_file(path, "tidy", quiet) else {
+    let Some(text) = crate::files::read_text_file_logged(path, "tidy", quiet) else {
         return Vec::new();
     };
     let data = text.as_bytes();
@@ -196,10 +196,11 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 glob_matcher.as_ref(),
                 &glob_roots,
                 |file_path| {
-                    let original = match crate::read_text_file(file_path, "tidy", quiet) {
-                        Some(text) => text,
-                        None => return None,
-                    };
+                    let original =
+                        match crate::files::read_text_file_logged(file_path, "tidy", quiet) {
+                            Some(text) => text,
+                            None => return None,
+                        };
                     let policy = policy_from_flags(global, Some(file_path));
                     let fixed = apply_policy(&original, &policy);
                     if fixed == *original {

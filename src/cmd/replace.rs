@@ -161,7 +161,7 @@ fn collect_replacements(
     let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let content = crate::read_text_file(path, "replace", quiet)?;
+            let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
             let (replaced, count) = if whole_line {
                 replace_whole_lines(
                     &content,
