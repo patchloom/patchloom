@@ -22,9 +22,15 @@
 //! patchloom = { version = "0.1", default-features = false }
 //! ```
 //!
-//! This gives you the full [`api`] module (doc/replace/md/file/patch operations)
-//! and the [`ops`] module for lower-level access, without pulling in `tokio`
-//! or other async runtime dependencies.
+//! This gives you the full [`api`] module (doc/replace/md/file/patch operations),
+//! the [`ops`] module for lower-level access, and utility modules:
+//!
+//! - [`containment`] -- workspace path guard preventing traversal attacks
+//! - [`exec`] -- shell command execution with process-tree management
+//! - [`files`] -- file-walking, binary detection, and text reading helpers
+//! - [`write`] -- atomic file writes with write-policy transformations
+//!
+//! No `tokio` or other async runtime dependencies are pulled in.
 //!
 //! ## Thread safety
 //!
