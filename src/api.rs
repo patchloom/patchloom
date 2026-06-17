@@ -681,11 +681,17 @@ pub fn md_dedupe_headings(
     ))
 }
 
+/// A lint issue found in a markdown file.
+///
+/// Re-exported from `cmd::md` so library consumers don't need to import
+/// from the internal `cmd` module path.
+pub use crate::cmd::md::LintIssue;
+
 /// Lint a markdown file for common agent-rules issues (duplicate headings,
 /// missing sections, etc.).
 ///
 /// Returns a list of lint issues found. This is a read-only operation.
-pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<crate::cmd::md::LintIssue>> {
+pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<LintIssue>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
     Ok(crate::cmd::md::lint_agents_content(&content))
