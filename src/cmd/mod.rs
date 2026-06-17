@@ -288,6 +288,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              trim_trailing_whitespace = true\n\
              collapse_blanks = true\n\
              \n\
+             [tx]\n\
+             strict = false\n\
+             \n\
              [exclude]\n\
              globs = [\"target/**\", \"node_modules/**\"]\n\
              ```\n\n\
@@ -380,13 +383,14 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Code | Meaning |\n\
              |------|---------|\n\
              | 0 | Success (operation completed, or no changes needed) |\n\
-             | 1 | Failure (error during execution) |\n\
+             | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
              | 2 | Changes detected (`--check` mode found pending changes) |\n\
              | 3 | No matches (search/replace found nothing matching the pattern) |\n\
              | 4 | Parse error (malformed input file or plan), or tx operation staging failure (`operation_failed`) |\n\
              | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
-             | 6 | Validation failed (tx plan validation step returned non-zero) |\n\
-             | 7 | Rollback (tx commit or strict lifecycle failure; changes were rolled back) |\n\n",
+             | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
+             | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
+             | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\n",
         );
     }
 
@@ -620,6 +624,14 @@ mod tests {
         assert!(out.contains("## Project configuration"));
         assert!(out.contains(".patchloom.toml"));
         assert!(out.contains("collapse_blanks"));
+        assert!(out.contains("[tx]"));
+    }
+
+    #[test]
+    fn agent_rules_exit_codes_include_conflicts_and_rollback_failed() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(out.contains("| 8 |"));
+        assert!(out.contains("rollback_failed"));
     }
 
     #[test]

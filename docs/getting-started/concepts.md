@@ -109,11 +109,13 @@ The `tx` command runs multiple operations atomically. If any operation fails dur
 
 Plans are JSON objects with three lifecycle arrays:
 
-1. **operations** -- the mutations (replace, doc.set, md.replace_section, etc.)
+1. **operations** -- the mutations (replace, doc.set, md.replace_section, `patch.apply`, etc.)
 2. **format** -- shell commands that run after writes (e.g., `cargo fmt`)
 3. **validate** -- shell commands that verify correctness (e.g., `make check`)
 
-Strict mode defaults to on. Use `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to keep writes on disk when format/validate fails (exit 6). With strict mode, a format or validation failure reverts all writes (exit 7).
+`patch.apply` operations accept `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing.
+
+Strict mode defaults to on. Use `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to keep writes on disk when format/validate fails (exit 6). With strict mode, a format or validation failure reverts all writes (exit 7). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7 `rollback`, or exit 1 `rollback_failed` if restore is incomplete).
 
 ## Exit codes
 
@@ -122,7 +124,7 @@ Every command returns a specific exit code:
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General error |
+| 1 | General error, or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (with `--check`) |
 | 3 | No matches found |
 | 4 | Parse error in input, or tx operation staging failure (`operation_failed`) |
