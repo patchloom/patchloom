@@ -1868,33 +1868,33 @@ fn commit_error(message: impl Into<String>) -> CommitError {
     }
 }
 
-/// When true, [`restore_after_failed_commit`] reports failure. Test-only; never
-/// set in production.
-#[doc(hidden)]
-pub static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    /// Per-thread test hook; never set in production.
+    static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
+        const { std::sync::atomic::AtomicBool::new(false) };
+}
 
-/// RAII guard that forces restore failure for tests using [`FORCE_RESTORE_FAIL`].
+/// RAII guard that forces restore failure on the current thread only.
 #[doc(hidden)]
 pub struct RestoreFailGuard;
 
 impl RestoreFailGuard {
     pub fn engage() -> Self {
-        FORCE_RESTORE_FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+        FORCE_RESTORE_FAIL.with(|flag| flag.store(true, std::sync::atomic::Ordering::SeqCst));
         Self
     }
 }
 
 impl Drop for RestoreFailGuard {
     fn drop(&mut self) {
-        FORCE_RESTORE_FAIL.store(false, std::sync::atomic::Ordering::SeqCst);
+        FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
     }
 }
 
 /// Restore files from a backup session after a failed commit. Returns `true`
 /// when restore completed successfully.
 fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    if FORCE_RESTORE_FAIL.load(std::sync::atomic::Ordering::SeqCst) {
+    if FORCE_RESTORE_FAIL.with(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
         return false;
     }
     crate::backup::restore_session(cwd, timestamp).is_ok()
