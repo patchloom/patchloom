@@ -239,7 +239,7 @@ fn search_one_file(
     quiet: bool,
     cwd: &std::path::Path,
 ) -> Option<FileResult> {
-    let content = crate::read_text_file(path, "search", quiet)?;
+    let content = crate::files::read_text_file_logged(path, "search", quiet)?;
 
     let count_only = args.count || args.files_with_matches;
     let display = crate::files::relative_display(path, cwd);

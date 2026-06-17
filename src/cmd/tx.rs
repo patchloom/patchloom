@@ -27,7 +27,6 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 /// JSON output for the tx command.
 #[derive(Serialize)]
@@ -121,142 +120,7 @@ pub struct TxArgs {
 }
 
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
-const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(10);
-
-fn host_shell_command(cmd: &str, cwd: &Path) -> std::process::Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let mut command = std::process::Command::new("cmd");
-        // Use raw_arg so cmd.exe receives the command string without Rust's
-        // MSVC-style argument quoting. Rust's .arg() wraps in double quotes
-        // and escapes inner quotes with backslash, which cmd.exe does not
-        // understand. raw_arg passes the string verbatim, letting cmd's /C
-        // handler parse redirects (>), pipes (|), and inner quotes correctly.
-        command.arg("/C").raw_arg(cmd).current_dir(cwd);
-        command
-    }
-    #[cfg(not(windows))]
-    {
-        use std::os::unix::process::CommandExt;
-        let mut command = std::process::Command::new("sh");
-        command.arg("-c").arg(cmd).current_dir(cwd);
-        // Spawn the child in its own process group so that
-        // kill_process_tree can kill the entire group (#220).
-        command.process_group(0);
-        command
-    }
-}
-
-/// Result of a shell command execution with captured stderr.
-struct ShellResult {
-    status: std::process::ExitStatus,
-    /// First N bytes of stderr output (truncated for safety).
-    stderr_head: String,
-}
-
-/// Maximum bytes of stderr to capture from lifecycle commands.
-const LIFECYCLE_STDERR_MAX: usize = 512;
-
-/// Run a shell command with a timeout. Returns the exit status and
-/// a truncated snippet of stderr, or an error if the command times out
-/// or fails to start.
-fn run_shell_with_timeout(cmd: &str, timeout_secs: u64, cwd: &Path) -> anyhow::Result<ShellResult> {
-    let mut child = host_shell_command(cmd, cwd)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    // Read stderr in a background thread to avoid blocking if the pipe fills.
-    let stderr_handle = child.stderr.take().expect("stderr piped");
-    let reader_thread = std::thread::spawn(move || {
-        use std::io::Read;
-        let mut buf = vec![0u8; LIFECYCLE_STDERR_MAX + 1];
-        let mut reader = stderr_handle;
-        let mut total = 0;
-        loop {
-            match reader.read(&mut buf[total..]) {
-                Ok(0) => break,
-                Ok(n) => {
-                    total += n;
-                    if total > LIFECYCLE_STDERR_MAX {
-                        // Drain remaining stderr so the child is not blocked.
-                        let mut discard = [0u8; 4096];
-                        while reader.read(&mut discard).unwrap_or(0) > 0 {}
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        let cap = total.min(LIFECYCLE_STDERR_MAX);
-        let text = String::from_utf8_lossy(&buf[..cap]).to_string();
-        if total > LIFECYCLE_STDERR_MAX {
-            format!("{text}... (truncated)")
-        } else {
-            text
-        }
-    });
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(timeout_secs);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            let stderr_head = reader_thread.join().unwrap_or_default();
-            return Ok(ShellResult {
-                status,
-                stderr_head,
-            });
-        }
-        if std::time::Instant::now() >= deadline {
-            kill_process_tree(&mut child);
-            let stderr_head = reader_thread.join().unwrap_or_default();
-            anyhow::bail!("timed out after {timeout_secs}s: {stderr_head}");
-        }
-        std::thread::sleep(SHELL_POLL_INTERVAL);
-    }
-}
-
-/// Kill a shell process and its descendants.
-///
-/// On Unix, the child is spawned in its own process group (via
-/// `CommandExt::process_group(0)`), so we send SIGKILL to the entire
-/// group with `libc::killpg`. This ensures compound commands
-/// (pipelines, `&&` chains) have all descendants killed, not just the
-/// immediate `sh` process.
-///
-/// On Windows, `child.kill()` calls `TerminateProcess` which only kills
-/// the immediate `cmd.exe` process, leaving grandchildren (ping, powershell,
-/// etc.) running as orphans. We use `taskkill /F /T /PID` to kill the
-/// entire process tree.
-fn kill_process_tree(child: &mut std::process::Child) {
-    #[cfg(windows)]
-    {
-        let pid = child.id();
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    }
-    #[cfg(not(windows))]
-    {
-        // The child was spawned in its own process group, so its PID
-        // equals its PGID. Kill the entire group.
-        let pid = child.id() as i32;
-        // Guard: if the child has already exited, id() returns 0.
-        // killpg(0, SIGKILL) would kill our own process group.
-        if pid > 0 {
-            // SAFETY: killpg is a POSIX function that sends a signal to a
-            // process group. We pass the child's PID (which is also its
-            // PGID due to process_group(0)) and SIGKILL (9).
-            #[expect(unsafe_code)]
-            unsafe {
-                libc::killpg(pid, libc::SIGKILL);
-            }
-        }
-    }
-    let _ = child.wait();
-}
+use crate::exec;
 
 /// Short label for an operation, used in error messages.
 fn op_label(op: &Operation) -> &'static str {
@@ -1567,9 +1431,9 @@ fn run_format_steps(
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
+        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
         match result {
-            Ok(ShellResult {
+            Ok(exec::ShellResult {
                 status,
                 stderr_head,
             }) if !status.success() => {
@@ -1612,15 +1476,15 @@ fn run_validate_steps(
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, step) in steps.iter().enumerate() {
         let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = run_shell_with_timeout(&step.cmd, timeout_secs, cwd);
+        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
         match result {
-            Ok(ShellResult {
+            Ok(exec::ShellResult {
                 status,
                 stderr_head,
             }) if status.success() => {
                 let _ = stderr_head; // Discard stderr on success.
             }
-            Ok(ShellResult {
+            Ok(exec::ShellResult {
                 status,
                 stderr_head,
             }) => {

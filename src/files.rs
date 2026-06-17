@@ -9,13 +9,13 @@ use std::sync::Mutex;
 /// Returns the relative portion if `path` is under `base`, otherwise returns
 /// the original path unchanged. Used by diff headers, search results, and JSON
 /// output so users see `src/main.rs` instead of `/home/user/project/src/main.rs`.
-pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
+pub fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
     path.strip_prefix(base).unwrap_or(path)
 }
 
 /// Check if a string contains common regex metacharacters that suggest
 /// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
-pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
+pub fn has_regex_metacharacters(s: &str) -> bool {
     s.contains('\\')
         || s.contains('[')
         || s.contains('(')
@@ -28,7 +28,7 @@ pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
         || s.contains('$')
 }
 
-pub(crate) fn is_binary(data: &[u8]) -> bool {
+pub fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(8192);
     memchr::memchr(0, &data[..check_len]).is_some()
 }
@@ -245,21 +245,34 @@ pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     }
 }
 
-/// Read a file as UTF-8 text, skipping binary files and logging errors.
-/// Returns `None` for binary, empty, unreadable, or non-UTF-8 files.
+/// Read a file as UTF-8 text, returning `None` for binary, empty,
+/// unreadable, or non-UTF-8 files.
 ///
 /// For files larger than 8 KiB, only the first 8 KiB are read initially
 /// for the binary check. If the file is binary, no further I/O occurs,
 /// avoiding a full read of large binary files (images, compiled objects)
 /// that pass through the directory walker.
-pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+pub fn read_text_file(path: &Path) -> Option<String> {
+    read_text_file_inner(path, None)
+}
+
+/// Internal version with optional diagnostic logging for CLI commands.
+pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+    if quiet {
+        read_text_file_inner(path, None)
+    } else {
+        read_text_file_inner(path, Some(cmd))
+    }
+}
+
+fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> {
     use std::io::Read;
 
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            if !quiet {
-                eprintln!("{cmd}: skipping {}: {e}", path.display());
+            if let Some(label) = log_label {
+                eprintln!("{label}: skipping {}: {e}", path.display());
             }
             return None;
         }
@@ -279,8 +292,8 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
         let n = match file.read(&mut header) {
             Ok(n) => n,
             Err(e) => {
-                if !quiet {
-                    eprintln!("{cmd}: skipping {}: {e}", path.display());
+                if let Some(label) = log_label {
+                    eprintln!("{label}: skipping {}: {e}", path.display());
                 }
                 return None;
             }
@@ -292,16 +305,16 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
         let mut bytes = Vec::with_capacity(file_len);
         bytes.extend_from_slice(&header[..n]);
         if let Err(e) = file.read_to_end(&mut bytes) {
-            if !quiet {
-                eprintln!("{cmd}: skipping {}: {e}", path.display());
+            if let Some(label) = log_label {
+                eprintln!("{label}: skipping {}: {e}", path.display());
             }
             return None;
         }
         return match String::from_utf8(bytes) {
             Ok(s) => Some(s),
             Err(_) => {
-                if !quiet {
-                    eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
+                if let Some(label) = log_label {
+                    eprintln!("{label}: skipping {} (invalid UTF-8)", path.display());
                 }
                 None
             }
@@ -311,8 +324,8 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
     // Small file: read all at once (single syscall).
     let mut bytes = Vec::with_capacity(file_len);
     if let Err(e) = file.read_to_end(&mut bytes) {
-        if !quiet {
-            eprintln!("{cmd}: skipping {}: {e}", path.display());
+        if let Some(label) = log_label {
+            eprintln!("{label}: skipping {}: {e}", path.display());
         }
         return None;
     }
@@ -324,8 +337,8 @@ pub(crate) fn read_text_file(path: &Path, cmd: &str, quiet: bool) -> Option<Stri
     match String::from_utf8(bytes) {
         Ok(s) => Some(s),
         Err(_) => {
-            if !quiet {
-                eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
+            if let Some(label) = log_label {
+                eprintln!("{label}: skipping {} (invalid UTF-8)", path.display());
             }
             None
         }
@@ -594,7 +607,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("hello.txt");
         std::fs::write(&file, "hello world\n").unwrap();
-        let result = read_text_file(&file, "test", false);
+        let result = read_text_file(&file);
         assert_eq!(result.unwrap(), "hello world\n");
     }
 
@@ -603,7 +616,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("binary.bin");
         std::fs::write(&file, b"hello\x00world").unwrap();
-        assert!(read_text_file(&file, "test", false).is_none());
+        assert!(read_text_file(&file).is_none());
     }
 
     #[test]
@@ -611,7 +624,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("empty.txt");
         std::fs::write(&file, b"").unwrap();
-        assert!(read_text_file(&file, "test", false).is_none());
+        assert!(read_text_file(&file).is_none());
     }
 
     #[test]
@@ -619,17 +632,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("bad.txt");
         std::fs::write(&file, b"hello \xff world\n").unwrap();
-        assert!(read_text_file(&file, "test", false).is_none());
+        assert!(read_text_file(&file).is_none());
     }
 
     #[test]
     fn read_text_file_returns_none_for_missing_file() {
-        let result = read_text_file(
-            Path::new("/tmp/patchloom_nonexistent_xyz.txt"),
-            "test",
-            false,
-        );
-        assert!(result.is_none());
+        assert!(read_text_file(Path::new("/tmp/patchloom_nonexistent_xyz.txt")).is_none());
     }
 
     #[test]
@@ -639,7 +647,7 @@ mod tests {
         // Create a text file larger than the 8 KiB binary-check probe.
         let content = "a".repeat(10_000) + "\n";
         std::fs::write(&file, &content).unwrap();
-        let result = read_text_file(&file, "test", false);
+        let result = read_text_file(&file);
         assert_eq!(result.unwrap(), content);
     }
 
@@ -653,7 +661,7 @@ mod tests {
         let mut data = vec![b'a'; 10_000];
         data[4096] = 0; // NUL in the first 8 KiB
         std::fs::write(&file, &data).unwrap();
-        assert!(read_text_file(&file, "test", false).is_none());
+        assert!(read_text_file(&file).is_none());
     }
 
     #[test]
@@ -666,7 +674,7 @@ mod tests {
         std::fs::write(&file, &data).unwrap();
         // The two-phase read should detect invalid UTF-8 in the second
         // phase (read_to_end) and return None.
-        assert!(read_text_file(&file, "test", false).is_none());
+        assert!(read_text_file(&file).is_none());
     }
 
     #[test]
@@ -679,7 +687,7 @@ mod tests {
         data.push(0);
         data.push(b'\n');
         std::fs::write(&file, &data).unwrap();
-        let result = read_text_file(&file, "test", false);
+        let result = read_text_file(&file);
         assert!(result.is_some());
         assert_eq!(result.unwrap().len(), 8194);
     }
