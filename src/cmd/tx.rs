@@ -3490,6 +3490,17 @@ mod tests {
     }
 
     #[test]
+    fn handle_commit_error_rollback_failed_exits_failure() {
+        let err = CommitError {
+            message: "write failed".into(),
+            rollback_ok: false,
+            backup_session: Some("1234567890".into()),
+        };
+        let code = handle_commit_error(err, true, false).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
     fn commit_changes_rolls_back_on_mid_write_failure() {
         let dir = TempDir::new().unwrap();
         let f1 = dir.path().join("a.txt");
