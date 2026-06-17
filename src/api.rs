@@ -1763,6 +1763,31 @@ mod tests {
     }
 
     #[test]
+    fn search_empty_pattern_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello\n").unwrap();
+        let err = search(&file, "", false, false).unwrap_err();
+        assert!(
+            err.to_string().contains("empty"),
+            "expected empty pattern error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn search_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "Hello World\nhello world\nHELLO\n").unwrap();
+        let matches = search(&file, "hello", false, true).unwrap();
+        assert_eq!(
+            matches.len(),
+            3,
+            "case-insensitive should match all 3 lines"
+        );
+    }
+
+    #[test]
     fn replace_text_whole_line_mode() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("code.rs");
