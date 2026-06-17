@@ -687,8 +687,7 @@ mod tests {
         data.push(0);
         data.push(b'\n');
         std::fs::write(&file, &data).unwrap();
-        let result = read_text_file(&file);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().len(), 8194);
+        let result = read_text_file(&file).expect("NUL past 8KiB should still read as text");
+        assert_eq!(result.len(), 8194);
     }
 }
