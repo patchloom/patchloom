@@ -129,6 +129,29 @@ patchloom replace 'TODO' --whole-line --range 10:200 --to '' notes.md --apply
 patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply
 ```
 
+### Stale patch recovery via three-way merge
+
+```bash
+# Apply a patch using three-way merge when context has drifted
+patchloom patch apply changes.patch --on-stale merge --apply
+
+# Or use the merge subcommand directly
+patchloom patch merge changes.patch --apply
+
+# If merge produces conflicts, allow them to be written as markers
+# WARNING: never commit files containing conflict markers
+patchloom patch merge changes.patch --apply --allow-conflicts
+```
+
+```bash
+# Same via transaction plan (JSON):
+patchloom tx - --apply <<'EOF'
+{"version": "1", "operations": [
+{"op": "patch.apply", "diff": "...", "on_stale": "merge", "allow_conflicts": true}
+]}
+EOF
+```
+
 ### Bump a version across config files
 
 ```bash

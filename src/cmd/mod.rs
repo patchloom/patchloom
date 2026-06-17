@@ -330,6 +330,34 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              ```\n\n",
         );
 
+        out.push_str(
+            "### Stale patch recovery via three-way merge\n\n\
+             ```bash\n\
+             # Apply a patch using three-way merge when context has drifted\n\
+             patchloom patch apply changes.patch --on-stale merge --apply\n\
+             \n\
+             # Or use the merge subcommand directly\n\
+             patchloom patch merge changes.patch --apply\n\
+             \n\
+             # If merge produces conflicts, allow them to be written as markers\n\
+             # WARNING: never commit files containing conflict markers\n\
+             patchloom patch merge changes.patch --apply --allow-conflicts\n\
+             ```\n\n",
+        );
+
+        if show_linux {
+            out.push_str(
+                "```bash\n\
+                 # Same via transaction plan (JSON):\n\
+                 patchloom tx - --apply <<'EOF'\n\
+                 {\"version\": \"1\", \"operations\": [\n\
+                   {\"op\": \"patch.apply\", \"diff\": \"...\", \"on_stale\": \"merge\", \"allow_conflicts\": true}\n\
+                 ]}\n\
+                 EOF\n\
+                 ```\n\n",
+            );
+        }
+
         if show_linux {
             out.push_str(
                 "### Bump a version across config files\n\n\
@@ -625,6 +653,14 @@ mod tests {
         assert!(out.contains(".patchloom.toml"));
         assert!(out.contains("collapse_blanks"));
         assert!(out.contains("[tx]"));
+    }
+
+    #[test]
+    fn agent_rules_includes_patch_merge_workflow() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(out.contains("--on-stale merge"));
+        assert!(out.contains("--allow-conflicts"));
+        assert!(out.contains("never commit files containing conflict markers"));
     }
 
     #[test]
