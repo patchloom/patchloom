@@ -3796,6 +3796,37 @@ fn test_tx_mid_commit_failure_rolls_back() {
     assert!(!dir.path().join("blocker/child.txt").exists());
 }
 
+/// End-to-end tx path when mid-commit restore cannot complete (exit 1,
+/// `rollback_failed`). Uses [`patchloom::cmd::tx::FORCE_RESTORE_FAIL`] (test
+/// builds only) because racing filesystem permissions against restore is unreliable.
+#[test]
+fn test_tx_rollback_failed_when_restore_incomplete() {
+    use std::sync::atomic::Ordering;
+    let dir = TempDir::new().unwrap();
+    let good = dir.path().join("good.txt");
+    fs::write(&good, "original\n").unwrap();
+    let blocker = dir.path().join("blocker");
+    fs::write(&blocker, "not-a-directory").unwrap();
+
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "file.create", "path": "good.txt", "content": "changed\n", "force": true},
+            {"op": "file.create", "path": "blocker/child.txt", "content": "fail\n"}
+        ]
+    }))
+    .unwrap();
+
+    patchloom::cmd::tx::FORCE_RESTORE_FAIL.store(true, Ordering::SeqCst);
+    let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path()).unwrap();
+    patchloom::cmd::tx::FORCE_RESTORE_FAIL.store(false, Ordering::SeqCst);
+
+    assert_eq!(code, 1, "json: {json_str}");
+    let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(json["error_kind"], "rollback_failed");
+    assert!(json["backup_session"].is_string());
+}
+
 #[test]
 fn test_tx_success_applies_all() {
     let dir = TempDir::new().unwrap();
@@ -16789,6 +16820,43 @@ async fn test_mcp_apply_patch_on_stale_merge() {
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "line1\nnew line\nline3\nextra\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\ncompletely different\nline3\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "conflicting merge without allow_conflicts should fail: {text}"
+    );
+    assert!(
+        !text.contains("<<<<<<<"),
+        "conflict markers must not be written: {text}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "line1\ncompletely different\nline3\n"
     );
     client.cancel().await.unwrap();
 }

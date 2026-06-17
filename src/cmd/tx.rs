@@ -1868,6 +1868,21 @@ fn commit_error(message: impl Into<String>) -> CommitError {
     }
 }
 
+/// When true, [`restore_after_failed_commit`] reports failure. Test-only; never
+/// set in production.
+#[doc(hidden)]
+pub static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Restore files from a backup session after a failed commit. Returns `true`
+/// when restore completed successfully.
+fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
+    if FORCE_RESTORE_FAIL.load(std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
+    crate::backup::restore_session(cwd, timestamp).is_ok()
+}
+
 /// Apply pending changes to disk: backup originals, write modified files,
 /// delete removed files, finalize backup session.
 ///
@@ -1935,7 +1950,7 @@ fn commit_changes(
 
     if let Err(e) = write_result {
         let rollback_ok = if let Some(ref ts) = backup_session {
-            crate::backup::restore_session(cwd, ts).is_ok()
+            restore_after_failed_commit(cwd, ts)
         } else {
             true
         };
@@ -3498,6 +3513,31 @@ mod tests {
         };
         let code = handle_commit_error(err, true, false).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
+    fn commit_changes_reports_rollback_failed_when_restore_fails() {
+        let dir = TempDir::new().unwrap();
+        let f1 = dir.path().join("a.txt");
+        let blocker = dir.path().join("blocker");
+        fs::write(&f1, "original-a").unwrap();
+        fs::write(&blocker, "blocker-is-file").unwrap();
+        let f2 = blocker.join("b.txt");
+
+        let changes = vec![
+            (f1.clone(), "original-a".to_string(), "new-a".to_string()),
+            (f2.clone(), String::new(), "new-b".to_string()),
+        ];
+        let deletions = HashSet::new();
+        let existed_before: HashSet<_> = [f1.clone()].into();
+
+        FORCE_RESTORE_FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
+        FORCE_RESTORE_FAIL.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        assert!(!err.rollback_ok, "restore should be reported as failed");
+        assert!(err.backup_session.is_some());
+        assert_eq!(fs::read_to_string(&f1).unwrap(), "new-a");
     }
 
     #[test]
