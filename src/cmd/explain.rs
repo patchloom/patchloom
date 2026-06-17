@@ -272,7 +272,24 @@ fn describe_operation(op: &Operation) -> String {
             let force_str = if *force { " (overwrite)" } else { "" };
             format!("Rename {from} to {to}{force_str}")
         }
-        Operation::PatchApply { .. } => "Apply unified diff patch".to_string(),
+        Operation::PatchApply {
+            on_stale,
+            allow_conflicts,
+            ..
+        } => {
+            let mut parts = Vec::new();
+            if *on_stale == crate::ops::patch::OnStale::Merge {
+                parts.push("merge on stale");
+            }
+            if *allow_conflicts {
+                parts.push("allow conflicts");
+            }
+            if parts.is_empty() {
+                "Apply unified diff patch".to_string()
+            } else {
+                format!("Apply unified diff patch ({})", parts.join(", "))
+            }
+        }
         Operation::Search {
             path,
             pattern,
@@ -605,6 +622,97 @@ mod tests {
         assert_eq!(
             describe_operation(&op),
             r#"Move section "Appendix" from spec.md to notes.md after "Body""#
+        );
+    }
+
+    #[test]
+    fn describe_replace_glob_no_path() {
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("**/*.rs".into()),
+            mode: None,
+            from: "old".into(),
+            to: Some("new".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            range: None,
+        };
+        let desc = describe_operation(&op);
+        assert!(desc.contains("**/*.rs"), "{desc}");
+    }
+
+    #[test]
+    fn describe_replace_delete_mode() {
+        let op = Operation::Replace {
+            path: Some("f.txt".into()),
+            glob: None,
+            mode: None,
+            from: "remove_me".into(),
+            to: None,
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            range: None,
+        };
+        let desc = describe_operation(&op);
+        assert!(desc.contains("(delete)"), "{desc}");
+    }
+
+    #[test]
+    fn describe_patch_apply_default() {
+        let op = Operation::PatchApply {
+            diff: "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new\n".into(),
+            on_stale: crate::ops::patch::OnStale::default(),
+            allow_conflicts: false,
+        };
+        assert_eq!(describe_operation(&op), "Apply unified diff patch");
+    }
+
+    #[test]
+    fn describe_patch_apply_merge_on_stale() {
+        let op = Operation::PatchApply {
+            diff: String::new(),
+            on_stale: crate::ops::patch::OnStale::Merge,
+            allow_conflicts: false,
+        };
+        assert_eq!(
+            describe_operation(&op),
+            "Apply unified diff patch (merge on stale)"
+        );
+    }
+
+    #[test]
+    fn describe_patch_apply_allow_conflicts() {
+        let op = Operation::PatchApply {
+            diff: String::new(),
+            on_stale: crate::ops::patch::OnStale::default(),
+            allow_conflicts: true,
+        };
+        assert_eq!(
+            describe_operation(&op),
+            "Apply unified diff patch (allow conflicts)"
+        );
+    }
+
+    #[test]
+    fn describe_patch_apply_merge_and_conflicts() {
+        let op = Operation::PatchApply {
+            diff: String::new(),
+            on_stale: crate::ops::patch::OnStale::Merge,
+            allow_conflicts: true,
+        };
+        assert_eq!(
+            describe_operation(&op),
+            "Apply unified diff patch (merge on stale, allow conflicts)"
         );
     }
 }
