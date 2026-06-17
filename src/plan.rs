@@ -484,6 +484,8 @@ mod tests {
         assert!(effective_strict(plan.strict, None, false));
         assert!(!effective_strict(plan.strict, None, true));
         assert!(!effective_strict(Some(true), None, true));
+        assert!(!effective_strict(None, Some(false), false));
+        assert!(effective_strict(Some(true), Some(false), false));
     }
 
     #[test]

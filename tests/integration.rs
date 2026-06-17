@@ -11154,6 +11154,70 @@ fn test_tx_patch_apply_uses_pending_file_state() {
 }
 
 #[test]
+fn test_tx_patch_apply_on_stale_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nold line\nline3\nextra\n").unwrap();
+
+    let diff =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": diff,
+            "on_stale": "merge"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nnew line\nline3\nextra\n"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_merge_conflict_without_allow_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+
+    let diff =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": diff,
+            "on_stale": "merge"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4); // OPERATION_FAILED during staging
+}
+
+#[test]
 fn test_tx_validate_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -16695,6 +16759,36 @@ async fn test_mcp_patch_round_trip() {
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "new line\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_on_stale_merge() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\nold line\nline3\nextra\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge"}),
+    )
+    .await;
+    assert!(!is_error, "patch merge should succeed: {text}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "line1\nnew line\nline3\nextra\n"
     );
     client.cancel().await.unwrap();
 }
