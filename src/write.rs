@@ -5,7 +5,9 @@ use std::path::Path;
 use anyhow::Context;
 use tempfile::NamedTempFile;
 
-use crate::cli::global::EolMode;
+// Re-export so library consumers can use `patchloom::write::EolMode`
+// without reaching into the CLI module.
+pub use crate::cli::global::EolMode;
 
 /// Controls which transformations are applied before writing a file.
 pub struct WritePolicy {
