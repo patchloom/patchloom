@@ -3797,11 +3797,10 @@ fn test_tx_mid_commit_failure_rolls_back() {
 }
 
 /// End-to-end tx path when mid-commit restore cannot complete (exit 1,
-/// `rollback_failed`). Uses [`patchloom::cmd::tx::FORCE_RESTORE_FAIL`] (test
-/// builds only) because racing filesystem permissions against restore is unreliable.
+/// `rollback_failed`). Uses [`patchloom::cmd::tx::RestoreFailGuard`] because
+/// racing filesystem permissions against restore is unreliable.
 #[test]
 fn test_tx_rollback_failed_when_restore_incomplete() {
-    use std::sync::atomic::Ordering;
     let dir = TempDir::new().unwrap();
     let good = dir.path().join("good.txt");
     fs::write(&good, "original\n").unwrap();
@@ -3817,9 +3816,8 @@ fn test_tx_rollback_failed_when_restore_incomplete() {
     }))
     .unwrap();
 
-    patchloom::cmd::tx::FORCE_RESTORE_FAIL.store(true, Ordering::SeqCst);
+    let _guard = patchloom::cmd::tx::RestoreFailGuard::engage();
     let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path()).unwrap();
-    patchloom::cmd::tx::FORCE_RESTORE_FAIL.store(false, Ordering::SeqCst);
 
     assert_eq!(code, 1, "json: {json_str}");
     let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
