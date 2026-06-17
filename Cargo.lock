@@ -749,7 +749,6 @@ name = "patchloom"
 version = "0.1.7"
 dependencies = [
  "anstream",
- "anstyle",
  "anyhow",
  "assert_cmd",
  "clap",
