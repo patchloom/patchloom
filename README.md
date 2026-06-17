@@ -283,7 +283,7 @@ api::doc_set(
 )?;
 ```
 
-All API types are `Send + Sync`. See the `patchloom::api` module docs for the full surface.
+All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), and `write` (atomic file writes with policy transformations). See the `patchloom::api` module docs for the full surface.
 
 ## Getting started
 
