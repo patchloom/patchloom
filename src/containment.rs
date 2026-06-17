@@ -413,4 +413,67 @@ mod tests {
         assert_eq!(guard.root(), dir.path());
         assert!(guard.canon_root().is_absolute());
     }
+
+    #[test]
+    fn new_with_nonexistent_root_returns_canonicalize_error() {
+        let err = PathGuard::new(
+            PathBuf::from("/nonexistent_patchloom_test_dir_xyz"),
+            AbsolutePathPolicy::Reject,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ContainmentError::Canonicalize { .. }));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed to canonicalize"),
+            "expected canonicalize message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn error_display_absolute_path() {
+        let err = ContainmentError::AbsolutePath("/etc/passwd".to_string());
+        let msg = err.to_string();
+        assert!(
+            msg.contains("absolute paths are not allowed") && msg.contains("/etc/passwd"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn error_display_escaped() {
+        let err = ContainmentError::Escaped {
+            path: "../../secret".to_string(),
+            root: "/home/user".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes workspace") && msg.contains("../../secret"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn error_source_canonicalize_returns_inner_error() {
+        use std::error::Error;
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+        let err = ContainmentError::Canonicalize {
+            path: "test".to_string(),
+            source: io_err,
+        };
+        assert!(err.source().is_some());
+        let msg = err.to_string();
+        assert!(msg.contains("failed to canonicalize"), "got: {msg}");
+    }
+
+    #[test]
+    fn error_source_non_canonicalize_returns_none() {
+        use std::error::Error;
+        let err = ContainmentError::AbsolutePath("/x".to_string());
+        assert!(err.source().is_none());
+        let err2 = ContainmentError::Escaped {
+            path: "..".to_string(),
+            root: "/r".to_string(),
+        };
+        assert!(err2.source().is_none());
+    }
 }

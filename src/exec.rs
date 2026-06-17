@@ -216,4 +216,24 @@ mod tests {
             let _ = _assert::<ShellResult>;
         };
     }
+
+    #[test]
+    fn run_with_timeout_truncates_large_stderr() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Generate stderr output much larger than STDERR_CAPTURE_MAX (512 bytes).
+        // Use printf to emit 800 'X' characters to stderr.
+        let result = run_with_timeout("printf '%0800d' 0 >&2", 5, dir.path()).unwrap();
+        // The captured stderr should be at most STDERR_CAPTURE_MAX bytes
+        // plus the "... (truncated)" suffix.
+        assert!(
+            result.stderr_head.len() <= STDERR_CAPTURE_MAX + 20,
+            "stderr should be truncated, got {} bytes",
+            result.stderr_head.len()
+        );
+        assert!(
+            result.stderr_head.contains("(truncated)"),
+            "expected truncation marker, got: {}",
+            &result.stderr_head[..result.stderr_head.len().min(100)]
+        );
+    }
 }
