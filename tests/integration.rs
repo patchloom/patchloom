@@ -4541,6 +4541,43 @@ fn test_patch_merge_check_exits_8_on_conflict() {
 }
 
 #[test]
+fn test_patch_merge_allow_conflicts_writes_markers() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("merge")
+        .arg(&patch_file)
+        .arg("--apply")
+        .arg("--allow-conflicts")
+        .assert()
+        .success();
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("<<<<<<< patchloom (ours)"),
+        "should have conflict markers: {content}"
+    );
+    assert!(
+        content.contains("======="),
+        "should have separator: {content}"
+    );
+    assert!(
+        content.contains(">>>>>>> patch (theirs)"),
+        "should have theirs marker: {content}"
+    );
+}
+
+#[test]
 fn test_patch_merge_apply_writes_clean_merge() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -11247,6 +11284,50 @@ fn test_tx_patch_apply_merge_conflict_without_allow_conflicts() {
 }
 
 #[test]
+fn test_tx_patch_apply_merge_conflict_with_allow_conflicts() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+
+    let diff =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": diff,
+            "on_stale": "merge",
+            "allow_conflicts": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("<<<<<<< patchloom (ours)"),
+        "should have ours marker: {content}"
+    );
+    assert!(
+        content.contains("======="),
+        "should have separator: {content}"
+    );
+    assert!(
+        content.contains(">>>>>>> patch (theirs)"),
+        "should have theirs marker: {content}"
+    );
+}
+
+#[test]
 fn test_tx_validate_timeout_kills_hanging_command() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
@@ -16855,6 +16936,48 @@ async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() 
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "line1\ncompletely different\nline3\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\ncompletely different\nline3\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge", "allow_conflicts": true}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "patch merge with allow_conflicts should succeed: {text}"
+    );
+    let content = fs::read_to_string(dir.path().join("target.txt")).unwrap();
+    assert!(
+        content.contains("<<<<<<< patchloom (ours)"),
+        "should have ours marker: {content}"
+    );
+    assert!(
+        content.contains("======="),
+        "should have separator: {content}"
+    );
+    assert!(
+        content.contains(">>>>>>> patch (theirs)"),
+        "should have theirs marker: {content}"
     );
     client.cancel().await.unwrap();
 }
