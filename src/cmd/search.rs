@@ -860,16 +860,17 @@ mod tests {
         let results = collect_matches(&args, &default_global()).unwrap();
         assert_eq!(results.matches.len(), 1);
         let m = &results.matches[0];
-        assert!(m.context_before.is_some(), "should have context_before");
-        assert!(m.context_after.is_some(), "should have context_after");
-        let before = m.context_before.as_ref().unwrap();
+        let before = m
+            .context_before
+            .as_ref()
+            .expect("should have context_before");
         assert_eq!(before.len(), 1);
         assert!(
             before[0].contains("Hello, world!"),
             "context before: {:?}",
             before
         );
-        let after = m.context_after.as_ref().unwrap();
+        let after = m.context_after.as_ref().expect("should have context_after");
         assert_eq!(after.len(), 1);
         assert!(
             after[0].contains("Hello again!"),

@@ -580,8 +580,7 @@ mod tests {
             Some("fn setup() {}"),
             Some("fn cleanup() {}"),
         );
-        assert!(result.is_some());
-        let r = result.unwrap();
+        let r = result.expect("anchor match should find a fuzzy match");
         assert_eq!(r.strategy, MatchStrategy::Anchor);
         assert!(r.matched_text.contains("proccess_data"));
     }
