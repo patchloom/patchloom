@@ -10,11 +10,7 @@
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-<<<<<<< HEAD
-[![Tests](https://img.shields.io/badge/tests-1446%20passing-brightgreen)](#)
-=======
-[![Tests](https://img.shields.io/badge/tests-1446%20passing-brightgreen)](#)
->>>>>>> ef2dd44 (test: add integration tests for allow_conflicts merge path (CLI, tx, MCP))
+[![Tests](https://img.shields.io/badge/tests-1400%2B%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -418,11 +414,7 @@ flowchart LR
 
 ## Status
 
-<<<<<<< HEAD
-1446 passing tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
-=======
-1446 passing tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
->>>>>>> ef2dd44 (test: add integration tests for allow_conflicts merge path (CLI, tx, MCP))
+1400+ tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 ## Full command reference
 

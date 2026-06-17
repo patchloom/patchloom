@@ -15130,7 +15130,7 @@ fn test_launch_announcement_command_count_matches_readme() {
     // Extract command count from README (e.g., "across 19 commands").
     let readme_count: usize = readme
         .lines()
-        .find(|l| l.contains("passing tests across") && l.contains("commands"))
+        .find(|l| l.contains("tests across") && l.contains("commands"))
         .and_then(|l| {
             let idx = l.find("commands")?;
             l[..idx]
@@ -15441,7 +15441,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,361 tests"));
+    assert!(launch.contains("1,300+ tests"));
     assert!(
         launch.contains("20 commands"),
         "launch announcement CLI command count drifted"

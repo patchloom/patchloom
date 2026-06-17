@@ -291,7 +291,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing and benchmarks
 
-- 1195 tests (593 unit + 602 integration) verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
+- 1100+ tests verified on Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - Agent integration tests: 19 scenarios with invocation-capture shim
 - 5 fuzz targets: selector parse, patch parse, patch apply, batch tokenize, selector eval
 - CLI benchmarks vs native tools (grep, sed, jq) using hyperfine
