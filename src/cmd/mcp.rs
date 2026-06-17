@@ -5,7 +5,6 @@
 //!
 //! Run with: `patchloom mcp-server`
 
-use anyhow::Context;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -460,99 +459,8 @@ fn validate_batch_size(field: &str, count: usize) -> Result<(), McpError> {
 }
 
 // ---------------------------------------------------------------------------
-// Path containment
+// Path containment (delegated to crate::containment::PathGuard)
 // ---------------------------------------------------------------------------
-
-/// Reject paths that would escape the MCP server's working directory.
-///
-/// The MCP server accepts tool calls from AI agents that may be influenced
-/// by prompt injection. Without containment, a crafted path like
-/// `/etc/shadow` or `../../etc/passwd` would let operations read or write
-/// arbitrary files on the host.
-fn validate_path_contained(path: &str) -> Result<(), McpError> {
-    let p = std::path::Path::new(path);
-
-    if p.is_absolute() {
-        return Err(McpError::invalid_params(
-            format!("absolute paths are not allowed: {path}"),
-            None,
-        ));
-    }
-
-    // Walk components and track depth relative to cwd. If depth ever goes
-    // negative, the path escapes the working directory.
-    let mut depth: i32 = 0;
-    for component in p.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                depth -= 1;
-                if depth < 0 {
-                    return Err(McpError::invalid_params(
-                        format!("path must not escape working directory: {path}"),
-                        None,
-                    ));
-                }
-            }
-            std::path::Component::Normal(_) => {
-                depth += 1;
-            }
-            std::path::Component::CurDir => {}
-            _ => {
-                return Err(McpError::invalid_params(
-                    format!("unexpected path component in: {path}"),
-                    None,
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Validate a resolved path does not escape the working directory via symlinks.
-///
-/// After the syntactic check, canonicalize the joined path and verify it
-/// starts with the canonicalized cwd. This catches symlinks that point
-/// outside the workspace (#231).
-fn validate_path_resolved(
-    path: &str,
-    cwd: &std::path::Path,
-    canon_cwd: &std::path::Path,
-) -> Result<(), McpError> {
-    let joined = cwd.join(path);
-    // For existing paths, canonicalize directly.
-    // For non-existent paths, canonicalize the nearest existing ancestor
-    // to catch symlink directories that point outside the workspace.
-    let check_target = if joined.exists() {
-        joined.clone()
-    } else {
-        let mut ancestor = joined.as_path();
-        loop {
-            match ancestor.parent() {
-                Some(p) if p.exists() => {
-                    ancestor = p;
-                    break;
-                }
-                Some(p) => ancestor = p,
-                None => return Ok(()),
-            }
-        }
-        ancestor.to_path_buf()
-    };
-    let canon_path = check_target.canonicalize().map_err(|e| {
-        McpError::internal_error(format!("failed to canonicalize path '{path}': {e}"), None)
-    })?;
-    if !canon_path.starts_with(canon_cwd) {
-        return Err(McpError::invalid_params(
-            format!(
-                "resolved path escapes working directory: {path} (cwd: {})",
-                cwd.display()
-            ),
-            None,
-        ));
-    }
-    Ok(())
-}
 
 /// Validate all paths in a list of operations.
 /// Checks both syntactic containment and symlink resolution.
@@ -560,8 +468,12 @@ fn validate_path_resolved(
 fn validate_operation_paths(
     operations: &[Operation],
     cwd: &std::path::Path,
-    canon_cwd: &std::path::Path,
 ) -> Result<(), McpError> {
+    let guard = crate::containment::PathGuard::new(
+        cwd.to_path_buf(),
+        crate::containment::AbsolutePathPolicy::Reject,
+    )
+    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
     for op in operations {
         let paths: Vec<&str> = match op {
             Operation::DocSet { path, .. }
@@ -612,15 +524,17 @@ fn validate_operation_paths(
                     )
                 })?;
                 for pf in &patch_files {
-                    validate_path_contained(&pf.path)?;
-                    validate_path_resolved(&pf.path, cwd, canon_cwd)?;
+                    guard
+                        .check_path(&pf.path)
+                        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
                 }
                 vec![]
             }
         };
         for path in paths {
-            validate_path_contained(path)?;
-            validate_path_resolved(path, cwd, canon_cwd)?;
+            guard
+                .check_path(path)
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         }
     }
     Ok(())
@@ -633,10 +547,8 @@ fn validate_operation_paths(
 #[derive(Debug, Clone)]
 pub struct PatchloomService {
     tool_router: ToolRouter<Self>,
-    cwd: PathBuf,
-    /// Pre-canonicalized cwd, computed once at startup to avoid a
-    /// `realpath` syscall on every tool invocation.
-    canon_cwd: PathBuf,
+    /// Path guard: validates and canonicalizes paths relative to cwd.
+    path_guard: crate::containment::PathGuard,
     /// Whether tx plans may include format/validate lifecycle steps that
     /// execute shell commands. Controlled by `--allow-shell` on startup.
     #[expect(dead_code)]
@@ -648,17 +560,18 @@ pub struct PatchloomService {
 
 impl PatchloomService {
     pub fn new(cwd: PathBuf, allow_shell: bool, log_flag: Option<String>) -> anyhow::Result<Self> {
-        let canon_cwd = cwd
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize cwd: {}", cwd.display()))?;
+        let path_guard = crate::containment::PathGuard::new(
+            cwd.clone(),
+            crate::containment::AbsolutePathPolicy::Reject,
+        )
+        .map_err(|e| anyhow::anyhow!("failed to initialize path guard: {e}"))?;
         // --log flag takes precedence over PATCHLOOM_MCP_LOG env var.
         let call_log = log_flag
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from));
         Ok(Self {
             tool_router: Self::tool_router(),
-            cwd,
-            canon_cwd,
+            path_guard,
             allow_shell,
             call_log,
         })
@@ -667,16 +580,15 @@ impl PatchloomService {
     /// Validate a path for both syntactic containment and symlink resolution.
     /// Combines the two checks that must always be called together.
     fn check_path(&self, path: &str) -> Result<(), McpError> {
-        validate_path_contained(path).map_err(|_| {
-            McpError::invalid_params(
-                format!(
-                    "path rejected: {path}; use a relative path within the working directory ({})",
-                    self.cwd.display()
-                ),
-                None,
-            )
-        })?;
-        validate_path_resolved(path, &self.cwd, &self.canon_cwd)
+        self.path_guard
+            .check_path(path)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        Ok(())
+    }
+
+    /// The workspace root directory (non-canonicalized).
+    fn cwd(&self) -> &std::path::Path {
+        self.path_guard.root()
     }
 
     /// Write a JSONL log entry for a tool call if logging is enabled.
@@ -798,7 +710,7 @@ impl PatchloomService {
                 }],
                 Some(p.strict),
             ),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -816,7 +728,7 @@ impl PatchloomService {
                 path: p.path,
                 selector: p.selector,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -834,7 +746,7 @@ impl PatchloomService {
                 path: p.path,
                 value: p.value,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -854,7 +766,7 @@ impl PatchloomService {
                 selector: p.selector,
                 value: p.value,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -874,7 +786,7 @@ impl PatchloomService {
                 selector: p.selector,
                 value: p.value,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -894,7 +806,7 @@ impl PatchloomService {
                 selector: p.selector,
                 value: p.value,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -914,7 +826,7 @@ impl PatchloomService {
                 selector: p.selector,
                 predicate: p.predicate,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -934,7 +846,7 @@ impl PatchloomService {
                 selector: p.selector,
                 value: p.value,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -954,7 +866,7 @@ impl PatchloomService {
                 from: p.from,
                 to: p.to,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -967,7 +879,7 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
-        let abs = self.cwd.join(&p.path);
+        let abs = self.cwd().join(&p.path);
         let action = crate::cmd::doc::DocAction::Get {
             file: abs.to_string_lossy().into_owned(),
             selector: p.selector,
@@ -986,7 +898,7 @@ impl PatchloomService {
         if let Some(ref sel) = p.selector {
             validate_param_size("selector", sel)?;
         }
-        let abs = self.cwd.join(&p.path);
+        let abs = self.cwd().join(&p.path);
         let file = abs.to_string_lossy().into_owned();
         let action = match p.action.as_str() {
             "has" => {
@@ -1038,8 +950,8 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.file_a)?;
         self.check_path(&p.file_b)?;
-        let abs_a = self.cwd.join(&p.file_a);
-        let abs_b = self.cwd.join(&p.file_b);
+        let abs_a = self.cwd().join(&p.file_a);
+        let abs_b = self.cwd().join(&p.file_b);
         let action = crate::cmd::doc::DocAction::Diff {
             file_a: abs_a.to_string_lossy().into_owned(),
             file_b: abs_b.to_string_lossy().into_owned(),
@@ -1091,7 +1003,7 @@ impl PatchloomService {
         };
         let global = GlobalFlags {
             json: true,
-            cwd: Some(self.cwd.to_string_lossy().into_owned()),
+            cwd: Some(self.cwd().to_string_lossy().into_owned()),
             ..GlobalFlags::default()
         };
         let results = crate::cmd::search::collect_matches(&search_args, &global)
@@ -1145,7 +1057,7 @@ impl PatchloomService {
         #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
         let global = GlobalFlags {
-            cwd: Some(self.cwd.to_string_lossy().into_owned()),
+            cwd: Some(self.cwd().to_string_lossy().into_owned()),
             ..GlobalFlags::default()
         };
         let status = crate::cmd::status::collect_status(&[], &global)
@@ -1168,7 +1080,7 @@ impl PatchloomService {
                 path: p.path,
                 lines: p.lines,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1214,7 +1126,7 @@ impl PatchloomService {
                 }],
                 Some(p.strict),
             ),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1233,7 +1145,7 @@ impl PatchloomService {
                 heading: p.heading,
                 bullet: p.bullet,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1252,7 +1164,7 @@ impl PatchloomService {
                 heading: p.heading,
                 row: p.row,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1271,7 +1183,7 @@ impl PatchloomService {
                 heading: p.heading,
                 content: p.content,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1290,7 +1202,7 @@ impl PatchloomService {
                 heading: p.heading,
                 content: p.content,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1309,7 +1221,7 @@ impl PatchloomService {
                 heading: p.heading,
                 content: p.content,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1344,7 +1256,7 @@ impl PatchloomService {
                 before: p.before,
                 after: p.after,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1356,7 +1268,7 @@ impl PatchloomService {
         Parameters(p): Parameters<MdLintAgentsParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        let abs = self.cwd.join(&p.path);
+        let abs = self.cwd().join(&p.path);
         let content = std::fs::read_to_string(&abs)
             .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
         let issues = crate::cmd::md::lint_agents_content(&content);
@@ -1380,7 +1292,7 @@ impl PatchloomService {
                 trim_trailing_whitespace: Some(true),
                 normalize_eol: None,
             }]),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1394,9 +1306,9 @@ impl PatchloomService {
         self.check_path(&p.from)?;
         self.check_path(&p.to)?;
 
-        let src = self.cwd.join(&p.from);
-        let dst = self.cwd.join(&p.to);
-        match crate::cmd::rename::apply_rename(&src, &dst, p.force, &self.cwd) {
+        let src = self.cwd().join(&p.from);
+        let dst = self.cwd().join(&p.to);
+        match crate::cmd::rename::apply_rename(&src, &dst, p.force, self.cwd()) {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Renamed {} -> {}",
                 p.from, p.to
@@ -1415,7 +1327,7 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
 
-        let abs = self.cwd.join(&p.path);
+        let abs = self.cwd().join(&p.path);
         match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Created {}",
@@ -1434,8 +1346,8 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
 
-        let abs = self.cwd.join(&p.path);
-        match crate::cmd::delete::apply_delete(&abs, &self.cwd) {
+        let abs = self.cwd().join(&p.path);
+        match crate::cmd::delete::apply_delete(&abs, self.cwd()) {
             Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Deleted {}",
                 p.path
@@ -1468,7 +1380,7 @@ impl PatchloomService {
                 }],
                 Some(p.strict),
             ),
-            &self.cwd,
+            self.cwd(),
         )
     }
 
@@ -1515,7 +1427,7 @@ impl PatchloomService {
                 range: None,
             })
             .collect();
-        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), &self.cwd)
+        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
     }
 
     #[tool(
@@ -1545,7 +1457,7 @@ impl PatchloomService {
                 normalize_eol: None,
             })
             .collect();
-        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), &self.cwd)
+        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
     }
 }
 
@@ -1747,8 +1659,7 @@ mod tests {
             on_stale: crate::ops::patch::OnStale::Fail,
             allow_conflicts: false,
         }];
-        let canon = dir.path().canonicalize().unwrap();
-        let result = validate_operation_paths(&ops, dir.path(), &canon);
+        let result = validate_operation_paths(&ops, dir.path());
         assert!(
             result.is_err(),
             "PatchApply with escaping paths should be rejected"
@@ -1764,99 +1675,8 @@ mod tests {
             on_stale: crate::ops::patch::OnStale::Fail,
             allow_conflicts: false,
         }];
-        let canon = dir.path().canonicalize().unwrap();
-        let result = validate_operation_paths(&ops, dir.path(), &canon);
+        let result = validate_operation_paths(&ops, dir.path());
         assert!(result.is_ok(), "PatchApply with safe paths should pass");
-    }
-
-    #[test]
-    fn path_rejects_absolute() {
-        assert!(
-            validate_path_contained("/etc/passwd").is_err(),
-            "absolute path should be rejected"
-        );
-    }
-
-    #[test]
-    fn path_rejects_traversal() {
-        assert!(
-            validate_path_contained("../../etc/passwd").is_err(),
-            "parent traversal should be rejected"
-        );
-    }
-
-    #[test]
-    fn path_rejects_deep_traversal() {
-        assert!(
-            validate_path_contained("a/b/../../../escape").is_err(),
-            "deep traversal escaping cwd should be rejected"
-        );
-    }
-
-    #[test]
-    fn path_allows_relative() {
-        assert!(
-            validate_path_contained("src/main.rs").is_ok(),
-            "simple relative path should be allowed"
-        );
-    }
-
-    #[test]
-    fn path_allows_dot_relative() {
-        assert!(
-            validate_path_contained("./foo/bar.json").is_ok(),
-            "dot-relative path should be allowed"
-        );
-    }
-
-    #[test]
-    fn path_allows_safe_parent() {
-        // a/../b resolves within cwd
-        assert!(
-            validate_path_contained("a/../b").is_ok(),
-            "parent that resolves within cwd should be allowed"
-        );
-    }
-
-    #[test]
-    fn path_rejects_single_parent() {
-        assert!(
-            validate_path_contained("..").is_err(),
-            "bare parent directory should be rejected"
-        );
-    }
-
-    #[test]
-    fn resolved_path_allows_existing_file_inside_cwd() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(dir.path().join("safe.txt"), "ok").unwrap();
-        let canon = dir.path().canonicalize().unwrap();
-        assert!(
-            validate_path_resolved("safe.txt", dir.path(), &canon).is_ok(),
-            "existing file inside cwd should be allowed"
-        );
-    }
-
-    #[test]
-    fn resolved_path_allows_nonexistent_file() {
-        let dir = tempfile::TempDir::new().unwrap();
-        // Non-existent files with safe ancestors are allowed.
-        let canon = dir.path().canonicalize().unwrap();
-        assert!(
-            validate_path_resolved("new_file.txt", dir.path(), &canon).is_ok(),
-            "nonexistent file with safe ancestor should be allowed"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolved_path_rejects_symlink_escaping_cwd() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let link = dir.path().join("escape");
-        std::os::unix::fs::symlink("/tmp", &link).unwrap();
-        let canon = dir.path().canonicalize().unwrap();
-        let result = validate_path_resolved("escape", dir.path(), &canon);
-        assert!(result.is_err(), "symlink escaping cwd should be rejected");
     }
 
     #[tokio::test]
@@ -1919,20 +1739,10 @@ mod tests {
         client.cancel().await.unwrap();
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn resolved_path_rejects_new_file_through_symlink_dir() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let link = dir.path().join("link_dir");
-        std::os::unix::fs::symlink("/tmp", &link).unwrap();
-        // The file doesn't exist, but the parent is a symlink outside cwd.
-        let canon = dir.path().canonicalize().unwrap();
-        let result = validate_path_resolved("link_dir/new_file.txt", dir.path(), &canon);
-        assert!(
-            result.is_err(),
-            "new file through symlink escaping cwd should be rejected"
-        );
-    }
+    // Path containment unit tests (validate_path_contained, validate_path_resolved)
+    // have been moved to crate::containment::tests. The MCP-level integration test
+    // `mcp_path_traversal_rejected_via_protocol` above verifies the end-to-end
+    // path rejection through the MCP protocol layer.
 
     /// Spawn a test client with JSONL logging enabled.
     async fn spawn_test_client_with_log(

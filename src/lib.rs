@@ -49,6 +49,7 @@ pub mod backup;
 pub mod cli;
 pub mod cmd;
 pub mod config;
+pub mod containment;
 pub mod diff;
 pub mod exit;
 pub mod fallback;
