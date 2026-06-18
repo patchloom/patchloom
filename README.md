@@ -8,7 +8,7 @@
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![crates.io](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crate-version.json&logo=rust)](https://crates.io/crates/patchloom)
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
-[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/patchloom.patchloom?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
+[![VS Code Marketplace](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/d01e4551b744b77e2927555e43a4b935/raw/version.json)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
 [![Tests](https://img.shields.io/badge/tests-1400%2B%20passing-brightgreen)](#)
