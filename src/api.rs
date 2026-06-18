@@ -2094,4 +2094,84 @@ mod tests {
             assert_eq!(content, format!("content_{i}\n"));
         }
     }
+
+    // --- api::search gap tests ---
+
+    #[test]
+    fn search_literal_returns_correct_line_numbers() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "fn alpha() {}\nfn beta() {}\nfn alpha_2() {}\n").unwrap();
+
+        let matches = search(&file, "alpha", false, false).unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].line_number, 1);
+        assert_eq!(matches[1].line_number, 3);
+    }
+
+    #[test]
+    fn search_no_match_returns_empty() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "fn hello() {}\n").unwrap();
+
+        let matches = search(&file, "nonexistent", false, false).unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn search_nonexistent_file_fails() {
+        let err = search(
+            Path::new("/tmp/nonexistent_patchloom_search.txt"),
+            "x",
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("failed to read"));
+    }
+
+    // --- api::read gap tests ---
+
+    #[test]
+    fn read_start_only_to_end() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("hello.txt");
+        fs::write(&file, "a\nb\nc\n").unwrap();
+
+        let content = read(&file, Some(2), None).unwrap();
+        assert_eq!(content, "b\nc\n");
+    }
+
+    #[test]
+    fn read_start_beyond_file_returns_empty() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("hello.txt");
+        fs::write(&file, "a\nb\n").unwrap();
+
+        let content = read(&file, Some(100), None).unwrap();
+        assert!(content.is_empty());
+    }
+
+    #[test]
+    fn read_nonexistent_file_fails() {
+        let err = read(Path::new("/tmp/nonexistent_patchloom_read.txt"), None, None).unwrap_err();
+        assert!(err.to_string().contains("failed to read"));
+    }
+
+    // --- make_write_policy CRLF variant ---
+
+    #[test]
+    fn make_write_policy_maps_crlf() {
+        let opts = WritePolicyOptions {
+            normalize_eol: Some(EolNormalization::Crlf),
+            ..WritePolicyOptions::default()
+        };
+        let policy = make_write_policy(&opts);
+        assert_eq!(
+            policy.normalize_eol,
+            crate::cli::global::EolMode::Crlf,
+            "should map EolNormalization::Crlf to EolMode::Crlf"
+        );
+    }
 }
