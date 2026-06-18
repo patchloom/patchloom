@@ -235,6 +235,7 @@ This is safe; the next `--apply` run will create a fresh backup directory.
 | 5 | Ambiguous match |
 | 6 | Validation failed |
 | 7 | Rollback (transaction failed and was rolled back) |
+| 8 | Patch merge conflicts detected |
 
 ## Next steps
 
