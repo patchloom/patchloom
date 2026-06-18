@@ -8,6 +8,7 @@
 - [Quickstart](getting-started/quickstart.md)
 - [Core Concepts](getting-started/concepts.md)
 - [MCP Setup](getting-started/mcp-setup.md)
+- [Editor Extension](getting-started/editor-extension.md)
 
 # Reference
 
