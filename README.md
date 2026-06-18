@@ -300,7 +300,7 @@ All API types are `Send + Sync`. Beyond the `api` module, utility modules are al
 | [Installation](https://patchloom.github.io/patchloom/getting-started/installation.html) | Install options and shell completions |
 | [Core concepts](https://patchloom.github.io/patchloom/getting-started/concepts.html) | Write modes, transaction plans, exit codes |
 | [MCP setup](https://patchloom.github.io/patchloom/getting-started/mcp-setup.html) | Configure patchloom as an MCP server for your agent |
-| [Editor extension](https://patchloom.github.io/patchloom/getting-started/editor-extension.html) | VS Code, Cursor, Windsurf, and VSCodium integration |
+| [Editor extension](./docs/getting-started/editor-extension.md) | VS Code, Cursor, Windsurf, and VSCodium integration |
 | [Quickstart](https://patchloom.github.io/patchloom/getting-started/quickstart.html) | 5-minute walkthrough |
 | [Reference](https://patchloom.github.io/patchloom/reference/) | Every command, operation, and mode |
 | [Examples](./examples/README.md) | Transaction plan templates |
