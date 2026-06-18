@@ -360,8 +360,8 @@ color = "always"
         assert!(global.normalize_eol.is_none());
         let warning = invalid_normalize_eol_warning("CRLF");
         assert!(warning.contains("CRLF"));
-        assert!(warning.contains("lf"));
-        assert!(warning.contains("crlf"));
+        assert!(warning.contains("\"lf\""));
+        assert!(warning.contains("\"crlf\""));
     }
 
     #[test]

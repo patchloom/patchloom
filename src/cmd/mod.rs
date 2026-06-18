@@ -62,11 +62,6 @@ pub enum Command {
     /// Start an MCP (Model Context Protocol) server on stdio.
     #[cfg(feature = "mcp")]
     McpServer {
-        /// Allow tx plans to run shell commands via format/validate lifecycle
-        /// steps. Without this flag, plans containing shell commands are
-        /// rejected. Enable only when the MCP client is trusted.
-        #[arg(long)]
-        allow_shell: bool,
         /// Log every tool call to a JSONL file (tool name, duration, status).
         /// Also settable via PATCHLOOM_MCP_LOG env var; the flag takes precedence.
         #[arg(long)]
@@ -455,9 +450,9 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
-        Command::McpServer { allow_shell, log } => {
+        Command::McpServer { log } => {
             load_project_config(&mut global);
-            mcp::run_mcp_server(&global, allow_shell, log)
+            mcp::run_mcp_server(&global, log)
         }
         Command::Schema(args) => schema::run(args, &global),
         Command::AgentRules(args) => {

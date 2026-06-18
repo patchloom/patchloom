@@ -199,6 +199,48 @@ fn build_edit_result(
 // Document operations (JSON/YAML/TOML)
 // ---------------------------------------------------------------------------
 
+/// A parsed document loaded from disk, ready for mutation.
+struct LoadedDoc {
+    path_str: String,
+    format: ops::doc::FileFormat,
+    original: String,
+    value: serde_json::Value,
+}
+
+/// Load and parse a JSON/YAML/TOML file.
+fn load_doc(path: &Path) -> anyhow::Result<LoadedDoc> {
+    let path_str = path.to_string_lossy().into_owned();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let value = ops::doc::parse_doc(&original, &format)?;
+    Ok(LoadedDoc {
+        path_str,
+        format,
+        original,
+        value,
+    })
+}
+
+/// Serialize a mutated document and build an `EditResult`.
+fn finish_doc_edit(
+    path: &Path,
+    doc: &LoadedDoc,
+    new_value: &serde_json::Value,
+    mode: ApplyMode,
+) -> anyhow::Result<EditResult> {
+    let new_content =
+        ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    Ok(build_edit_result(
+        &doc.path_str,
+        doc.original.clone(),
+        new_content,
+        applied,
+    ))
+}
+
 /// Set a value at a selector path in a JSON, YAML, or TOML file.
 ///
 /// The file format is detected from the extension. The selector uses
@@ -209,40 +251,24 @@ pub fn doc_set(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    ops::doc::set_at_path(&mut doc, &segments, value)?;
+    ops::doc::set_at_path(&mut new_value, &segments, value)?;
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
 pub fn doc_delete(path: &Path, selector: &str, mode: ApplyMode) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    ops::doc::delete_at_selector(&mut doc, &segments)?;
+    ops::doc::delete_at_selector(&mut new_value, &segments)?;
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Deep-merge a value into the root of a JSON, YAML, or TOML file.
@@ -251,34 +277,22 @@ pub fn doc_merge(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
-    ops::doc::deep_merge(&mut doc, &value);
+    ops::doc::deep_merge(&mut new_value, &value);
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
 ///
 /// This is a read-only operation; the `mode` parameter is ignored.
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let doc = ops::doc::parse_doc(&content, &format)?;
+    let doc = load_doc(path)?;
 
     let segments = selector::parse_anyhow(selector)?;
-    let result = selector::eval(&doc, &segments);
+    let result = selector::eval(&doc.value, &segments);
     match result.len() {
         0 => bail!("selector '{}' matched nothing", selector),
         1 => Ok(result
@@ -294,14 +308,10 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
 
 /// Check whether a selector path exists in a JSON, YAML, or TOML file.
 pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let doc = ops::doc::parse_doc(&content, &format)?;
+    let doc = load_doc(path)?;
 
     let segments = selector::parse_anyhow(selector)?;
-    let result = selector::eval(&doc, &segments);
+    let result = selector::eval(&doc.value, &segments);
     Ok(!result.is_empty())
 }
 
@@ -312,25 +322,17 @@ pub fn doc_append(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    let target = ops::doc::navigate_mut(&mut doc, &segments, false)?;
+    let target = ops::doc::navigate_mut(&mut new_value, &segments, false)?;
     let arr = target
         .as_array_mut()
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.push(value);
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Prepend a value to an array at a selector path.
@@ -340,25 +342,17 @@ pub fn doc_prepend(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    let target = ops::doc::navigate_mut(&mut doc, &segments, false)?;
+    let target = ops::doc::navigate_mut(&mut new_value, &segments, false)?;
     let arr = target
         .as_array_mut()
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.insert(0, value);
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Update all values matching a selector with a new value.
@@ -371,21 +365,13 @@ pub fn doc_update(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    ops::doc::update_matching(&mut doc, &segments, &value);
+    ops::doc::update_matching(&mut new_value, &segments, &value);
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Ensure a value exists at a selector path; set it only if missing.
@@ -395,25 +381,17 @@ pub fn doc_ensure(
     value: serde_json::Value,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
     // Only set if the path does not already exist.
-    let existing = selector::eval(&doc, &segments);
+    let existing = selector::eval(&new_value, &segments);
     if existing.is_empty() {
-        ops::doc::set_at_path(&mut doc, &segments, value)?;
+        ops::doc::set_at_path(&mut new_value, &segments, value)?;
     }
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Delete array elements matching a predicate (e.g., `"name=old"`).
@@ -423,21 +401,13 @@ pub fn doc_delete_where(
     predicate: &str,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
-    ops::doc::delete_where(&mut doc, &segments, predicate)?;
+    ops::doc::delete_where(&mut new_value, &segments, predicate)?;
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 /// Move a value from one selector path to another within the same file.
@@ -447,22 +417,14 @@ pub fn doc_move(
     to_selector: &str,
     mode: ApplyMode,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let old_value = ops::doc::parse_doc(&original, &format)?;
-    let mut doc = old_value.clone();
+    let doc = load_doc(path)?;
+    let mut new_value = doc.value.clone();
 
     let from_segments = selector::parse_anyhow(from_selector)?;
     let to_segments = selector::parse_anyhow(to_selector)?;
-    ops::doc::move_at_path(&mut doc, &from_segments, &to_segments)?;
+    ops::doc::move_at_path(&mut new_value, &from_segments, &to_segments)?;
 
-    let new_content = ops::doc::serialize_value_preserving(&original, &old_value, &doc, &format)?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    finish_doc_edit(path, &doc, &new_value, mode)
 }
 
 // ---------------------------------------------------------------------------
