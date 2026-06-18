@@ -8,6 +8,7 @@
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![crates.io](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crate-version.json&logo=rust)](https://crates.io/crates/patchloom)
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/patchloom.patchloom?label=VS%20Code&logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
 [![Tests](https://img.shields.io/badge/tests-1400%2B%20passing-brightgreen)](#)
@@ -172,6 +173,17 @@ Pre-built binaries for Linux, macOS, and Windows are on the
 See [Installation](./docs/getting-started/installation.md) for shell
 installer scripts, source builds, and shell completion setup.
 
+### Editor extension
+
+Install the companion extension for VS Code, Cursor, Windsurf, or VSCodium:
+
+- [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
+- [Open VSX Registry](https://open-vsx.org/extension/patchloom/patchloom)
+
+The extension auto-discovers the CLI (or installs it for you), generates
+AGENTS.md, configures MCP servers, and adds Quick Actions to the command
+palette. See the [Editor Extension guide](./docs/getting-started/editor-extension.md) for details.
+
 ## Quick start
 
 ### 1. Set up your project
@@ -246,6 +258,8 @@ MCP-capable agents call patchloom tools directly as structured JSON, with no she
 
 See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
+> **Using VS Code, Cursor, or Windsurf?** The [Patchloom extension](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) handles setup automatically: it installs the binary, runs init, and configures your editor's MCP settings.
+
 ### As a Rust library
 
 Add patchloom as a dependency (omit the MCP server with `default-features = false`):
@@ -286,6 +300,7 @@ All API types are `Send + Sync`. Beyond the `api` module, utility modules are al
 | [Installation](https://patchloom.github.io/patchloom/getting-started/installation.html) | Install options and shell completions |
 | [Core concepts](https://patchloom.github.io/patchloom/getting-started/concepts.html) | Write modes, transaction plans, exit codes |
 | [MCP setup](https://patchloom.github.io/patchloom/getting-started/mcp-setup.html) | Configure patchloom as an MCP server for your agent |
+| [Editor extension](./docs/getting-started/editor-extension.md) | VS Code, Cursor, Windsurf, and VSCodium integration |
 | [Quickstart](https://patchloom.github.io/patchloom/getting-started/quickstart.html) | 5-minute walkthrough |
 | [Reference](https://patchloom.github.io/patchloom/reference/) | Every command, operation, and mode |
 | [Examples](./examples/README.md) | Transaction plan templates |
@@ -409,6 +424,11 @@ flowchart LR
 ## Status
 
 1400+ tests across 20 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+
+| Component | Status |
+|---|---|
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom) and [Homebrew](https://github.com/patchloom/homebrew-tap) |
+| Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
 
