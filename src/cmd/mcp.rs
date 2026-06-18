@@ -549,17 +549,13 @@ pub struct PatchloomService {
     tool_router: ToolRouter<Self>,
     /// Path guard: validates and canonicalizes paths relative to cwd.
     path_guard: crate::containment::PathGuard,
-    /// Whether tx plans may include format/validate lifecycle steps that
-    /// execute shell commands. Controlled by `--allow-shell` on startup.
-    #[expect(dead_code)]
-    allow_shell: bool,
     /// Optional path for logging MCP tool calls as JSONL.
     /// Set via `--log <path>` or `PATCHLOOM_MCP_LOG` env var.
     call_log: Option<PathBuf>,
 }
 
 impl PatchloomService {
-    pub fn new(cwd: PathBuf, allow_shell: bool, log_flag: Option<String>) -> anyhow::Result<Self> {
+    pub fn new(cwd: PathBuf, log_flag: Option<String>) -> anyhow::Result<Self> {
         let path_guard = crate::containment::PathGuard::new(
             cwd.clone(),
             crate::containment::AbsolutePathPolicy::Reject,
@@ -572,7 +568,6 @@ impl PatchloomService {
         Ok(Self {
             tool_router: Self::tool_router(),
             path_guard,
-            allow_shell,
             call_log,
         })
     }
@@ -1505,13 +1500,9 @@ impl ServerHandler for PatchloomService {
 }
 
 /// Run the MCP server on stdio.
-pub fn run_mcp_server(
-    global: &GlobalFlags,
-    allow_shell: bool,
-    log: Option<String>,
-) -> anyhow::Result<u8> {
+pub fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    let service = PatchloomService::new(cwd, allow_shell, log)?;
+    let service = PatchloomService::new(cwd, log)?;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -1539,15 +1530,8 @@ mod tests {
     async fn spawn_test_client(
         cwd: std::path::PathBuf,
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-        spawn_test_client_with_shell(cwd, false).await
-    }
-
-    async fn spawn_test_client_with_shell(
-        cwd: std::path::PathBuf,
-        allow_shell: bool,
-    ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
         let (server_transport, client_transport) = tokio::io::duplex(16384);
-        let service = PatchloomService::new(cwd, allow_shell, None).unwrap();
+        let service = PatchloomService::new(cwd, None).unwrap();
         tokio::spawn(async move {
             let server = service.serve(server_transport).await.unwrap();
             server.waiting().await.unwrap();
@@ -1751,8 +1735,7 @@ mod tests {
     ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
         let (server_transport, client_transport) = tokio::io::duplex(16384);
         let service =
-            PatchloomService::new(cwd, false, Some(log_path.to_string_lossy().into_owned()))
-                .unwrap();
+            PatchloomService::new(cwd, Some(log_path.to_string_lossy().into_owned())).unwrap();
         tokio::spawn(async move {
             let server = service.serve(server_transport).await.unwrap();
             server.waiting().await.unwrap();

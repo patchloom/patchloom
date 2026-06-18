@@ -313,7 +313,6 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Starts an MCP (Model Context Protocol) server on stdio, exposing patchloom operations as structured tool calls. Included by default in all builds.
 - **Use when:** An MCP-capable AI agent can call patchloom tools directly via structured tool calls instead of constructing shell commands. This eliminates the shell-syntax construction tax and reduces agent errors.
-- **`--allow-shell`:** By default, the MCP server rejects tx plans that contain `format` or `validate` lifecycle steps (which execute shell commands). Pass `--allow-shell` to permit these steps. This flag has no effect on the CLI `tx` command, which always allows lifecycle steps.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
 

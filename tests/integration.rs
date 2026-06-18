@@ -15235,24 +15235,6 @@ fn test_makefile_has_audit_target() {
 }
 
 #[test]
-fn test_readme_documents_allow_shell_flag() {
-    let readme = fs::read_to_string(repo_root().join("README.md")).unwrap();
-    assert!(
-        readme.contains("--allow-shell"),
-        "README should mention --allow-shell for MCP server"
-    );
-}
-
-#[test]
-fn test_mcp_setup_documents_allow_shell_flag() {
-    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
-    assert!(
-        doc.contains("--allow-shell"),
-        "mcp-setup.md should document the --allow-shell flag"
-    );
-}
-
-#[test]
 fn test_mcp_setup_documents_search_files_modes() {
     let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
     assert!(doc.contains("literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes"));
@@ -16358,22 +16340,12 @@ fn has_mcp_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
-    spawn_mcp_client_opts(cwd, false).await
-}
-
-async fn spawn_mcp_client_opts(
-    cwd: &Path,
-    allow_shell: bool,
-) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     use rmcp::ServiceExt;
     use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);
     cmd.arg("mcp-server").current_dir(cwd);
-    if allow_shell {
-        cmd.arg("--allow-shell");
-    }
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)
@@ -18462,7 +18434,11 @@ fn test_schema_json_output() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
     // Envelope must contain version, operations, and plan_envelope.
-    assert!(parsed.get("version").is_some(), "missing version");
+    let version = parsed
+        .get("version")
+        .and_then(|v| v.as_str())
+        .expect("version must be a non-empty string");
+    assert!(!version.is_empty(), "version must not be empty");
     let ops = parsed
         .get("operations")
         .and_then(|v| v.as_array())
@@ -18474,29 +18450,44 @@ fn test_schema_json_output() {
 
     // Every operation must have name, description, parameters, min_tier.
     for op in ops {
-        assert!(op.get("name").is_some(), "missing name in schema entry");
+        let name = op
+            .get("name")
+            .and_then(|v| v.as_str())
+            .expect("name must be a non-empty string in schema entry");
+        assert!(!name.is_empty(), "name must not be empty in schema entry");
+        let desc = op
+            .get("description")
+            .and_then(|v| v.as_str())
+            .expect("description must be a non-empty string in schema entry");
         assert!(
-            op.get("description").is_some(),
-            "missing description in schema entry"
+            !desc.is_empty(),
+            "description must not be empty for op {name}"
         );
         assert!(
-            op.get("parameters").is_some(),
-            "missing parameters in schema entry"
+            op.get("parameters").and_then(|v| v.as_object()).is_some(),
+            "parameters must be an object for op {name}"
         );
         assert!(
-            op.get("min_tier").is_some(),
-            "missing min_tier in schema entry"
+            op.get("min_tier").and_then(|v| v.as_str()).is_some(),
+            "min_tier must be a string for op {name}"
         );
     }
 
-    // Plan envelope must include write_policy with all fields.
+    // Plan envelope must include write_policy with all fields as schema objects.
     let wp = parsed
         .pointer("/plan_envelope/write_policy/properties")
         .expect("plan_envelope.write_policy.properties must exist");
-    assert!(wp.get("ensure_final_newline").is_some());
-    assert!(wp.get("normalize_eol").is_some());
-    assert!(wp.get("trim_trailing_whitespace").is_some());
-    assert!(wp.get("collapse_blanks").is_some());
+    for key in [
+        "ensure_final_newline",
+        "normalize_eol",
+        "trim_trailing_whitespace",
+        "collapse_blanks",
+    ] {
+        assert!(
+            wp.get(key).and_then(|v| v.as_object()).is_some(),
+            "write_policy property {key} must be a schema object"
+        );
+    }
 }
 
 #[test]
@@ -18599,8 +18590,9 @@ fn test_schema_examples_flag() {
         .and_then(|v| v.as_array())
         .expect("operations must be an array");
     assert!(
-        with.iter().any(|op| op.get("examples").is_some()),
-        "at least one op should have examples with --examples flag"
+        with.iter()
+            .any(|op| op.get("examples").and_then(|v| v.as_array()).is_some()),
+        "at least one op should have examples (as an array) with --examples flag"
     );
 }
 
@@ -19292,10 +19284,21 @@ async fn test_mcp_concurrent_doc_set_same_file() {
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content)
         .unwrap_or_else(|_| panic!("file should be valid JSON after concurrent writes: {content}"));
-    // All three original keys must still be present (no key loss from partial writes).
-    assert!(v.get("a").is_some(), "key 'a' should exist");
-    assert!(v.get("b").is_some(), "key 'b' should exist");
-    assert!(v.get("c").is_some(), "key 'c' should exist");
+    // All three original keys must still be present with valid string values
+    // (no key loss or corruption from partial writes). Values may be old or new
+    // depending on which concurrent write succeeded.
+    for key in ["a", "b", "c"] {
+        let val = v
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("key '{key}' must exist as a string"));
+        let old = format!("old_{key}");
+        let new = format!("new_{key}");
+        assert!(
+            val == old || val == new,
+            "key '{key}' has unexpected value {val:?}, expected {old:?} or {new:?}"
+        );
+    }
 
     client.cancel().await.unwrap();
 }
