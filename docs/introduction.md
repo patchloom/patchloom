@@ -30,16 +30,28 @@ EOF
 
 ## 20 commands
 
-| Category | Commands |
-|----------|----------|
-| Text | `search`, `replace`, `patch` |
-| Structured | `doc` (JSON/YAML/TOML), `md` (Markdown) |
-| Files | `create`, `delete`, `rename`, `read`, `status` |
-| Batch | `tx` (atomic transactions), `batch` (line-oriented) |
-| Normalize | `tidy` (whitespace, line endings) |
-| Safety | `undo` (backup restoration) |
-| Agent | `mcp-server`, `agent-rules`, `schema`, `explain` |
-| Setup | `init`, `completions` |
+| Category | Command | Description |
+|----------|---------|-------------|
+| Text | `search` | Literal or regex search across files |
+| | `replace` | Mechanical string replacement with diff preview |
+| | `patch` | Preview or apply unified diffs |
+| Structured | `doc` | Parser-backed JSON, YAML, and TOML operations |
+| | `md` | Markdown section-aware operations |
+| Files | `create` | Create a new file with content |
+| | `delete` | Delete a file |
+| | `rename` | Rename or move a file |
+| | `read` | Read file contents with optional line range |
+| | `status` | Show uncommitted file changes |
+| Batch | `tx` | Execute a multi-operation plan atomically |
+| | `batch` | Line-oriented batch operations |
+| Normalize | `tidy` | Whitespace, line ending, and final newline normalization |
+| Safety | `undo` | Restore files from backup |
+| Agent | `mcp-server` | MCP protocol server for structured tool calls |
+| | `agent-rules` | Print agent rules for AGENTS.md |
+| | `schema` | Export operation schemas with tier filtering |
+| | `explain` | Explain a tx plan in plain English |
+| Setup | `init` | Set up patchloom in the current project |
+| | `completions` | Generate shell completions |
 
 ## Get started
 
