@@ -8,7 +8,6 @@
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![crates.io](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crate-version.json&logo=rust)](https://crates.io/crates/patchloom)
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
-[![VS Code Marketplace](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/d01e4551b744b77e2927555e43a4b935/raw/version.json)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
 [![Tests](https://img.shields.io/badge/tests-1400%2B%20passing-brightgreen)](#)
@@ -18,6 +17,7 @@
 [![FOSSA Status](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml)
 [![Docs](https://img.shields.io/badge/docs-patchloom.github.io-blue?logo=mdbook)](https://patchloom.github.io/patchloom/)
 
+[![VS Code Marketplace](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/d01e4551b744b77e2927555e43a4b935/raw/version.json)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
 [![crates.io downloads](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crates-downloads.json&logo=rust)](https://crates.io/crates/patchloom)
 
 **One binary. Every platform. Structured file edits for AI agents.**
