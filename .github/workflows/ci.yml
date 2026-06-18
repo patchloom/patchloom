@@ -436,6 +436,10 @@ jobs:
         run: cd tests/agent && pytest test_bench.py::test_dry_run_prompts -v -s --dry-run-prompts
 
   semver-checks:
+    # Only run on release PRs where the version bump is proposed.
+    # Regular development PRs may accumulate breaking changes that are
+    # expected until the next release.
+    if: startsWith(github.head_ref, 'release-please-')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

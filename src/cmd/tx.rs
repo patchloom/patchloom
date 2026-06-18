@@ -98,6 +98,7 @@ struct TxLintResult {
 }
 
 #[derive(Debug, Args)]
+#[non_exhaustive]
 #[command(after_help = "\
 EXAMPLES:
   patchloom tx plan.json

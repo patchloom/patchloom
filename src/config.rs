@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 /// Project-level configuration loaded from `.patchloom.toml`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ProjectConfig {
     pub write_policy: WritePolicy,
     pub exclude: Exclude,
@@ -18,12 +19,14 @@ pub struct ProjectConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TxConfig {
     pub strict: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct WritePolicy {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
@@ -33,6 +36,7 @@ pub struct WritePolicy {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Exclude {
     #[serde(default)]
     pub globs: Vec<String>,
@@ -40,6 +44,7 @@ pub struct Exclude {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Output {
     pub color: Option<String>,
 }
