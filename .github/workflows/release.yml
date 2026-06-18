@@ -355,6 +355,7 @@ jobs:
       - build-global-artifacts
     permissions:
       "contents": "write"
+      "pull-requests": "write"
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     env:
@@ -410,6 +411,51 @@ jobs:
           # Output the slimmed manifest for downstream jobs (full manifest
           # exceeds GitHub Actions ~50KB step output limit)
           echo "manifest=$(jq -c '{ci, announcement_is_prerelease, announcement_title, releases, publish_prereleases}' "$RUNNER_TEMP/plan-dist-manifest.json")" >> "$GITHUB_OUTPUT"
+      # If RELEASE_NOTES.md exists at the repo root on the tagged commit,
+      # replace the GitHub Release body with its contents. When absent,
+      # the auto-generated notes from release-please/cargo-dist stay as-is.
+      - name: Apply custom release notes
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if [ -f RELEASE_NOTES.md ]; then
+            echo "Custom release notes found, updating release body..."
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          else
+            echo "No custom release notes, using auto-generated notes"
+          fi
+      # Clean up RELEASE_NOTES.md after the release so it does not persist
+      # on main. Branch protection prevents direct pushes, so we create a
+      # short-lived PR. A GitHub App token is used so the PR triggers CI
+      # and the auto-approve workflow.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: cleanup-token
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+      - name: Clean up release notes file
+        env:
+          GH_TOKEN: ${{ steps.cleanup-token.outputs.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          if git ls-tree HEAD --name-only | grep -q '^RELEASE_NOTES.md$'; then
+            BRANCH="chore/cleanup-release-notes-${TAG}"
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/heads/$BRANCH" \
+              -f sha="$(git rev-parse HEAD)"
+            FILE_SHA=$(gh api \
+              "repos/${{ github.repository }}/contents/RELEASE_NOTES.md?ref=$BRANCH" \
+              --jq '.sha')
+            gh api --method DELETE \
+              "repos/${{ github.repository }}/contents/RELEASE_NOTES.md" \
+              -f message="chore: remove release notes override" \
+              -f sha="$FILE_SHA" \
+              -f branch="$BRANCH"
+            PR_URL=$(gh pr create --base main --head "$BRANCH" \
+              --title "chore: remove release notes override" \
+              --body "Auto-cleanup after ${TAG} release.")
+            gh pr merge "$PR_URL" --auto --squash
+          fi
 
   provenance:
     needs:

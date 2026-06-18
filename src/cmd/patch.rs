@@ -25,6 +25,7 @@ pub struct PatchArgs {
 }
 
 #[derive(Debug, clap::Subcommand)]
+#[non_exhaustive]
 pub enum PatchAction {
     Check {
         // ref:patch-mode:file

@@ -31,6 +31,7 @@ fn default_strict_true() -> bool {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocSetParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -45,6 +46,7 @@ pub struct DocSetParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocDeleteParams {
     /// File path.
     pub path: String,
@@ -54,6 +56,7 @@ pub struct DocDeleteParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocMergeParams {
     /// File path.
     pub path: String,
@@ -63,6 +66,7 @@ pub struct DocMergeParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocArrayParams {
     /// File path.
     pub path: String,
@@ -74,6 +78,7 @@ pub struct DocArrayParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocEnsureParams {
     /// File path.
     pub path: String,
@@ -85,6 +90,7 @@ pub struct DocEnsureParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocUpdateParams {
     /// File path.
     pub path: String,
@@ -96,6 +102,7 @@ pub struct DocUpdateParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocMoveParams {
     /// File path.
     pub path: String,
@@ -107,6 +114,7 @@ pub struct DocMoveParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocDeleteWhereParams {
     /// File path.
     pub path: String,
@@ -118,6 +126,7 @@ pub struct DocDeleteWhereParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ReplaceParams {
     /// File path.
     pub path: String,
@@ -156,6 +165,7 @@ pub struct ReplaceParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -165,6 +175,7 @@ pub struct DocGetParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ReadFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -174,6 +185,7 @@ pub struct ReadFileParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdLintAgentsParams {
     /// Markdown file path (typically AGENTS.md).
     pub path: String,
@@ -181,6 +193,7 @@ pub struct MdLintAgentsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdUpsertBulletParams {
     /// Markdown file path.
     pub path: String,
@@ -192,6 +205,7 @@ pub struct MdUpsertBulletParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdTableAppendParams {
     /// Markdown file path.
     pub path: String,
@@ -203,6 +217,7 @@ pub struct MdTableAppendParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdReplaceSectionParams {
     /// Markdown file path.
     pub path: String,
@@ -214,6 +229,7 @@ pub struct MdReplaceSectionParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdInsertParams {
     /// Markdown file path.
     pub path: String,
@@ -225,6 +241,7 @@ pub struct MdInsertParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MdMoveSectionParams {
     /// Source file path containing the section to move.
     pub path: String,
@@ -243,6 +260,7 @@ pub struct MdMoveSectionParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TidyParams {
     /// File path to normalize.
     pub path: String,
@@ -250,6 +268,7 @@ pub struct TidyParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct FileRenameParams {
     /// Source file path (relative to working directory).
     pub from: String,
@@ -262,6 +281,7 @@ pub struct FileRenameParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CreateFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -274,6 +294,7 @@ pub struct CreateFileParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DeleteFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -281,6 +302,7 @@ pub struct DeleteFileParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PatchParams {
     pub diff: String,
     #[serde(default)]
@@ -294,6 +316,7 @@ pub struct PatchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
@@ -330,6 +353,7 @@ pub struct SearchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocQueryParams {
     /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
     /// "select" (filter array), or "flatten" (list all paths).
@@ -342,6 +366,7 @@ pub struct DocQueryParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DocDiffParams {
     /// First file path.
     pub file_a: String,
@@ -355,6 +380,7 @@ pub struct DocDiffParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
     pub files: Vec<String>,
@@ -378,6 +404,7 @@ pub struct BatchReplaceParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct BatchTidyParams {
     /// File paths to normalize (relative to working directory).
     pub files: Vec<String>,
