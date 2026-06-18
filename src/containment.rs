@@ -271,7 +271,6 @@ mod tests {
     #[test]
     fn relative_path_within_workspace() {
         let dir = tempfile::TempDir::new().unwrap();
-        fs::write(dir.path().join("src").join("..").join("file.txt"), "ok").ok();
         fs::write(dir.path().join("file.txt"), "ok").unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
         assert!(guard.check_path("file.txt").is_ok());
