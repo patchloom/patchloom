@@ -20,8 +20,6 @@ Add to `~/.grok/config.toml`:
 [mcp_servers.patchloom]
 command = "/path/to/patchloom"
 args = ["mcp-server"]
-# Add "--allow-shell" to args to enable format/validate lifecycle steps:
-# args = ["mcp-server", "--allow-shell"]
 ```
 
 ### Claude Desktop (JSON)

@@ -244,12 +244,6 @@ patchloom mcp-server
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
-To allow tx plans with format/validate lifecycle steps (shell command execution), add `--allow-shell`:
-
-```bash
-patchloom mcp-server --allow-shell
-```
-
 See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
 ### As a Rust library
@@ -283,7 +277,7 @@ api::doc_set(
 )?;
 ```
 
-All API types are `Send + Sync`. See the `patchloom::api` module docs for the full surface.
+All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), and `write` (atomic file writes with policy transformations). See the `patchloom::api` module docs for the full surface.
 
 ## Getting started
 
