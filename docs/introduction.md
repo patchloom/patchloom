@@ -53,6 +53,19 @@ EOF
 | Setup | `init` | Set up patchloom in the current project |
 | | `completions` | Generate shell completions |
 
+## As a Rust library
+
+Patchloom is also a Rust library. Add it as a dependency to embed structured file editing in your own tools:
+
+```toml
+[dependencies]
+patchloom = { version = "0.1", default-features = false }
+```
+
+The `api` module exposes doc, replace, markdown, file, and patch operations. All API types are `Send + Sync`. Disabling default features omits the MCP server and its async dependencies.
+
+See the [crate documentation](https://docs.rs/patchloom) for the full API surface.
+
 ## Get started
 
 Head to [Installation](getting-started/installation.md) to install, then follow the [Quickstart](getting-started/quickstart.md) to make your first edit.

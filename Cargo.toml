@@ -3,13 +3,13 @@ name = "patchloom"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
-description = "A Rust CLI for agent-grade repo operations"
+description = "Structured file editing library and CLI for AI agents: parser-backed JSON/YAML/TOML edits, multi-file batching, markdown operations, and MCP server"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/patchloom/patchloom"
 homepage = "https://patchloom.github.io/patchloom/"
 readme = "README.md"
-keywords = ["cli", "agents", "patch", "markdown", "config"]
-categories = ["command-line-utilities", "development-tools", "config"]
+keywords = ["mcp", "ai-agents", "yaml", "toml", "json"]
+categories = ["command-line-utilities", "development-tools", "config", "text-processing", "parser-implementations"]
 authors = ["Sebastien Tardif"]
 exclude = [
   "benches/",

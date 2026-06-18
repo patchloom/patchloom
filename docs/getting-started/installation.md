@@ -50,6 +50,21 @@ This builds with MCP support by default. To build without MCP
 If you're contributing from a source checkout, use `make check-fast`
 while iterating and `make check` before committing.
 
+## As a Rust library
+
+Add patchloom as a dependency to embed structured file editing in your own
+Rust tools. Disable default features to omit the MCP server and its async
+dependencies:
+
+```toml
+[dependencies]
+patchloom = { version = "0.1", default-features = false }
+```
+
+See the [crate documentation](https://docs.rs/patchloom) for the full API
+surface and the [introduction](../introduction.md#as-a-rust-library) for
+a quick overview.
+
 ## Shell completions
 
 After installing, generate shell completions:
