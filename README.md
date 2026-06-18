@@ -15,8 +15,8 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
 [![FOSSA Status](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/fossa.yml)
-[![Docs](https://img.shields.io/badge/docs-patchloom.github.io-blue?logo=mdbook)](https://patchloom.github.io/patchloom/)
 
+[![Docs](https://img.shields.io/badge/docs-patchloom.github.io-blue?logo=mdbook)](https://patchloom.github.io/patchloom/)
 [![VS Code Marketplace](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/d01e4551b744b77e2927555e43a4b935/raw/version.json)](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom)
 [![crates.io downloads](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crates-downloads.json&logo=rust)](https://crates.io/crates/patchloom)
 
