@@ -4,6 +4,33 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.7...patchloom-v0.2.0) (2026-06-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* All public structs and enums in the API surface are now marked #[non_exhaustive]. External code that constructs these types via struct literals must use ..Default::default() or equivalent patterns. Serde deserialization (the primary construction path) is unaffected.
+
+### Features
+
+* add cargo-semver-checks CI and fix all rustdoc warnings ([#615](https://github.com/patchloom/patchloom/issues/615)) ([250dcb5](https://github.com/patchloom/patchloom/commit/250dcb52191b22ca3beda879715ac7000dd306a7)), closes [#612](https://github.com/patchloom/patchloom/issues/612) [#613](https://github.com/patchloom/patchloom/issues/613)
+* extract path containment into public module ([#609](https://github.com/patchloom/patchloom/issues/609)) ([d3d9ae2](https://github.com/patchloom/patchloom/commit/d3d9ae26e2b07c9867a3ac38461c637d84e6bd44))
+* harden tx rollback and add three-way patch merge ([#587](https://github.com/patchloom/patchloom/issues/587)) ([db21982](https://github.com/patchloom/patchloom/commit/db2198222aa159d4b8b4874e14c4dbd399569909))
+* make files module public and extract exec module ([#610](https://github.com/patchloom/patchloom/issues/610)) ([746701a](https://github.com/patchloom/patchloom/commit/746701a9030ac6dc81ce78ef1594e33bcfb8fe6f))
+* mark all public types as #[non_exhaustive] for semver safety ([#624](https://github.com/patchloom/patchloom/issues/624)) ([b3592e2](https://github.com/patchloom/patchloom/commit/b3592e20ead71c62f6bc302bee432182447f0fed))
+* re-export EolMode from write module ([#611](https://github.com/patchloom/patchloom/issues/611)) ([fc604d9](https://github.com/patchloom/patchloom/commit/fc604d9b60963e73d1cef461c1cb1899648b0564))
+* support RELEASE_NOTES.md override for curated release descriptions ([#627](https://github.com/patchloom/patchloom/issues/627)) ([f0f92be](https://github.com/patchloom/patchloom/commit/f0f92be348c2371ad625770cd260092a077c12b8))
+
+
+### Bug Fixes
+
+* remove dead test code in containment path guard ([#628](https://github.com/patchloom/patchloom/issues/628)) ([5e5b9e5](https://github.com/patchloom/patchloom/commit/5e5b9e5fa459dc60bcc124565471dd9debd4afb2))
+* resolve tech-debt issues [#620](https://github.com/patchloom/patchloom/issues/620)-[#623](https://github.com/patchloom/patchloom/issues/623) ([#625](https://github.com/patchloom/patchloom/issues/625)) ([b031686](https://github.com/patchloom/patchloom/commit/b03168619872d77cf5963892aac728c725b93768)), closes [#621](https://github.com/patchloom/patchloom/issues/621) [#622](https://github.com/patchloom/patchloom/issues/622)
+* **schema:** add op field to md.move_section examples ([#600](https://github.com/patchloom/patchloom/issues/600)) ([9a816fe](https://github.com/patchloom/patchloom/commit/9a816fe955207ecfe322b9eb96232f474dee8d35))
+* use platform-appropriate absolute paths in containment tests ([#616](https://github.com/patchloom/patchloom/issues/616)) ([6a0bb6a](https://github.com/patchloom/patchloom/commit/6a0bb6ae7904de09ac2a3e64042c5c6495c20270))
+* use thread-local FORCE_RESTORE_FAIL for parallel tests ([#594](https://github.com/patchloom/patchloom/issues/594)) ([57b6f9b](https://github.com/patchloom/patchloom/commit/57b6f9bd00f123b8308ba2f81c90ee2a8ec33930))
+* warn on invalid config values and clarify batch quoting ([#585](https://github.com/patchloom/patchloom/issues/585)) ([7803291](https://github.com/patchloom/patchloom/commit/7803291f7523c2d1dc684b73cd4148a3d6c74286))
+
 ## [Unreleased]
 
 ### Changed
