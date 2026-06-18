@@ -1,6 +1,6 @@
 # Patchloom v0.2.0
 
-Patchloom is now a library. This release exposes the core editing engine as a public Rust API, hardens transaction safety, and adds three-way patch merging.
+Patchloom has always been a CLI and an MCP server. Starting with this release, it is also a Rust library. This release exposes the core editing engine as a public API, hardens transaction safety, and adds three-way patch merging.
 
 ## Library API
 
