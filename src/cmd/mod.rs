@@ -1,3 +1,5 @@
+#[cfg(feature = "ast")]
+pub mod ast;
 pub mod batch;
 pub mod create;
 pub mod delete;
@@ -53,6 +55,9 @@ pub enum Command {
     Explain(explain::ExplainArgs),
     /// Restore files from a backup created by --apply.
     Undo(undo::UndoArgs),
+    /// AST-aware operations: list, read, rename, validate.
+    #[cfg(feature = "ast")]
+    Ast(ast::AstArgs),
     /// Export operation schemas, tier-filtered listings, or system prompt fragments.
     Schema(schema::SchemaArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
@@ -535,6 +540,15 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             global.merge_write(&args.write);
             load_project_config(&mut global);
             batch::run(args, &global)
+        }
+        #[cfg(feature = "ast")]
+        Command::Ast(args) => {
+            // ast rename has write flags; list/read/validate are read-only
+            if let ast::AstCommand::Rename(ref rename_args) = args.command {
+                global.merge_write(&rename_args.write);
+            }
+            load_project_config(&mut global);
+            ast::run(args, &global)
         }
     }
 }

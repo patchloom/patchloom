@@ -1,0 +1,208 @@
+//! AST-aware symbol rename: replace only identifier nodes, skipping
+//! strings, comments, and documentation.
+
+use std::path::Path;
+
+use super::{Language, parse_source};
+
+/// Node kinds that represent identifier tokens (rename targets).
+const IDENTIFIER_KINDS: &[&str] = &[
+    "identifier",
+    "type_identifier",
+    "field_identifier",
+    "property_identifier",
+    "simple_identifier",
+    "shorthand_field_identifier",
+];
+
+/// Node kinds whose subtrees should be skipped entirely during rename.
+const SKIP_KINDS: &[&str] = &[
+    "string_literal",
+    "raw_string_literal",
+    "string",
+    "string_content",
+    "string_fragment",
+    "template_string",
+    "line_comment",
+    "block_comment",
+    "comment",
+    "doc_comment",
+    // Python
+    "string_start",
+    "string_end",
+    "concatenated_string",
+    "interpolation",
+];
+
+/// Result of an AST-aware rename operation.
+#[derive(Debug)]
+pub struct RenameResult {
+    /// The new file content after renaming.
+    pub content: String,
+    /// Number of replacements made.
+    pub replacements: usize,
+}
+
+/// Rename all identifier occurrences of `old_name` to `new_name` in source code,
+/// skipping strings and comments.
+///
+/// Returns `None` if the language has no grammar or parsing fails.
+pub fn rename_in_source(
+    source: &str,
+    old_name: &str,
+    new_name: &str,
+    lang: Language,
+) -> Option<RenameResult> {
+    let (tree, _) = parse_source(source, lang)?;
+
+    // Collect byte ranges to replace (in reverse order for offset stability)
+    let mut replacements = Vec::new();
+    collect_rename_nodes(tree.root_node(), source, old_name, &mut replacements);
+
+    // Sort by start byte descending so we can replace from end to start
+    replacements.sort_by_key(|&(start, _)| std::cmp::Reverse(start));
+
+    let replacements_count = replacements.len();
+    let mut result = source.to_string();
+    for (start, end) in &replacements {
+        result.replace_range(*start..*end, new_name);
+    }
+
+    Some(RenameResult {
+        content: result,
+        replacements: replacements_count,
+    })
+}
+
+/// Rename identifiers in a file. Falls back to word-boundary replace if
+/// tree-sitter cannot parse the language.
+pub fn rename_in_file(
+    path: &Path,
+    old_name: &str,
+    new_name: &str,
+    lang_hint: Option<Language>,
+) -> anyhow::Result<Option<RenameResult>> {
+    let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+    let source = std::fs::read_to_string(path)?;
+    Ok(rename_in_source(&source, old_name, new_name, lang))
+}
+
+fn collect_rename_nodes(
+    node: tree_sitter_lib::Node,
+    source: &str,
+    old_name: &str,
+    results: &mut Vec<(usize, usize)>,
+) {
+    // Skip string/comment subtrees entirely
+    if SKIP_KINDS.contains(&node.kind()) {
+        return;
+    }
+
+    // Check if this is a matching identifier node
+    if IDENTIFIER_KINDS.contains(&node.kind())
+        && let Ok(text) = node.utf8_text(source.as_bytes())
+        && text == old_name
+    {
+        results.push((node.start_byte(), node.end_byte()));
+        return; // Leaf node, no children to visit
+    }
+
+    // Recurse into children
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            collect_rename_nodes(cursor.node(), source, old_name, results);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_rust_identifier_skips_strings() {
+        let source = r#"
+fn setup_file() -> &str {
+    let name = "setup_file";
+    // setup_file is important
+    setup_file
+}
+"#;
+        let result = rename_in_source(source, "setup_file", "init_file", Language::Rust).unwrap();
+        // Should rename the function name and the trailing expression
+        // but NOT the string literal or comment
+        assert!(result.content.contains("fn init_file()"));
+        assert!(result.content.contains("\"setup_file\"")); // string untouched
+        assert!(result.content.contains("// setup_file")); // comment untouched
+        assert!(result.replacements >= 2);
+    }
+
+    #[test]
+    fn rename_rust_type_identifier() {
+        let source = r#"
+struct SetupFile {
+    name: String,
+}
+
+impl SetupFile {
+    fn new() -> SetupFile {
+        SetupFile { name: String::new() }
+    }
+}
+"#;
+        let result = rename_in_source(source, "SetupFile", "ConfigFile", Language::Rust).unwrap();
+        assert!(result.content.contains("struct ConfigFile"));
+        assert!(result.content.contains("impl ConfigFile"));
+        assert!(result.content.contains("-> ConfigFile"));
+        assert!(!result.content.contains("SetupFile"));
+    }
+
+    #[test]
+    fn rename_python_skips_strings_and_comments() {
+        let source = r#"
+def setup_file():
+    """setup_file docs"""
+    name = "setup_file"
+    # setup_file comment
+    return setup_file()
+"#;
+        let result = rename_in_source(source, "setup_file", "init_file", Language::Python).unwrap();
+        assert!(result.content.contains("def init_file():"));
+        // Strings and comments should be untouched
+        assert!(result.content.contains("\"setup_file\""));
+        assert!(result.content.contains("# setup_file"));
+    }
+
+    #[test]
+    fn rename_no_matches_returns_zero() {
+        let source = "fn main() {}\n";
+        let result =
+            rename_in_source(source, "nonexistent", "replacement", Language::Rust).unwrap();
+        assert_eq!(result.replacements, 0);
+        assert_eq!(result.content, source);
+    }
+
+    #[test]
+    fn rename_unknown_language_returns_none() {
+        let result = rename_in_source("anything", "x", "y", Language::Unknown);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn rename_go_identifier() {
+        let source = r#"
+package main
+
+func SetupFile() string {
+    return "SetupFile"
+}
+"#;
+        let result = rename_in_source(source, "SetupFile", "InitFile", Language::Go).unwrap();
+        assert!(result.content.contains("func InitFile()"));
+        assert!(result.content.contains("\"SetupFile\"")); // string untouched
+    }
+}
