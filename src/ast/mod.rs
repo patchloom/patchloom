@@ -4,7 +4,10 @@
 //! extraction, AST-aware rename, and syntax validation for 20 languages.
 //! All functionality is gated on the `ast` feature flag.
 
+pub mod deps;
+pub mod refs;
 pub mod rename;
+pub mod search;
 pub mod symbols;
 pub mod validate;
 

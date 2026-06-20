@@ -1,4 +1,4 @@
-//! AST-aware subcommands: `patchloom ast list|read|rename|validate`.
+//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps`.
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef, SymbolKind};
@@ -16,6 +16,12 @@ pub enum AstCommand {
     Rename(RenameArgs),
     /// Validate syntax of source files.
     Validate(ValidateArgs),
+    /// Structural search using tree-sitter queries.
+    Search(SearchArgs),
+    /// Find all references to a symbol across files.
+    Refs(RefsArgs),
+    /// Extract import/dependency statements from files.
+    Deps(DepsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -30,6 +36,9 @@ pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         AstCommand::Read(a) => run_read(a, global),
         AstCommand::Rename(a) => run_rename(a, global),
         AstCommand::Validate(a) => run_validate(a, global),
+        AstCommand::Search(a) => run_search(a, global),
+        AstCommand::Refs(a) => run_refs(a, global),
+        AstCommand::Deps(a) => run_deps(a, global),
     }
 }
 
@@ -362,6 +371,295 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         Ok(exit::SUCCESS)
     } else {
         Ok(exit::FAILURE)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ast search
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// Tree-sitter S-expression query, or a code pattern (with --pattern).
+    pub query: String,
+
+    /// File or directory to search.
+    pub path: String,
+
+    /// Treat the query as a code pattern with meta-variables ($VAR, $$$MULTI).
+    #[arg(long)]
+    pub pattern: bool,
+
+    /// Language hint (required for pattern mode; detected from extension otherwise).
+    #[arg(long)]
+    pub lang: Option<String>,
+
+    /// Maximum number of results.
+    #[arg(long)]
+    pub max_results: Option<usize>,
+}
+
+fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+    let lang_hint = args.lang.as_deref().map(lang_from_str);
+
+    let mut total_matches = 0usize;
+
+    let paths = if target.is_file() {
+        vec![target.clone()]
+    } else if target.is_dir() {
+        collect_source_files(&target, global)?
+    } else {
+        anyhow::bail!("path not found: {}", args.path);
+    };
+
+    for path in &paths {
+        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+
+        let query_str = if args.pattern {
+            crate::ast::search::compile_pattern_query(&args.query, lang)?
+        } else {
+            args.query.clone()
+        };
+
+        let results =
+            crate::ast::search::search_file(path, &query_str, Some(lang), args.max_results)?;
+        if results.is_empty() {
+            continue;
+        }
+
+        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
+        let display = display_path.display().to_string();
+
+        for m in &results {
+            total_matches += 1;
+            if global.json || global.jsonl {
+                let obj = serde_json::json!({
+                    "file": display,
+                    "line": m.line,
+                    "column": m.column,
+                    "text": m.text,
+                    "captures": m.captures,
+                });
+                if global.jsonl {
+                    println!("{}", serde_json::to_string(&obj)?);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            } else {
+                println!(
+                    "{}:{}:{}: {}",
+                    display,
+                    m.line,
+                    m.column,
+                    m.text.lines().next().unwrap_or("")
+                );
+                for cap in &m.captures {
+                    println!("  @{} = \"{}\"", cap.name, cap.text);
+                }
+            }
+        }
+    }
+
+    if total_matches == 0 {
+        Ok(exit::NO_MATCHES)
+    } else {
+        Ok(exit::SUCCESS)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ast refs
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct RefsArgs {
+    /// Symbol name to find references for.
+    pub symbol: String,
+
+    /// File or directory to search.
+    pub path: String,
+
+    /// Include the definition site in results.
+    #[arg(long)]
+    pub include_def: bool,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+}
+
+fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+    let lang_hint = args.lang.as_deref().map(lang_from_str);
+
+    let paths = if target.is_file() {
+        vec![target.clone()]
+    } else if target.is_dir() {
+        collect_source_files(&target, global)?
+    } else {
+        anyhow::bail!("path not found: {}", args.path);
+    };
+
+    let mut all_refs = Vec::new();
+
+    for path in &paths {
+        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
+        let display = display_path.display().to_string();
+        let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+        all_refs.extend(refs);
+    }
+
+    if !args.include_def {
+        all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
+    }
+
+    if all_refs.is_empty() {
+        return Ok(exit::NO_MATCHES);
+    }
+
+    if global.json || global.jsonl {
+        let obj = serde_json::json!({
+            "symbol": args.symbol,
+            "references": all_refs,
+            "count": all_refs.len(),
+        });
+        if global.jsonl {
+            println!("{}", serde_json::to_string(&obj)?);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    } else {
+        for r in &all_refs {
+            let kind_label = match r.kind {
+                crate::ast::refs::RefKind::Definition => "def",
+                crate::ast::refs::RefKind::Reference => "ref",
+            };
+            println!("{}:{}: [{}] {}", r.file, r.line, kind_label, r.context);
+        }
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+// ---------------------------------------------------------------------------
+// ast deps
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct DepsArgs {
+    /// File or directory to analyze.
+    pub path: String,
+
+    /// Show reverse dependencies (what imports this file).
+    #[arg(long)]
+    pub reverse: bool,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+}
+
+fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+    let lang_hint = args.lang.as_deref().map(lang_from_str);
+
+    let paths = if target.is_file() {
+        vec![target.clone()]
+    } else if target.is_dir() {
+        collect_source_files(&target, global)?
+    } else {
+        anyhow::bail!("path not found: {}", args.path);
+    };
+
+    let mut any_output = false;
+
+    if args.reverse {
+        // For reverse deps, scan all files and find which ones import
+        // anything matching the target file's module path
+        let target_name = target
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+
+        let scan_dir = if target.is_file() {
+            target.parent().unwrap_or(&cwd).to_path_buf()
+        } else {
+            target.clone()
+        };
+        let all_files = collect_source_files(&scan_dir, global)?;
+
+        for path in &all_files {
+            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+            let matching: Vec<_> = imports
+                .iter()
+                .filter(|i| i.path.contains(target_name))
+                .collect();
+            if matching.is_empty() {
+                continue;
+            }
+            any_output = true;
+            let display_path = path.strip_prefix(&cwd).unwrap_or(path);
+            let display = display_path.display().to_string();
+
+            if global.json || global.jsonl {
+                for imp in &matching {
+                    let obj = serde_json::json!({
+                        "file": display,
+                        "imports": imp.path,
+                        "line": imp.line,
+                        "raw": imp.raw,
+                    });
+                    if global.jsonl {
+                        println!("{}", serde_json::to_string(&obj)?);
+                    } else {
+                        println!("{}", serde_json::to_string_pretty(&obj)?);
+                    }
+                }
+            } else {
+                for imp in &matching {
+                    println!("{}:{}: {}", display, imp.line, imp.raw);
+                }
+            }
+        }
+    } else {
+        for path in &paths {
+            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+            if imports.is_empty() {
+                continue;
+            }
+            any_output = true;
+            let display_path = path.strip_prefix(&cwd).unwrap_or(path);
+            let display = display_path.display().to_string();
+
+            if global.json || global.jsonl {
+                let obj = serde_json::json!({
+                    "file": display,
+                    "imports": imports,
+                });
+                if global.jsonl {
+                    println!("{}", serde_json::to_string(&obj)?);
+                } else {
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                }
+            } else {
+                println!("{display}");
+                println!("  imports:");
+                for imp in &imports {
+                    println!("    {}", imp.path);
+                }
+                println!();
+            }
+        }
+    }
+
+    if any_output {
+        Ok(exit::SUCCESS)
+    } else {
+        Ok(exit::NO_MATCHES)
     }
 }
 
