@@ -353,6 +353,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Replace "v1" with "v2" in README.md (literal)"#);
@@ -374,6 +375,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -489,6 +491,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -514,6 +517,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Insert "// added" after "use crate" in lib.rs"#);
@@ -535,6 +539,7 @@ mod tests {
             if_exists: false,
             whole_line: true,
             range: Some("10:50".into()),
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("whole-line"), "{desc}");
@@ -641,6 +646,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("**/*.rs"), "{desc}");
@@ -662,6 +668,7 @@ mod tests {
             if_exists: false,
             whole_line: false,
             range: None,
+            word_boundary: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("(delete)"), "{desc}");

@@ -60,6 +60,12 @@ pub struct ReplaceArgs {
     /// Useful for deleting lines (--whole-line --to '') or replacing full lines.
     #[arg(long, short = 'L')]
     pub whole_line: bool,
+    // ref:replace-mode:word-boundary
+    /// Match only at word boundaries. Prevents 'SetupFile' from matching
+    /// inside 'BenchSetupFile'. The pattern is auto-escaped for regex
+    /// metacharacters before wrapping with \\b anchors.
+    #[arg(long, short = 'w')]
+    pub word_boundary: bool,
     // ref:replace-mode:range
     /// Restrict matching to a line range (e.g. '10:50'). 1-based, inclusive.
     #[arg(long, short = 'R')]
@@ -130,7 +136,7 @@ fn build_replacement(args: &ReplaceArgs) -> String {
         &args.to,
         &args.insert_before,
         &args.insert_after,
-        args.regex || args.case_insensitive,
+        args.regex || args.case_insensitive || args.word_boundary,
     )
 }
 
@@ -151,6 +157,7 @@ fn collect_replacements(
         args.regex,
         args.case_insensitive,
         args.multiline,
+        args.word_boundary,
     )?;
 
     let from = &args.from;
@@ -412,6 +419,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -454,6 +462,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -483,6 +492,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -587,6 +597,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -613,6 +624,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -687,6 +699,7 @@ mod tests {
             multiline: true,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -716,6 +729,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -809,6 +823,7 @@ mod tests {
             multiline: false,
             nth: Some(0),
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: None,
             write: Default::default(),
@@ -839,6 +854,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: None,
             write: Default::default(),
@@ -875,6 +891,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: None,
             write: Default::default(),
@@ -904,6 +921,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: None,
             write: Default::default(),
@@ -932,6 +950,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: Some("1:3".to_string()),
             write: Default::default(),
@@ -962,6 +981,7 @@ mod tests {
             multiline: false,
             nth: Some(2),
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: None,
             write: Default::default(),
@@ -992,6 +1012,7 @@ mod tests {
             multiline: false,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: false,
             range: Some("1:5".to_string()),
             write: Default::default(),
@@ -1021,6 +1042,7 @@ mod tests {
             multiline: true,
             nth: None,
             case_insensitive: false,
+            word_boundary: false,
             whole_line: true,
             range: None,
             write: Default::default(),
@@ -1030,6 +1052,117 @@ mod tests {
             err.to_string()
                 .contains("--whole-line and --multiline cannot be combined"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn word_boundary_prevents_partial_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.rs");
+        fs::write(
+            &file,
+            "struct SetupFile {}\nstruct BenchSetupFile {}\nlet x: SetupFile = todo!();\n",
+        )
+        .unwrap();
+
+        let args = ReplaceArgs {
+            from: "SetupFile".to_string(),
+            to: Some("NewFile".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: true,
+            whole_line: false,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 2);
+        assert_eq!(
+            replacements[0].replaced,
+            "struct NewFile {}\nstruct BenchSetupFile {}\nlet x: NewFile = todo!();\n",
+            "word_boundary should rename standalone SetupFile but not inside BenchSetupFile"
+        );
+    }
+
+    #[test]
+    fn word_boundary_with_metacharacters() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.rs");
+        fs::write(&file, "type A = Option<SetupFile>;\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "SetupFile".to_string(),
+            to: Some("NewFile".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: true,
+            whole_line: false,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(
+            replacements[0].replaced, "type A = Option<NewFile>;\n",
+            "word_boundary should match at angle bracket boundaries"
+        );
+    }
+
+    #[test]
+    fn word_boundary_does_not_match_in_string() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.rs");
+        // In a string, SetupFile is still at word boundaries (quotes are non-word chars)
+        // so word_boundary alone won't skip strings -- that needs AST (#647).
+        // But it WILL prevent matching inside compound identifiers.
+        fs::write(
+            &file,
+            "let name = \"SetupFile\";\nlet x: SetupFileConfig = todo!();\n",
+        )
+        .unwrap();
+
+        let args = ReplaceArgs {
+            from: "SetupFile".to_string(),
+            to: Some("NewFile".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: true,
+            whole_line: false,
+            range: None,
+            write: Default::default(),
+        };
+        let replacements = collect_replacements(&args, &default_global()).unwrap();
+
+        assert_eq!(replacements.len(), 1);
+        // SetupFile in the string IS matched (word boundaries don't know about strings)
+        // SetupFileConfig is NOT matched (no word boundary between SetupFile and Config)
+        assert_eq!(
+            replacements[0].replaced,
+            "let name = \"NewFile\";\nlet x: SetupFileConfig = todo!();\n",
         );
     }
 }

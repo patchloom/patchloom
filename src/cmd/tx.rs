@@ -466,9 +466,22 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         unreachable!()
     };
     let regex_mode = mode.as_deref() == Some("regex");
-    let use_regex = regex_mode || *case_insensitive;
+    let word_boundary = matches!(
+        op,
+        Operation::Replace {
+            word_boundary: true,
+            ..
+        }
+    );
+    let use_regex = regex_mode || *case_insensitive || word_boundary;
     let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
-    let compiled_re = compile_replace_regex(from, regex_mode, *case_insensitive, *multiline)?;
+    let compiled_re = compile_replace_regex(
+        from,
+        regex_mode,
+        *case_insensitive,
+        *multiline,
+        word_boundary,
+    )?;
     let parsed_range = range
         .as_deref()
         .map(crate::cmd::read::parse_line_range)

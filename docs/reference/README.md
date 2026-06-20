@@ -433,6 +433,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** The target text appears with inconsistent capitalization and should still be updated uniformly.
 - **Prefer instead:** Use case-sensitive replace when exact spelling is part of the safety boundary.
 
+<!-- ref:replace-mode:word-boundary -->
+### `replace --word-boundary`
+
+- **What it does:** Wraps the search pattern with `\b` (word boundary) anchors so it only matches as a standalone word. Prevents `SetupFile` from matching inside `BenchSetupFile`. The pattern is auto-escaped for regex metacharacters before anchoring.
+- **Use when:** Renaming identifiers where the old name is a substring of other identifiers (e.g. `SetupFile` vs `BenchSetupFile`, `Task` vs `TaskResult`).
+- **Prefer instead:** Use AST-aware rename (#647) when you need to skip matches inside strings and comments. Word boundary only prevents partial-word matches, not string/comment matches.
+
 <!-- ref:replace-mode:whole-line -->
 ### `replace --whole-line`
 
