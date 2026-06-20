@@ -22,6 +22,14 @@ pub enum AstCommand {
     Refs(RefsArgs),
     /// Extract import/dependency statements from files.
     Deps(DepsArgs),
+    /// Generate a ranked repository map (PageRank).
+    Map(MapArgs),
+    /// Replace text only within a specific symbol's body.
+    Replace(ReplaceArgs),
+    /// Transitive impact analysis of changing a symbol.
+    Impact(ImpactArgs),
+    /// Structural diff between two versions of a file.
+    Diff(DiffArgs),
 }
 
 #[derive(Debug, Args)]
@@ -39,6 +47,10 @@ pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         AstCommand::Search(a) => run_search(a, global),
         AstCommand::Refs(a) => run_refs(a, global),
         AstCommand::Deps(a) => run_deps(a, global),
+        AstCommand::Map(a) => run_map(a, global),
+        AstCommand::Replace(a) => run_replace(a, global),
+        AstCommand::Impact(a) => run_impact(a, global),
+        AstCommand::Diff(a) => run_diff(a, global),
     }
 }
 
@@ -661,6 +673,343 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else {
         Ok(exit::NO_MATCHES)
     }
+}
+
+// ---------------------------------------------------------------------------
+// ast map
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct MapArgs {
+    /// Directory to map.
+    pub path: String,
+
+    /// Maximum approximate token count for output.
+    #[arg(long, default_value = "1024")]
+    pub max_tokens: usize,
+
+    /// Boost symbols from these files (comma-separated paths).
+    #[arg(long, value_delimiter = ',')]
+    pub focus: Vec<String>,
+
+    /// Boost these symbol names (comma-separated).
+    #[arg(long, value_delimiter = ',')]
+    pub boost: Vec<String>,
+}
+
+fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+
+    if !target.is_dir() {
+        anyhow::bail!("path must be a directory: {}", args.path);
+    }
+
+    let paths = collect_source_files(&target, global)?;
+    let file_pairs: Vec<(std::path::PathBuf, String)> = paths
+        .iter()
+        .map(|p| {
+            let display = p.strip_prefix(&cwd).unwrap_or(p).display().to_string();
+            (p.clone(), display)
+        })
+        .collect();
+
+    let opts = crate::ast::map::MapOptions {
+        max_tokens: args.max_tokens,
+        focus: &args.focus,
+        boost: &args.boost,
+    };
+
+    let entries = crate::ast::map::generate_map(&file_pairs, &opts);
+
+    if entries.is_empty() {
+        return Ok(exit::NO_MATCHES);
+    }
+
+    if global.json || global.jsonl {
+        if global.jsonl {
+            for entry in &entries {
+                println!("{}", serde_json::to_string(entry)?);
+            }
+        } else {
+            println!("{}", serde_json::to_string_pretty(&entries)?);
+        }
+    } else {
+        print!("{}", crate::ast::map::render_tree(&entries));
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+// ---------------------------------------------------------------------------
+// ast replace
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct ReplaceArgs {
+    /// File containing the symbol.
+    pub path: String,
+
+    /// Symbol name to scope the replacement to.
+    pub symbol: String,
+
+    /// Text or regex pattern to find.
+    #[arg(long)]
+    pub from: String,
+
+    /// Replacement text.
+    #[arg(long)]
+    pub to: String,
+
+    /// Treat --from as a regex pattern.
+    #[arg(long)]
+    pub regex: bool,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
+}
+
+fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+    let lang_hint = args.lang.as_deref().map(lang_from_str);
+
+    let source = std::fs::read_to_string(&target)?;
+    let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+
+    let result = crate::ast::replace::replace_in_symbol(
+        &source,
+        &args.symbol,
+        &args.from,
+        &args.to,
+        args.regex,
+        lang,
+    )?;
+
+    let result = match result {
+        Some(r) => r,
+        None => {
+            if !global.quiet {
+                eprintln!("symbol '{}' not found in {}", args.symbol, args.path);
+            }
+            return Ok(exit::NO_MATCHES);
+        }
+    };
+
+    if result.replacements == 0 {
+        return Ok(exit::NO_MATCHES);
+    }
+
+    let display_path = target.strip_prefix(&cwd).unwrap_or(&target);
+
+    if global.apply {
+        crate::write::atomic_write(&target, &result.content, &Default::default())?;
+        if !global.quiet {
+            eprintln!(
+                "{}: {} replacement{} in symbol '{}'",
+                display_path.display(),
+                result.replacements,
+                if result.replacements == 1 { "" } else { "s" },
+                args.symbol,
+            );
+        }
+    } else if global.check {
+        if !global.quiet {
+            eprintln!(
+                "{}: {} replacement{} in symbol '{}' (check mode)",
+                display_path.display(),
+                result.replacements,
+                if result.replacements == 1 { "" } else { "s" },
+                args.symbol,
+            );
+        }
+    } else {
+        let diff = crate::diff::unified_diff(
+            &display_path.display().to_string(),
+            &source,
+            &result.content,
+        );
+        if diff.has_changes {
+            print!("{}", diff.hunks);
+        }
+    }
+
+    if global.json || global.jsonl {
+        let obj = serde_json::json!({
+            "ok": true,
+            "symbol": args.symbol,
+            "replacements": result.replacements,
+            "start_line": result.start_line,
+            "end_line": result.end_line,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+    }
+
+    if global.check {
+        Ok(exit::CHANGES_DETECTED)
+    } else {
+        Ok(exit::SUCCESS)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ast impact
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct ImpactArgs {
+    /// Symbol name to analyze.
+    pub symbol: String,
+
+    /// Directory to scan for references.
+    pub path: String,
+
+    /// Maximum traversal depth (1 = direct refs only).
+    #[arg(long, default_value = "3")]
+    pub depth: usize,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+}
+
+fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+
+    let paths = if target.is_file() {
+        vec![target.clone()]
+    } else if target.is_dir() {
+        collect_source_files(&target, global)?
+    } else {
+        anyhow::bail!("path not found: {}", args.path);
+    };
+
+    let file_pairs: Vec<(std::path::PathBuf, String)> = paths
+        .iter()
+        .map(|p| {
+            let display = p.strip_prefix(&cwd).unwrap_or(p).display().to_string();
+            (p.clone(), display)
+        })
+        .collect();
+
+    let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
+
+    if nodes.is_empty() {
+        if !global.quiet {
+            eprintln!("no references found for '{}'", args.symbol);
+        }
+        return Ok(exit::NO_MATCHES);
+    }
+
+    if global.json || global.jsonl {
+        let obj = serde_json::json!({
+            "symbol": args.symbol,
+            "depth": args.depth,
+            "impact": nodes,
+            "direct_count": nodes.len(),
+        });
+        if global.jsonl {
+            println!("{}", serde_json::to_string(&obj)?);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    } else {
+        print!(
+            "{}",
+            crate::ast::impact::render_impact_tree(&args.symbol, &nodes, 0)
+        );
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+// ---------------------------------------------------------------------------
+// ast diff
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    /// File to diff.
+    pub path: String,
+
+    /// Git ref for the "old" version (default: HEAD).
+    #[arg(long, default_value = "HEAD")]
+    pub from: String,
+
+    /// Git ref for the "new" version (default: working tree).
+    #[arg(long)]
+    pub to: Option<String>,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+}
+
+fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(&args.path);
+    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+
+    // Get old version from git
+    let old_source = get_git_file_content(&cwd, &args.path, &args.from)?;
+
+    // Get new version
+    let new_source = if let Some(ref to_ref) = args.to {
+        get_git_file_content(&cwd, &args.path, to_ref)?
+    } else {
+        std::fs::read_to_string(&target)?
+    };
+
+    let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
+
+    if changes.is_empty() {
+        if !global.quiet {
+            eprintln!("no structural changes");
+        }
+        return Ok(exit::NO_MATCHES);
+    }
+
+    if global.json || global.jsonl {
+        let obj = serde_json::json!({
+            "file": args.path,
+            "from": args.from,
+            "to": args.to.as_deref().unwrap_or("working tree"),
+            "changes": changes,
+        });
+        if global.jsonl {
+            println!("{}", serde_json::to_string(&obj)?);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&obj)?);
+        }
+    } else {
+        print!("{}", crate::ast::diff::render_changes(&args.path, &changes));
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+fn get_git_file_content(
+    cwd: &std::path::Path,
+    file_path: &str,
+    git_ref: &str,
+) -> anyhow::Result<String> {
+    let output = std::process::Command::new("git")
+        .args(["show", &format!("{git_ref}:{file_path}")])
+        .current_dir(cwd)
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git show {git_ref}:{file_path} failed: {}", stderr.trim());
+    }
+
+    Ok(String::from_utf8(output.stdout)?)
 }
 
 // ---------------------------------------------------------------------------

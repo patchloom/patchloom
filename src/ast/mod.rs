@@ -5,8 +5,12 @@
 //! All functionality is gated on the `ast` feature flag.
 
 pub mod deps;
+pub mod diff;
+pub mod impact;
+pub mod map;
 pub mod refs;
 pub mod rename;
+pub mod replace;
 pub mod search;
 pub mod symbols;
 pub mod validate;
