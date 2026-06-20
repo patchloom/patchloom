@@ -562,6 +562,53 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
             min_tier: Tier::Strong,
             examples: vec![],
         },
+        // --- AST operations (feature-gated) ---
+        #[cfg(feature = "ast")]
+        OperationSchema {
+            name: "ast.rename".into(),
+            description: "AST-aware rename: rename identifiers skipping strings and comments.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "required": ["path", "old_name", "new_name"],
+                "properties": {
+                    "path": {"type": "string", "description": "File path (relative to working directory)."},
+                    "old_name": {"type": "string", "description": "Current identifier name."},
+                    "new_name": {"type": "string", "description": "New identifier name."},
+                    "lang": {"type": "string", "description": "Language hint (e.g. 'rust', 'python'). Auto-detected from extension if omitted."}
+                }
+            }),
+            min_tier: Tier::Medium,
+            examples: vec![
+                OperationExample {
+                    description: "Rename a struct".into(),
+                    args: serde_json::json!({"op": "ast.rename", "path": "src/lib.rs", "old_name": "OldStruct", "new_name": "NewStruct"}),
+                },
+            ],
+        },
+        #[cfg(feature = "ast")]
+        OperationSchema {
+            name: "ast.replace".into(),
+            description: "Replace text within a specific symbol's body (AST-scoped).".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "required": ["path", "symbol", "from", "to"],
+                "properties": {
+                    "path": {"type": "string", "description": "File path (relative to working directory)."},
+                    "symbol": {"type": "string", "description": "Symbol name to scope the replacement to."},
+                    "from": {"type": "string", "description": "Text to find within the symbol body."},
+                    "to": {"type": "string", "description": "Replacement text."},
+                    "regex": {"type": "boolean", "default": false, "description": "Use regex mode for the from pattern."},
+                    "lang": {"type": "string", "description": "Language hint. Auto-detected from extension if omitted."}
+                }
+            }),
+            min_tier: Tier::Medium,
+            examples: vec![
+                OperationExample {
+                    description: "Replace a constant inside a function".into(),
+                    args: serde_json::json!({"op": "ast.replace", "path": "src/config.rs", "symbol": "default_timeout", "from": "30", "to": "60"}),
+                },
+            ],
+        },
     ]
 }
 

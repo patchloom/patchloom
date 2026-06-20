@@ -243,6 +243,27 @@ pub enum Operation {
     },
     #[serde(rename = "md.lint_agents", alias = "md_lint")]
     MdLintAgents { path: String },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.rename", alias = "ast_rename")]
+    AstRename {
+        path: String,
+        old_name: String,
+        new_name: String,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.replace", alias = "ast_replace")]
+    AstReplace {
+        path: String,
+        symbol: String,
+        from: String,
+        to: String,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        lang: Option<String>,
+    },
 }
 
 /// A validation step to run after applying operations.
@@ -388,10 +409,12 @@ mod tests {
             {"op": "read", "path": "f.txt", "lines": "1:10"},
             {"op": "search", "path": "f.txt", "pattern": "hello"},
             {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true},
-            {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5}
+            {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5},
+            {"op": "ast.rename", "path": "f.rs", "old_name": "Foo", "new_name": "Bar"},
+            {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 32);
+        assert_eq!(plan.operations.len(), 34);
     }
 
     #[test]
@@ -417,10 +440,12 @@ mod tests {
             {"op": "apply_patch", "diff": "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b"},
             {"op": "search_files", "path": ".", "pattern": "x"},
             {"op": "read_file", "path": "f.txt"},
-            {"op": "md_lint", "path": "f.md"}
+            {"op": "md_lint", "path": "f.md"},
+            {"op": "ast_rename", "path": "f.rs", "old_name": "A", "new_name": "B"},
+            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 19);
+        assert_eq!(plan.operations.len(), 21);
     }
 
     #[test]

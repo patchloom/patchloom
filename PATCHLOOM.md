@@ -178,6 +178,32 @@ EOF
 
 All operations succeed atomically or roll back together.
 
+## AST-aware operations
+
+Tree-sitter-backed operations that understand code structure (20 languages).
+
+```bash
+# Rename an identifier across a file, skipping strings and comments
+patchloom ast rename OldName NewName src/lib.rs --apply
+
+# Replace text only within a specific function body
+patchloom ast replace src/config.rs --symbol default_timeout --from 30 --to 60 --apply
+
+# List all symbol definitions
+patchloom ast list src/lib.rs
+
+# Find all references to a symbol
+patchloom ast refs src/ --name my_function
+```
+
+AST rename and replace can also be used in batch and tx plans:
+
+```bash
+# In a batch file:
+ast.rename src/lib.rs OldStruct NewStruct
+ast.replace src/config.rs default_timeout "30" "60"
+```
+
 ## Selector syntax
 
 All `doc` operations use selectors to address values inside JSON, YAML, and TOML files.

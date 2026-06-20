@@ -129,6 +129,7 @@ fn describe_operation(op: &Operation) -> String {
             insert_after,
             whole_line,
             range,
+            word_boundary,
             ..
         } => {
             let target = path.as_deref().or(glob.as_deref()).unwrap_or("(all files)");
@@ -152,12 +153,17 @@ fn describe_operation(op: &Operation) -> String {
                 ""
             };
             let wl_str = if *whole_line { ", whole-line" } else { "" };
+            let wb_str = if *word_boundary {
+                ", word-boundary"
+            } else {
+                ""
+            };
             let range_str = range
                 .as_deref()
                 .map(|r| format!(", lines {r}"))
                 .unwrap_or_default();
             format!(
-                "Replace \"{from}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{range_str})"
+                "Replace \"{from}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{range_str})"
             )
         }
         Operation::DocSet {
@@ -305,6 +311,25 @@ fn describe_operation(op: &Operation) -> String {
         },
         Operation::MdLintAgents { path } => {
             format!("Lint {path} for AGENTS.md issues")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstRename {
+            path,
+            old_name,
+            new_name,
+            ..
+        } => {
+            format!("AST rename \"{old_name}\" to \"{new_name}\" in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstReplace {
+            path,
+            symbol,
+            from,
+            to,
+            ..
+        } => {
+            format!("AST replace \"{from}\" with \"{to}\" in {symbol} in {path}")
         }
     }
 }

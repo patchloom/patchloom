@@ -19357,3 +19357,259 @@ async fn test_mcp_concurrent_replace_different_files() {
 
     client.cancel().await.unwrap();
 }
+
+// ── AST surfaces integration tests (#663, #664, #665) ──
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_replace_apply_dispatch() {
+    // Verifies the dispatch bug fix: `ast replace --apply` should actually
+    // apply changes (previously WriteFlags were not merged for Replace).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "fn greet() {\n    println!(\"hello\");\n}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast", "replace", "test.rs", "greet", "--from", "hello", "--to", "world", "--apply",
+        ])
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("world"),
+        "ast replace --apply should modify file: {content}"
+    );
+    assert!(
+        !content.contains("hello"),
+        "old text should be replaced: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rename_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn old_name() {\n    old_name();\n}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.rename",
+            "path": portable_path_str(&file),
+            "old_name": "old_name",
+            "new_name": "new_name"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("new_name"),
+        "ast.rename should rename identifier: {content}"
+    );
+    assert!(
+        !content.contains("old_name"),
+        "old identifier should be gone: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_replace_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.rs");
+    fs::write(
+        &file,
+        "fn compute() {\n    let x = 42;\n    println!(\"{}\", x);\n}\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.replace",
+            "path": portable_path_str(&file),
+            "symbol": "compute",
+            "from": "42",
+            "to": "99"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("99"),
+        "ast.replace should replace within symbol: {content}"
+    );
+    assert!(
+        !content.contains("42"),
+        "old value should be gone: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_rename() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mod.rs");
+    fs::write(&file, "fn alpha() {}\nfn beta() { alpha(); }\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "ast.rename mod.rs alpha gamma\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("gamma"),
+        "batch ast.rename should rename: {content}"
+    );
+    assert!(
+        !content.contains("alpha"),
+        "old name should be gone: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_replace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("main.rs");
+    fs::write(&file, "fn run() {\n    let val = 100;\n}\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "ast.replace main.rs run 100 200\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("200"),
+        "batch ast.replace should replace: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_explain_ast_rename_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "ast.rename", "path": "lib.rs", "old_name": "foo", "new_name": "bar"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "AST rename \"foo\" to \"bar\" in lib.rs",
+        ));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_explain_ast_replace_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "ast.replace", "path": "app.rs", "symbol": "main", "from": "old", "to": "new"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "AST replace \"old\" with \"new\" in main in app.rs",
+        ));
+}
+
+#[test]
+fn test_explain_replace_word_boundary() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "replace", "path": "f.txt", "from": "cat", "to": "dog", "word_boundary": true}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("word-boundary"));
+}
+
+#[test]
+fn test_tx_replace_word_boundary_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "cat concatenate category\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": portable_path_str(&file),
+            "from": "cat",
+            "to": "dog",
+            "word_boundary": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "dog concatenate category\n",
+        "word_boundary should only replace whole-word match"
+    );
+}

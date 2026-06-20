@@ -401,6 +401,10 @@ pub struct BatchReplaceParams {
     /// Enable multiline matching (dot matches newlines in regex mode).
     #[serde(default)]
     pub multiline: bool,
+    /// Match only at word boundaries. Prevents 'SetupFile' from matching
+    /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
+    #[serde(default)]
+    pub word_boundary: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -527,6 +531,10 @@ fn validate_operation_paths(
             | Operation::FileDelete { path, .. }
             | Operation::Read { path, .. }
             | Operation::Search { path, .. } => vec![path.as_str()],
+            #[cfg(feature = "ast")]
+            Operation::AstRename { path, .. } | Operation::AstReplace { path, .. } => {
+                vec![path.as_str()]
+            }
             Operation::MdMoveSection { path, to, .. } => {
                 let mut p = vec![path.as_str()];
                 if let Some(to) = to {
@@ -1452,7 +1460,7 @@ impl PatchloomService {
                 if_exists: false,
                 whole_line: false,
                 range: None,
-                word_boundary: false,
+                word_boundary: p.word_boundary,
             })
             .collect();
         execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
