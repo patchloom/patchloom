@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
+.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
 
 .DEFAULT_GOAL := help
 
@@ -20,31 +20,38 @@ test: ## Run unit tests
 integration-test: ## Run integration tests
 	cargo test --test integration --all-features
 
+pty-test: ## Run PTY-based interactive terminal tests (serial)
+	cargo test --test pty --all-features -- --test-threads=1
+
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test integration-test check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test integration-test pty-test check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test integration-test ## Fast check (skips doc verification)
+check-fast: fmt-check clippy test integration-test pty-test ## Fast check (skips doc verification)
 
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
 	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
+	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
-	total=$$((unit + integ)); \
+	pty=$${pty:-0}; \
+	total=$$((unit + integ + pty)); \
 	rounded=$$((total / 100 * 100)); \
 	all_cmds=$$(NO_COLOR=1 cargo run --all-features --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	sed -i.bak "s/tests-[0-9]*%2B%20passing/tests-$$rounded%2B%20passing/" README.md; \
 	sed -i.bak "s/[0-9]*+ tests across [0-9]* commands/$$rounded+ tests across $$all_cmds commands/" README.md; \
 	rm -f README.md.bak; \
-	echo "README.md updated: $$rounded+ tests (actual: $$total = $$unit unit + $$integ integration), $$all_cmds commands"
+	echo "README.md updated: $$rounded+ tests (actual: $$total = $$unit unit + $$integ integration + $$pty pty), $$all_cmds commands"
 
 check-readme: ## Verify README.md rounded test count is accurate
 	@if grep -q '<<<<<<' README.md; then echo "ERROR: README.md contains conflict markers"; exit 1; fi; \
 	unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
 	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
+	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
-	total=$$((unit + integ)); \
+	pty=$${pty:-0}; \
+	total=$$((unit + integ + pty)); \
 	rounded=$$((total / 100 * 100)); \
 	if ! grep -q "tests-$${rounded}%2B%20passing" README.md; then \
 		echo "ERROR: README.md badge says a different rounded count than $${rounded}+. Run 'make update-readme'."; \

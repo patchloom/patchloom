@@ -111,6 +111,7 @@ libc = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2"
+expectrl = "0.7"
 predicates = "3"
 proptest = "1"
 rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process"] }
