@@ -952,6 +952,9 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !output.is_empty() {
             println!("{output}");
         }
+        if global.apply && code == exit::SUCCESS {
+            crate::write::run_format_command(global, &cwd)?;
+        }
         if global.apply
             && code == exit::SUCCESS
             && global.show_status()

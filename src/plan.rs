@@ -197,6 +197,8 @@ pub enum Operation {
         content: String,
         force: Option<bool>,
     },
+    #[serde(rename = "file.append", alias = "append_file")]
+    FileAppend { path: String, content: String },
     #[serde(rename = "file.delete", alias = "delete_file")]
     FileDelete { path: String },
     #[serde(rename = "file.rename", alias = "move_file")]
@@ -399,6 +401,7 @@ mod tests {
             {"op": "md.dedupe_headings", "path": "f.md"},
             {"op": "tidy.fix", "path": "f.txt"},
             {"op": "tidy.fix", "path": "f.txt", "trim_trailing_whitespace": true, "normalize_eol": "lf"},
+            {"op": "file.append", "path": "f.txt", "content": "extra"},
             {"op": "file.create", "path": "f.txt", "content": "c"},
             {"op": "file.create", "path": "g.txt", "content": "c", "force": true},
             {"op": "file.delete", "path": "f.txt"},
@@ -414,7 +417,7 @@ mod tests {
             {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 34);
+        assert_eq!(plan.operations.len(), 35);
     }
 
     #[test]
@@ -434,6 +437,7 @@ mod tests {
             {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
             {"op": "md_table_append", "path": "f.md", "heading": "H", "row": "| a |"},
             {"op": "fix_whitespace", "path": "f.txt"},
+            {"op": "append_file", "path": "f.txt", "content": "extra"},
             {"op": "create_file", "path": "f.txt", "content": "c"},
             {"op": "delete_file", "path": "f.txt"},
             {"op": "move_file", "from": "a.txt", "to": "b.txt"},
@@ -445,7 +449,7 @@ mod tests {
             {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 21);
+        assert_eq!(plan.operations.len(), 22);
     }
 
     #[test]

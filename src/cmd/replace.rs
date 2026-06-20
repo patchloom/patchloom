@@ -332,6 +332,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --apply mode: write changes using atomic_write with write policy.
     if global.apply {
         apply_replacements(&replacements, global, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
 
         let color = global.should_color();
         if global.json {
@@ -388,6 +389,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {
         apply_replacements(&replacements, global, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }

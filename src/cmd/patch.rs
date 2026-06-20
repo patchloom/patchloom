@@ -373,6 +373,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .map(|((p, c), pol)| (p.as_path(), c.as_str(), pol))
             .collect();
         crate::backup::backup_write_files(&root, &writes)?;
+        crate::write::run_format_command(global, &root)?;
         return Ok(exit::SUCCESS);
     }
 

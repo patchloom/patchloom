@@ -315,6 +315,9 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else if global.check {
         Ok(exit::CHANGES_DETECTED)
     } else {
+        if global.apply {
+            crate::write::run_format_command(global, &cwd)?;
+        }
         Ok(exit::SUCCESS)
     }
 }
@@ -808,6 +811,7 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.apply {
         crate::write::atomic_write(&target, &result.content, &Default::default())?;
+        crate::write::run_format_command(global, &cwd)?;
         if !global.quiet {
             eprintln!(
                 "{}: {} replacement{} in symbol '{}'",

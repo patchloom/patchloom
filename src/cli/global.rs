@@ -84,6 +84,10 @@ pub struct GlobalFlags {
     pub collapse_blanks: bool,
     #[clap(skip)]
     pub confirm: bool,
+    #[clap(skip)]
+    pub format: Option<String>,
+    #[clap(skip)]
+    pub format_timeout: Option<u64>,
 }
 
 /// Write-only flags exposed in subcommands that mutate files.
@@ -128,6 +132,15 @@ pub struct WriteFlags {
     /// Show diff then prompt before applying. Implies --apply on confirmation.
     #[arg(long, global = true, conflicts_with_all = ["apply", "check"])]
     pub confirm: bool,
+
+    /// Run a shell command after successful --apply (e.g. "cargo fmt --all").
+    /// Ignored in --diff and --check modes.
+    #[arg(long, global = true)]
+    pub format: Option<String>,
+
+    /// Timeout in seconds for the --format command (default: 30).
+    #[arg(long, global = true, default_value = "30")]
+    pub format_timeout: Option<u64>,
 }
 
 pub(crate) fn confirm_prompt(prompt: &str) -> bool {
@@ -170,6 +183,8 @@ impl GlobalFlags {
         self.trim_trailing_whitespace = w.trim_trailing_whitespace;
         self.respect_editorconfig = w.respect_editorconfig;
         self.collapse_blanks = w.collapse_blanks;
+        self.format = w.format.clone();
+        self.format_timeout = w.format_timeout;
     }
 
     /// Whether to proceed with the write after optional confirmation.

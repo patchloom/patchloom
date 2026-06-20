@@ -173,6 +173,7 @@ fn apply_mutation(
     if global.apply || (global.confirm && has_changes && global.should_apply()) {
         let writes = [(path, new_content, &policy)];
         crate::backup::backup_write_files(cwd, &writes)?;
+        crate::write::run_format_command(global, cwd)?;
     }
 
     Ok(exit::SUCCESS)

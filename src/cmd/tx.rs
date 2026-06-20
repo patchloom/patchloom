@@ -144,6 +144,7 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::MdMoveSection { .. } => "md.move_section",
         Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
         Operation::TidyFix { .. } => "tidy.fix",
+        Operation::FileAppend { .. } => "file.append",
         Operation::FileCreate { .. } => "file.create",
         Operation::FileDelete { .. } => "file.delete",
         Operation::FileRename { .. } => "file.rename",
@@ -211,6 +212,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdTableAppend { .. }
         | Operation::MdDedupeHeadings { .. }
         | Operation::TidyFix { .. }
+        | Operation::FileAppend { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }
@@ -814,6 +816,7 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::MdMoveSection { .. }
             | Operation::MdDedupeHeadings { .. }
             | Operation::PatchApply { .. }
+            | Operation::FileAppend { .. }
             | Operation::Read { .. }
             | Operation::Search { .. }
             | Operation::MdLintAgents { .. }
@@ -1048,6 +1051,23 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             if content != *new {
                 update_file_content(tx.pending, tx.deletions, &file_path, new.into_owned());
             }
+        }
+
+        Operation::FileAppend { path, content } => {
+            let file_path = tx.cwd.join(path);
+            if !tx.deletions.contains(&file_path)
+                && !file_path.exists()
+                && !tx.pending.contains_key(&file_path)
+            {
+                anyhow::bail!("file does not exist: {path}");
+            }
+            let existing = read_file_content(tx.pending, &file_path)?;
+            let mut combined = existing.to_string();
+            if !combined.is_empty() && !combined.ends_with('\n') {
+                combined.push('\n');
+            }
+            combined.push_str(content);
+            update_file_content(tx.pending, tx.deletions, &file_path, combined);
         }
 
         Operation::FileCreate {

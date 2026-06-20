@@ -304,6 +304,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 if let Some(b) = backup {
                     b.finalize()?;
                 }
+                crate::write::run_format_command(global, &root)?;
                 Ok(exit::SUCCESS)
             } else if any_changed {
                 if global.show_status() {

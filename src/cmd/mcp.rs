@@ -286,6 +286,16 @@ pub struct FileRenameParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
+pub struct AppendFileParams {
+    /// File path (relative to working directory).
+    pub path: String,
+    /// Content to append to the file.
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CreateFileParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -527,6 +537,7 @@ fn validate_operation_paths(
             | Operation::MdDedupeHeadings { path, .. }
             | Operation::MdLintAgents { path, .. }
             | Operation::TidyFix { path, .. }
+            | Operation::FileAppend { path, .. }
             | Operation::FileCreate { path, .. }
             | Operation::FileDelete { path, .. }
             | Operation::Read { path, .. }
@@ -1353,6 +1364,26 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Append content to the end of an existing file. Inserts a newline separator if the file does not end with one. Fails if the file does not exist. Example: {\"path\": \"tests.rs\", \"content\": \"#[test]\\nfn new() {}\"}"
+    )]
+    async fn append_file(
+        &self,
+        Parameters(p): Parameters<AppendFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.check_path(&p.path)?;
+        validate_content_size("content", &p.content)?;
+
+        let abs = self.cwd().join(&p.path);
+        match crate::cmd::append::apply_append(&abs, &p.content) {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Appended to {}",
+                p.path
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+        }
+    }
+
+    #[tool(
         description = "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"hello.txt\", \"content\": \"Hello, World!\"}"
     )]
     async fn create_file(
@@ -1644,7 +1675,8 @@ mod tests {
             names.contains(&"md_move_section"),
             "missing md_move_section tool"
         );
-        assert_eq!(names.len(), 30, "expected 30 tools, got {}", names.len());
+        assert!(names.contains(&"append_file"), "missing append_file tool");
+        assert_eq!(names.len(), 31, "expected 31 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 

@@ -142,6 +142,13 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 word_boundary: false,
             })
         }
+        "file.append" => {
+            require_args(op, args, 2, line_num)?;
+            Ok(Operation::FileAppend {
+                path: args[0].clone(),
+                content: args[1].clone(),
+            })
+        }
         "file.create" => {
             require_args(op, args, 2, line_num)?;
             Ok(Operation::FileCreate {
@@ -448,7 +455,12 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         no_strict: false,
         write: args.write,
     };
-    crate::cmd::tx::run(tx_args, global)
+    let result = crate::cmd::tx::run(tx_args, global)?;
+    if result == crate::exit::SUCCESS && global.apply {
+        let cwd = global.resolve_cwd()?;
+        crate::write::run_format_command(global, &cwd)?;
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
