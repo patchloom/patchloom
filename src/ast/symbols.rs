@@ -552,9 +552,8 @@ impl Server {
 }
 "#;
         let symbols = extract_symbols(source, Language::Rust);
-        let found = find_symbol(&symbols, "Server::start");
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "start");
+        let found = find_symbol(&symbols, "Server::start").expect("should find Server::start");
+        assert_eq!(found.name, "start");
     }
 
     #[test]
@@ -565,8 +564,7 @@ impl Server {
 }
 "#;
         let symbols = extract_symbols(source, Language::Rust);
-        let found = find_symbol(&symbols, "start");
-        assert!(found.is_some());
+        find_symbol(&symbols, "start").expect("should find 'start' via unqualified search");
     }
 
     #[test]
