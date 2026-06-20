@@ -964,6 +964,13 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** Text cleanup should be part of the same atomic success criteria as other edits.
 - **Related:** top level `tidy fix`
 
+<!-- ref:tx-op:file.append -->
+### `file.append`
+
+- **What it does:** Appends content to the end of an existing file inside a transaction. Inserts a newline separator if the file does not end with one.
+- **Use when:** Adding content to a file must be atomic with other operations in the same plan. Fails if the file does not exist.
+- **Related:** top level `append`
+
 <!-- ref:tx-op:file.create -->
 ### `file.create`
 
