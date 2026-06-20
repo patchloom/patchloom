@@ -318,6 +318,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         .map(|r| (r.path.as_path(), r.fixed.as_str(), &noop))
                         .collect();
                     crate::backup::backup_write_files(&root, &writes)?;
+                    crate::write::run_format_command(global, &root)?;
                     return Ok(exit::SUCCESS);
                 }
                 Ok(exit::CHANGES_DETECTED)

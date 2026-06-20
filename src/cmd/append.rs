@@ -160,6 +160,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             backup.save_before_write(&path)?;
             atomic_write(&path, &combined, &policy)?;
             backup.finalize()?;
+            crate::write::run_format_command(global, &cwd)?;
         }
         let output = AppendOutput {
             ok: true,
@@ -188,6 +189,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         backup.save_before_write(&path)?;
         atomic_write(&path, &combined, &policy)?;
         backup.finalize()?;
+        crate::write::run_format_command(global, &cwd)?;
     }
 
     Ok(exit::SUCCESS)

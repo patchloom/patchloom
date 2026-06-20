@@ -148,6 +148,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let applied = global.should_apply();
         if applied {
             rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
+            crate::write::run_format_command(global, &cwd)?;
         }
         let output = RenameOutput {
             ok: true,
@@ -178,6 +179,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --confirm: prompt after showing preview, then rename if confirmed.
     if global.should_apply() {
         rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
         if global.show_status() {
             eprintln!("renamed {} -> {}", args.from, args.to);
         }

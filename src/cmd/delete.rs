@@ -85,6 +85,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let applied = global.should_apply();
         if applied {
             delete_with_backup(&path, &cwd)?;
+            crate::write::run_format_command(global, &cwd)?;
         }
         let output = DeleteOutput {
             ok: true,
@@ -108,6 +109,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --confirm: prompt after showing preview, then delete if confirmed.
     if global.should_apply() {
         delete_with_backup(&path, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
         if global.show_status() {
             eprintln!("deleted {}", args.file);
         }
