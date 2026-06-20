@@ -192,6 +192,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 fs::create_dir_all(parent)?;
             }
             create_with_backup(&path, &content, args.force, &cwd, &policy)?;
+            crate::write::run_format_command(global, &cwd)?;
         }
         let output = CreateOutput {
             ok: true,
@@ -225,6 +226,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             fs::create_dir_all(parent)?;
         }
         create_with_backup(&path, &content, args.force, &cwd, &policy)?;
+        crate::write::run_format_command(global, &cwd)?;
     }
 
     Ok(exit::SUCCESS)
