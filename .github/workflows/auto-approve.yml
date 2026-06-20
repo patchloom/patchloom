@@ -22,7 +22,6 @@ jobs:
       pull-requests: write
     if: >
       github.actor == 'SebTardif' ||
-      github.actor == 'dependabot[bot]' ||
       github.actor == 'patchloom-release[bot]'
     steps:
       - name: Harden Runner
