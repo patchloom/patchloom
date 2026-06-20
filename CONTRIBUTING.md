@@ -33,10 +33,12 @@ make check
 | `make build` | Build with all features |
 | `make test` | Run unit tests |
 | `make integration-test` | Run integration tests |
+| `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Fast check (skips doc verification) |
-| `make update-readme` | Update README.md and CHANGELOG.md test counts |
+| `make update-readme` | Update README.md rounded test count |
+| `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `cargo check --all-targets` | Type-check all targets without building |
 
 ## Adding a new command
