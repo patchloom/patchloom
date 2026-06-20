@@ -1272,10 +1272,27 @@ pub mod replace {
         regex_mode: bool,
         case_insensitive: bool,
         multiline: bool,
+        word_boundary: bool,
     ) -> anyhow::Result<Option<Regex>> {
+        if word_boundary && !regex_mode {
+            // Escape the literal pattern and wrap with \b anchors.
+            let escaped = regex::escape(pattern);
+            let wb_pattern = format!("\\b{escaped}\\b");
+            return Ok(Some(
+                regex::RegexBuilder::new(&wb_pattern)
+                    .case_insensitive(case_insensitive)
+                    .dot_matches_new_line(multiline)
+                    .build()?,
+            ));
+        }
         if regex_mode {
+            let effective = if word_boundary {
+                format!("\\b(?:{pattern})\\b")
+            } else {
+                pattern.to_string()
+            };
             Ok(Some(
-                regex::RegexBuilder::new(pattern)
+                regex::RegexBuilder::new(&effective)
                     .case_insensitive(case_insensitive)
                     .dot_matches_new_line(multiline)
                     .build()?,
@@ -3476,7 +3493,7 @@ mod tests {
 
         #[test]
         fn compile_regex_mode_returns_some() {
-            let re = compile_replace_regex(r"\d+", true, false, false)
+            let re = compile_replace_regex(r"\d+", true, false, false, false)
                 .unwrap()
                 .expect("regex mode should return Some");
             assert!(re.is_match("abc123"));
@@ -3484,7 +3501,7 @@ mod tests {
 
         #[test]
         fn compile_regex_multiline_dot_matches_newline() {
-            let re = compile_replace_regex("a.b", true, false, true)
+            let re = compile_replace_regex("a.b", true, false, true, false)
                 .unwrap()
                 .unwrap();
             assert!(
@@ -3495,13 +3512,13 @@ mod tests {
 
         #[test]
         fn compile_invalid_regex_returns_error() {
-            let result = compile_replace_regex("(unclosed", true, false, false);
+            let result = compile_replace_regex("(unclosed", true, false, false, false);
             assert!(result.is_err());
         }
 
         #[test]
         fn compile_literal_case_insensitive_returns_some() {
-            let re = compile_replace_regex("hello", false, true, false)
+            let re = compile_replace_regex("hello", false, true, false, false)
                 .unwrap()
                 .expect("case-insensitive literal should return Some");
             assert!(re.is_match("HELLO"));
@@ -3509,8 +3526,51 @@ mod tests {
 
         #[test]
         fn compile_plain_literal_returns_none() {
-            let re = compile_replace_regex("hello", false, false, false).unwrap();
+            let re = compile_replace_regex("hello", false, false, false, false).unwrap();
             assert!(re.is_none());
+        }
+
+        #[test]
+        fn compile_word_boundary_literal() {
+            let re = compile_replace_regex("SetupFile", false, false, false, true)
+                .unwrap()
+                .expect("word_boundary should return Some");
+            assert!(re.is_match("SetupFile"), "should match standalone word");
+            assert!(
+                re.is_match("use crate::SetupFile;"),
+                "should match at word boundary"
+            );
+            assert!(
+                !re.is_match("BenchSetupFile"),
+                "should NOT match inside a longer word"
+            );
+            assert!(
+                !re.is_match("SetupFileConfig"),
+                "should NOT match when followed by more word chars"
+            );
+        }
+
+        #[test]
+        fn compile_word_boundary_escapes_metacharacters() {
+            // Test that regex metacharacters in the pattern are properly escaped.
+            // Use a pattern with dots and parens that would be regex-special.
+            let re = compile_replace_regex("foo.bar()", false, false, false, true)
+                .unwrap()
+                .expect("word_boundary with metacharacters should return Some");
+            // The escaped pattern should NOT match "fooXbar()" (dot is literal)
+            assert!(
+                !re.is_match("fooXbarX"),
+                "dot should be literal, not wildcard"
+            );
+        }
+
+        #[test]
+        fn compile_word_boundary_case_insensitive() {
+            let re = compile_replace_regex("setupfile", false, true, false, true)
+                .unwrap()
+                .expect("word_boundary + case_insensitive should return Some");
+            assert!(re.is_match("SetupFile"));
+            assert!(!re.is_match("BenchSetupFile"));
         }
 
         // ── replace_whole_lines tests ─────────────────────────────────
@@ -3525,7 +3585,7 @@ mod tests {
 
         #[test]
         fn whole_lines_delete_regex() {
-            let re = compile_replace_regex(r"let _\w+", true, false, false)
+            let re = compile_replace_regex(r"let _\w+", true, false, false, false)
                 .unwrap()
                 .unwrap();
             let content = "fn main() {\n    let _x = foo();\n    let y = bar();\n}\n";
@@ -3571,7 +3631,7 @@ mod tests {
 
         #[test]
         fn whole_lines_regex_capture_groups() {
-            let re = compile_replace_regex(r"version = (\d+)", true, false, false)
+            let re = compile_replace_regex(r"version = (\d+)", true, false, false, false)
                 .unwrap()
                 .unwrap();
             let content = "name = foo\nversion = 3\nrelease = true\n";

@@ -85,6 +85,9 @@ pub enum Operation {
         whole_line: bool,
         /// Line range restriction (e.g. "10:50"). Only valid with whole_line.
         range: Option<String>,
+        /// Match only at word boundaries (\b). Prevents partial matches.
+        #[serde(default)]
+        word_boundary: bool,
     },
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {

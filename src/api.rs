@@ -102,6 +102,11 @@ pub struct ReplaceOptions {
     pub range: Option<(usize, Option<usize>)>,
     /// Return success (no error) even when the pattern matches nothing.
     pub if_exists: bool,
+    /// When true, match only at word boundaries (`\b` in regex terms).
+    /// Prevents `SetupFile` from matching inside `BenchSetupFile`.
+    /// The pattern is auto-escaped for regex metacharacters before
+    /// wrapping with `\b` anchors.
+    pub word_boundary: bool,
 }
 
 /// Write policy options for controlling file write transformations.
@@ -461,6 +466,7 @@ pub fn replace_text(
         opts.regex,
         opts.case_insensitive,
         opts.multiline,
+        opts.word_boundary,
     )?;
 
     let direct_to = if opts.insert_before.is_none() && opts.insert_after.is_none() {
@@ -950,6 +956,7 @@ pub fn search(
             pattern,
             regex,
             case_insensitive,
+            false,
             false,
         )?)
     } else {
