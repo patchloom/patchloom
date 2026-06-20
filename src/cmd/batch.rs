@@ -277,6 +277,28 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 normalize_eol: None,
             })
         }
+        #[cfg(feature = "ast")]
+        "ast.rename" => {
+            require_args(op, args, 3, line_num)?;
+            Ok(Operation::AstRename {
+                path: args[0].clone(),
+                old_name: args[1].clone(),
+                new_name: args[2].clone(),
+                lang: None,
+            })
+        }
+        #[cfg(feature = "ast")]
+        "ast.replace" => {
+            require_args(op, args, 4, line_num)?;
+            Ok(Operation::AstReplace {
+                path: args[0].clone(),
+                symbol: args[1].clone(),
+                from: args[2].clone(),
+                to: args[3].clone(),
+                regex: false,
+                lang: None,
+            })
+        }
         _ => anyhow::bail!("line {line_num}: unknown operation '{op}'"),
     }
 }

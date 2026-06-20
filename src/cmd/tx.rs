@@ -151,6 +151,10 @@ fn op_label(op: &Operation) -> &'static str {
         Operation::Read { .. } => "read",
         Operation::Search { .. } => "search",
         Operation::MdLintAgents { .. } => "md.lint_agents",
+        #[cfg(feature = "ast")]
+        Operation::AstRename { .. } => "ast.rename",
+        #[cfg(feature = "ast")]
+        Operation::AstReplace { .. } => "ast.replace",
     }
 }
 
@@ -213,6 +217,8 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::Read { .. }
         | Operation::MdLintAgents { .. }
         | Operation::PatchApply { .. } => Ok(()),
+        #[cfg(feature = "ast")]
+        Operation::AstRename { .. } | Operation::AstReplace { .. } => Ok(()),
         Operation::MdMoveSection { before, after, .. } => {
             if before.is_none() && after.is_none() {
                 anyhow::bail!("md.move_section requires either 'before' or 'after'");
@@ -812,7 +818,11 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::Search { .. }
             | Operation::MdLintAgents { .. }
             | Operation::TidyFix { .. }
-    )
+    ) || cfg!(feature = "ast")
+        && matches!(
+            op,
+            Operation::AstRename { .. } | Operation::AstReplace { .. }
+        )
 }
 
 fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
@@ -1181,6 +1191,77 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             } else {
                 update_file_content(tx.pending, tx.deletions, &src_path, String::new());
                 tx.deletions.insert(src_path);
+            }
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstRename {
+            path,
+            old_name,
+            new_name,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let content = read_file_content(tx.pending, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let result =
+                crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
+            match result {
+                Some(r) if r.replacements > 0 => {
+                    update_file_content(tx.pending, tx.deletions, &abs, r.content);
+                    return Ok(r.replacements);
+                }
+                _ => {
+                    // Fallback to word-boundary replace
+                    let re = crate::ops::replace::compile_replace_regex(
+                        old_name, false, false, false, true,
+                    )?;
+                    if let Some(re) = re {
+                        let new_content = re.replace_all(content, new_name.as_str()).to_string();
+                        let count = re.find_iter(content).count();
+                        if count > 0 {
+                            update_file_content(tx.pending, tx.deletions, &abs, new_content);
+                            return Ok(count);
+                        }
+                    }
+                    anyhow::bail!("no matches for '{}' in {}", old_name, path);
+                }
+            }
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstReplace {
+            path,
+            symbol,
+            from,
+            to,
+            regex,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let content = read_file_content(tx.pending, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let result = crate::ast::replace::replace_in_symbol(
+                content, symbol, from, to, *regex, lang_val,
+            )?;
+            match result {
+                Some(r) if r.replacements > 0 => {
+                    update_file_content(tx.pending, tx.deletions, &abs, r.content);
+                    return Ok(r.replacements);
+                }
+                Some(_) => anyhow::bail!(
+                    "no matches for '{}' in symbol '{}' in {}",
+                    from,
+                    symbol,
+                    path
+                ),
+                None => anyhow::bail!("symbol '{}' not found in {}", symbol, path),
             }
         }
     }

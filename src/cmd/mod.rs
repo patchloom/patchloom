@@ -386,6 +386,31 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         }
     }
 
+    // AST-aware operations (always shown when AST feature is enabled)
+    #[cfg(feature = "ast")]
+    if show_cli {
+        out.push_str(
+            "## AST-aware operations\n\n\
+             Tree-sitter-backed operations that understand code structure (20 languages).\n\n\
+             ```bash\n\
+             # Rename an identifier across a file, skipping strings and comments\n\
+             patchloom ast rename OldName NewName src/lib.rs --apply\n\n\
+             # Replace text only within a specific function body\n\
+             patchloom ast replace src/config.rs --symbol default_timeout --from 30 --to 60 --apply\n\n\
+             # List all symbol definitions\n\
+             patchloom ast list src/lib.rs\n\n\
+             # Find all references to a symbol\n\
+             patchloom ast refs src/ --name my_function\n\
+             ```\n\n\
+             AST rename and replace can also be used in batch and tx plans:\n\n\
+             ```bash\n\
+             # In a batch file:\n\
+             ast.rename src/lib.rs OldStruct NewStruct\n\
+             ast.replace src/config.rs default_timeout \"30\" \"60\"\n\
+             ```\n\n",
+        );
+    }
+
     // Selector syntax (always shown — used by all doc.* operations)
     out.push_str(
         "## Selector syntax\n\n\
@@ -543,9 +568,11 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         }
         #[cfg(feature = "ast")]
         Command::Ast(args) => {
-            // ast rename has write flags; list/read/validate are read-only
-            if let ast::AstCommand::Rename(ref rename_args) = args.command {
-                global.merge_write(&rename_args.write);
+            // ast rename and ast replace have write flags; others are read-only
+            match args.command {
+                ast::AstCommand::Rename(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Replace(ref a) => global.merge_write(&a.write),
+                _ => {}
             }
             load_project_config(&mut global);
             ast::run(args, &global)
