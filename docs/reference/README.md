@@ -324,6 +324,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Nothing, if Patchloom is only used from scripts or ephemeral CI runners.
 - **Related:** [installation guide](../getting-started/installation.md)
 
+<!-- ref:command:ast -->
+## `ast`
+
+- **What it does:** AST-aware operations on source code using tree-sitter grammars (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation).
+- **Use when:** You need to list, read, rename, or validate symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed.
+- **Prefer instead:** Use `replace --word-boundary` for quick identifier renames when AST precision is not required. Use a language server (LSP) when cross-file type-aware rename is needed.
+- **Related:** [`replace`](#replace), [`search`](#search)
+
 ## Command modes
 
 These are meaningful command-specific modes that change how a top-level command behaves, even though they are not separate subcommands.

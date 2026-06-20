@@ -25,7 +25,7 @@ file.create VERSION "2.0.0"
 EOF
 ```
 
-20 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, file lifecycle operations, operation schema export, and an MCP server that exposes everything as structured tool calls for MCP-capable agents.
+21 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, file lifecycle operations, AST-aware code operations (rename, list, read, validate using tree-sitter), operation schema export, and an MCP server that exposes everything as structured tool calls for MCP-capable agents.
 
 ## The honest benchmark
 

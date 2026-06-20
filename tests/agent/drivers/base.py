@@ -94,7 +94,7 @@ _PATCHLOOM_SUBCOMMANDS = {
     "search", "replace", "patch", "md", "doc", "tidy",
     "create", "delete", "rename", "read", "status", "tx",
     "batch", "explain", "undo", "init", "completions",
-    "agent-rules", "mcp-server", "schema",
+    "agent-rules", "mcp-server", "schema", "ast",
 }
 
 

@@ -11,7 +11,8 @@
 //! |---------|---------|-------------|
 //! | `core`  | no      | Marker feature for core library usage (no extra deps) |
 //! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
-//! | `full`  | no      | Everything: currently equivalent to `mcp` |
+//! | `ast`   | **yes** | AST-aware operations using tree-sitter (20 language grammars) |
+//! | `full`  | no      | Everything: `mcp` + `ast` |
 //!
 //! ## Embedding as a library
 //!
@@ -51,6 +52,8 @@
 //! across threads, avoiding repeated disk reads.
 
 pub mod api;
+#[cfg(feature = "ast")]
+pub mod ast;
 pub mod backup;
 pub mod cli;
 pub mod cmd;

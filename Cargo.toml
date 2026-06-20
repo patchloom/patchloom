@@ -28,14 +28,39 @@ exclude = [
 ]
 
 [features]
-default = ["mcp"]
+default = ["mcp", "ast"]
 # Core library: all editing operations, no MCP server, no tree-sitter grammars.
 # Use this when embedding patchloom as a library dependency.
 core = []
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
+# AST-aware operations using tree-sitter grammars (20 languages).
+ast = [
+    "dep:tree-sitter-lib",
+    "dep:tree-sitter-language",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-typescript",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-bash",
+    "dep:tree-sitter-hcl",
+    "dep:tree-sitter-toml-ng",
+    "dep:tree-sitter-yaml",
+    "dep:tree-sitter-json",
+    "dep:tree-sitter-xml",
+    "dep:tree-sitter-proto",
+    "dep:tree-sitter-c",
+    "dep:tree-sitter-cpp",
+    "dep:tree-sitter-java",
+    "dep:tree-sitter-ruby",
+    "dep:tree-sitter-c-sharp",
+    "dep:tree-sitter-swift",
+    "dep:tree-sitter-kotlin-sg",
+    "dep:tree-sitter-php",
+]
 # Full: everything. Equivalent to default today.
-full = ["mcp"]
+full = ["mcp", "ast"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -58,6 +83,28 @@ clap_complete = "4"
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 schemars = { version = "1", optional = true }
+tree-sitter-lib = { package = "tree-sitter", version = "0.26", optional = true }
+tree-sitter-language = { version = "0.1", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-bash = { version = "0.25", optional = true }
+tree-sitter-hcl = { version = "1.1", optional = true }
+tree-sitter-toml-ng = { version = "0.7", optional = true }
+tree-sitter-yaml = { version = "0.7", optional = true }
+tree-sitter-json = { version = "0.24", optional = true }
+tree-sitter-xml = { version = "0.7", optional = true }
+tree-sitter-proto = { version = "0.4", optional = true }
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-ruby = { version = "0.23", optional = true }
+tree-sitter-c-sharp = { version = "0.23", optional = true }
+tree-sitter-swift = { version = "0.7", optional = true }
+tree-sitter-kotlin-sg = { version = "0.4", optional = true }
+tree-sitter-php = { version = "0.24", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -78,6 +125,9 @@ implicit_clone = "warn"
 cloned_instead_of_copied = "warn"
 redundant_else = "warn"
 semicolon_if_nothing_returned = "warn"
+
+[package.metadata.cargo-machete]
+ignored = ["tree-sitter-language"]
 
 # The profile that 'dist' will build with
 [package.metadata.docs.rs]
