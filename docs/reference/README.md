@@ -83,6 +83,20 @@ These flags shape how written content is normalized before it reaches disk.
 - **Use when:** You are deleting lines (e.g. with `replace --whole-line --to ''`) and want to clean up the resulting blank line runs.
 - **Prefer instead:** Omit when consecutive blank lines are intentional (e.g. section separators in code).
 
+<!-- ref:write-flag:format -->
+### `--format`
+
+- **What it does:** Runs a shell command after every successful `--apply` write. Intended for formatters (e.g. `prettier --write .`, `cargo fmt`).
+- **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
+- **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
+
+<!-- ref:write-flag:format-timeout -->
+### `--format-timeout`
+
+- **What it does:** Sets the maximum time in seconds the `--format` command is allowed to run before being killed. Defaults to 30 seconds.
+- **Use when:** The formatter is slow (e.g. large monorepo) and the default 30 second timeout is insufficient.
+- **Prefer instead:** Keep the default unless the formatter demonstrably needs more time.
+
 ### Output and scope flags
 
 These flags affect how Patchloom reports results or chooses which files to touch.
@@ -199,6 +213,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
 - **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
 
+<!-- ref:command:append -->
+## `append`
+
+- **What it does:** Appends content to the end of an existing file. If the file does not end with a newline, one is inserted before the appended content. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist (unlike `create`).
+- **Use when:** Adding tests, changelog entries, rules, or any content to the end of a file without reading the entire file to find a unique anchor.
+- **Prefer instead:** Use `replace` when the insertion point is not the end of the file.
+- **Related:** `create`, `tx file.append`
+
 <!-- ref:command:create -->
 ## `create`
 
@@ -235,7 +257,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 24 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 25 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 

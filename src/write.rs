@@ -361,6 +361,32 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
     Ok(())
 }
 
+/// Run a post-write format command if configured.
+///
+/// Only runs when `global.apply` is true and `global.format` is `Some`.
+/// Returns the appropriate exit code: `SUCCESS` on success, `VALIDATION_FAILED`
+/// on format command failure.
+pub fn run_format_command(
+    global: &crate::cli::global::GlobalFlags,
+    cwd: &std::path::Path,
+) -> anyhow::Result<()> {
+    let cmd = match global.format.as_deref() {
+        Some(cmd) if global.apply => cmd,
+        _ => return Ok(()),
+    };
+    let timeout_secs = global.format_timeout.unwrap_or(30);
+    let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
+    if !result.status.success() {
+        let stderr = if result.stderr_head.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", result.stderr_head)
+        };
+        anyhow::bail!("format command failed ({}){stderr}", cmd);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

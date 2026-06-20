@@ -153,6 +153,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         create_with_backup(&path, &content, args.force, &cwd, &policy)?;
+        crate::write::run_format_command(global, &cwd)?;
 
         let diff_text = if global.diff {
             Some(make_diff_output(&args.file, &content, false))

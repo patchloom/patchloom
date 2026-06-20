@@ -128,6 +128,25 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
             ],
         },
         OperationSchema {
+            name: "file.append".into(),
+            description: "Append content to an existing file.".into(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "required": ["path", "content"],
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"}
+                }
+            }),
+            min_tier: Tier::Weak,
+            examples: vec![
+                OperationExample {
+                    description: "Append a test function to a test file".into(),
+                    args: serde_json::json!({"op": "file.append", "path": "tests/test.rs", "content": "#[test]\nfn new_test() {}\n"}),
+                },
+            ],
+        },
+        OperationSchema {
             name: "file.create".into(),
             description: "Create a new file with specified content.".into(),
             parameters: serde_json::json!({

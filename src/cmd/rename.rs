@@ -112,6 +112,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --apply mode: perform the rename.
     if global.apply {
         rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
 
         if global.json || global.jsonl || global.diff {
             // After --apply, source is gone; read from destination.

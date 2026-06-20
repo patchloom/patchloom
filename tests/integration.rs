@@ -19613,3 +19613,276 @@ fn test_tx_replace_word_boundary_in_plan() {
         "word_boundary should only replace whole-word match"
     );
 }
+
+// ── file.append (CLI, tx, batch, explain) ──────────────────────
+
+#[test]
+fn test_append_cli_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "line one\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["append", "log.txt", "--content", "line two\n", "--apply"])
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "line one\nline two\n");
+}
+
+#[test]
+fn test_append_cli_check_returns_exit_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "existing\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["append", "log.txt", "--content", "new\n", "--check"])
+        .assert()
+        .code(2);
+
+    // File must be unchanged.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "existing\n");
+}
+
+#[test]
+fn test_append_cli_missing_file_fails() {
+    let dir = TempDir::new().unwrap();
+
+    patchloom_in(dir.path())
+        .args(["append", "nope.txt", "--content", "data\n", "--apply"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_append_cli_diff_shows_unified_diff() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "first\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["append", "log.txt", "--content", "second\n"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("+second"));
+}
+
+#[test]
+fn test_tx_file_append_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "alpha\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.append",
+            "path": portable_path_str(&file),
+            "content": "beta\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "alpha\nbeta\n");
+}
+
+#[test]
+fn test_tx_file_append_missing_file_fails() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.append",
+            "path": nonexistent_path("append-target"),
+            "content": "data\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_batch_file_append() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "existing\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "file.append data.txt appended-line\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("appended-line"),
+        "batch file.append should append: {content}"
+    );
+}
+
+#[test]
+fn test_explain_file_append_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.append", "path": "log.txt", "content": "extra"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Append"));
+}
+
+// ── --format flag on write commands ────────────────────────────
+
+#[test]
+fn test_replace_format_flag_runs_after_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "aaa\n").unwrap();
+    let marker = dir.path().join("format_ran.marker");
+
+    patchloom_in(dir.path())
+        .args([
+            "replace",
+            "aaa",
+            "--to",
+            "bbb",
+            "--apply",
+            "--format",
+            &shell_touch(&marker),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        marker.exists(),
+        "--format command should have created the marker file"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+}
+
+#[test]
+fn test_replace_format_flag_skipped_in_diff_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "aaa\n").unwrap();
+    let marker = dir.path().join("format_ran.marker");
+
+    patchloom_in(dir.path())
+        .args([
+            "replace",
+            "aaa",
+            "--to",
+            "bbb",
+            "--format",
+            &shell_touch(&marker),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        !marker.exists(),
+        "--format should NOT run in diff-only mode"
+    );
+}
+
+#[test]
+fn test_append_format_flag_runs_after_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "line\n").unwrap();
+    let marker = dir.path().join("format_ran.marker");
+
+    patchloom_in(dir.path())
+        .args([
+            "append",
+            "f.txt",
+            "--content",
+            "extra\n",
+            "--apply",
+            "--format",
+            &shell_touch(&marker),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        marker.exists(),
+        "--format command should have run after append --apply"
+    );
+}
+
+#[test]
+fn test_create_format_flag_runs_after_apply() {
+    let dir = TempDir::new().unwrap();
+    let marker = dir.path().join("format_ran.marker");
+
+    patchloom_in(dir.path())
+        .args([
+            "create",
+            "new.txt",
+            "--content",
+            "hello\n",
+            "--apply",
+            "--format",
+            &shell_touch(&marker),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        marker.exists(),
+        "--format command should have run after create --apply"
+    );
+}
+
+#[test]
+fn test_format_flag_failure_is_reported() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "aaa\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "replace",
+            "aaa",
+            "--to",
+            "bbb",
+            "--apply",
+            "--format",
+            shell_false(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("format command failed"));
+}

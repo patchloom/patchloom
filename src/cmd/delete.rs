@@ -69,6 +69,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.apply {
         delete_with_backup(&path, &cwd)?;
+        crate::write::run_format_command(global, &cwd)?;
         let output = DeleteOutput {
             ok: true,
             path: args.file.clone(),

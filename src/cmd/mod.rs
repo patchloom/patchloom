@@ -1,3 +1,4 @@
+pub mod append;
 #[cfg(feature = "ast")]
 pub mod ast;
 pub mod batch;
@@ -25,6 +26,8 @@ use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Append content to an existing file.
+    Append(append::AppendArgs),
     /// Create a new file with specified content.
     Create(create::CreateArgs),
     /// Delete a file.
@@ -163,7 +166,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Move a heading section (same file or cross-file) | `md_move_section` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
-             | Create, rename, or delete a file | `create_file`, `move_file`, `delete_file` |\n\
+             | Create, append, rename, or delete a file | `create_file`, `append_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\n",
         );
@@ -515,6 +518,11 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Status(args) => {
             load_project_config(&mut global);
             status::run(args, &global)
+        }
+        Command::Append(args) => {
+            global.merge_write(&args.write);
+            load_project_config(&mut global);
+            append::run(args, &global)
         }
         Command::Create(args) => {
             global.merge_write(&args.write);

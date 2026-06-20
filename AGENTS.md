@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty-one commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `append`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file appending, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
 
 ## Dev commands
 
@@ -45,6 +45,7 @@ src/
                        --respect-editorconfig, --confirm). Write flags are only available on write commands.
   cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules
                        generator, and inline Completions command
+  cmd/append.rs        Append content to an existing file
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
   cmd/mcp.rs           MCP server (feature-gated): exposes patchloom operations as structured tool calls
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
