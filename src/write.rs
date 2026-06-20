@@ -371,7 +371,7 @@ pub fn run_format_command(
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
     let cmd = match global.format.as_deref() {
-        Some(cmd) if global.apply => cmd,
+        Some(cmd) => cmd,
         _ => return Ok(()),
     };
     let timeout_secs = global.format_timeout.unwrap_or(30);
