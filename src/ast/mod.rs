@@ -276,18 +276,14 @@ mod tests {
     #[test]
     fn parse_source_rust() {
         let source = "fn main() { println!(\"hello\"); }";
-        let result = parse_source(source, Language::Rust);
-        assert!(result.is_some());
-        let (tree, _) = result.unwrap();
+        let (tree, _) = parse_source(source, Language::Rust).expect("should parse Rust source");
         assert!(!tree.root_node().has_error());
     }
 
     #[test]
     fn parse_source_python() {
         let source = "def hello():\n    print('hello')\n";
-        let result = parse_source(source, Language::Python);
-        assert!(result.is_some());
-        let (tree, _) = result.unwrap();
+        let (tree, _) = parse_source(source, Language::Python).expect("should parse Python source");
         assert!(!tree.root_node().has_error());
     }
 
