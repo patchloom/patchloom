@@ -144,6 +144,10 @@ pub struct WriteFlags {
 }
 
 pub(crate) fn confirm_prompt(prompt: &str) -> bool {
+    // Flush stdout before the prompt writes to stderr, otherwise the diff
+    // output may remain buffered and invisible in a PTY.
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
     confirm_prompt_interactive(prompt, is_tty, &mut std::io::stdin().lock())
 }
