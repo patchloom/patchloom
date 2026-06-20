@@ -167,7 +167,7 @@ fn pty_append_confirm_yes_runs_format_command() {
         "append",
         "f.txt",
         "--content",
-        "extra",
+        "extra\n",
         "--confirm",
         "--format",
         &shell_touch(&marker),

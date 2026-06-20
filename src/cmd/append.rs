@@ -113,31 +113,29 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         backup.finalize()?;
         crate::write::run_format_command(global, &cwd)?;
 
-        let diff_text = if global.diff {
+        if global.diff {
             let diff = unified_diff(&args.file, &existing, &combined);
             let dr = DiffResult {
                 diffs: vec![diff],
                 total_files_changed: 1,
             };
-            Some(format_diff_result_colored(&dr, false))
-        } else {
-            None
-        };
-        let output = AppendOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: diff_text,
-            applied: None,
-        };
-        if !global.emit_json(&output)? {
-            if global.diff {
-                let diff = unified_diff(&args.file, &existing, &combined);
-                let dr = DiffResult {
-                    diffs: vec![diff],
-                    total_files_changed: 1,
-                };
+            let output = AppendOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: Some(format_diff_result_colored(&dr, false)),
+                applied: None,
+            };
+            if !global.emit_json(&output)? {
                 print!("{}", format_diff_result_colored(&dr, global.should_color()));
-            } else if !global.quiet {
+            }
+        } else {
+            let output = AppendOutput {
+                ok: true,
+                path: args.file.clone(),
+                diff: None,
+                applied: None,
+            };
+            if !global.emit_json(&output)? && !global.quiet {
                 println!("appended to {}", args.file);
             }
         }
@@ -180,6 +178,10 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     if !global.emit_json(&output)? {
         print!("{}", format_diff_result_colored(&dr, global.should_color()));
+        // Flush stdout before the confirm prompt writes to stderr, otherwise
+        // the diff output may remain buffered and invisible in a PTY.
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
     }
 
     // --confirm: prompt after showing diff, then apply if confirmed.

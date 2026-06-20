@@ -17961,6 +17961,85 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_append_file_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "line one\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "append_file",
+        serde_json::json!({"path": "data.txt", "content": "line two\n"}),
+    )
+    .await;
+    assert!(!is_error, "append_file should succeed: {text}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line one\nline two\n",
+        "content should be appended"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_append_file_missing_file_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _text) = call_tool_text(
+        &client,
+        "append_file",
+        serde_json::json!({"path": "nonexistent.txt", "content": "data\n"}),
+    )
+    .await;
+    assert!(is_error, "append_file should fail when file does not exist");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_move_section_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Top\n\nIntro\n\n## Alpha\n\nA content\n\n## Beta\n\nB content\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "md_move_section",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## Beta",
+            "before": "## Alpha"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_move_section should succeed: {text}");
+
+    let content = fs::read_to_string(&file).unwrap();
+    let alpha_pos = content.find("## Alpha").expect("Alpha should exist");
+    let beta_pos = content.find("## Beta").expect("Beta should exist");
+    assert!(
+        beta_pos < alpha_pos,
+        "Beta should come before Alpha after move"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_query_unknown_action_returns_error() {
     if !has_mcp_support() {
         return;
