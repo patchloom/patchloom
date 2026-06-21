@@ -19809,7 +19809,8 @@ fn test_ast_validate_invalid_syntax_reports_failure() {
     patchloom_in(dir.path())
         .args(["ast", "validate", "bad.rs"])
         .assert()
-        .failure(); // ast validate for invalid should fail (details in stderr or code)
+        .failure()
+        .stderr(predicates::str::contains("INVALID (Rust)"));
 }
 
 #[test]
