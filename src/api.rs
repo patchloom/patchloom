@@ -856,7 +856,9 @@ pub fn apply_patch(path: &Path, patch_text: &str, mode: ApplyMode) -> anyhow::Re
     let path_str_ref: &str = &path_str;
     let hunks: Vec<_> = patch_files
         .iter()
-        .filter(|pf| pf.path == path_str_ref || path_str_ref.ends_with(&pf.path))
+        .filter(|pf| {
+            pf.path == path_str_ref || std::path::Path::new(path_str_ref).ends_with(&pf.path)
+        })
         .flat_map(|pf| pf.hunks.iter())
         .collect();
 
@@ -1494,6 +1496,28 @@ mod tests {
         assert!(results.iter().all(|r| r.changed && r.applied));
         assert_eq!(fs::read_to_string(&a).unwrap(), "AAA\n");
         assert_eq!(fs::read_to_string(&b).unwrap(), "BBB\n");
+    }
+
+    #[test]
+    fn apply_patch_path_matching_uses_path_components() {
+        // Regression: string ends_with matched "notb/foo.rs" for a patch
+        // targeting "b/foo.rs". Path::ends_with does component matching.
+        let dir = TempDir::new().unwrap();
+        let sub = dir.path().join("notb");
+        fs::create_dir(&sub).unwrap();
+        let file = sub.join("foo.rs");
+        fs::write(&file, "original\n").unwrap();
+
+        // Patch targets "b/foo.rs" which should NOT match "notb/foo.rs"
+        let patch = "\
+--- a/b/foo.rs\n\
++++ b/b/foo.rs\n\
+@@ -1 +1 @@\n\
+-original\n\
++changed\n";
+
+        let result = apply_patch(&file, patch, ApplyMode::Preview);
+        assert!(result.is_err() || !result.unwrap().changed);
     }
 
     #[test]

@@ -179,8 +179,17 @@ fn extract_body<'a>(source: &'a str, sym: &SymbolDef) -> &'a str {
     if start >= lines.len() || start >= end {
         return "";
     }
-    let start_byte: usize = source.lines().take(start).map(|l| l.len() + 1).sum();
-    let end_byte: usize = source.lines().take(end).map(|l| l.len() + 1).sum();
+    let line_sep_len = if source.contains("\r\n") { 2 } else { 1 };
+    let start_byte: usize = source
+        .lines()
+        .take(start)
+        .map(|l| l.len() + line_sep_len)
+        .sum();
+    let end_byte: usize = source
+        .lines()
+        .take(end)
+        .map(|l| l.len() + line_sep_len)
+        .sum();
     &source[start_byte..end_byte.min(source.len())]
 }
 
@@ -254,6 +263,23 @@ mod tests {
         let source = "fn foo() {\n    let x = 1;\n}\n";
         let changes = structural_diff(source, source, Language::Rust);
         assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn extract_body_crlf() {
+        let source = "line1\r\nline2\r\nline3\r\n";
+        let sym = SymbolDef {
+            name: "test".into(),
+            kind: crate::ast::symbols::SymbolKind::Function,
+            start_line: 2,
+            end_line: 3,
+            signature: String::new(),
+            children: vec![],
+            depth: 0,
+        };
+        let body = extract_body(source, &sym);
+        // Lines 2-3 inclusive = "line2\r\nline3\r\n"
+        assert_eq!(body, "line2\r\nline3\r\n");
     }
 
     #[test]

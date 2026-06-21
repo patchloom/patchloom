@@ -204,6 +204,22 @@ fn strip_inline_code(line: &str) -> Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// Check for `git add .` (dangerous) without matching `git add .gitignore`
+/// or other dotfile paths. The dot must be followed by whitespace or EOL.
+fn has_dangerous_git_add_dot(line: &str) -> bool {
+    let needle = "git add .";
+    let mut start = 0;
+    while let Some(pos) = line[start..].find(needle) {
+        let abs = start + pos;
+        let after = abs + needle.len();
+        if after >= line.len() || line.as_bytes()[after].is_ascii_whitespace() {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
 /// A lint issue found in a markdown file.
 #[derive(Debug, Serialize)]
 pub struct LintIssue {
@@ -237,7 +253,7 @@ pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     // 2. Dangerous git add commands (skip fenced code blocks and inline code).
     for (idx, line) in non_fenced_lines(content) {
         let stripped = strip_inline_code(line);
-        if stripped.contains("git add .")
+        if has_dangerous_git_add_dot(&stripped)
             || stripped.contains("git add -A")
             || stripped.contains("git add --all")
         {
@@ -832,6 +848,38 @@ mod tests {
         assert_eq!(strip_inline_code("no backticks here"), "no backticks here");
         assert_eq!(strip_inline_code("`all code`"), "");
         assert_eq!(strip_inline_code("a `b` c `d` e"), "a  c  e");
+    }
+
+    #[test]
+    fn has_dangerous_git_add_dot_true_cases() {
+        assert!(has_dangerous_git_add_dot("git add ."));
+        assert!(has_dangerous_git_add_dot("run git add . first"));
+        assert!(has_dangerous_git_add_dot("git add . && git commit"));
+    }
+
+    #[test]
+    fn has_dangerous_git_add_dot_false_for_dotfiles() {
+        assert!(!has_dangerous_git_add_dot("git add .gitignore"));
+        assert!(!has_dangerous_git_add_dot("git add .editorconfig"));
+        assert!(!has_dangerous_git_add_dot(
+            "git add .github/workflows/ci.yml"
+        ));
+    }
+
+    #[test]
+    fn lint_agents_allows_git_add_dotfile() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("AGENTS.md");
+        fs::write(&file, "# Rules\nRun git add .gitignore to stage\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::LintAgents {
+                file: file.to_str().unwrap().to_string(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &default_global()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
     }
 
     // -- final newline ------------------------------------------------------
