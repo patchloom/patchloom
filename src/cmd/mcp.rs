@@ -1146,6 +1146,38 @@ impl PatchloomService {
         if let Some(ref ia) = p.insert_after {
             validate_content_size("insert_after", ia)?;
         }
+
+        // Mirror CLI validations (replace.rs:239-247).
+        if p.nth == Some(0) {
+            return Err(McpError::invalid_params("nth must be >= 1 (1-based)", None));
+        }
+        let mode_count =
+            p.to.is_some() as u8 + p.insert_before.is_some() as u8 + p.insert_after.is_some() as u8;
+        if mode_count > 1 {
+            return Err(McpError::invalid_params(
+                "to, insert_before, and insert_after are mutually exclusive",
+                None,
+            ));
+        }
+        if mode_count == 0 {
+            return Err(McpError::invalid_params(
+                "one of to, insert_before, or insert_after is required",
+                None,
+            ));
+        }
+        if p.whole_line && p.multiline {
+            return Err(McpError::invalid_params(
+                "whole_line and multiline cannot be combined",
+                None,
+            ));
+        }
+        if p.range.is_some() && !p.whole_line {
+            return Err(McpError::invalid_params(
+                "range requires whole_line=true",
+                None,
+            ));
+        }
+
         // Tier 2: pre-validate structured file edits and collect warnings.
         let validation_warnings = if !p.regex {
             let abs = self.cwd().join(&p.path);

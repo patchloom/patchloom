@@ -278,9 +278,12 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
         }
     };
 
-    let file_len = file.metadata().map(|m| m.len()).unwrap_or(0) as usize;
+    let file_len = match file.metadata() {
+        Ok(m) => m.len() as usize,
+        Err(_) => return None,
+    };
     if file_len == 0 {
-        return None;
+        return Some(String::new());
     }
 
     // For files larger than the binary-check window, read just the header
@@ -620,11 +623,12 @@ mod tests {
     }
 
     #[test]
-    fn read_text_file_returns_none_for_empty() {
+    fn read_text_file_returns_empty_string_for_empty_file() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("empty.txt");
         std::fs::write(&file, b"").unwrap();
-        assert!(read_text_file(&file).is_none());
+        let result = read_text_file(&file);
+        assert_eq!(result, Some(String::new()));
     }
 
     #[test]
