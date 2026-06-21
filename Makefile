@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast audit-test-hygiene update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
+.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
 
 .DEFAULT_GOAL := help
 
@@ -34,14 +34,14 @@ clippy: ## Run clippy linter
 
 check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test audit-test-hygiene ## Fast check (skips doc verification; includes hygiene audit)
+check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test ## Fast check (skips doc verification)
 
-audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt #728)
-	@echo "=== Suspicious test names (exclude legitimate rename/move 'same file' cases) ==="
-	@grep -rnE 'test_.*(same_file|same-file|core_feature|old_module)' tests/ src/ --include='*.rs' --include='*.py' | grep -vE '(rename|move_section|tx_file_rename|tx_md_move|tx_create_then_replace|tx_doc_set_then_replace)' || echo "(none after filter)"
-	@echo "=== Weak assertions (bare .failure/.success without content checks; review manually) ==="
-	@grep -rnE '\.(failure|success)\(\)' tests/integration.rs | grep -v 'contains\|stdout\|stderr\|output\|predicate' | head -5 || echo "(none obvious after filter)"
-	@echo "Run after refactors/MPI. The filter helps focus on real stale names."
+audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
+	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
+	@grep -rnE 'test_.*(same_file|same-file|core_feature|old_module)' tests/ src/ --include='*.rs' --include='*.py' || echo "(none found)"
+	@echo "=== Weak assertions (bare .failure/.success without content checks) ==="
+	@grep -rnE '\.(failure|success)\(\)' tests/integration.rs | grep -v 'contains\|stdout\|stderr\|output' | head -10 || echo "(none obvious)"
+	@echo "Run this after refactors or MPI cycles. Strengthen names + assertions."
 
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
