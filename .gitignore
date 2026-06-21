@@ -35,3 +35,7 @@ benches/mcp/results/
 tests/agent/.venv/
 tests/agent/.pytest_cache/
 __pycache__/
+
+# lychee link checker local cache (cache = true in lychee.toml for faster local runs)
+# This file is a performance cache only and must never be committed.
+.lycheecache

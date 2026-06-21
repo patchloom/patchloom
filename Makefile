@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz
+.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -53,6 +53,14 @@ verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated release
 	else \
 		echo "No RELEASE_NOTES.md present (generated changelog will be used)"; \
 	fi
+
+git-clean: ## Remove known temp files that pollute `git status` (e.g. .lycheecache). Addresses #736.
+	@rm -f .lycheecache
+	@echo "Removed known temp files polluting git status"
+
+clean: ## Remove build artifacts + known temps (cargo clean + git-clean)
+	cargo clean
+	@$(MAKE) --no-print-directory git-clean
 
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \

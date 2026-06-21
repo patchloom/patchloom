@@ -1,3 +1,6 @@
+# Local request cache for faster repeated runs.
+# The resulting .lycheecache file is deliberately ignored in .gitignore
+# (see tech-debt #736 and `make git-clean`).
 cache = true
 max_retries = 3
 retry_wait_time = 5
