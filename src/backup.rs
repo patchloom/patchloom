@@ -362,23 +362,35 @@ fn resolve_restore_path(project_root: &Path, entry_path: &str) -> PathBuf {
 }
 
 /// Prune backup sessions older than 7 days.
+///
+/// Uses the creation timestamp embedded in the session directory name
+/// (nanoseconds since UNIX epoch) instead of filesystem mtime, which can
+/// be updated by file operations like `patchloom undo`.
 pub fn prune_old_backups(project_root: &Path) -> anyhow::Result<usize> {
     let backup_dir = project_root.join(BACKUP_DIR);
     if !backup_dir.exists() {
         return Ok(0);
     }
 
-    let cutoff =
-        std::time::SystemTime::now() - std::time::Duration::from_secs(PRUNE_DAYS * 24 * 60 * 60);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let max_age = std::time::Duration::from_secs(PRUNE_DAYS * 24 * 60 * 60);
 
     let mut pruned = 0;
     for entry in std::fs::read_dir(&backup_dir)?.filter_map(|e| e.ok()) {
-        if let Ok(meta) = entry.metadata()
-            && let Ok(modified) = meta.modified()
-            && modified < cutoff
+        let name = entry.file_name();
+        let dir_name = name.to_string_lossy();
+        // Session directories are named "{nanos}_{seq}". Parse the
+        // nanos prefix to determine session age.
+        if let Some(nanos_str) = dir_name.split('_').next()
+            && let Ok(nanos) = nanos_str.parse::<u128>()
         {
-            let _ = std::fs::remove_dir_all(entry.path());
-            pruned += 1;
+            let created = std::time::Duration::from_nanos(nanos as u64);
+            if now.saturating_sub(created) > max_age {
+                let _ = std::fs::remove_dir_all(entry.path());
+                pruned += 1;
+            }
         }
     }
 
@@ -508,42 +520,20 @@ mod tests {
     #[test]
     fn prune_old_backups_removes_stale_sessions() {
         let dir = TempDir::new().unwrap();
-        let file = dir.path().join("a.txt");
-        std::fs::write(&file, "v1").unwrap();
 
-        // Create a backup session.
-        let mut session = BackupSession::new(dir.path()).unwrap();
-        session.save_before_write(&file).unwrap();
-        let ts = session.finalize().unwrap().unwrap();
-
-        // Backdate the session directory's mtime to 8 days ago.
-        let session_dir = dir.path().join(BACKUP_DIR).join(&ts);
-        let eight_days_ago =
-            std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
-        let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
-        // On Windows, opening a directory requires FILE_FLAG_BACKUP_SEMANTICS.
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            let f = std::fs::OpenOptions::new()
-                .write(true)
-                .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
-                .open(&session_dir)
-                .unwrap();
-            f.set_times(times).unwrap();
-        }
-        #[cfg(not(windows))]
-        {
-            let f = std::fs::File::open(&session_dir).unwrap();
-            f.set_times(times).unwrap();
-        }
+        // Create a fake session directory with a timestamp 8 days in the past.
+        let eight_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+        let old_ts = format!("{}_0", eight_days_ago.as_nanos());
+        let old_dir = dir.path().join(BACKUP_DIR).join(&old_ts);
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::write(old_dir.join("manifest.json"), "[]").unwrap();
 
         let pruned = prune_old_backups(dir.path()).unwrap();
         assert_eq!(pruned, 1);
-
-        // Session should be gone.
-        let sessions = list_sessions(dir.path()).unwrap();
-        assert!(sessions.is_empty());
+        assert!(!old_dir.exists());
     }
 
     #[test]

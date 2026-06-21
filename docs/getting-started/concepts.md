@@ -107,7 +107,7 @@ Machine-readable modes (`--json`, `--jsonl`, `--quiet`) never produce color.
 
 ## Transaction plans
 
-The `tx` command runs multiple operations atomically. If any operation fails during staging, no files are written (exit 4, `operation_failed`). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7, `rollback`).
+The `tx` command runs multiple operations atomically. If any operation fails during staging, no files are written (exit 9, `operation_failed`). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7, `rollback`).
 
 Plans are JSON objects with three lifecycle arrays:
 
@@ -129,7 +129,8 @@ Every command returns a specific exit code:
 | 1 | General error, or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (with `--check`) |
 | 3 | No matches found |
-| 4 | Parse error in input, or tx operation staging failure (`operation_failed`) |
+| 4 | Parse error in input |
+| 9 | Tx operation staging failure (`operation_failed`) |
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
 | 7 | Rollback (strict mode, no writes remain) |

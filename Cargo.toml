@@ -29,9 +29,6 @@ exclude = [
 
 [features]
 default = ["mcp", "ast"]
-# Core library: all editing operations, no MCP server, no tree-sitter grammars.
-# Use this when embedding patchloom as a library dependency.
-core = []
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
 # AST-aware operations using tree-sitter grammars (20 languages).
