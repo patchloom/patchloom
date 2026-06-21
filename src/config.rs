@@ -72,6 +72,10 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
                 }
             }
         }
+        // Stop at repo root to avoid loading configs from parent directories.
+        if dir.join(".git").exists() {
+            return None;
+        }
         if !dir.pop() {
             return None;
         }
@@ -260,6 +264,25 @@ color = "always"
     fn find_and_load_returns_none_when_missing() {
         let dir = TempDir::new().unwrap();
         assert!(find_and_load(dir.path()).is_none());
+    }
+
+    #[test]
+    fn find_and_load_stops_at_git_boundary() {
+        let dir = TempDir::new().unwrap();
+        // Place a config in the parent directory.
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensure_final_newline = true\n",
+        )
+        .unwrap();
+
+        // Create a child directory that is a separate git repo root.
+        let child = dir.path().join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::create_dir_all(child.join(".git")).unwrap();
+
+        // Searching from child should NOT find the parent's config.
+        assert!(find_and_load(&child).is_none());
     }
 
     #[test]

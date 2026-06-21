@@ -618,11 +618,15 @@ pub fn md_move_section(
         None => original.clone(),
     };
 
-    let (new_source, _new_dest) =
+    let (new_source, new_dest) =
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
             .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
+    // Write the destination file for cross-file moves.
+    if let Some(dest_path) = to {
+        write_if_apply(dest_path, &new_dest, mode, &policy)?;
+    }
     let applied = write_if_apply(path, &new_source, mode, &policy)?;
     Ok(build_edit_result(&path_str, original, new_source, applied))
 }
@@ -1621,6 +1625,35 @@ mod tests {
         assert!(
             pos_a > pos_b,
             "A should appear after B after moving to after C"
+        );
+    }
+
+    #[test]
+    fn md_move_section_cross_file_writes_dest() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.md");
+        let dst = dir.path().join("dst.md");
+        fs::write(&src, "# Keep\n\nStay.\n\n# Move\n\nGoing.\n").unwrap();
+        fs::write(&dst, "# Target\n\nHere.\n").unwrap();
+
+        md_move_section(
+            &src,
+            "Move",
+            ("after", "Target"),
+            Some(&dst),
+            ApplyMode::Apply,
+        )
+        .unwrap();
+
+        let src_content = fs::read_to_string(&src).unwrap();
+        let dst_content = fs::read_to_string(&dst).unwrap();
+        assert!(
+            !src_content.contains("# Move"),
+            "section should be removed from source"
+        );
+        assert!(
+            dst_content.contains("# Move"),
+            "section should be inserted into destination"
         );
     }
 
