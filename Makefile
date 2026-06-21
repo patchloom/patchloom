@@ -34,7 +34,7 @@ clippy: ## Run clippy linter
 
 check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes hygiene and release notes verify)
+check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
@@ -47,6 +47,9 @@ verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated release
 	@if [ -f RELEASE_NOTES.md ]; then \
 		echo "RELEASE_NOTES.md present - will be used to override generated changelog:"; \
 		head -15 RELEASE_NOTES.md; \
+		echo "=== content check ==="; \
+		grep -q 'CLI is now optional' RELEASE_NOTES.md && echo 'OK: has CLI optional highlight' || echo 'MISSING: CLI optional'; \
+		grep -q 'non_exhaustive' RELEASE_NOTES.md && echo 'OK: has semver safety' || echo 'MISSING: semver'; \
 	else \
 		echo "No RELEASE_NOTES.md present (generated changelog will be used)"; \
 	fi
