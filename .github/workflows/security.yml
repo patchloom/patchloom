@@ -18,8 +18,31 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'Cargo.*'
+              - 'tests/**'
+              - 'scripts/**'
+              - '.github/**'
+              - 'fuzz/**'
+              - 'benches/**'
+
   trivy:
     name: Trivy
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -47,6 +70,8 @@ jobs:
 
   gitleaks:
     name: Gitleaks
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -79,11 +104,13 @@ jobs:
           printf '%s\n' "$bindir" >> "$GITHUB_PATH"
       - run: gitleaks detect --source . --exit-code 1
 
-  codeql:
-    name: CodeQL
-    # CodeQL requires GitHub Advanced Security, which is free for public
-    # repos only. This job auto-activates when the repo goes public.
-    if: ${{ !github.event.repository.private }}
+  codeql-run:
+    name: CodeQL Run
+    needs: [changes]
+    if: >-
+      always() &&
+      (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true') &&
+      !github.event.repository.private
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -120,8 +147,13 @@ jobs:
 
   dependency-review:
     name: Dependency Review
+    needs: [changes]
     # Dependency review requires GitHub Advanced Security for private repos.
-    if: ${{ github.event_name == 'pull_request' && !github.event.repository.private }}
+    if: >-
+      always() &&
+      (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true') &&
+      github.event_name == 'pull_request' &&
+      !github.event.repository.private
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -134,3 +166,25 @@ jobs:
           persist-credentials: false
       - name: Dependency Review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5
+
+  codeql-gate:
+    # Lightweight gate satisfying the "CodeQL (actions)" and "CodeQL (python)"
+    # required checks. Passes when the real scan succeeds OR was skipped
+    # (docs-only PR or private repo).
+    name: "CodeQL (${{ matrix.language }})"
+    needs: [codeql-run]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      matrix:
+        language: [actions, python]
+    steps:
+      - name: Gate
+        run: |
+          if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+            echo "CodeQL scan failed or was cancelled"
+            exit 1
+          fi
+        env:
+          RESULT: ${{ needs.codeql-run.result }}
