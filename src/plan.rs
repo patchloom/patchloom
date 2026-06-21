@@ -382,6 +382,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ast")]
     fn parse_all_operation_variants() {
         let json = r#"{"version": "1", "operations": [
             {"op": "replace", "from": "a", "to": "b"},
@@ -425,6 +426,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ast")]
     fn parse_op_aliases_match_mcp_tool_names() {
         // MCP tools use underscores (doc_set, create_file). Plan ops use dots
         // (doc.set, file.create). Both forms should parse via serde aliases.

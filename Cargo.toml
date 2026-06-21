@@ -114,6 +114,10 @@ proptest = "1"
 rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process"] }
 tokio = { version = "1", features = ["full"] }
 
+[[bin]]
+name = "patchloom"
+required-features = ["cli"]
+
 [lints.rust]
 unsafe_code = "deny"
 
