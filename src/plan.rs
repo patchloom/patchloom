@@ -88,6 +88,10 @@ pub enum Operation {
         /// Match only at word boundaries (\b). Prevents partial matches.
         #[serde(default)]
         word_boundary: bool,
+        /// Context line(s) before the target for anchor-based fallback matching.
+        before_context: Option<String>,
+        /// Context line(s) after the target for anchor-based fallback matching.
+        after_context: Option<String>,
     },
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {

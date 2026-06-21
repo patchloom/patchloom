@@ -377,16 +377,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    let changed = diffs.iter().filter(|d| d.has_changes).count();
     print!(
         "{}",
-        format_diff_result_colored(
-            &DiffResult {
-                diffs,
-                total_files_changed: changed,
-            },
-            global.should_color()
-        )
+        format_diff_result_colored(&DiffResult { diffs }, global.should_color())
     );
     Ok(exit::SUCCESS)
 }

@@ -19,8 +19,6 @@ pub struct FileDiff {
 pub struct DiffResult {
     /// The diffs for each file.
     pub diffs: Vec<FileDiff>,
-    /// The total number of files that have changes.
-    pub total_files_changed: usize,
 }
 
 /// Compute a unified diff between `old` and `new` content for the given file path.
@@ -111,7 +109,6 @@ mod tests {
 
         let diff_result = DiffResult {
             diffs: vec![result],
-            total_files_changed: 1,
         };
         let output = format_diff_result(&diff_result);
         assert!(output.contains("--- a/test.txt"));
@@ -161,7 +158,6 @@ mod tests {
 
         let result = DiffResult {
             diffs: vec![diff1, diff2, diff3],
-            total_files_changed: 2,
         };
 
         let output = format_diff_result(&result);
@@ -174,10 +170,7 @@ mod tests {
 
     #[test]
     fn format_diff_result_empty_produces_empty_string() {
-        let result = DiffResult {
-            diffs: Vec::new(),
-            total_files_changed: 0,
-        };
+        let result = DiffResult { diffs: Vec::new() };
         assert!(format_diff_result(&result).is_empty());
     }
 
@@ -191,10 +184,7 @@ mod tests {
     #[test]
     fn colored_diff_has_ansi_codes() {
         let diff = unified_diff("test.txt", "old\n", "new\n");
-        let result = DiffResult {
-            diffs: vec![diff],
-            total_files_changed: 1,
-        };
+        let result = DiffResult { diffs: vec![diff] };
         let colored = format_diff_result_colored(&result, true);
         // Bold header
         assert!(colored.contains("\x1b[1m--- a/test.txt"));
@@ -209,10 +199,7 @@ mod tests {
     #[test]
     fn colored_false_has_no_ansi_codes() {
         let diff = unified_diff("test.txt", "old\n", "new\n");
-        let result = DiffResult {
-            diffs: vec![diff],
-            total_files_changed: 1,
-        };
+        let result = DiffResult { diffs: vec![diff] };
         let plain = format_diff_result_colored(&result, false);
         assert!(!plain.contains("\x1b["));
         // But still has diff content

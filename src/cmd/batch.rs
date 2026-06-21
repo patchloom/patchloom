@@ -140,6 +140,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 whole_line: false,
                 range: None,
                 word_boundary: false,
+                before_context: None,
+                after_context: None,
             })
         }
         "file.append" => {

@@ -493,7 +493,6 @@ fn write_result(
     if file_diff.has_changes {
         let diff_result = diff::DiffResult {
             diffs: vec![file_diff],
-            total_files_changed: 1,
         };
         let output = diff::format_diff_result_colored(&diff_result, ctx.color);
         // --confirm: show diff, prompt, then apply if confirmed.

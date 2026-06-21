@@ -116,7 +116,9 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                     "multiline": {"type": "boolean", "default": false},
                     "if_exists": {"type": "boolean", "default": false, "description": "Do not error if no matches found."},
                     "whole_line": {"type": "boolean", "default": false, "description": "Replace the entire line containing each match."},
-                    "range": {"type": "string", "description": "Restrict matching to a line range (e.g. '10:50'). Requires whole_line."}
+                    "range": {"type": "string", "description": "Restrict matching to a line range (e.g. '10:50'). Requires whole_line."},
+                    "before_context": {"type": "string", "description": "Context line(s) before the target for anchor-based fallback matching when exact match fails."},
+                    "after_context": {"type": "string", "description": "Context line(s) after the target for anchor-based fallback matching when exact match fails."}
                 }
             }),
             min_tier: Tier::Weak,

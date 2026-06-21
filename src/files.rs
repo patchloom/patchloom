@@ -9,13 +9,13 @@ use std::sync::Mutex;
 /// Returns the relative portion if `path` is under `base`, otherwise returns
 /// the original path unchanged. Used by diff headers, search results, and JSON
 /// output so users see `src/main.rs` instead of `/home/user/project/src/main.rs`.
-pub fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
+pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
     path.strip_prefix(base).unwrap_or(path)
 }
 
 /// Check if a string contains common regex metacharacters that suggest
 /// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
-pub fn has_regex_metacharacters(s: &str) -> bool {
+pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
     s.contains('\\')
         || s.contains('[')
         || s.contains('(')

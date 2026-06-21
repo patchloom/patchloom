@@ -330,11 +330,7 @@ fn make_diff_output(from: &str, to: &str, content: &str, color: bool) -> String 
         .into_iter()
         .filter(|d| d.has_changes)
         .collect();
-    let total = diffs.len();
-    let result = DiffResult {
-        diffs,
-        total_files_changed: total,
-    };
+    let result = DiffResult { diffs };
     format_diff_result_colored(&result, color)
 }
 

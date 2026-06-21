@@ -245,10 +245,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 } else if !global.quiet && !global.json && !global.jsonl {
                     let diff = unified_diff(&r.rel_path, &r.original, &r.fixed);
                     if diff.has_changes {
-                        let result = crate::diff::DiffResult {
-                            diffs: vec![diff],
-                            total_files_changed: 1,
-                        };
+                        let result = crate::diff::DiffResult { diffs: vec![diff] };
                         print!(
                             "{}",
                             crate::diff::format_diff_result_colored(&result, global.should_color())
@@ -272,10 +269,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         for r in &results {
                             let d = unified_diff(&r.rel_path, &r.original, &r.fixed);
                             if d.has_changes {
-                                let dr = crate::diff::DiffResult {
-                                    diffs: vec![d],
-                                    total_files_changed: 1,
-                                };
+                                let dr = crate::diff::DiffResult { diffs: vec![d] };
                                 buf.push_str(&crate::diff::format_diff_result_colored(&dr, false));
                             }
                         }

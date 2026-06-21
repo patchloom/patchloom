@@ -79,7 +79,7 @@ impl std::fmt::Display for EditErrorKind {
 
 /// Result of `validate_edit()`: whether the edit would produce valid output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationResult {
+pub(crate) struct ValidationResult {
     /// Whether the edit produces valid output.
     pub valid: bool,
     /// Syntax errors found (if invalid).
@@ -92,7 +92,7 @@ pub struct ValidationResult {
 ///
 /// Performs the replacement in memory and checks basic structural validity
 /// of the resulting content (JSON, YAML, TOML validation for structured files).
-pub fn validate_edit(
+pub(crate) fn validate_edit(
     content: &str,
     from: &str,
     to: &str,
@@ -111,7 +111,7 @@ pub fn validate_edit(
             valid: false,
             errors: vec![format!(
                 "pattern '{}' not found in content",
-                truncate(from, 60)
+                truncate_str(from, 60)
             )],
             warnings: vec![],
         };
@@ -213,7 +213,7 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
 /// If `target` is not found exactly, looks for lines that share anchor text
 /// (the lines immediately before and after the target in the original context)
 /// and returns the matching region.
-pub fn anchor_match(
+pub(crate) fn anchor_match(
     content: &str,
     target: &str,
     before_context: Option<&str>,
@@ -319,7 +319,7 @@ pub fn anchor_match(
 
 /// Result of anchor-based matching.
 #[derive(Debug, Clone)]
-pub struct AnchorMatchResult {
+pub(crate) struct AnchorMatchResult {
     /// The text that was matched.
     pub matched_text: String,
     /// Byte offset of the match start in the content.
@@ -331,7 +331,7 @@ pub struct AnchorMatchResult {
 /// Which matching strategy found the result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MatchStrategy {
+pub(crate) enum MatchStrategy {
     /// Exact literal match.
     Exact,
     /// Anchor-based matching using surrounding context.
@@ -353,7 +353,7 @@ impl std::fmt::Display for MatchStrategy {
 /// Run the full fallback chain: exact -> anchor -> similarity -> structured error.
 ///
 /// Returns the first successful match or a structured error with diagnosis.
-pub fn resolve_with_fallback(
+pub(crate) fn resolve_with_fallback(
     content: &str,
     target: &str,
     before_context: Option<&str>,
@@ -409,7 +409,7 @@ pub fn resolve_with_fallback(
 
     Err(EditError {
         kind: EditErrorKind::NoMatch,
-        message: format!("target not found: '{}'", truncate(target, 80)),
+        message: format!("target not found: '{}'", truncate_str(target, 80)),
         suggestion,
         similar_targets: similar,
     })
@@ -442,7 +442,7 @@ fn extract_identifiers(line: &str) -> Vec<String> {
 ///
 /// Truncates at the last char boundary at or before `max_len` bytes,
 /// so this is safe for multi-byte UTF-8 input.
-fn truncate(s: &str, max_len: usize) -> &str {
+pub(crate) fn truncate_str(s: &str, max_len: usize) -> &str {
     if s.len() <= max_len {
         s
     } else {
@@ -719,14 +719,14 @@ mod tests {
         assert_eq!(s.len(), 5);
         // Truncate at 4 would land in the middle of 'é' (bytes 3-4).
         // Must not panic; should truncate before the multi-byte char.
-        let t = truncate(s, 4);
+        let t = truncate_str(s, 4);
         assert_eq!(t, "caf");
         // Truncate at 5 returns the whole string.
-        assert_eq!(truncate(s, 5), "café");
+        assert_eq!(truncate_str(s, 5), "café");
         // Truncate at 3 is a clean boundary.
-        assert_eq!(truncate(s, 3), "caf");
+        assert_eq!(truncate_str(s, 3), "caf");
         // Truncate at 0.
-        assert_eq!(truncate(s, 0), "");
+        assert_eq!(truncate_str(s, 0), "");
     }
 
     #[test]
