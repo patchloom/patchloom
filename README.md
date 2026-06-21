@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-1500%2B%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1600%2B%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -426,7 +426,7 @@ flowchart LR
 
 ## Status
 
-1500+ tests across 22 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+1600+ tests across 22 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|
