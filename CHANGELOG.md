@@ -4,7 +4,12 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.3.1) (2026-06-21)
+## [0.4.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.4.0) (2026-06-21)
+
+### ⚠ BREAKING CHANGES
+
+* The `core` feature has been removed from `Cargo.toml`.
+* `patchloom::cmd::md::LintIssue` has been moved to `patchloom::ops::md::LintIssue`.
 
 
 ### Bug Fixes
