@@ -866,11 +866,19 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
             | Operation::Search { .. }
             | Operation::MdLintAgents { .. }
             | Operation::TidyFix { .. }
-    ) || cfg!(feature = "ast")
-        && matches!(
-            op,
-            Operation::AstRename { .. } | Operation::AstReplace { .. }
-        )
+    ) || {
+        #[cfg(feature = "ast")]
+        {
+            matches!(
+                op,
+                Operation::AstRename { .. } | Operation::AstReplace { .. }
+            )
+        }
+        #[cfg(not(feature = "ast"))]
+        {
+            false
+        }
+    }
 }
 
 fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
