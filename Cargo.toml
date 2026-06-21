@@ -28,7 +28,9 @@ exclude = [
 ]
 
 [features]
-default = ["mcp", "ast"]
+default = ["cli", "mcp", "ast"]
+# CLI (clap parser + all commands). Enabled by default.
+cli = []
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
 # AST-aware operations using tree-sitter grammars (20 languages).
@@ -57,7 +59,7 @@ ast = [
     "dep:tree-sitter-php",
 ]
 # Full: everything. Equivalent to default today.
-full = ["mcp", "ast"]
+full = ["cli", "mcp", "ast"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -113,6 +115,10 @@ predicates = "3"
 proptest = "1"
 rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process"] }
 tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+name = "patchloom"
+required-features = ["cli"]
 
 [lints.rust]
 unsafe_code = "deny"
