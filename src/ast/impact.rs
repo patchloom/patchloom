@@ -1,6 +1,6 @@
 //! Transitive impact analysis: what breaks if you change a symbol?
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
@@ -47,7 +47,18 @@ pub fn compute_impact(
     let mut visited = HashSet::new();
     visited.insert(symbol_name.to_string());
 
-    find_dependents(symbol_name, &file_data, max_depth, 1, &mut visited)
+    // Cache parsed symbols per file to avoid O(N * parse_cost) re-parsing
+    // when multiple references exist in the same file.
+    let mut symbol_cache: HashMap<String, Vec<super::symbols::SymbolDef>> = HashMap::new();
+
+    find_dependents(
+        symbol_name,
+        &file_data,
+        max_depth,
+        1,
+        &mut visited,
+        &mut symbol_cache,
+    )
 }
 
 fn find_dependents(
@@ -56,25 +67,40 @@ fn find_dependents(
     max_depth: usize,
     current_depth: usize,
     visited: &mut HashSet<String>,
+    symbol_cache: &mut HashMap<String, Vec<super::symbols::SymbolDef>>,
 ) -> Vec<ImpactNode> {
     let mut results = Vec::new();
 
     for (_, display, source, lang) in file_data {
         let refs = find_refs_in_source(source, symbol_name, *lang, display);
-        for r in &refs {
-            if r.kind != RefKind::Reference {
-                continue;
-            }
+        if refs.is_empty() {
+            continue;
+        }
 
-            // Find which symbol contains this reference line
-            let containing = find_containing_symbol(source, *lang, r.line);
-            let dependent_name = containing.unwrap_or_else(|| format!("<{}>", display));
+        // Parse symbols once per file, cache the result.
+        let key = (*display).to_string();
+        if !symbol_cache.contains_key(&key) {
+            symbol_cache.insert(key.clone(), extract_symbols(source, *lang));
+        }
 
-            if visited.contains(&dependent_name) {
-                continue;
-            }
-            visited.insert(dependent_name.clone());
+        // Collect dependent names before recursing to avoid overlapping
+        // mutable borrows on `symbol_cache`.
+        let pending: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Reference)
+            .filter_map(|r| {
+                let symbols = symbol_cache.get(&key).unwrap();
+                let containing = find_containing_in(symbols, r.line);
+                let name = containing.unwrap_or_else(|| format!("<{}>", display));
+                if visited.contains(&name) {
+                    return None;
+                }
+                visited.insert(name.clone());
+                Some((name, r.file.clone(), r.line, r.context.clone()))
+            })
+            .collect();
 
+        for (dependent_name, file, line, context) in pending {
             let dependents = if current_depth < max_depth {
                 find_dependents(
                     &dependent_name,
@@ -82,6 +108,7 @@ fn find_dependents(
                     max_depth,
                     current_depth + 1,
                     visited,
+                    symbol_cache,
                 )
             } else {
                 Vec::new()
@@ -89,9 +116,9 @@ fn find_dependents(
 
             results.push(ImpactNode {
                 symbol: dependent_name,
-                file: r.file.clone(),
-                line: r.line,
-                context: r.context.clone(),
+                file,
+                line,
+                context,
                 dependents,
             });
         }
@@ -102,12 +129,6 @@ fn find_dependents(
     results.retain(|node| seen.insert((node.symbol.clone(), node.file.clone())));
 
     results
-}
-
-/// Find the symbol that contains a given line number.
-fn find_containing_symbol(source: &str, lang: Language, line: usize) -> Option<String> {
-    let symbols = extract_symbols(source, lang);
-    find_containing_in(&symbols, line)
 }
 
 fn find_containing_in(symbols: &[super::symbols::SymbolDef], line: usize) -> Option<String> {
@@ -153,9 +174,10 @@ mod tests {
     #[test]
     fn find_containing_symbol_works() {
         let source = "fn foo() {\n    let x = 1;\n}\n\nfn bar() {\n    let y = 2;\n}\n";
-        let result = find_containing_symbol(source, Language::Rust, 2);
+        let symbols = extract_symbols(source, Language::Rust);
+        let result = find_containing_in(&symbols, 2);
         assert_eq!(result, Some("foo".to_string()));
-        let result = find_containing_symbol(source, Language::Rust, 6);
+        let result = find_containing_in(&symbols, 6);
         assert_eq!(result, Some("bar".to_string()));
     }
 
