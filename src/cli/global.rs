@@ -393,4 +393,27 @@ mod tests {
         let g = GlobalFlags::default();
         assert!(!g.verbose);
     }
+
+    #[test]
+    fn resolve_cwd_nonexistent_errors() {
+        let g = GlobalFlags {
+            cwd: Some("/nonexistent/path/that/does/not/exist".into()),
+            ..GlobalFlags::default()
+        };
+        let err = g.resolve_cwd().unwrap_err().to_string();
+        assert!(err.contains("does not exist"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn resolve_cwd_not_a_directory_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file.txt");
+        std::fs::write(&file, "x").unwrap();
+        let g = GlobalFlags {
+            cwd: Some(file.to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let err = g.resolve_cwd().unwrap_err().to_string();
+        assert!(err.contains("not a directory"), "unexpected: {err}");
+    }
 }

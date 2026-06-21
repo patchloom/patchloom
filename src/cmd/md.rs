@@ -385,11 +385,9 @@ mod tests {
             },
             write: Default::default(),
         };
-        let global = GlobalFlags {
-            cwd: Some(dir.path().to_string_lossy().into_owned()),
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let global = global;
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
 

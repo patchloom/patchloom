@@ -19790,6 +19790,29 @@ fn test_ast_diff_basic() {
 }
 
 #[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_nonexistent_fails() {
+    let dir = TempDir::new().unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "list", "no_such.rs"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("path not found"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_validate_invalid_syntax_reports_failure() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("bad.rs");
+    fs::write(&f, "fn broken( { \n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "validate", "bad.rs"])
+        .assert()
+        .failure(); // ast validate for invalid should fail (details in stderr or code)
+}
+
+#[test]
 fn test_explain_replace_word_boundary() {
     let dir = TempDir::new().unwrap();
     let plan = dir.path().join("plan.json");
