@@ -442,11 +442,12 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
              | 2 | Changes detected (`--check` mode found pending changes) |\n\
              | 3 | No matches (search/replace found nothing matching the pattern) |\n\
-             | 4 | Parse error (malformed input file or plan), or tx operation staging failure (`operation_failed`) |\n\
+             | 4 | Parse error (malformed input file or plan) |\n\
              | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
              | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
-             | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\n",
+             | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
+             | 9 | Tx operation staging failure (`operation_failed`) |\n\n",
         );
     }
 
@@ -711,7 +712,9 @@ mod tests {
     fn agent_rules_exit_codes_include_conflicts_and_rollback_failed() {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(out.contains("| 8 |"));
+        assert!(out.contains("| 9 |"));
         assert!(out.contains("rollback_failed"));
+        assert!(out.contains("operation_failed"));
     }
 
     #[test]

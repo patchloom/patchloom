@@ -69,11 +69,18 @@ fn diff_symbol_lists(
     new_source: &str,
     changes: &mut Vec<StructuralChange>,
 ) {
-    // Index old symbols by name
-    let old_map: std::collections::HashMap<&str, &SymbolDef> =
-        old.iter().map(|s| (s.name.as_str(), s)).collect();
-    let new_map: std::collections::HashMap<&str, &SymbolDef> =
-        new.iter().map(|s| (s.name.as_str(), s)).collect();
+    // Build multimaps to handle duplicate symbol names (e.g., multiple
+    // `impl Foo` blocks or overloaded functions).
+    let mut old_map: std::collections::HashMap<&str, Vec<&SymbolDef>> =
+        std::collections::HashMap::new();
+    for s in old {
+        old_map.entry(s.name.as_str()).or_default().push(s);
+    }
+    let mut new_map: std::collections::HashMap<&str, Vec<&SymbolDef>> =
+        std::collections::HashMap::new();
+    for s in new {
+        new_map.entry(s.name.as_str()).or_default().push(s);
+    }
 
     // Added symbols (in new but not old)
     for sym in new {
@@ -101,41 +108,66 @@ fn diff_symbol_lists(
         }
     }
 
-    // Changed symbols (in both)
-    for new_sym in new {
-        if let Some(old_sym) = old_map.get(new_sym.name.as_str()) {
-            // Compare signatures
-            if old_sym.signature != new_sym.signature {
-                changes.push(StructuralChange {
-                    name: new_sym.name.clone(),
-                    kind: new_sym.kind.to_string(),
-                    change: ChangeKind::SignatureChanged,
-                    line: new_sym.start_line,
-                    detail: Some(format!("was: {}", old_sym.signature)),
-                });
-            } else {
-                // Compare body content
-                let old_body = extract_body(old_source, old_sym);
-                let new_body = extract_body(new_source, new_sym);
-                if old_body != new_body {
+    // Changed symbols: match same-name symbols by position order.
+    for (name, new_syms) in &new_map {
+        if let Some(old_syms) = old_map.get(name) {
+            // Count difference: extra new ones are additions, extra old ones are removals.
+            let paired = old_syms.len().min(new_syms.len());
+            for i in 0..paired {
+                let old_sym = old_syms[i];
+                let new_sym = new_syms[i];
+                if old_sym.signature != new_sym.signature {
                     changes.push(StructuralChange {
                         name: new_sym.name.clone(),
                         kind: new_sym.kind.to_string(),
-                        change: ChangeKind::BodyChanged,
+                        change: ChangeKind::SignatureChanged,
                         line: new_sym.start_line,
-                        detail: Some(format!("lines {}-{}", new_sym.start_line, new_sym.end_line)),
+                        detail: Some(format!("was: {}", old_sym.signature)),
                     });
+                } else {
+                    let old_body = extract_body(old_source, old_sym);
+                    let new_body = extract_body(new_source, new_sym);
+                    if old_body != new_body {
+                        changes.push(StructuralChange {
+                            name: new_sym.name.clone(),
+                            kind: new_sym.kind.to_string(),
+                            change: ChangeKind::BodyChanged,
+                            line: new_sym.start_line,
+                            detail: Some(format!(
+                                "lines {}-{}",
+                                new_sym.start_line, new_sym.end_line
+                            )),
+                        });
+                    }
                 }
+                diff_symbol_lists(
+                    &old_sym.children,
+                    &new_sym.children,
+                    old_source,
+                    new_source,
+                    changes,
+                );
             }
-
-            // Recurse into children
-            diff_symbol_lists(
-                &old_sym.children,
-                &new_sym.children,
-                old_source,
-                new_source,
-                changes,
-            );
+            // Extra new symbols beyond what old had.
+            for new_sym in &new_syms[paired..] {
+                changes.push(StructuralChange {
+                    name: new_sym.name.clone(),
+                    kind: new_sym.kind.to_string(),
+                    change: ChangeKind::Added,
+                    line: new_sym.start_line,
+                    detail: Some(format!("added at line {}", new_sym.start_line)),
+                });
+            }
+            // Extra old symbols that were removed.
+            for old_sym in &old_syms[paired..] {
+                changes.push(StructuralChange {
+                    name: old_sym.name.clone(),
+                    kind: old_sym.kind.to_string(),
+                    change: ChangeKind::Removed,
+                    line: old_sym.start_line,
+                    detail: Some(format!("was at line {}", old_sym.start_line)),
+                });
+            }
         }
     }
 }
@@ -238,6 +270,28 @@ mod tests {
             changes
                 .iter()
                 .any(|c| c.name == "hello" && c.change == ChangeKind::BodyChanged)
+        );
+    }
+
+    #[test]
+    fn duplicate_symbol_names_not_lost() {
+        // Two functions with the same name; both should be tracked.
+        let old = "def run():\n    pass\ndef run():\n    pass\n";
+        let new = "def run():\n    pass\ndef run():\n    return 1\ndef run():\n    return 2\n";
+        let changes = structural_diff(old, new, Language::Python);
+        // The second `run` body changed.
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.name == "run" && c.change == ChangeKind::BodyChanged),
+            "second run body change should be detected: {changes:?}"
+        );
+        // The third `run` is new (added).
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.name == "run" && c.change == ChangeKind::Added),
+            "third run should be detected as added: {changes:?}"
         );
     }
 }
