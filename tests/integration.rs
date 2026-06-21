@@ -13189,6 +13189,37 @@ fn test_tx_create_after_delete_unmarks_deletion() {
 }
 
 #[test]
+fn test_tx_file_rename_after_delete_succeeds() {
+    // Regression: FileRename dst_exists check did not consult deletions set.
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("new.txt");
+    let dst = dir.path().join("old.txt");
+    fs::write(&src, "source\n").unwrap();
+    fs::write(&dst, "dest\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            { "op": "file.delete", "path": portable_path_str(&dst) },
+            { "op": "file.rename", "from": portable_path_str(&src), "to": portable_path_str(&dst) }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert!(!src.exists(), "source should be gone after rename");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "source\n");
+}
+
+#[test]
 fn test_tx_format_and_validate_success_path() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
