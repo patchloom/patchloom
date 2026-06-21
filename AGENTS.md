@@ -2,7 +2,9 @@
 
 ## Project overview
 
-Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty-two commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `append`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `ast`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file appending, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, AST-aware code operations (list, read, rename, validate via tree-sitter), and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes. The `mcp` feature is enabled by default; build with `--no-default-features` for a smaller binary without the MCP server.
+Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty-two commands (`search`, `replace`, `patch`, `md`, `doc`, `tidy`, `append`, `create`, `delete`, `rename`, `read`, `status`, `tx`, `batch`, `explain`, `undo`, `init`, `completions`, `agent-rules`, `schema`, `ast`, `mcp-server`) that let AI coding agents perform structured file searches, mechanical replacements, diff-based patching, markdown section editing, JSON/YAML/TOML document manipulation, whitespace normalization, file appending, file creation, file deletion, file renaming, multi-operation atomic transactions, line-oriented batch operations, human-readable plan summaries, undo safety net with backup restoration, project setup, shell completion generation, end-user agent rules generation, operation schema export with tier filtering, AST-aware code operations (list, read, rename, validate via tree-sitter), and MCP protocol server for structured tool calls. All write operations are dry-run by default and support `--check` (report changes), `--diff` (preview), and `--apply` (mutate) modes.
+
+The `cli` feature (clap + command implementations) is enabled by default. Use `default-features = false` for pure library use (no clap). The `mcp` and `ast` features are also enabled by default. Build with `--no-default-features --features ast` (or similar) for a smaller library.
 
 ## Dev commands
 
@@ -22,7 +24,7 @@ Patchloom is a Rust CLI for agent-grade repo operations. It provides twenty-two 
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
-| `make fuzz` | Run fuzz tests (6 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
+| `make fuzz` | Run fuzz tests (8 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-mcp` | Run MCP benchmarks: per-call latency vs CLI process spawn (not part of `check`) |
 | `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |

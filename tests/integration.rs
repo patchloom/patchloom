@@ -19367,8 +19367,10 @@ async fn test_mcp_concurrent_doc_set_same_file() {
         client.peer().call_tool(params_c),
     );
 
-    // At least one write must succeed. On Windows, concurrent renames may cause
-    // some calls to fail with a tempfile persist error; that is acceptable.
+    // At least one write must succeed.
+    // On Windows, concurrent renames through tempfile can hit persist errors
+    // (see https://github.com/patchloom/patchloom/issues/719). The test only
+    // requires partial success + final file validity.
     let successes = [&r1, &r2, &r3].iter().filter(|r| r.is_ok()).count();
     assert!(
         successes >= 1,
