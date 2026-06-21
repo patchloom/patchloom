@@ -3711,7 +3711,7 @@ fn test_tx_rollback_on_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(4);
+        .code(9);
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
     assert_eq!(
@@ -3749,7 +3749,7 @@ fn test_tx_rollback_preserves_original_content() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 
     // a.json should be unchanged (no writes occurred).
     let content = fs::read_to_string(&file_a).unwrap();
@@ -7056,7 +7056,7 @@ fn test_tx_file_delete_directory_target_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
@@ -7654,7 +7654,7 @@ fn test_tx_file_rename_directory_source_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("source is not a file"));
 
     assert!(src.is_dir(), "source directory should remain in place");
@@ -7718,8 +7718,8 @@ fn test_tx_file_rename_fails_if_dst_exists() {
         .output()
         .unwrap();
 
-    // Operation fails before commit (exit 4).
-    assert_eq!(output.status.code(), Some(4));
+    // Operation fails before commit (exit 9 = OPERATION_FAILED).
+    assert_eq!(output.status.code(), Some(9));
     // Both files should be untouched.
     assert_eq!(
         fs::read_to_string(dir.path().join("old.txt")).unwrap(),
@@ -7785,7 +7785,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -7815,7 +7815,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
         .arg(&plan_file)
         .arg("--check")
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -7845,7 +7845,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -9910,7 +9910,7 @@ fn test_tx_file_create_force_directory_target_fails() {
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .assert()
-        .code(4)
+        .code(9)
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
@@ -9968,7 +9968,7 @@ fn test_tx_file_create_without_force_fails_on_existing() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
@@ -10062,7 +10062,7 @@ fn test_tx_doc_set_unsupported_format_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 
     // Original content must be preserved.
     assert_eq!(
@@ -10670,7 +10670,7 @@ fn test_tx_md_replace_section_nonexistent_file_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 }
 
 #[test]
@@ -10697,7 +10697,7 @@ fn test_tx_md_replace_section_missing_heading_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 
     // Original content must be preserved.
     assert_eq!(
@@ -11280,7 +11280,7 @@ fn test_tx_patch_apply_merge_conflict_without_allow_conflicts() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED during staging
+        .code(9); // OPERATION_FAILED during staging
 }
 
 #[test]
@@ -12331,7 +12331,7 @@ fn test_tx_json_output_on_operation_failure() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(4)); // OPERATION_FAILED
+    assert_eq!(output.status.code(), Some(9)); // OPERATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "operation_failed");
@@ -13425,7 +13425,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 
     // Original content unchanged.
     assert_eq!(
@@ -13458,7 +13458,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 }
 
 #[test]
@@ -14318,7 +14318,7 @@ fn test_batch_nonexistent_target_file_rollback() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(4); // OPERATION_FAILED
+        .code(9); // OPERATION_FAILED
 }
 
 #[test]
@@ -18132,35 +18132,20 @@ fn test_replace_apply_prunes_old_backup_sessions() {
     let file = dir.path().join("test.txt");
     fs::write(&file, "aaa\n").unwrap();
 
-    // Create a fake old backup session (8 days old).
-    let old_session = dir.path().join(".patchloom/backups/old_session");
+    // Create a fake old backup session with a timestamp 8 days in the past.
+    // Pruning now uses the directory name (nanos_seq) to determine age.
+    let eight_days_ago = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        - std::time::Duration::from_secs(8 * 24 * 60 * 60);
+    let old_ts = format!("{}_0", eight_days_ago.as_nanos());
+    let old_session = dir.path().join(format!(".patchloom/backups/{old_ts}"));
     fs::create_dir_all(&old_session).unwrap();
     fs::write(
         old_session.join("manifest.json"),
-        r#"{"timestamp":"old_session","entries":[]}"#,
+        r#"{"timestamp":"old","entries":[]}"#,
     )
     .unwrap();
-
-    // Backdate the directory mtime to 8 days ago.
-    let eight_days_ago =
-        std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 60 * 60);
-    let times = std::fs::FileTimes::new().set_modified(eight_days_ago);
-    // On Windows, opening a directory requires FILE_FLAG_BACKUP_SEMANTICS.
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        let f = std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS
-            .open(&old_session)
-            .unwrap();
-        f.set_times(times).unwrap();
-    }
-    #[cfg(not(windows))]
-    {
-        let f = std::fs::File::open(&old_session).unwrap();
-        f.set_times(times).unwrap();
-    }
 
     // Now run a replace --apply, which creates a new session and prunes old ones.
     Command::cargo_bin("patchloom")

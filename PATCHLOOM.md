@@ -231,11 +231,12 @@ dependencies[name=react].version # predicate filter
 | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (`--check` mode found pending changes) |
 | 3 | No matches (search/replace found nothing matching the pattern) |
-| 4 | Parse error (malformed input file or plan), or tx operation staging failure (`operation_failed`) |
+| 4 | Parse error (malformed input file or plan) |
 | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |
 | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |
 | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |
+| 9 | Tx operation staging failure (`operation_failed`) |
 
 ## Troubleshooting
 
