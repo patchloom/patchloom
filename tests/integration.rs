@@ -19766,18 +19766,21 @@ fn test_ast_diff_basic() {
     let f = dir.path().join("diff.rs");
     fs::write(&f, "fn v1(){}\n").unwrap();
     // Initialize minimal git repo so --from HEAD works for dispatch coverage.
-    let _ = std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(dir.path())
-        .status();
-    let _ = std::process::Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(dir.path())
-        .status();
-    let _ = std::process::Command::new("git")
-        .args(["commit", "-q", "-m", "init"])
-        .current_dir(dir.path())
-        .status();
+    // Use explicit author to make commit succeed in CI without global git config.
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_AUTHOR_NAME", "CI")
+            .env("GIT_AUTHOR_EMAIL", "ci@example.com")
+            .env("GIT_COMMITTER_NAME", "CI")
+            .env("GIT_COMMITTER_EMAIL", "ci@example.com")
+            .status()
+            .expect("git command failed to spawn")
+    };
+    assert!(git(&["init", "-q"]).success(), "git init failed");
+    assert!(git(&["add", "-A"]).success(), "git add failed");
+    assert!(git(&["commit", "-q", "-m", "init"]).success(), "git commit failed; no HEAD");
     // Modify after commit so there is a structural diff vs HEAD.
     fs::write(&f, "fn v1(){}\nfn v2(){}\n").unwrap();
     patchloom_in(dir.path())
