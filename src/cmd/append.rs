@@ -265,7 +265,6 @@ mod tests {
         };
         let mut global = GlobalFlags::test_default();
         global.check = true;
-        let global = global;
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
