@@ -44,18 +44,18 @@ cd patchloom
 cargo install --path .
 ```
 
-This builds with all features by default (MCP server + AST operations).
-To build a smaller binary without specific features:
+This builds with all features by default (CLI + MCP server + AST operations).
+To build a smaller binary without optional features (CLI is always included for the binary):
 
 ```bash
-# Without MCP server (no tokio/async dependencies)
-cargo install --path . --no-default-features --features ast
+# CLI + AST only (no MCP server, no tokio/async)
+cargo install --path . --no-default-features --features "cli,ast"
 
-# Without AST operations (no tree-sitter grammars)
-cargo install --path . --no-default-features --features mcp
+# CLI + MCP only (no AST grammars)
+cargo install --path . --no-default-features --features "cli,mcp"
 
-# Minimal: no MCP, no AST
-cargo install --path . --no-default-features
+# CLI only (no MCP, no AST)
+cargo install --path . --no-default-features --features cli
 ```
 
 If you're contributing from a source checkout, use `make check-fast`
@@ -64,12 +64,17 @@ while iterating and `make check` before committing.
 ## As a Rust library
 
 Add patchloom as a dependency to embed structured file editing in your own
-Rust tools. Disable default features to omit the MCP server and its async
-dependencies:
+Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 
 ```toml
 [dependencies]
-patchloom = { version = "0.1", default-features = false }
+patchloom = { version = "0.3", default-features = false }
+```
+
+To add AST support without CLI/MCP:
+
+```toml
+patchloom = { version = "0.3", default-features = false, features = ["ast"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API

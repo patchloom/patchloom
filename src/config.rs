@@ -84,6 +84,9 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
 
 /// Merge a [`ProjectConfig`] into [`GlobalFlags`](crate::cli::global::GlobalFlags), applying config values only
 /// where the CLI did not explicitly set them.
+///
+/// Only available with the `cli` feature.
+#[cfg(feature = "cli")]
 pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &ProjectConfig) {
     // Write policy: config provides defaults, CLI flags win.
     if !global.ensure_final_newline && config.write_policy.ensure_final_newline == Some(true) {
@@ -286,6 +289,7 @@ color = "always"
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn apply_config_sets_defaults() {
         let config = ProjectConfig {
             write_policy: WritePolicy {
@@ -320,6 +324,7 @@ color = "always"
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn apply_config_cli_flags_win() {
         let config = ProjectConfig {
             write_policy: WritePolicy {
@@ -374,6 +379,7 @@ color = "always"
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn apply_config_unknown_eol_value_ignored() {
         let config = ProjectConfig {
             write_policy: WritePolicy {
@@ -393,6 +399,7 @@ color = "always"
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn apply_config_crlf_eol() {
         let config = ProjectConfig {
             write_policy: WritePolicy {
@@ -411,6 +418,7 @@ color = "always"
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn apply_config_unknown_color_value_stays_auto() {
         let config = ProjectConfig {
             output: Output {

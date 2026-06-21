@@ -3,15 +3,12 @@ use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::md::{
     dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
-    move_section_in, non_fenced_lines, parse_headings, replace_section_in, table_append_in,
-    upsert_bullet_in,
+    lint_agents_content, move_section_in, replace_section_in, table_append_in, upsert_bullet_in,
 };
 use crate::write::policy_from_flags;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
-use std::borrow::Cow;
-use std::collections::HashSet;
 
 use std::path::Path;
 
@@ -174,107 +171,6 @@ fn apply_mutation(
     }
 
     Ok(exit::SUCCESS)
-}
-
-// ---------------------------------------------------------------------------
-// Lint
-// ---------------------------------------------------------------------------
-
-/// Remove backtick-delimited inline code spans from a line, returning
-/// the remaining prose.  This lets lint checks ignore content inside
-/// backticks (e.g. ``Never use `git add .` ``).
-fn strip_inline_code(line: &str) -> Cow<'_, str> {
-    if !line.contains('`') {
-        return Cow::Borrowed(line);
-    }
-    let mut result = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(open) = rest.find('`') {
-        result.push_str(&rest[..open]);
-        let after_open = &rest[open + 1..];
-        if let Some(close) = after_open.find('`') {
-            rest = &after_open[close + 1..];
-        } else {
-            // Unmatched backtick — keep the rest as-is.
-            rest = after_open;
-            break;
-        }
-    }
-    result.push_str(rest);
-    Cow::Owned(result)
-}
-
-/// Check for `git add .` (dangerous) without matching `git add .gitignore`
-/// or other dotfile paths. The dot must be followed by whitespace or EOL.
-fn has_dangerous_git_add_dot(line: &str) -> bool {
-    let needle = "git add .";
-    let mut start = 0;
-    while let Some(pos) = line[start..].find(needle) {
-        let abs = start + pos;
-        let after = abs + needle.len();
-        if after >= line.len() || line.as_bytes()[after].is_ascii_whitespace() {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
-/// A lint issue found in a markdown file.
-#[derive(Debug, Serialize)]
-pub struct LintIssue {
-    /// Description of the issue.
-    pub issue: &'static str,
-    /// Line number where the issue was found (if applicable).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<usize>,
-    /// Heading text related to the issue (if applicable).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub heading: Option<String>,
-}
-
-pub(crate) fn lint_agents_content(content: &str) -> Vec<LintIssue> {
-    let mut issues = Vec::new();
-
-    // 1. Duplicate headings (same text at same level).
-    let headings = parse_headings(content);
-    let mut seen: HashSet<(usize, String)> = HashSet::new();
-    for h in &headings {
-        let key = (h.level, h.text.trim().to_string());
-        if !seen.insert(key) {
-            issues.push(LintIssue {
-                issue: "duplicate heading",
-                line: Some(h.line_start + 1), // 1-based
-                heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
-            });
-        }
-    }
-
-    // 2. Dangerous git add commands (skip fenced code blocks and inline code).
-    for (idx, line) in non_fenced_lines(content) {
-        let stripped = strip_inline_code(line);
-        if has_dangerous_git_add_dot(&stripped)
-            || stripped.contains("git add -A")
-            || stripped.contains("git add --all")
-        {
-            issues.push(LintIssue {
-                issue: "dangerous command",
-                line: Some(idx + 1),
-                heading: None,
-            });
-        }
-    }
-
-    // 3. Missing final newline.
-    if !content.is_empty() && !content.ends_with('\n') {
-        issues.push(LintIssue {
-            issue: "missing final newline",
-            line: None,
-            heading: None,
-        });
-    }
-
-    issues
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +364,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::md::{has_dangerous_git_add_dot, strip_inline_code};
     use std::fs;
     use tempfile::TempDir;
 
@@ -914,7 +811,7 @@ mod tests {
     #[test]
     fn parse_headings_basic() {
         let content = "# A\ntext\n## B\nmore\n# C\n";
-        let h = parse_headings(content);
+        let h = crate::ops::md::parse_headings(content);
         assert_eq!(h.len(), 3);
         assert_eq!(h[0].level, 1);
         assert_eq!(h[0].text, "A");

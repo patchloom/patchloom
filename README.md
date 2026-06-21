@@ -263,7 +263,7 @@ See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent con
 
 ### As a Rust library
 
-Add patchloom as a dependency (omit the MCP server with `default-features = false`):
+Add patchloom as a dependency (omit CLI/MCP/AST with `default-features = false`):
 
 ```toml
 [dependencies]

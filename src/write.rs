@@ -5,9 +5,21 @@ use std::path::Path;
 use anyhow::Context;
 use tempfile::NamedTempFile;
 
-// Re-export so library consumers can use `patchloom::write::EolMode`
-// without reaching into the CLI module.
-pub use crate::cli::global::EolMode;
+/// Line ending normalization mode.
+///
+/// This type is re-exported at the crate root level of `write` for library use
+/// (independent of the optional `cli` feature).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+pub enum EolMode {
+    /// Keep existing line endings.
+    #[default]
+    Keep,
+    /// Normalize to LF.
+    Lf,
+    /// Normalize to CRLF.
+    Crlf,
+}
 
 /// Controls which transformations are applied before writing a file.
 pub struct WritePolicy {
@@ -254,6 +266,9 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
 /// Explicit CLI flags always win.  When `--respect-editorconfig` is set and
 /// `file_path` is provided, EditorConfig values fill in any flag that was not
 /// explicitly set by the user.
+///
+/// Only available with the `cli` feature.
+#[cfg(feature = "cli")]
 pub fn policy_from_flags(
     global: &crate::cli::global::GlobalFlags,
     file_path: Option<&std::path::Path>,
@@ -378,6 +393,7 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
 /// Only runs when `global.apply` is true and `global.format` is `Some`.
 /// Returns the appropriate exit code: `SUCCESS` on success, `VALIDATION_FAILED`
 /// on format command failure.
+#[cfg(feature = "cli")]
 pub fn run_format_command(
     global: &crate::cli::global::GlobalFlags,
     cwd: &std::path::Path,
@@ -402,6 +418,7 @@ pub fn run_format_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "cli")]
     use crate::cli::global::GlobalFlags;
     use std::fs;
 
@@ -529,11 +546,13 @@ mod tests {
         assert_eq!(got, "foo\nbar\n");
     }
 
+    #[cfg(feature = "cli")]
     fn test_global_flags() -> GlobalFlags {
         GlobalFlags::default()
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn policy_from_flags_explicit_flags_win() {
         let dir = tempfile::tempdir().unwrap();
         let ec_path = dir.path().join(".editorconfig");
@@ -560,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn policy_from_flags_editorconfig_provides_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let ec_path = dir.path().join(".editorconfig");
@@ -673,6 +693,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn policy_from_flags_no_editorconfig_uses_defaults() {
         let global = test_global_flags();
 

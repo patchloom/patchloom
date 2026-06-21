@@ -19657,6 +19657,135 @@ fn test_explain_ast_replace_description() {
         ));
 }
 
+// --- AST subcommand integration coverage (for #694) ---
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "pub fn foo() {}\nstruct Bar;\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "list", "lib.rs", "--json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("foo"))
+        .stdout(predicates::str::contains("Bar"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_read_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("main.rs");
+    fs::write(&f, "fn target() { let x=1; }\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "read", "main.rs", "target"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("target"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_validate_ok() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("ok.rs");
+    fs::write(&f, "fn ok() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "validate", "ok.rs"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("s.rs");
+    fs::write(&f, "fn f() { let y = 42; }\n").unwrap();
+    // simple structural query for function item
+    patchloom_in(dir.path())
+        .args(["ast", "search", "(function_item) @fn", "s.rs", "--json"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_refs_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("r.rs");
+    fs::write(&f, "fn callee() {}\nfn caller() { callee(); }\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "refs", "callee", "r.rs", "--json"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_deps_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("d.rs");
+    fs::write(&f, "use std::collections::HashMap;\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "deps", "d.rs", "--json"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_map_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("m.rs");
+    fs::write(&f, "fn a(){} fn b(){ a(); }\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "map", ".", "--json"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_impact_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("i.rs");
+    fs::write(&f, "fn entry(){ helper(); }\nfn helper(){}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "impact", "helper", "i.rs", "--json"])
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_diff_basic() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("diff.rs");
+    fs::write(&f, "fn v1(){}\n").unwrap();
+    // Initialize minimal git repo so --from HEAD works for dispatch coverage.
+    let _ = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir.path())
+        .status();
+    let _ = std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(dir.path())
+        .status();
+    let _ = std::process::Command::new("git")
+        .args(["commit", "-q", "-m", "init"])
+        .current_dir(dir.path())
+        .status();
+    // Modify after commit so there is a structural diff vs HEAD.
+    fs::write(&f, "fn v1(){}\nfn v2(){}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "diff", "diff.rs", "--from", "HEAD", "--json"])
+        .assert()
+        .success();
+}
+
 #[test]
 fn test_explain_replace_word_boundary() {
     let dir = TempDir::new().unwrap();

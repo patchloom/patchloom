@@ -9,33 +9,40 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `core`  | no      | Marker feature for core library usage (no extra deps) |
+//! | `cli`   | **yes** | CLI parser (clap) and all subcommand implementations. Disable for pure library use. |
 //! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
 //! | `ast`   | **yes** | AST-aware operations using tree-sitter (20 language grammars) |
-//! | `full`  | no      | Everything: `mcp` + `ast` |
+//! | `full`  | no      | Everything: `cli` + `mcp` + `ast` |
 //!
 //! ## Embedding as a library
 //!
-//! To use patchloom as a library without the MCP server overhead:
+//! To use patchloom as a library (no CLI, no MCP):
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.1", default-features = false }
+//! patchloom = { version = "0.3", default-features = false }
 //! ```
 //!
-//! This gives you the full [`api`] module (doc/replace/md/file/patch operations),
-//! the [`ops`] module for lower-level access, and utility modules:
+//! Or with AST support:
+//!
+//! ```toml
+//! patchloom = { version = "0.3", default-features = false, features = ["ast"] }
+//! ```
+//!
+//! This gives you the [`api`] module (primary editing interface), [`ops`],
+//! and utility modules:
 //!
 //! - [`containment`] -- workspace path guard preventing traversal attacks
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
-//! - [`files`] -- file-walking, binary detection, and text reading helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
+//!
+//! (The `files`, `cli`, and `cmd` modules are only available with the `cli` feature.)
 //!
 //! With `features = ["ast"]`, the [`ast`] module provides tree-sitter parsing,
 //! symbol extraction, structural search, rename, and more for 20 languages.
 //!
-//! No `tokio` or other async runtime dependencies are pulled in.
+//! No `clap`, `tokio` or other heavy dependencies are pulled in when `cli` and `mcp` are disabled.
 //!
 //! ## Thread safety
 //!
@@ -60,6 +67,7 @@ pub mod api;
 pub mod ast;
 pub mod backup;
 pub mod cli;
+#[cfg(feature = "cli")]
 pub mod cmd;
 pub mod config;
 pub mod containment;
@@ -67,6 +75,7 @@ pub(crate) mod diff;
 pub mod exec;
 pub(crate) mod exit;
 pub mod fallback;
+#[cfg(feature = "cli")]
 pub mod files;
 pub mod ops;
 pub mod plan;
@@ -74,10 +83,8 @@ pub mod schema;
 pub mod selector;
 pub mod write;
 
+#[cfg(feature = "cli")]
 pub(crate) use files::*;
-
-use clap::Parser;
-use cli::Cli;
 
 // ---------------------------------------------------------------------------
 // Verbose logging
@@ -109,8 +116,13 @@ macro_rules! verbose {
 }
 
 /// Run the patchloom CLI. Returns the exit code as a u8.
+///
+/// Requires the `cli` feature (enabled by default).
+#[cfg(feature = "cli")]
 pub fn run() -> anyhow::Result<u8> {
-    let cli = Cli::parse();
+    use clap::Parser;
+
+    let cli = crate::cli::Cli::parse();
 
     // Enable verbose mode from --verbose flag or PATCHLOOM_LOG env var.
     if cli.global.verbose || std::env::var_os("PATCHLOOM_LOG").is_some() {
