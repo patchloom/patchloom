@@ -58,12 +58,38 @@ The fallback module, previously built but unwired, is now integrated at three le
 
 New `--word-boundary` flag on `replace` prevents partial-word matches. `patchloom replace --from "File" --to "Document" --word-boundary` replaces `SetupFile` but not `BenchSetupFile`. Available on the CLI, in transaction plans, and via the MCP `replace_text` tool.
 
+## Library API for downstream consumers
+
+The `fallback` and `ast` modules now expose their core building blocks as public API, letting library consumers (e.g., bline) use patchloom's edit recovery and tree-sitter infrastructure directly.
+
+**Fallback module** (`patchloom::fallback`):
+
+| Function/type | What it does |
+|---------------|-------------|
+| `resolve_with_fallback()` | Full fallback chain: exact, anchor, similarity, structured error |
+| `anchor_match()` | Anchor-based matching using surrounding context lines |
+| `validate_edit()` | Pre-validate a replacement against JSON/YAML/TOML syntax |
+| `AnchorMatchResult` | Return type with `matched_text`, `start_offset`, `strategy` |
+| `MatchStrategy` | Enum: `Exact`, `Anchor`, `Similarity` |
+| `ValidationResult` | Return type with `valid`, `errors`, `warnings` |
+
+**AST module** (`patchloom::ast`, requires `features = ["ast"]`):
+
+| Function | What it does |
+|----------|-------------|
+| `parse_source()` | Parse source code with tree-sitter (language detection + parser setup) |
+| `ts_language_for()` | Map a `Language` to its tree-sitter grammar |
+| `child_text_by_kind()` | Extract text from a child node by kind |
+| `child_text_by_kinds()` | Extract text from a child node matching any of several kinds |
+
+All high-level AST functions (`extract_symbols`, `search_query`, `validate_source`, `rename_in_source`, `find_refs_in_source`, `structural_diff`, `compute_impact`, `replace_in_symbol`, `generate_map`) were already public.
+
 ## Internal cleanup
 
 - **ops.rs split.** The 4,369-line monolithic `src/ops.rs` was split into `src/ops/{doc,md,patch,replace}.rs`.
 - **Transaction engine refactoring.** Extracted `build_full_tx_output` (eliminating 6x duplication), `validate_and_prepare_plan` (shared validation), and `execute_doc_op`/`execute_file_op` (breaking up a 460-line match).
 - **MCP validator consolidation.** Unified `validate_content_size`/`validate_param_size` into a shared `validate_size` helper.
-- **Visibility tightening.** `diff` and `exit` modules narrowed to `pub(crate)`. All 28 MCP param structs, internal fallback types, and helper functions narrowed to `pub(crate)`.
+- **Visibility tightening.** `diff` and `exit` modules narrowed to `pub(crate)`. All 28 MCP param structs narrowed to `pub(crate)`.
 - **Dead code removal.** Removed `DiffResult::total_files_changed` (set at 20+ sites but never read).
 
 ## Breaking changes
@@ -71,12 +97,12 @@ New `--word-boundary` flag on `replace` prevents partial-word matches. `patchloo
 - `diff` and `exit` modules are no longer public. Code importing `patchloom::diff::*` or `patchloom::exit::*` must use the library API instead.
 - `Operation::Replace` has three new fields: `word_boundary`, `before_context`, `after_context`. Code constructing this variant via struct literals must include them (use `..Default::default()` or add explicit values).
 - `DiffResult::total_files_changed` field removed.
-- Several fallback types (`ValidationResult`, `AnchorMatchResult`, `MatchStrategy`) and functions (`validate_edit`, `anchor_match`, `resolve_with_fallback`, `truncate_str`) narrowed from `pub` to `pub(crate)`.
+- Internal helper `truncate_str` in the fallback module narrowed from `pub` to `pub(crate)`.
 - All MCP param structs narrowed from `pub` to `pub(crate)`.
 
 ## Test coverage
 
-1,591 tests (888 unit + 695 integration + 8 PTY), up from 1,476 in v0.2.0.
+1,588 tests (887 unit + 694 integration + 7 PTY), up from 1,476 in v0.2.0.
 
 ## Links
 
