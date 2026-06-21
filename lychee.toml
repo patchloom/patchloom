@@ -19,6 +19,8 @@ exclude = [
   "securityscorecards\\.dev",
   # Gist-backed shields.io endpoint badges depend on two services and 503 intermittently
   "img\\.shields\\.io/endpoint",
+  # no-color.org is a small site that intermittently drops connections from CI runners
+  "no-color\\.org",
 ]
 
 accept = [200, 429]
