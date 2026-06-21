@@ -32,9 +32,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test ## Fast check (skips doc verification)
+check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes hygiene and release notes verify)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
@@ -42,6 +42,14 @@ audit-test-hygiene: ## Audit test names/comments for staleness and weak assertio
 	@echo "=== Weak assertions (bare .failure/.success without content checks) ==="
 	@grep -rnE '\.(failure|success)\(\)' tests/integration.rs | grep -v 'contains\|stdout\|stderr\|output' | head -10 || echo "(none obvious)"
 	@echo "Run this after refactors or MPI cycles. Strengthen names + assertions."
+
+verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated releases, addresses long generated changelog bloat)
+	@if [ -f RELEASE_NOTES.md ]; then \
+		echo "RELEASE_NOTES.md present - will be used to override generated changelog:"; \
+		head -15 RELEASE_NOTES.md; \
+	else \
+		echo "No RELEASE_NOTES.md present (generated changelog will be used)"; \
+	fi
 
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
