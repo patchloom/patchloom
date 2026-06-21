@@ -305,6 +305,34 @@ impl GlobalFlags {
 }
 
 #[cfg(test)]
+impl GlobalFlags {
+    /// Test helper returning GlobalFlags with color=Never for deterministic
+    /// test output (avoids TTY/NO_COLOR variance).
+    pub fn test_default() -> Self {
+        GlobalFlags {
+            color: ColorMode::Never,
+            ..GlobalFlags::default()
+        }
+    }
+
+    /// Test helper with cwd set (simulates --cwd for cmd unit tests).
+    pub fn test_with_cwd(dir: &std::path::Path) -> Self {
+        GlobalFlags {
+            cwd: Some(dir.to_string_lossy().into_owned()),
+            color: ColorMode::Never,
+            ..GlobalFlags::default()
+        }
+    }
+
+    /// Test helper with apply=true (for write cmd tests that want mutation).
+    pub fn test_apply() -> Self {
+        let mut g = Self::test_default();
+        g.apply = true;
+        g
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -364,5 +392,28 @@ mod tests {
     fn verbose_flag_defaults_to_false() {
         let g = GlobalFlags::default();
         assert!(!g.verbose);
+    }
+
+    #[test]
+    fn resolve_cwd_nonexistent_errors() {
+        let g = GlobalFlags {
+            cwd: Some("/nonexistent/path/that/does/not/exist".into()),
+            ..GlobalFlags::default()
+        };
+        let err = g.resolve_cwd().unwrap_err().to_string();
+        assert!(err.contains("does not exist"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn resolve_cwd_not_a_directory_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file.txt");
+        std::fs::write(&file, "x").unwrap();
+        let g = GlobalFlags {
+            cwd: Some(file.to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let err = g.resolve_cwd().unwrap_err().to_string();
+        assert!(err.contains("not a directory"), "unexpected: {err}");
     }
 }

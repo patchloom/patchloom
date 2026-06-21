@@ -329,14 +329,6 @@ mod tests {
     use crate::cli::global::GlobalFlags;
     use tempfile::TempDir;
 
-    /// Helper: default `GlobalFlags` pointing at the given dir.
-    fn flags_for(dir: &Path) -> GlobalFlags {
-        GlobalFlags {
-            cwd: Some(dir.to_string_lossy().into_owned()),
-            ..GlobalFlags::default()
-        }
-    }
-
     #[test]
     fn detects_missing_final_newline() {
         let tmp = TempDir::new().unwrap();
@@ -388,7 +380,7 @@ mod tests {
         let issues = check_file(&file, true);
         assert!(issues.is_empty(), "expected no issues for clean file");
 
-        let global = flags_for(tmp.path());
+        let global = GlobalFlags::test_with_cwd(tmp.path());
         let args = TidyArgs {
             action: TidyAction::Check {
                 paths: vec![".".to_string()],
@@ -464,7 +456,7 @@ mod tests {
         std::fs::write(&txt_file, b"no newline").unwrap();
 
         // Filter to only *.rs — should find no issues.
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.glob = vec!["*.rs".to_string()];
 
         let issues = collect_issues(&[".".to_string()], &global).unwrap();
@@ -489,7 +481,7 @@ mod tests {
         let file = tmp.path().join("no_newline.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let global = flags_for(tmp.path());
+        let global = GlobalFlags::test_with_cwd(tmp.path());
         let args = TidyArgs {
             action: TidyAction::Check {
                 paths: vec![".".to_string()],
@@ -506,7 +498,7 @@ mod tests {
         let file = tmp.path().join("no_nl.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.ensure_final_newline = true;
         global.apply = true;
 
@@ -532,7 +524,7 @@ mod tests {
         let file = tmp.path().join("crlf.txt");
         std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
         global.apply = true;
 
@@ -558,7 +550,7 @@ mod tests {
         let file = tmp.path().join("trailing.txt");
         std::fs::write(&file, b"hello   \nworld\t\n").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.trim_trailing_whitespace = true;
         global.apply = true;
 
@@ -581,7 +573,7 @@ mod tests {
         let file = tmp.path().join("clean.txt");
         std::fs::write(&file, b"hello\nworld\n").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.ensure_final_newline = true;
         global.trim_trailing_whitespace = true;
         global.normalize_eol = Some(crate::cli::global::EolMode::Lf);
@@ -606,7 +598,7 @@ mod tests {
         let file = tmp.path().join("no_nl.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.ensure_final_newline = true;
         // No --apply: default dry-run mode.
 
@@ -630,7 +622,7 @@ mod tests {
         let file = tmp.path().join("clean.txt");
         std::fs::write(&file, b"hello\n").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.ensure_final_newline = true;
         // No --apply: default dry-run mode.
 
@@ -650,7 +642,7 @@ mod tests {
         let file = tmp.path().join("no_nl.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.ensure_final_newline = true;
         global.apply = true;
 

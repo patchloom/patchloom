@@ -205,10 +205,7 @@ mod tests {
             stdin: false,
             write: Default::default(),
         };
-        let global = GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::test_apply();
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -229,10 +226,7 @@ mod tests {
             stdin: false,
             write: Default::default(),
         };
-        let global = GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::test_apply();
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -269,10 +263,9 @@ mod tests {
             stdin: false,
             write: Default::default(),
         };
-        let global = GlobalFlags {
-            check: true,
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::test_default();
+        global.check = true;
+        let global = global;
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);

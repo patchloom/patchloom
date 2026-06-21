@@ -2514,10 +2514,6 @@ mod tests {
         }
     }
 
-    fn default_global() -> GlobalFlags {
-        GlobalFlags::default()
-    }
-
     fn portable_path_str(p: &std::path::Path) -> String {
         p.to_str().unwrap().replace('\\', "/")
     }
@@ -2643,7 +2639,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -2681,7 +2677,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.check = true;
 
         let code = run(args, &global).unwrap();
@@ -2725,7 +2721,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -2773,7 +2769,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
         global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
@@ -2803,7 +2799,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
         global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
@@ -2832,7 +2828,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
         global.cwd = Some(dir.path().to_string_lossy().into_owned());
 
@@ -2860,7 +2856,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let global = default_global();
+        let global = GlobalFlags::test_default();
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
@@ -2970,7 +2966,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3008,7 +3004,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3111,7 +3107,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3148,7 +3144,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3182,7 +3178,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3219,7 +3215,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3259,7 +3255,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3285,7 +3281,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let global = default_global();
+        let global = GlobalFlags::test_default();
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::PARSE_ERROR);
@@ -3321,7 +3317,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3397,7 +3393,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3432,7 +3428,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3467,7 +3463,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3506,7 +3502,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -3545,7 +3541,7 @@ mod tests {
             no_strict: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();

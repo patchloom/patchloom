@@ -605,13 +605,6 @@ mod tests {
         dir
     }
 
-    fn default_global() -> GlobalFlags {
-        GlobalFlags {
-            color: crate::cli::global::ColorMode::Never,
-            ..GlobalFlags::default()
-        }
-    }
-
     fn make_args(pattern: &str, paths: Vec<String>) -> SearchArgs {
         SearchArgs {
             pattern: pattern.to_string(),
@@ -634,7 +627,7 @@ mod tests {
     fn empty_pattern_rejected() {
         let dir = make_test_dir();
         let args = make_args("", vec![dir.path().to_string_lossy().into_owned()]);
-        let result = run(args, &default_global());
+        let result = run(args, &GlobalFlags::test_default());
         assert!(result.is_err(), "empty pattern should be rejected");
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -648,7 +641,7 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.literal = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 2);
         assert!(results.matches.iter().all(|m| m.text.contains("Hello")));
     }
@@ -657,7 +650,7 @@ mod tests {
     fn regex_match_works() {
         let dir = make_test_dir();
         let args = make_args(r"Hello.*!", vec![dir.path().to_string_lossy().into_owned()]);
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 2);
         for m in &results.matches {
             assert!(m.text.contains("Hello"));
@@ -672,7 +665,7 @@ mod tests {
             "zzz_no_match_zzz",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -681,8 +674,8 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(results, &args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        let output = format_results(results, &args, &GlobalFlags::test_default()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
@@ -699,8 +692,8 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
-        let output = format_results(results, &args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        let output = format_results(results, &args, &GlobalFlags::test_default()).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
@@ -721,7 +714,7 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // count_only optimization: matches vec should be empty
         assert!(
             results.matches.is_empty(),
@@ -735,7 +728,7 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             results.matches.is_empty(),
             "files_with_matches should not build SearchMatch objects"
@@ -752,7 +745,7 @@ mod tests {
         );
         args.multiline = true;
         args.count = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             results.matches.is_empty(),
             "multiline count should not build SearchMatch objects"
@@ -768,7 +761,7 @@ mod tests {
         let mut args = make_args("foo", vec![dir.path().to_string_lossy().into_owned()]);
         args.multiline = true;
         args.files_with_matches = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             results.matches.is_empty(),
             "multiline files-with-matches should not build SearchMatch objects"
@@ -785,7 +778,7 @@ mod tests {
         args.multiline = true;
         args.files_with_matches = true;
         args.assert_count = Some(2);
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             results.matches.is_empty(),
             "multiline files-with-matches assert-count should not build SearchMatch objects"
@@ -798,7 +791,7 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // hello.txt has 3 lines, 2 match "Hello", so 1 non-matching line.
         // code.rs has 3 lines, 0 match "Hello" (case-sensitive), so 3 non-matching.
         // Total: 4 non-matching lines.
@@ -820,7 +813,7 @@ mod tests {
             vec![dir.path().to_string_lossy().into_owned()],
         );
         args.multiline = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 1);
         let m = &results.matches[0];
         assert!(
@@ -844,7 +837,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.multiline = true;
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(
             err.to_string().contains("--invert-match and --multiline"),
             "should reject incompatible flags: {}",
@@ -857,7 +850,7 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("test file", vec![dir.path().to_string_lossy().into_owned()]);
         args.context = Some(1);
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 1);
         let m = &results.matches[0];
         let before = m
@@ -883,7 +876,7 @@ mod tests {
     fn json_output_values() {
         let dir = make_test_dir();
         let args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
         let output = format_results(results, &args, &global).unwrap();
@@ -922,7 +915,7 @@ mod tests {
         // hello.txt has "Hello" (uppercase H); code.rs has "hello" (lowercase).
         let mut args = make_args("hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.case_insensitive = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // hello.txt: 2 lines with "Hello", code.rs: 1 line with "hello" => 3
         assert_eq!(results.matches.len(), 3);
     }
@@ -935,7 +928,7 @@ mod tests {
         let mut args = make_args("foo(bar)", vec![dir.path().to_string_lossy().into_owned()]);
         args.literal = true;
         args.case_insensitive = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 1);
         assert!(results.matches[0].text.contains("foo(BAR)"));
     }
@@ -946,7 +939,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.count = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // count mode should not build SearchMatch objects
         assert!(results.matches.is_empty());
         // hello.txt: 3 lines, 2 match "Hello", so 1 non-matching.
@@ -960,7 +953,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.files_with_matches = true;
-        let results = collect_matches(&args, &default_global()).unwrap();
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert!(results.matches.is_empty());
         // Both files have non-matching lines.
         assert_eq!(results.file_match_counts.len(), 2);
@@ -972,7 +965,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.assert_count = Some(4); // 1 from hello.txt + 3 from code.rs
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -982,7 +975,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.assert_count = Some(99);
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 }
