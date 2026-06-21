@@ -6,10 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.4.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.4.0) (2026-06-21)
 
+### Changed
+
+* Restructured Cargo features for greater modularity and library reusability (primarily [#714](https://github.com/patchloom/patchloom/issues/714)):
+  - Introduced the `cli` feature, making clap and related CLI machinery fully optional. This allows using patchloom as a pure library without pulling in CLI dependencies.
+  - The previous coarse `core` feature has been replaced by a more granular model. Default is now `["cli", "mcp", "ast"]`. Users can select exactly the capabilities they need (or use `default-features = false` for a minimal footprint).
+  - `full` now aliases to `["cli", "mcp", "ast"]`.
+* Moved some types (e.g. `LintIssue`) out of `cmd::md` into `ops::md` (and re-exported via the public API) to make core editing functionality more directly reusable outside of command implementations.
+
 ### ⚠ BREAKING CHANGES
 
-* The `core` feature has been removed from `Cargo.toml`. Use explicit features (`cli`, `mcp`, `ast`, `full`) instead. ([#714](https://github.com/patchloom/patchloom/issues/714))
-* `patchloom::cmd::md::LintIssue` (and related items) has been moved/removed from the `cmd::md` module. It is now available as `patchloom::ops::md::LintIssue` (re-exported in the public API). ([#714](https://github.com/patchloom/patchloom/issues/714))
+* The `core` feature no longer exists. Use explicit feature selection (`cli`, `mcp`, `ast`, `full`, or combinations) instead.
+* The path `patchloom::cmd::md::LintIssue` has changed; it is now at `patchloom::ops::md::LintIssue` (re-exported publicly).
+
+The goal of this work was to make more of the crate independently usable and reduce unnecessary dependencies for library consumers, even though the exact feature names and some public paths changed.
 
 ## [0.3.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.2.0...patchloom-v0.3.0) (2026-06-21)
 
