@@ -28,8 +28,12 @@
 //!
 //! - [`containment`] -- workspace path guard preventing traversal attacks
 //! - [`exec`] -- shell command execution with process-tree management
+//! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
 //! - [`files`] -- file-walking, binary detection, and text reading helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
+//!
+//! With `features = ["ast"]`, the [`ast`] module provides tree-sitter parsing,
+//! symbol extraction, structural search, rename, and more for 20 languages.
 //!
 //! No `tokio` or other async runtime dependencies are pulled in.
 //!

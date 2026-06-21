@@ -9,7 +9,9 @@
 //! 3. **Similarity scoring** (Jaro-Winkler on surrounding lines)
 //! 4. **Structured error** (diagnosis with suggestions)
 //!
-//! # Example
+//! # Examples
+//!
+//! Suggest similar targets when a search misses:
 //!
 //! ```rust
 //! use patchloom::fallback::{EditError, EditErrorKind, find_similar_targets};
@@ -17,6 +19,32 @@
 //! let content = "fn process_request() {}\nfn process_response() {}\n";
 //! let similar = find_similar_targets(content, "process_requst", 3);
 //! assert!(similar.iter().any(|s| s.contains("process_request")));
+//! ```
+//!
+//! Run the full fallback chain (exact, anchor, similarity, structured error):
+//!
+//! ```rust
+//! use patchloom::fallback::{resolve_with_fallback, MatchStrategy};
+//!
+//! let content = "fn setup() {}\nfn proccess_data(x: i32) {}\nfn cleanup() {}\n";
+//! let result = resolve_with_fallback(
+//!     content,
+//!     "fn process_data(x: i32) {}",
+//!     Some("fn setup() {}"),
+//!     Some("fn cleanup() {}"),
+//! ).expect("anchor match should succeed");
+//! assert_eq!(result.strategy, MatchStrategy::Anchor);
+//! assert!(result.matched_text.contains("proccess_data"));
+//! ```
+//!
+//! Validate an edit before applying it:
+//!
+//! ```rust
+//! use patchloom::fallback::validate_edit;
+//!
+//! let json = r#"{"key": "value"}"#;
+//! let result = validate_edit(json, "value", "new_value", Some("config.json"));
+//! assert!(result.valid);
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -79,7 +107,7 @@ impl std::fmt::Display for EditErrorKind {
 
 /// Result of `validate_edit()`: whether the edit would produce valid output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ValidationResult {
+pub struct ValidationResult {
     /// Whether the edit produces valid output.
     pub valid: bool,
     /// Syntax errors found (if invalid).
@@ -92,7 +120,7 @@ pub(crate) struct ValidationResult {
 ///
 /// Performs the replacement in memory and checks basic structural validity
 /// of the resulting content (JSON, YAML, TOML validation for structured files).
-pub(crate) fn validate_edit(
+pub fn validate_edit(
     content: &str,
     from: &str,
     to: &str,
@@ -213,7 +241,7 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
 /// If `target` is not found exactly, looks for lines that share anchor text
 /// (the lines immediately before and after the target in the original context)
 /// and returns the matching region.
-pub(crate) fn anchor_match(
+pub fn anchor_match(
     content: &str,
     target: &str,
     before_context: Option<&str>,
@@ -319,7 +347,7 @@ pub(crate) fn anchor_match(
 
 /// Result of anchor-based matching.
 #[derive(Debug, Clone)]
-pub(crate) struct AnchorMatchResult {
+pub struct AnchorMatchResult {
     /// The text that was matched.
     pub matched_text: String,
     /// Byte offset of the match start in the content.
@@ -331,7 +359,7 @@ pub(crate) struct AnchorMatchResult {
 /// Which matching strategy found the result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum MatchStrategy {
+pub enum MatchStrategy {
     /// Exact literal match.
     Exact,
     /// Anchor-based matching using surrounding context.
@@ -353,7 +381,7 @@ impl std::fmt::Display for MatchStrategy {
 /// Run the full fallback chain: exact -> anchor -> similarity -> structured error.
 ///
 /// Returns the first successful match or a structured error with diagnosis.
-pub(crate) fn resolve_with_fallback(
+pub fn resolve_with_fallback(
     content: &str,
     target: &str,
     before_context: Option<&str>,

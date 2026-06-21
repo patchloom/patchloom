@@ -134,7 +134,13 @@ impl std::fmt::Display for Language {
 }
 
 /// Map a [`Language`] to its tree-sitter grammar.
-pub(crate) fn ts_language_for(lang: Language) -> Option<tree_sitter_lib::Language> {
+///
+/// Returns the tree-sitter `Language` object for supported languages, or
+/// `None` for languages without grammar support (Markdown, Dockerfile, Unknown).
+///
+/// Library consumers can use this to build custom tree-sitter parsers using
+/// the same grammar versions that patchloom uses internally.
+pub fn ts_language_for(lang: Language) -> Option<tree_sitter_lib::Language> {
     match lang {
         Language::Rust => Some(tree_sitter_rust::LANGUAGE.into()),
         Language::Python => Some(tree_sitter_python::LANGUAGE.into()),
@@ -161,7 +167,20 @@ pub(crate) fn ts_language_for(lang: Language) -> Option<tree_sitter_lib::Languag
 }
 
 /// Parse source text for a given language, returning the tree-sitter tree.
-pub(crate) fn parse_source(
+///
+/// Handles language detection and parser setup. Returns `None` if the
+/// language has no grammar support or if parsing fails.
+///
+/// # Example
+///
+/// ```rust
+/// use patchloom::ast::{parse_source, Language};
+///
+/// let source = "fn main() { println!(\"hello\"); }";
+/// let (tree, _lang) = parse_source(source, Language::Rust).unwrap();
+/// assert!(!tree.root_node().has_error());
+/// ```
+pub fn parse_source(
     source: &str,
     lang: Language,
 ) -> Option<(tree_sitter_lib::Tree, tree_sitter_lib::Language)> {
@@ -173,7 +192,11 @@ pub(crate) fn parse_source(
 }
 
 /// Find the text of the first child with a given node kind.
-pub(crate) fn child_text_by_kind<'a>(
+///
+/// Walks the immediate children of `node` and returns the source text
+/// of the first child whose `kind()` matches `kind`. Useful for building
+/// custom AST extractors on top of patchloom's tree-sitter grammars.
+pub fn child_text_by_kind<'a>(
     node: tree_sitter_lib::Node<'a>,
     kind: &str,
     source: &'a str,
@@ -188,7 +211,10 @@ pub(crate) fn child_text_by_kind<'a>(
 }
 
 /// Find the text of the first child matching any of the given kinds.
-pub(crate) fn child_text_by_kinds<'a>(
+///
+/// Like [`child_text_by_kind`], but matches against multiple node kinds.
+/// Returns the source text of the first child whose kind is in `kinds`.
+pub fn child_text_by_kinds<'a>(
     node: tree_sitter_lib::Node<'a>,
     kinds: &[&str],
     source: &'a str,
