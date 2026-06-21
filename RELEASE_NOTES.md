@@ -60,7 +60,7 @@ New `--word-boundary` flag on `replace` prevents partial-word matches. `patchloo
 
 ## Library API for downstream consumers
 
-The `fallback` and `ast` modules now expose their core building blocks as public API, letting library consumers (e.g., [bline](https://github.com/blineai/bline)) use patchloom's edit recovery and tree-sitter infrastructure directly.
+The `fallback` and `ast` modules now expose their core building blocks as public API, letting library consumers (e.g., bline) use patchloom's edit recovery and tree-sitter infrastructure directly.
 
 **Fallback module** (`patchloom::fallback`):
 
