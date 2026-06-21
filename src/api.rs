@@ -158,7 +158,6 @@ fn make_diff(path: &str, old: &str, new: &str) -> String {
     }
     let result = DiffResult {
         diffs: vec![file_diff],
-        total_files_changed: 1,
     };
     format_diff_result(&result)
 }

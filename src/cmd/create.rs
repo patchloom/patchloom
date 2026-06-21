@@ -43,11 +43,7 @@ struct CreateOutput {
 
 fn make_diff_output(path: &str, content: &str, color: bool) -> String {
     let diff = unified_diff(path, "", content);
-    let total_files_changed = usize::from(diff.has_changes);
-    let diff_result = DiffResult {
-        diffs: vec![diff],
-        total_files_changed,
-    };
+    let diff_result = DiffResult { diffs: vec![diff] };
     format_diff_result_colored(&diff_result, color)
 }
 

@@ -115,10 +115,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         if global.diff {
             let diff = unified_diff(&args.file, &existing, &combined);
-            let dr = DiffResult {
-                diffs: vec![diff],
-                total_files_changed: 1,
-            };
+            let dr = DiffResult { diffs: vec![diff] };
             let output = AppendOutput {
                 ok: true,
                 path: args.file.clone(),
@@ -144,10 +141,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode
     let diff = unified_diff(&args.file, &existing, &combined);
-    let dr = DiffResult {
-        diffs: vec![diff],
-        total_files_changed: 1,
-    };
+    let dr = DiffResult { diffs: vec![diff] };
     let diff_text = format_diff_result_colored(&dr, false);
 
     if global.confirm && (global.json || global.jsonl) {

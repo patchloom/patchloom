@@ -448,6 +448,7 @@ struct TxState<'a> {
     tx_reads: &'a mut Vec<TxReadResult>,
     tx_searches: &'a mut Vec<TxSearchResult>,
     tx_lints: &'a mut Vec<TxLintResult>,
+    replace_hint: Option<String>,
     cwd: &'a Path,
     quiet: bool,
     structured: bool,
@@ -468,6 +469,8 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         multiline,
         whole_line,
         range,
+        before_context,
+        after_context,
         ..
     } = op
     else {
@@ -513,8 +516,50 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         if match_count > 0 {
             let owned = replaced.into_owned();
             update_file_content(tx.pending, tx.deletions, &file_path, owned);
+            Ok(match_count)
+        } else if !regex_mode && (before_context.is_some() || after_context.is_some()) {
+            // Tier 3: Use context-based fallback when exact match fails.
+            match crate::fallback::resolve_with_fallback(
+                content,
+                from,
+                before_context.as_deref(),
+                after_context.as_deref(),
+            ) {
+                Ok(anchor) => {
+                    let to_text = to.as_deref().unwrap_or("");
+                    let new_content = format!(
+                        "{}{}{}",
+                        &content[..anchor.start_offset],
+                        to_text,
+                        &content[anchor.start_offset + anchor.matched_text.len()..]
+                    );
+                    update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+                    tx.replace_hint = Some(format!(
+                        "fallback matched via {:?} strategy in {}",
+                        anchor.strategy, p,
+                    ));
+                    Ok(1)
+                }
+                Err(edit_error) => {
+                    tx.replace_hint = Some(edit_error.message.clone());
+                    Ok(0)
+                }
+            }
+        } else {
+            if !regex_mode {
+                // Tier 1: Provide "did you mean?" hints for literal no-match.
+                let similar = crate::fallback::find_similar_targets(content, from, 3);
+                if !similar.is_empty() {
+                    tx.replace_hint = Some(format!(
+                        "no matches for '{}' in {} (did you mean: {}?)",
+                        crate::fallback::truncate_str(from, 60),
+                        p,
+                        similar.join(", ")
+                    ));
+                }
+            }
+            Ok(0)
         }
-        Ok(match_count)
     } else if let Some(pattern) = glob {
         let matcher = Glob::new(pattern)?.compile_matcher();
         let matches_pattern = |path: &Path| {
@@ -828,12 +873,8 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
         )
 }
 
-fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     match op {
-        Operation::Replace { .. } => {
-            return execute_replace_op(op, tx);
-        }
-
         Operation::DocSet {
             path,
             selector,
@@ -933,6 +974,148 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             delete_where(root, &sel, predicate).map_err(path_err(path))?;
+        }
+
+        _ => unreachable!("execute_doc_op called with non-doc operation"),
+    }
+    Ok(())
+}
+
+fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    match op {
+        Operation::FileAppend { path, content } => {
+            let file_path = tx.cwd.join(path);
+            if !tx.deletions.contains(&file_path)
+                && !file_path.exists()
+                && !tx.pending.contains_key(&file_path)
+            {
+                anyhow::bail!("file does not exist: {path}");
+            }
+            let existing = read_file_content(tx.pending, &file_path)?;
+            let mut combined = existing.to_string();
+            if !combined.is_empty() && !combined.ends_with('\n') {
+                combined.push('\n');
+            }
+            combined.push_str(content);
+            update_file_content(tx.pending, tx.deletions, &file_path, combined);
+        }
+
+        Operation::FileCreate {
+            path,
+            content,
+            force,
+        } => {
+            let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
+            if force.unwrap_or(false) {
+                if tx.pending.contains_key(&file_path) || file_path.exists() {
+                    let _ = read_file_content(tx.pending, &file_path)?;
+                }
+                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
+            } else {
+                let exists_in_tx =
+                    tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
+                if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
+                    anyhow::bail!("file already exists: {path}");
+                }
+                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
+            }
+        }
+
+        Operation::FileDelete { path } => {
+            let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
+            let created_in_tx = match tx.pending.get(&file_path) {
+                Some((original, _)) => original.is_empty() && !file_path.exists(),
+                None => {
+                    let _ = read_file_content(tx.pending, &file_path)?;
+                    false
+                }
+            };
+
+            if created_in_tx {
+                tx.pending.remove(&file_path);
+                tx.deletions.remove(&file_path);
+            } else {
+                update_file_content(tx.pending, tx.deletions, &file_path, String::new());
+                tx.deletions.insert(file_path);
+            }
+        }
+
+        Operation::FileRename { from, to, force } => {
+            let src_path = tx.cwd.join(from);
+            let dst_path = tx.cwd.join(to);
+
+            if src_path.exists() && !src_path.is_file() {
+                anyhow::bail!("source is not a file: {from}");
+            }
+            if dst_path.exists() && !dst_path.is_file() {
+                anyhow::bail!("destination is not a file: {to}");
+            }
+
+            // If source and destination resolve to the same file, no-op.
+            if src_path == dst_path
+                || matches!(
+                    (src_path.canonicalize(), dst_path.canonicalize()),
+                    (Ok(ref s), Ok(ref d)) if s == d
+                )
+            {
+                return Ok(0);
+            }
+
+            // Read source content into pending (validates it exists).
+            let content = read_file_content(tx.pending, &src_path)?.to_string();
+
+            // Check destination does not already exist (unless force).
+            if !force {
+                let dst_exists = tx.pending.contains_key(&dst_path) || dst_path.exists();
+                if dst_exists {
+                    anyhow::bail!("destination already exists: {to}");
+                }
+            }
+
+            // Write content to destination.
+            update_file_content(tx.pending, tx.deletions, &dst_path, content);
+
+            // Delete source (same logic as file.delete for tx-created files).
+            let created_in_tx = match tx.pending.get(&src_path) {
+                Some((original, _)) => original.is_empty() && !src_path.exists(),
+                None => false,
+            };
+            if created_in_tx {
+                tx.pending.remove(&src_path);
+                tx.deletions.remove(&src_path);
+            } else {
+                update_file_content(tx.pending, tx.deletions, &src_path, String::new());
+                tx.deletions.insert(src_path);
+            }
+        }
+
+        _ => unreachable!("execute_file_op called with non-file operation"),
+    }
+    Ok(0)
+}
+
+fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    match op {
+        Operation::Replace { .. } => {
+            return execute_replace_op(op, tx);
+        }
+
+        Operation::DocSet { .. }
+        | Operation::DocDelete { .. }
+        | Operation::DocMerge { .. }
+        | Operation::DocAppend { .. }
+        | Operation::DocPrepend { .. }
+        | Operation::DocUpdate { .. }
+        | Operation::DocMove { .. }
+        | Operation::DocEnsure { .. }
+        | Operation::DocDeleteWhere { .. } => {
+            execute_doc_op(op, tx)?;
         }
 
         Operation::MdReplaceSection {
@@ -1053,45 +1236,11 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             }
         }
 
-        Operation::FileAppend { path, content } => {
-            let file_path = tx.cwd.join(path);
-            if !tx.deletions.contains(&file_path)
-                && !file_path.exists()
-                && !tx.pending.contains_key(&file_path)
-            {
-                anyhow::bail!("file does not exist: {path}");
-            }
-            let existing = read_file_content(tx.pending, &file_path)?;
-            let mut combined = existing.to_string();
-            if !combined.is_empty() && !combined.ends_with('\n') {
-                combined.push('\n');
-            }
-            combined.push_str(content);
-            update_file_content(tx.pending, tx.deletions, &file_path, combined);
-        }
-
-        Operation::FileCreate {
-            path,
-            content,
-            force,
-        } => {
-            let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
-            }
-            if force.unwrap_or(false) {
-                if tx.pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(tx.pending, &file_path)?;
-                }
-                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
-            } else {
-                let exists_in_tx =
-                    tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
-                if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
-                    anyhow::bail!("file already exists: {path}");
-                }
-                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
-            }
+        Operation::FileAppend { .. }
+        | Operation::FileCreate { .. }
+        | Operation::FileDelete { .. }
+        | Operation::FileRename { .. } => {
+            return execute_file_op(op, tx);
         }
 
         Operation::PatchApply {
@@ -1141,77 +1290,6 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 issue_count: issues.len(),
                 issues,
             });
-        }
-
-        Operation::FileDelete { path } => {
-            let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
-            }
-            let created_in_tx = match tx.pending.get(&file_path) {
-                Some((original, _)) => original.is_empty() && !file_path.exists(),
-                None => {
-                    let _ = read_file_content(tx.pending, &file_path)?;
-                    false
-                }
-            };
-
-            if created_in_tx {
-                tx.pending.remove(&file_path);
-                tx.deletions.remove(&file_path);
-            } else {
-                update_file_content(tx.pending, tx.deletions, &file_path, String::new());
-                tx.deletions.insert(file_path);
-            }
-        }
-
-        Operation::FileRename { from, to, force } => {
-            let src_path = tx.cwd.join(from);
-            let dst_path = tx.cwd.join(to);
-
-            if src_path.exists() && !src_path.is_file() {
-                anyhow::bail!("source is not a file: {from}");
-            }
-            if dst_path.exists() && !dst_path.is_file() {
-                anyhow::bail!("destination is not a file: {to}");
-            }
-
-            // If source and destination resolve to the same file, no-op.
-            if src_path == dst_path
-                || matches!(
-                    (src_path.canonicalize(), dst_path.canonicalize()),
-                    (Ok(ref s), Ok(ref d)) if s == d
-                )
-            {
-                return Ok(0);
-            }
-
-            // Read source content into pending (validates it exists).
-            let content = read_file_content(tx.pending, &src_path)?.to_string();
-
-            // Check destination does not already exist (unless force).
-            if !force {
-                let dst_exists = tx.pending.contains_key(&dst_path) || dst_path.exists();
-                if dst_exists {
-                    anyhow::bail!("destination already exists: {to}");
-                }
-            }
-
-            // Write content to destination.
-            update_file_content(tx.pending, tx.deletions, &dst_path, content);
-
-            // Delete source (same logic as file.delete for tx-created files).
-            let created_in_tx = match tx.pending.get(&src_path) {
-                Some((original, _)) => original.is_empty() && !src_path.exists(),
-                None => false,
-            };
-            if created_in_tx {
-                tx.pending.remove(&src_path);
-                tx.deletions.remove(&src_path);
-            } else {
-                update_file_content(tx.pending, tx.deletions, &src_path, String::new());
-                tx.deletions.insert(src_path);
-            }
         }
 
         #[cfg(feature = "ast")]
@@ -1407,6 +1485,21 @@ fn build_tx_output(
     }
 }
 
+fn build_full_tx_output(status: &'static str, result: &mut TxExecResult, cwd: &Path) -> TxOutput {
+    let mut output = build_tx_output(
+        status,
+        true,
+        &result.changes,
+        &result.deletions,
+        &result.existed_before,
+        cwd,
+    );
+    output.reads = std::mem::take(&mut result.tx_reads);
+    output.searches = std::mem::take(&mut result.tx_searches);
+    output.lints = std::mem::take(&mut result.tx_lints);
+    output
+}
+
 fn emit_output_json(output: &TxOutput, compact: bool) {
     let result = if compact {
         serde_json::to_string(output)
@@ -1511,11 +1604,7 @@ fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
             unified_diff(&display.to_string_lossy(), old, new)
         })
         .collect();
-    let total = diffs.iter().filter(|d| d.has_changes).count();
-    let result = DiffResult {
-        diffs,
-        total_files_changed: total,
-    };
+    let result = DiffResult { diffs };
     print!("{}", format_diff_result_colored(&result, color));
 }
 
@@ -1684,6 +1773,8 @@ struct TxExecResult {
     tx_lints: Vec<TxLintResult>,
     no_effective_changes: bool,
     replace_no_matches: bool,
+    /// "Did you mean?" hints when a replace found zero matches.
+    replace_hint: Option<String>,
 }
 
 /// Execute all plan operations in memory, apply write policy, and return
@@ -1706,6 +1797,7 @@ fn execute_and_collect(
     let mut tx_searches: Vec<TxSearchResult> = Vec::new();
     let mut tx_lints: Vec<TxLintResult> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
+    let mut replace_hint: Option<String> = None;
 
     crate::verbose!(
         "tx: executing plan with {} operations",
@@ -1733,6 +1825,7 @@ fn execute_and_collect(
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             tx_lints: &mut tx_lints,
+            replace_hint: None,
             cwd,
             quiet,
             structured,
@@ -1744,6 +1837,9 @@ fn execute_and_collect(
                     i + 1
                 );
                 total_replace_matches += count;
+                if replace_hint.is_none() {
+                    replace_hint = tx.replace_hint.take();
+                }
             }
             Err(e) => {
                 crate::verbose!("tx: operation {} failed: {e}", i + 1);
@@ -1788,6 +1884,7 @@ fn execute_and_collect(
         tx_lints,
         no_effective_changes,
         replace_no_matches,
+        replace_hint,
     })
 }
 
@@ -2025,37 +2122,36 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
 /// This is the in-process equivalent of spawning
 /// `patchloom --json tx <plan-file> --apply` and capturing its output.
 /// The MCP server and library API call this to avoid subprocess overhead.
-pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
-    crate::verbose!(
-        "tx: direct plan execution ({} ops, cwd={})",
-        plan.operations.len(),
-        cwd.display()
-    );
-    // Validate plan.
+/// Validate a plan and resolve its effective working directory, strictness, and
+/// config-derived global flags. Returns `Err` with `(exit_code, json)` on
+/// validation failure so callers can propagate early.
+fn validate_and_prepare_plan(
+    plan: &Plan,
+    cwd: &Path,
+    no_strict: bool,
+) -> Result<(PathBuf, bool, GlobalFlags), (u8, String)> {
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
             "unsupported plan version '{}' (this build supports version {})",
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
-        return Ok((
+        return Err((
             exit::PARSE_ERROR,
             make_error_json("parse_error", &msg, None),
         ));
     }
-    if let Err(e) = validate_plan_operations(&plan) {
-        return Ok((
+    if let Err(e) = validate_plan_operations(plan) {
+        return Err((
             exit::PARSE_ERROR,
             make_error_json("parse_error", &e.to_string(), None),
         ));
     }
 
-    // Resolve working directory (plan.cwd overrides argument).
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
     let config_strict = config_tx_strict(&effective_cwd);
-    let strict = plan::effective_strict(plan.strict, config_strict, false);
+    let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
 
-    // Load project config so write_policy picks up .patchloom.toml settings.
     let mut global = GlobalFlags {
         cwd: Some(effective_cwd.to_string_lossy().into_owned()),
         ..GlobalFlags::default()
@@ -2064,8 +2160,23 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
         crate::config::apply_config(&mut global, &config);
     }
 
+    Ok((effective_cwd, strict, global))
+}
+
+pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
+    crate::verbose!(
+        "tx: direct plan execution ({} ops, cwd={})",
+        plan.operations.len(),
+        cwd.display()
+    );
+
+    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
+        Ok(v) => v,
+        Err((code, json)) => return Ok((code, json)),
+    };
+
     // Execute operations and collect changes in memory.
-    let result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
+    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
             return Ok((
@@ -2076,21 +2187,16 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
     };
 
     if result.replace_no_matches {
-        return Ok((exit::NO_MATCHES, String::new()));
+        let hint_json = result
+            .replace_hint
+            .as_deref()
+            .map(|h| make_error_json("no_matches", h, None))
+            .unwrap_or_default();
+        return Ok((exit::NO_MATCHES, hint_json));
     }
 
     if result.no_effective_changes {
-        let mut output = build_tx_output(
-            "success",
-            true,
-            &result.changes,
-            &result.deletions,
-            &result.existed_before,
-            &effective_cwd,
-        );
-        output.reads = result.tx_reads;
-        output.searches = result.tx_searches;
-        output.lints = result.tx_lints;
+        let output = build_full_tx_output("success", &mut result, &effective_cwd);
         let json = serde_json::to_string_pretty(&output)?;
         return Ok((exit::SUCCESS, json));
     }
@@ -2144,17 +2250,7 @@ pub fn execute_plan_direct(plan: Plan, cwd: &Path) -> anyhow::Result<(u8, String
         ));
     }
 
-    let mut output = build_tx_output(
-        "success",
-        true,
-        &result.changes,
-        &result.deletions,
-        &result.existed_before,
-        &effective_cwd,
-    );
-    output.reads = result.tx_reads;
-    output.searches = result.tx_searches;
-    output.lints = result.tx_lints;
+    let output = build_full_tx_output("success", &mut result, &effective_cwd);
     let json = serde_json::to_string_pretty(&output)?;
     Ok((exit::SUCCESS, json))
 }
@@ -2203,34 +2299,20 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    if plan.version != crate::plan::SCHEMA_VERSION {
-        let msg = format!(
-            "unsupported plan version '{}' (this build supports version {})",
-            plan.version,
-            crate::plan::SCHEMA_VERSION
-        );
-        if structured {
-            emit_error_json("parse_error", &msg, None, compact);
-        } else {
-            eprintln!("tx: {msg}");
-        }
-        return Ok(exit::PARSE_ERROR);
-    }
-
-    if let Err(e) = validate_plan_operations(&plan) {
-        if structured {
-            emit_error_json("parse_error", &e.to_string(), None, compact);
-        } else {
-            eprintln!("tx: plan parse error: {e}");
-        }
-        return Ok(exit::PARSE_ERROR);
-    }
-
-    // 3. Resolve working directory (plan.cwd overrides global --cwd).
+    // 3. Validate plan and resolve working directory.
     let base_cwd = global.resolve_cwd()?;
-    let cwd = resolve_plan_cwd(&base_cwd, plan.cwd.as_deref());
-    let config_strict = config_tx_strict(&cwd);
-    let strict = plan::effective_strict(plan.strict, config_strict, args.no_strict);
+    let (cwd, strict, _resolved_global) =
+        match validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
+            Ok(v) => v,
+            Err((code, msg)) => {
+                if structured {
+                    emit_error_json("parse_error", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(code);
+            }
+        };
 
     if plan.cwd.is_some() && !cwd.is_dir() {
         let msg = format!(
@@ -2274,33 +2356,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::NO_MATCHES);
             }
             if structured {
-                let mut output = build_tx_output(
-                    "success",
-                    true,
-                    &result.changes,
-                    &result.deletions,
-                    &result.existed_before,
-                    &cwd,
-                );
-                output.reads = std::mem::take(&mut result.tx_reads);
-                output.searches = std::mem::take(&mut result.tx_searches);
-                output.lints = std::mem::take(&mut result.tx_lints);
+                let output = build_full_tx_output("success", &mut result, &cwd);
                 emit_output_json(&output, compact);
             }
             return Ok(exit::SUCCESS);
         }
         if structured {
-            let mut output = build_tx_output(
-                "changes_detected",
-                true,
-                &result.changes,
-                &result.deletions,
-                &result.existed_before,
-                &cwd,
-            );
-            output.reads = std::mem::take(&mut result.tx_reads);
-            output.searches = std::mem::take(&mut result.tx_searches);
-            output.lints = std::mem::take(&mut result.tx_lints);
+            let output = build_full_tx_output("changes_detected", &mut result, &cwd);
             emit_output_json(&output, compact);
         } else if !global.quiet {
             println!(
@@ -2353,17 +2415,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::NO_MATCHES);
         }
         if structured {
-            let mut output = build_tx_output(
-                "success",
-                true,
-                &result.changes,
-                &result.deletions,
-                &result.existed_before,
-                &cwd,
-            );
-            output.reads = std::mem::take(&mut result.tx_reads);
-            output.searches = std::mem::take(&mut result.tx_searches);
-            output.lints = std::mem::take(&mut result.tx_lints);
+            let output = build_full_tx_output("success", &mut result, &cwd);
             emit_output_json(&output, compact);
         } else if global.show_status() {
             let n_changed = result.changes.len();
@@ -2380,17 +2432,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Default / --diff mode: show unified diffs.
     if structured {
-        let mut output = build_tx_output(
-            "success",
-            true,
-            &result.changes,
-            &result.deletions,
-            &result.existed_before,
-            &cwd,
-        );
-        output.reads = std::mem::take(&mut result.tx_reads);
-        output.searches = std::mem::take(&mut result.tx_searches);
-        output.lints = std::mem::take(&mut result.tx_lints);
+        let output = build_full_tx_output("success", &mut result, &cwd);
         emit_output_json(&output, compact);
     } else if !result.changes.is_empty() {
         print_diffs(&result.changes, &cwd, global.should_color());

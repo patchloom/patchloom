@@ -222,11 +222,7 @@ fn make_diff_output(replacements: &[FileReplacement], color: bool) -> String {
         .iter()
         .map(|r| unified_diff(&r.display_path, &r.original, &r.replaced))
         .collect();
-    let total_files_changed = diffs.iter().filter(|d| d.has_changes).count();
-    let diff_result = DiffResult {
-        diffs,
-        total_files_changed,
-    };
+    let diff_result = DiffResult { diffs };
     diff::format_diff_result_colored(&diff_result, color)
 }
 

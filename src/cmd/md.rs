@@ -141,10 +141,7 @@ fn apply_mutation(
     if (!global.apply && !global.check) || global.diff || global.confirm {
         let d = unified_diff(display_path, original, &final_content);
         if d.has_changes {
-            let result = DiffResult {
-                diffs: vec![d],
-                total_files_changed: 1,
-            };
+            let result = DiffResult { diffs: vec![d] };
             print!(
                 "{}",
                 diff::format_diff_result_colored(&result, global.should_color())

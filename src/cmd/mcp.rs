@@ -32,7 +32,7 @@ fn default_strict_true() -> bool {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocSetParams {
+pub(crate) struct DocSetParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Selector for the value to set (e.g., `version`, `db.pool`, `items[0].name`).
@@ -47,7 +47,7 @@ pub struct DocSetParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocDeleteParams {
+pub(crate) struct DocDeleteParams {
     /// File path.
     pub path: String,
     /// Selector for the value to delete.
@@ -57,7 +57,7 @@ pub struct DocDeleteParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocMergeParams {
+pub(crate) struct DocMergeParams {
     /// File path.
     pub path: String,
     /// Object to deep-merge into the document root.
@@ -67,7 +67,7 @@ pub struct DocMergeParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocArrayParams {
+pub(crate) struct DocArrayParams {
     /// File path.
     pub path: String,
     /// Selector pointing to the target array.
@@ -79,7 +79,7 @@ pub struct DocArrayParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocEnsureParams {
+pub(crate) struct DocEnsureParams {
     /// File path.
     pub path: String,
     /// Selector for the value to ensure exists.
@@ -91,7 +91,7 @@ pub struct DocEnsureParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocUpdateParams {
+pub(crate) struct DocUpdateParams {
     /// File path.
     pub path: String,
     /// Wildcard selector for items to update (e.g., `items[*]`).
@@ -103,7 +103,7 @@ pub struct DocUpdateParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocMoveParams {
+pub(crate) struct DocMoveParams {
     /// File path.
     pub path: String,
     /// Source selector path to move from.
@@ -115,7 +115,7 @@ pub struct DocMoveParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocDeleteWhereParams {
+pub(crate) struct DocDeleteWhereParams {
     /// File path.
     pub path: String,
     /// Selector pointing to the target array.
@@ -127,7 +127,7 @@ pub struct DocDeleteWhereParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct ReplaceParams {
+pub(crate) struct ReplaceParams {
     /// File path.
     pub path: String,
     /// Text to find.
@@ -162,6 +162,12 @@ pub struct ReplaceParams {
     /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
     #[serde(default)]
     pub word_boundary: bool,
+    /// Context line(s) before the target. Enables anchor-based fallback
+    /// matching when the exact `from` text is not found.
+    pub before_context: Option<String>,
+    /// Context line(s) after the target. Enables anchor-based fallback
+    /// matching when the exact `from` text is not found.
+    pub after_context: Option<String>,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -170,7 +176,7 @@ pub struct ReplaceParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocGetParams {
+pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Selector for the value to read (e.g., "version", "db.pool").
@@ -180,7 +186,7 @@ pub struct DocGetParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct ReadFileParams {
+pub(crate) struct ReadFileParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Optional line range (e.g., "10:20"). Omit to read the entire file.
@@ -190,7 +196,7 @@ pub struct ReadFileParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdLintAgentsParams {
+pub(crate) struct MdLintAgentsParams {
     /// Markdown file path (typically AGENTS.md).
     pub path: String,
 }
@@ -198,7 +204,7 @@ pub struct MdLintAgentsParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdUpsertBulletParams {
+pub(crate) struct MdUpsertBulletParams {
     /// Markdown file path.
     pub path: String,
     /// Heading to find (e.g., "## Rules").
@@ -210,7 +216,7 @@ pub struct MdUpsertBulletParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdTableAppendParams {
+pub(crate) struct MdTableAppendParams {
     /// Markdown file path.
     pub path: String,
     /// Heading above the target table.
@@ -222,7 +228,7 @@ pub struct MdTableAppendParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdReplaceSectionParams {
+pub(crate) struct MdReplaceSectionParams {
     /// Markdown file path.
     pub path: String,
     /// Heading of the section to replace.
@@ -234,7 +240,7 @@ pub struct MdReplaceSectionParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdInsertParams {
+pub(crate) struct MdInsertParams {
     /// Markdown file path.
     pub path: String,
     /// Heading to target (e.g., "## Changelog").
@@ -246,7 +252,7 @@ pub struct MdInsertParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct MdMoveSectionParams {
+pub(crate) struct MdMoveSectionParams {
     /// Source file path containing the section to move.
     pub path: String,
     /// Heading of the section to move (e.g., "## FAQ").
@@ -265,7 +271,7 @@ pub struct MdMoveSectionParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct TidyParams {
+pub(crate) struct TidyParams {
     /// File path to normalize.
     pub path: String,
 }
@@ -273,7 +279,7 @@ pub struct TidyParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct FileRenameParams {
+pub(crate) struct FileRenameParams {
     /// Source file path (relative to working directory).
     pub from: String,
     /// Destination file path (relative to working directory).
@@ -286,7 +292,7 @@ pub struct FileRenameParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct AppendFileParams {
+pub(crate) struct AppendFileParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Content to append to the file.
@@ -296,7 +302,7 @@ pub struct AppendFileParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct CreateFileParams {
+pub(crate) struct CreateFileParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Content to write to the new file.
@@ -309,7 +315,7 @@ pub struct CreateFileParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DeleteFileParams {
+pub(crate) struct DeleteFileParams {
     /// File path (relative to working directory).
     pub path: String,
 }
@@ -317,7 +323,7 @@ pub struct DeleteFileParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct PatchParams {
+pub(crate) struct PatchParams {
     pub diff: String,
     #[serde(default)]
     pub on_stale: crate::ops::patch::OnStale,
@@ -331,7 +337,7 @@ pub struct PatchParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct SearchParams {
+pub(crate) struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
     /// Paths to search in (defaults to current directory).
@@ -368,7 +374,7 @@ pub struct SearchParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocQueryParams {
+pub(crate) struct DocQueryParams {
     /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
     /// "select" (filter array), or "flatten" (list all paths).
     pub action: String,
@@ -381,7 +387,7 @@ pub struct DocQueryParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct DocDiffParams {
+pub(crate) struct DocDiffParams {
     /// First file path.
     pub file_a: String,
     /// Second file path.
@@ -395,7 +401,7 @@ pub struct DocDiffParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct BatchReplaceParams {
+pub(crate) struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
     pub files: Vec<String>,
     /// Text to find in each file.
@@ -423,7 +429,7 @@ pub struct BatchReplaceParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct BatchTidyParams {
+pub(crate) struct BatchTidyParams {
     /// File paths to normalize (relative to working directory).
     pub files: Vec<String>,
     /// Roll back all writes when format/validate lifecycle steps fail.
@@ -447,13 +453,12 @@ const MAX_BATCH_FILES: usize = 1000;
 /// Maximum nesting depth for JSON value parameters.
 const MAX_JSON_DEPTH: usize = 64;
 
-fn validate_content_size(field: &str, value: &str) -> Result<(), McpError> {
-    if value.len() > MAX_CONTENT_BYTES {
+fn validate_size(field: &str, value: &str, max_bytes: usize) -> Result<(), McpError> {
+    if value.len() > max_bytes {
         return Err(McpError::invalid_params(
             format!(
-                "{field} exceeds maximum size ({} bytes, limit {})",
+                "{field} exceeds maximum size ({} bytes, limit {max_bytes})",
                 value.len(),
-                MAX_CONTENT_BYTES
             ),
             None,
         ));
@@ -461,18 +466,12 @@ fn validate_content_size(field: &str, value: &str) -> Result<(), McpError> {
     Ok(())
 }
 
+fn validate_content_size(field: &str, value: &str) -> Result<(), McpError> {
+    validate_size(field, value, MAX_CONTENT_BYTES)
+}
+
 fn validate_param_size(field: &str, value: &str) -> Result<(), McpError> {
-    if value.len() > MAX_PARAM_BYTES {
-        return Err(McpError::invalid_params(
-            format!(
-                "{field} exceeds maximum size ({} bytes, limit {})",
-                value.len(),
-                MAX_PARAM_BYTES
-            ),
-            None,
-        ));
-    }
-    Ok(())
+    validate_size(field, value, MAX_PARAM_BYTES)
 }
 
 fn validate_json_depth(field: &str, value: &serde_json::Value) -> Result<(), McpError> {
@@ -1147,12 +1146,31 @@ impl PatchloomService {
         if let Some(ref ia) = p.insert_after {
             validate_content_size("insert_after", ia)?;
         }
+        // Tier 2: pre-validate structured file edits and collect warnings.
+        let validation_warnings = if !p.regex {
+            let abs = self.cwd().join(&p.path);
+            if let Ok(content) = std::fs::read_to_string(&abs) {
+                let to_str = p.to.as_deref().unwrap_or("");
+                let result =
+                    crate::fallback::validate_edit(&content, &p.from, to_str, Some(&p.path));
+                let mut warnings = result.warnings;
+                if !result.valid {
+                    warnings.extend(result.errors);
+                }
+                warnings
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
         let mode = if p.regex {
             Some("regex".to_string())
         } else {
             None
         };
-        execute_plan_validated(
+        let mut tool_result = execute_plan_validated(
             make_plan_strict(
                 vec![Operation::Replace {
                     glob: None,
@@ -1169,11 +1187,28 @@ impl PatchloomService {
                     whole_line: p.whole_line,
                     range: p.range,
                     word_boundary: p.word_boundary,
+                    before_context: p.before_context,
+                    after_context: p.after_context,
                 }],
                 Some(p.strict),
             ),
             self.cwd(),
-        )
+        )?;
+
+        // Append validation warnings to the response.
+        if !validation_warnings.is_empty() {
+            let warning_text = format!(
+                "\n\nWarnings:\n{}",
+                validation_warnings
+                    .iter()
+                    .map(|w| format!("  - {w}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            tool_result.content.push(Content::text(warning_text));
+        }
+
+        Ok(tool_result)
     }
 
     #[tool(
@@ -1492,6 +1527,8 @@ impl PatchloomService {
                 whole_line: false,
                 range: None,
                 word_boundary: p.word_boundary,
+                before_context: None,
+                after_context: None,
             })
             .collect();
         execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
@@ -1572,7 +1609,7 @@ impl ServerHandler for PatchloomService {
 }
 
 /// Run the MCP server on stdio.
-pub fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyhow::Result<u8> {
+pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let service = PatchloomService::new(cwd, log)?;
 
