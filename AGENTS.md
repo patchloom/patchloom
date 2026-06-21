@@ -25,15 +25,27 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make audit-test-hygiene` | Audit test names and weak assertions for staleness after refactors (run after MPI or breaking changes) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
-<<<<<<< HEAD
 | `make fuzz` | Run fuzz tests (8 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-mcp` | Run MCP benchmarks: per-call latency vs CLI process spawn (not part of `check`) |
 | `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |
 | `make bench-agent-dry-run` | Preview agent benchmark prompts without calling the LLM API |
 | `make bench-agent-report` | Generate comparison report from saved agent benchmark results. Use `FILE=path` for specific file |
+| `make git-clean` | Remove known temp files that pollute `git status` (e.g. `.lycheecache` from lychee) |
+| `make clean` | Remove build artifacts and temp files |
 
 Always run `make check` before committing. It is the full CI gate.
+
+## Git hygiene
+
+Keep the working tree clean:
+
+- `git status --short` should be empty (except when intentionally on the release-please synthetic branch).
+- Run `make git-clean` to remove temp files such as `.lycheecache` (created when `cache = true` in `lychee.toml`).
+- At the end of any session or before switching tasks: `git fetch --all --prune`, `make git-clean`, `git status --short`, and ensure you are on a clean `origin/main` (or the allowed release-please branch).
+- Common sources of "dirty" state: lychee cache, local edits during rebase/force work on release-please, Cargo.lock drift from different tool versions. Fix them explicitly rather than carrying them.
+
+See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`.
 
 ## Project structure
 
