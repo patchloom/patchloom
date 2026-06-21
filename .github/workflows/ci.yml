@@ -19,7 +19,34 @@ permissions:
   actions: read
 
 jobs:
-  ci:
+  changes:
+    # Detect whether source code changed. On non-PR events (push, schedule,
+    # merge_group) this job is skipped, which causes all downstream jobs to
+    # run unconditionally via the `needs.changes.result == 'skipped'` guard.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'Cargo.*'
+              - 'tests/**'
+              - 'Makefile'
+              - 'fuzz/**'
+              - 'benches/**'
+              - '.github/actions/**'
+              - '.github/workflows/ci.yml'
+
+  build-and-test:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -41,6 +68,8 @@ jobs:
         run: make check
 
   ci-windows:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -73,6 +102,8 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   ci-macos:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -94,6 +125,8 @@ jobs:
         run: make check
 
   msrv:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -118,6 +151,8 @@ jobs:
         run: cargo check --all-targets --all-features
 
   msrv-macos:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -142,6 +177,8 @@ jobs:
         run: cargo check --all-targets --all-features
 
   coverage:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -283,6 +320,8 @@ jobs:
           color: blue
 
   bench:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -369,6 +408,8 @@ jobs:
         run: python3 benches/ci/bench_compare.py "$RUNNER_TEMP/baseline" "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
 
   fuzz:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -412,6 +453,8 @@ jobs:
         run: cargo fuzz run ${{ matrix.target }} --target x86_64-unknown-linux-gnu -- -max_total_time=60
 
   agent-dry-run:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -458,6 +501,8 @@ jobs:
           feature-group: all-features
 
   audit:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -477,3 +522,32 @@ jobs:
 
       - name: Run audit
         run: cargo audit
+
+  ci:
+    # Lightweight gate that satisfies the "ci" required status check.
+    # Reports success when build-and-test passes OR was skipped (docs-only PR).
+    needs: [build-and-test, ci-windows, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Gate
+        run: |
+          results=("$BUILD" "$WINDOWS" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT")
+          for r in "${results[@]}"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "Upstream job failed or was cancelled: $r"
+              exit 1
+            fi
+          done
+        env:
+          BUILD: ${{ needs.build-and-test.result }}
+          WINDOWS: ${{ needs.ci-windows.result }}
+          MACOS: ${{ needs.ci-macos.result }}
+          MSRV: ${{ needs.msrv.result }}
+          MSRV_MACOS: ${{ needs.msrv-macos.result }}
+          COV: ${{ needs.coverage.result }}
+          BENCH: ${{ needs.bench.result }}
+          FUZZ: ${{ needs.fuzz.result }}
+          AGENT: ${{ needs.agent-dry-run.result }}
+          AUDIT: ${{ needs.audit.result }}

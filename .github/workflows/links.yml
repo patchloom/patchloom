@@ -21,8 +21,27 @@ permissions:
   contents: read
 
 jobs:
-  links:
-    name: Check Links
+  changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            docs:
+              - '**/*.md'
+              - 'lychee.toml'
+              - '.github/workflows/links.yml'
+
+  links-run:
+    name: Links Run
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.docs == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,3 +57,20 @@ jobs:
         with:
           args: --no-progress --config lychee.toml '**/*.md'
           fail: true
+
+  check-links:
+    # Lightweight gate satisfying the "Check Links" required status check.
+    name: Check Links
+    needs: [links-run]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Gate
+        run: |
+          if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+            echo "Link check failed or was cancelled"
+            exit 1
+          fi
+        env:
+          RESULT: ${{ needs.links-run.result }}
