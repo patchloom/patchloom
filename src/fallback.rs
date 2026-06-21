@@ -330,9 +330,10 @@ pub fn anchor_match(
         let matched_text = matched.join("\n");
 
         // Compute byte offset.
+        let line_sep_len = if content.contains("\r\n") { 2 } else { 1 };
         let start_offset = lines[..i]
             .iter()
-            .map(|l| l.len() + 1) // +1 for newline
+            .map(|l| l.len() + line_sep_len)
             .sum::<usize>();
 
         return Some(AnchorMatchResult {
@@ -643,6 +644,14 @@ mod tests {
             None,
         );
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn anchor_match_crlf_offset() {
+        let content = "line1\r\nline2\r\nline3\r\n";
+        let result = anchor_match(content, "line2", Some("line1"), None).unwrap();
+        // "line1\r\n" is 7 bytes, so line2 starts at offset 7.
+        assert_eq!(result.start_offset, 7);
     }
 
     #[test]
