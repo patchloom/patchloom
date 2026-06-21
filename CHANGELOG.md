@@ -4,6 +4,30 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.2.0...patchloom-v0.3.0) (2026-06-21)
+
+
+### Features
+
+* add --word-boundary flag to prevent partial-word matches ([#657](https://github.com/patchloom/patchloom/issues/657)) ([91893e2](https://github.com/patchloom/patchloom/commit/91893e2cafc1f615904665e83cf7dabd12d6e8ba))
+* add AST-aware operations using tree-sitter (20 languages) ([#658](https://github.com/patchloom/patchloom/issues/658)) ([17223e5](https://github.com/patchloom/patchloom/commit/17223e515a9e625999bc5dbff454b2ea2ec2b0df)), closes [#647](https://github.com/patchloom/patchloom/issues/647)
+* add file.append operation and --format flag on write commands ([#667](https://github.com/patchloom/patchloom/issues/667)) ([9a57f06](https://github.com/patchloom/patchloom/commit/9a57f06d58ac979701a3bfda9b3a8c7c514cf814)), closes [#661](https://github.com/patchloom/patchloom/issues/661) [#662](https://github.com/patchloom/patchloom/issues/662)
+* **ast:** add map, replace, impact, and diff subcommands ([#650](https://github.com/patchloom/patchloom/issues/650), [#653](https://github.com/patchloom/patchloom/issues/653), [#654](https://github.com/patchloom/patchloom/issues/654), [#655](https://github.com/patchloom/patchloom/issues/655)) ([#660](https://github.com/patchloom/patchloom/issues/660)) ([d4eef5a](https://github.com/patchloom/patchloom/commit/d4eef5a17db9891cabdfbd265cbabdfa2534c588))
+* **ast:** add search, refs, and deps subcommands ([#649](https://github.com/patchloom/patchloom/issues/649), [#651](https://github.com/patchloom/patchloom/issues/651), [#652](https://github.com/patchloom/patchloom/issues/652)) ([#659](https://github.com/patchloom/patchloom/issues/659)) ([72eccb8](https://github.com/patchloom/patchloom/commit/72eccb83405e54ce92676c4be485ad1e0779c8b6))
+
+
+### Bug Fixes
+
+* add AST and word_boundary to all operation surfaces ([#666](https://github.com/patchloom/patchloom/issues/666)) ([ff85bb7](https://github.com/patchloom/patchloom/commit/ff85bb756654dd2504b78242685c8b9b7658905f)), closes [#663](https://github.com/patchloom/patchloom/issues/663) [#664](https://github.com/patchloom/patchloom/issues/664) [#665](https://github.com/patchloom/patchloom/issues/665)
+* **ci:** remove dependabot[bot] from auto-approve actor list ([#648](https://github.com/patchloom/patchloom/issues/648)) ([677982d](https://github.com/patchloom/patchloom/commit/677982dae876dd9c3f1b2682af38d1657027381a))
+* improvement cycle 19 - PTY flush, MCP tests, doc updates ([#670](https://github.com/patchloom/patchloom/issues/670)) ([af289e9](https://github.com/patchloom/patchloom/commit/af289e9c76a9d119b1c12876d76400a99339d7b5))
+* move VS Code badge to distribution row to prevent 4-row wrap ([#643](https://github.com/patchloom/patchloom/issues/643)) ([3461e2d](https://github.com/patchloom/patchloom/commit/3461e2d67e0c4d3ab65a98c12fdac2c7a2156a56))
+* re-expose fallback and AST internals as public API for library consumers ([#677](https://github.com/patchloom/patchloom/issues/677)) ([c25ce76](https://github.com/patchloom/patchloom/commit/c25ce766b4d5605d2284136a964be27bb07cbc08))
+* rebalance badge rows to 5-5-3 to prevent row 2 wrap ([#644](https://github.com/patchloom/patchloom/issues/644)) ([bdc5da0](https://github.com/patchloom/patchloom/commit/bdc5da03aaedc429dd7a257a210c68f16b0cabb4))
+* remove bump-patch-for-minor-pre-major to align with semver-checks ([#672](https://github.com/patchloom/patchloom/issues/672)) ([f930c9b](https://github.com/patchloom/patchloom/commit/f930c9bc90d53a9ba466ebedf81bd9546c190305))
+* replace retired VS Code Marketplace badge with gist endpoint ([#641](https://github.com/patchloom/patchloom/issues/641)) ([2b30ab6](https://github.com/patchloom/patchloom/commit/2b30ab6195377510f59c1bc6f4676218d27606b9))
+* run --format command in --confirm paths for all write commands ([#668](https://github.com/patchloom/patchloom/issues/668)) ([c884f75](https://github.com/patchloom/patchloom/commit/c884f753e29dfd3686ab4c394869ecdfab1bc4ee))
+
 ## [0.2.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.7...patchloom-v0.2.0) (2026-06-18)
 
 
