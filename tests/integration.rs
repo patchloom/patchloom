@@ -15100,8 +15100,8 @@ fn test_smoke_source_install_docs_use_cargo_install_path() {
 fn test_smoke_installation_docs_confirm_mcp_included_by_default() {
     let content = fs::read_to_string(installation_path()).unwrap();
     assert!(
-        content.contains("MCP support by default"),
-        "installation guide should confirm MCP is included by default"
+        content.contains("all features by default"),
+        "installation guide should confirm all features are included by default"
     );
     assert!(
         content.contains("--no-default-features"),
@@ -15423,13 +15423,13 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,400+ tests"));
+    assert!(launch.contains("1,500+ tests"));
     assert!(
-        launch.contains("20 commands"),
+        launch.contains("22 commands"),
         "launch announcement CLI command count drifted"
     );
     assert!(
-        launch.contains("30 structured tool calls"),
+        launch.contains("31 structured tool calls"),
         "launch announcement MCP tool count drifted"
     );
     let merge_value = r#"{"settings": {"debug": true}}"#;

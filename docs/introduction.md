@@ -28,7 +28,7 @@ replace README.md "1.0.0" "2.0.0"
 EOF
 ```
 
-## 20 commands
+## 22 commands
 
 | Category | Command | Description |
 |----------|---------|-------------|
@@ -37,7 +37,9 @@ EOF
 | | `patch` | Preview or apply unified diffs |
 | Structured | `doc` | Parser-backed JSON, YAML, and TOML operations |
 | | `md` | Markdown section-aware operations |
-| Files | `create` | Create a new file with content |
+| Code | `ast` | AST-aware symbol operations via tree-sitter (20 languages) |
+| Files | `append` | Append content to an existing file |
+| | `create` | Create a new file with content |
 | | `delete` | Delete a file |
 | | `rename` | Rename or move a file |
 | | `read` | Read file contents with optional line range |
