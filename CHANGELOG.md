@@ -4,6 +4,18 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.3.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* gate AstRename/AstReplace match arm behind cfg(feature = "ast") ([#680](https://github.com/patchloom/patchloom/issues/680)) ([ceea1f9](https://github.com/patchloom/patchloom/commit/ceea1f9e6669713d9697699d8dbd001296c242b9)), closes [#679](https://github.com/patchloom/patchloom/issues/679)
+* MCP validation parity, config boundary, empty file, cross-file md_move ([#712](https://github.com/patchloom/patchloom/issues/712)) ([9c37f01](https://github.com/patchloom/patchloom/commit/9c37f0180f578ab2ef809c3fa556446269ca82bf))
+* resolve tech-debt [#691](https://github.com/patchloom/patchloom/issues/691), [#694](https://github.com/patchloom/patchloom/issues/694), [#708](https://github.com/patchloom/patchloom/issues/708) (clap optional, AST tests, fuzz) ([#714](https://github.com/patchloom/patchloom/issues/714)) ([e116430](https://github.com/patchloom/patchloom/commit/e1164304334e50e0971bce8a085229559d04ebbc))
+* text and path matching bugs ([#685](https://github.com/patchloom/patchloom/issues/685), [#700](https://github.com/patchloom/patchloom/issues/700), [#701](https://github.com/patchloom/patchloom/issues/701)) ([#710](https://github.com/patchloom/patchloom/issues/710)) ([2f587d0](https://github.com/patchloom/patchloom/commit/2f587d0dbf94f184469675e98d134161cc6aeea9))
+* transaction engine atomicity and rename-after-delete ([#696](https://github.com/patchloom/patchloom/issues/696), [#697](https://github.com/patchloom/patchloom/issues/697), [#698](https://github.com/patchloom/patchloom/issues/698)) ([#711](https://github.com/patchloom/patchloom/issues/711)) ([fe51c17](https://github.com/patchloom/patchloom/commit/fe51c17dd2200b9a245e97d71e5027b6ccb1bfe8))
+* unique OPERATION_FAILED exit code, timestamp-based pruning, AST improvements ([#713](https://github.com/patchloom/patchloom/issues/713)) ([572fb08](https://github.com/patchloom/patchloom/commit/572fb0886465d289bca6987f1fb3fdd4cce83d80))
+
 ## [0.3.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.2.0...patchloom-v0.3.0) (2026-06-21)
 
 
