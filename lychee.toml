@@ -1,4 +1,6 @@
 cache = true
+max_retries = 3
+retry_wait_time = 5
 
 exclude = [
   "medium\\.com",
