@@ -142,3 +142,19 @@ fuzz: ## Run fuzz tests (requires nightly). Use FUZZ_TIME=N for seconds per targ
 		PATH="$$NIGHTLY_BIN:$$PATH" cargo fuzz run $$target -- -max_total_time=$(FUZZ_TIME) || exit 1; \
 	done; \
 	echo "All fuzz targets passed."
+
+force-release-version: ## Helper to reduce manual force-edits for release-please desync (tech-debt #738). Run: make force-release-version VERSION=0.5.0
+ifndef VERSION
+	$(error Set VERSION, e.g. make force-release-version VERSION=0.5.0)
+endif
+	@echo "Forcing release-please branch to $(VERSION)..."
+	@git fetch origin
+	@git checkout -B release-please--branches--main--components--patchloom origin/release-please--branches--main--components--patchloom
+	@sed -i.bak 's/"[^"]*"/"$(VERSION)"/' .release-please-manifest.json; rm -f .release-please-manifest.json.bak
+	@sed -i.bak 's/^version = ".*"/version = "$(VERSION)"/' Cargo.toml; rm -f Cargo.toml.bak
+	@make sync-patchloom-md || true
+	@git add .release-please-manifest.json Cargo.toml PATCHLOOM.md
+	@git commit -s -m "chore: force release version to $(VERSION) in release-please branch" || true
+	@git push origin HEAD:release-please--branches--main--components--patchloom
+	@echo "Now clean the PR: gh pr edit <PR> --title 'chore(main): release patchloom $(VERSION)'"
+	@echo "Full process in patchloom-contrib skill under 'Major version bumps'."

@@ -40,7 +40,11 @@ jobs:
         # Skip auto-merge for release-please PRs so the user controls
         # release cadence.  The PR is still approved (satisfies branch
         # protection) but waits for a manual merge click.
+        # For PRs that touch workflows (like this one), the App token often lacks
+        # `workflows` permission, so we swallow the error. The approval still happens.
         if: "!contains(github.event.pull_request.labels.*.name, 'autorelease: pending')"
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
+        run: |
+          gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+            || echo "Could not enable auto-merge (common when PR modifies .github/workflows/* and the approve App lacks 'workflows' permission). The PR was approved; manual merge or admin may be needed."
