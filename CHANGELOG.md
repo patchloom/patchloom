@@ -4,6 +4,16 @@ All notable changes to Patchloom are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+* tech-debt fixes for release-please major bumps and post-refactor hygiene (#725-#728):
+  - Expanded documented process for major version bumps and manual manifest edits in AGENTS.md and patchloom-contrib (addresses stale PRs, version confusion, positive intent framing).
+  - Added "Changelog framing for breaking changes" and "Post-refactor test name and assertion hygiene" guidance.
+  - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
+  - Cross-referenced in project docs.
+
 ## [0.4.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.4.0) (2026-06-21)
 
 ### Changed
