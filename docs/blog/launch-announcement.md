@@ -98,8 +98,8 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 
 ## By the numbers
 
-- **1,400+ tests**, zero unsafe code
-- **20 commands** including MCP server with 30 structured tool calls
+- **1,500+ tests**, zero unsafe code
+- **22 commands** including MCP server with 31 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
 - **MIT OR Apache-2.0** licensed

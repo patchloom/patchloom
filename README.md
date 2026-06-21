@@ -22,7 +22,7 @@
 
 **One binary. Every platform. Structured file edits for AI agents.**
 
-Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by selector (not regex), preserves comments, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
+Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by selector (not regex), preserves comments, understands code structure via tree-sitter (20 languages), batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
 
 ![Patchloom demo: 6 edits across 4 files in JSON, YAML, and TOML — one command, comments preserved](demo/demo.gif)
 
@@ -108,6 +108,7 @@ Agent: batch with
 | **Batch N files in 1 call** | `batch` and `tx` combine operations into one tool call with rollback | `batch --apply < ops.txt` |
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
 | **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append README.md --heading "API" --row "\| new \| row \|" --apply` |
+| **AST-aware code ops** | List, rename, replace, and analyze symbols using tree-sitter (20 languages) | `ast rename src/ old_name new_name --apply` |
 | **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx plan.json --apply` |
 | **MCP server** | Expose all operations as structured MCP tool calls | `patchloom mcp-server` |
 | **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
@@ -315,6 +316,7 @@ All API types are `Send + Sync`. Beyond the `api` module, utility modules are al
 | `tx` | JSON plan with format/validate lifecycle | Complex multi-file edits with rollback |
 | `doc` | Parser-backed JSON/YAML/TOML edits | Changing config values without breaking syntax |
 | `md` | Heading-aware markdown edits | Updating tables, sections, bullets in docs |
+| `ast` | AST-aware symbol operations via tree-sitter (20 languages) | Renaming identifiers, listing symbols, impact analysis |
 | `patch` | Apply unified diffs with stale detection | Replaying patches safely |
 | `tidy` | Text-file whitespace and newline normalization | CI checks for text tidiness |
 | `mcp-server` | MCP protocol server | MCP-capable agents (no shell syntax) |
@@ -325,6 +327,7 @@ All API types are `Send + Sync`. Beyond the `api` module, utility modules are al
 |---|---|
 | `search` | Fast literal or regex search across text files |
 | `replace` | Mechanical string replacement across text files with diff preview |
+| `append` | Append content to an existing file |
 | `create` | Create a new file with content |
 | `delete` | Delete a file |
 | `rename` | Move (rename) a file |

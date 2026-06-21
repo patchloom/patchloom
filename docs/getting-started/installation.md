@@ -44,8 +44,19 @@ cd patchloom
 cargo install --path .
 ```
 
-This builds with MCP support by default. To build without MCP
-(smaller binary), use `cargo install --path . --no-default-features`.
+This builds with all features by default (MCP server + AST operations).
+To build a smaller binary without specific features:
+
+```bash
+# Without MCP server (no tokio/async dependencies)
+cargo install --path . --no-default-features --features ast
+
+# Without AST operations (no tree-sitter grammars)
+cargo install --path . --no-default-features --features mcp
+
+# Minimal: no MCP, no AST
+cargo install --path . --no-default-features
+```
 
 If you're contributing from a source checkout, use `make check-fast`
 while iterating and `make check` before committing.
