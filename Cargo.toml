@@ -29,8 +29,9 @@ exclude = [
 
 [features]
 default = ["cli", "mcp", "ast"]
-# CLI (clap parser + all commands). Enabled by default.
-cli = []
+# CLI (clap parser + all commands). Enabled by default; disable for pure-library use
+# to avoid pulling clap and related dependencies.
+cli = ["dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs", "dep:ignore", "dep:globset"]
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
 # AST-aware operations using tree-sitter grammars (20 languages).
@@ -62,23 +63,23 @@ ast = [
 full = ["cli", "mcp", "ast"]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml_ng = "0.10"
 yaml-edit = "0.2"
 toml_edit = { version = "0.25", features = ["serde"] }
-ignore = "0.4"
-globset = "0.4"
+ignore = { version = "0.4", optional = true }
+globset = { version = "0.4", optional = true }
 memchr = "2"
 regex = "1"
 similar = { version = "3", features = ["text"] }
 strsim = "0.11"
 tempfile = "3"
 anyhow = "1"
-anstream = "1"
-ec4rs = "1"
-clap_complete = "4"
+anstream = { version = "1", optional = true }
+ec4rs = { version = "1", optional = true }
+clap_complete = { version = "4", optional = true }
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 schemars = { version = "1", optional = true }

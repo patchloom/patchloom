@@ -1,4 +1,7 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
+
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct HeadingInfo {
@@ -380,6 +383,102 @@ pub fn table_append_in(
 pub fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
     let (body_start, body_end) = find_section(content, heading)?;
     table_append_in(content, body_start, body_end, row)
+}
+
+/// Strip inline code spans (between backticks) from a line so that
+/// we don't false-positive on code examples.
+pub(crate) fn strip_inline_code(line: &str) -> Cow<'_, str> {
+    if !line.contains('`') {
+        return Cow::Borrowed(line);
+    }
+    let mut result = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('`') {
+        result.push_str(&rest[..open]);
+        let after_open = &rest[open + 1..];
+        if let Some(close) = after_open.find('`') {
+            rest = &after_open[close + 1..];
+        } else {
+            // Unmatched backtick — keep the rest as-is.
+            rest = after_open;
+            break;
+        }
+    }
+    result.push_str(rest);
+    Cow::Owned(result)
+}
+
+/// Detects a literal "git add ." (or "git add ." followed by whitespace)
+/// that is not inside code.
+pub(crate) fn has_dangerous_git_add_dot(line: &str) -> bool {
+    let needle = "git add .";
+    let mut start = 0;
+    while let Some(pos) = line[start..].find(needle) {
+        let abs = start + pos;
+        let after = abs + needle.len();
+        if after >= line.len() || line.as_bytes()[after].is_ascii_whitespace() {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
+/// A lint issue found in a markdown file.
+#[derive(Debug, Serialize)]
+pub struct LintIssue {
+    /// Description of the issue.
+    pub issue: &'static str,
+    /// Line number where the issue was found (if applicable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    /// Heading text related to the issue (if applicable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heading: Option<String>,
+}
+
+pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
+    let mut issues = Vec::new();
+
+    // 1. Duplicate headings (same text at same level).
+    let headings = parse_headings(content);
+    let mut seen: HashSet<(usize, String)> = HashSet::new();
+    for h in &headings {
+        let key = (h.level, h.text.trim().to_string());
+        if !seen.insert(key) {
+            issues.push(LintIssue {
+                issue: "duplicate heading",
+                line: Some(h.line_start + 1), // 1-based
+                heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
+            });
+        }
+    }
+
+    // 2. Dangerous git add commands (skip fenced code blocks and inline code).
+    for (idx, line) in non_fenced_lines(content) {
+        let stripped = strip_inline_code(line);
+        if has_dangerous_git_add_dot(&stripped)
+            || stripped.contains("git add -A")
+            || stripped.contains("git add --all")
+        {
+            issues.push(LintIssue {
+                issue: "dangerous command",
+                line: Some(idx + 1),
+                heading: None,
+            });
+        }
+    }
+
+    // 3. Missing final newline.
+    if !content.is_empty() && !content.ends_with('\n') {
+        issues.push(LintIssue {
+            issue: "missing final newline",
+            line: None,
+            heading: None,
+        });
+    }
+
+    issues
 }
 
 #[cfg(test)]

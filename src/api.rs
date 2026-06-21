@@ -137,7 +137,7 @@ pub enum EolNormalization {
 
 /// Convert user-facing `WritePolicyOptions` to the internal `WritePolicy`.
 pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
-    use crate::cli::global::EolMode;
+    use crate::write::EolMode;
     WritePolicy {
         ensure_final_newline: opts.ensure_final_newline,
         normalize_eol: match opts.normalize_eol {
@@ -654,9 +654,9 @@ pub fn md_dedupe_headings(
 
 /// A lint issue found in a markdown file.
 ///
-/// Re-exported from `cmd::md` so library consumers don't need to import
+/// Re-exported from `ops::md` so library consumers don't need to import
 /// from the internal `cmd` module path.
-pub use crate::cmd::md::LintIssue;
+pub use crate::ops::md::LintIssue;
 
 /// Lint a markdown file for common agent-rules issues (duplicate headings,
 /// missing sections, etc.).
@@ -665,7 +665,7 @@ pub use crate::cmd::md::LintIssue;
 pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<LintIssue>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
-    Ok(crate::cmd::md::lint_agents_content(&content))
+    Ok(crate::ops::md::lint_agents_content(&content))
 }
 
 /// Insert content before a markdown heading.
@@ -1031,6 +1031,10 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 ///
 /// All operations succeed or all are rolled back. Returns the exit code
 /// and a JSON string with the operation results.
+///
+/// Requires the `cli` feature (enabled by default) because it reuses the
+/// transaction execution engine (which is part of the CLI command set).
+#[cfg(feature = "cli")]
 pub fn execute_plan(plan: crate::plan::Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
     crate::cmd::tx::execute_plan_direct(plan, cwd)
 }
@@ -1363,6 +1367,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn execute_plan_runs_operations() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
@@ -1534,7 +1539,7 @@ mod tests {
         assert!(policy.collapse_blanks);
         assert_eq!(
             policy.normalize_eol,
-            crate::cli::global::EolMode::Lf,
+            crate::write::EolMode::Lf,
             "should map EolNormalization::Lf to EolMode::Lf"
         );
 
@@ -2233,7 +2238,7 @@ mod tests {
         let policy = make_write_policy(&opts);
         assert_eq!(
             policy.normalize_eol,
-            crate::cli::global::EolMode::Crlf,
+            crate::write::EolMode::Crlf,
             "should map EolNormalization::Crlf to EolMode::Crlf"
         );
     }

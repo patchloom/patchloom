@@ -94,7 +94,7 @@ struct TxReadResult {
 struct TxLintResult {
     path: String,
     issue_count: usize,
-    issues: Vec<crate::cmd::md::LintIssue>,
+    issues: Vec<crate::ops::md::LintIssue>,
 }
 
 #[derive(Debug, Args)]
@@ -1298,7 +1298,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
         Operation::MdLintAgents { path } => {
             let file_path = tx.cwd.join(path);
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-            let issues = crate::cmd::md::lint_agents_content(content);
+            let issues = crate::ops::md::lint_agents_content(content);
             tx.tx_lints.push(TxLintResult {
                 path: path.clone(),
                 issue_count: issues.len(),

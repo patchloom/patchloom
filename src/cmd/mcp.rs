@@ -1384,7 +1384,7 @@ impl PatchloomService {
         let abs = self.cwd().join(&p.path);
         let content = std::fs::read_to_string(&abs)
             .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
-        let issues = crate::cmd::md::lint_agents_content(&content);
+        let issues = crate::ops::md::lint_agents_content(&content);
         let json = serde_json::to_string_pretty(&issues)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))

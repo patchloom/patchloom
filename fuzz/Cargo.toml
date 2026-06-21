@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
+tempfile = "3"
 
 [dependencies.patchloom]
 path = ".."
@@ -45,4 +46,14 @@ doc = false
 [[bin]]
 name = "fuzz_doc_parse"
 path = "fuzz_targets/fuzz_doc_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_containment_check"
+path = "fuzz_targets/fuzz_containment_check.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_fallback_resolve"
+path = "fuzz_targets/fuzz_fallback_resolve.rs"
 doc = false

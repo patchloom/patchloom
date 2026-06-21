@@ -1,8 +1,10 @@
+#[cfg(feature = "cli")]
 use clap::Args;
 use std::io::BufRead;
 
 /// Color mode for terminal output.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum ColorMode {
     /// Auto-detect: color when stdout is a terminal.
     #[default]
@@ -13,80 +15,76 @@ pub enum ColorMode {
     Never,
 }
 
-/// Write policy for EOL normalization.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
-pub enum EolMode {
-    /// Keep existing line endings.
-    #[default]
-    Keep,
-    /// Normalize to LF.
-    Lf,
-    /// Normalize to CRLF.
-    Crlf,
-}
+/// Write policy for EOL normalization. Re-exported from `write` so that
+/// CLI code can continue to use `crate::cli::global::EolMode`.
+pub use crate::write::EolMode;
 
 /// Flags available to all subcommands (read and write).
 ///
 /// Write-only flags are `#[clap(skip)]` here so they don't appear in
 /// read-only subcommand help. Write commands flatten [`WriteFlags`]
 /// separately and the dispatcher merges them via [`GlobalFlags::merge_write`].
-#[derive(Debug, Default, Args)]
+#[derive(Debug, Default)]
+#[cfg_attr(feature = "cli", derive(Args))]
 pub struct GlobalFlags {
     /// Emit machine-readable JSON output.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub json: bool,
 
     /// Emit one JSON object per result line.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub jsonl: bool,
 
     /// Suppress non-JSON human-readable output.
-    #[arg(long, short = 'q', global = true)]
+    #[cfg_attr(feature = "cli", arg(long, short = 'q', global = true))]
     pub quiet: bool,
 
     /// Enable verbose diagnostic output on stderr for debugging.
     /// Can also be enabled via the PATCHLOOM_LOG environment variable.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub verbose: bool,
 
     /// Set working directory.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub cwd: Option<String>,
 
     /// Restrict target files by glob pattern (may be repeated).
-    #[arg(long, global = true, action = clap::ArgAction::Append)]
+    #[cfg_attr(feature = "cli", arg(long, global = true, action = clap::ArgAction::Append))]
     pub glob: Vec<String>,
 
     /// Read file list from a file or stdin (`-`), one path per line.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub files_from: Option<String>,
 
     /// When to use color: auto (default), always, or never.
-    #[arg(long, global = true, value_enum, default_value = "auto")]
+    #[cfg_attr(
+        feature = "cli",
+        arg(long, global = true, value_enum, default_value = "auto")
+    )]
     pub color: ColorMode,
 
     // -- Write-only flags (populated via merge_write in dispatch) -----------
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub diff: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub apply: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub check: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub ensure_final_newline: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub normalize_eol: Option<EolMode>,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub trim_trailing_whitespace: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub respect_editorconfig: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub collapse_blanks: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub confirm: bool,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub format: Option<String>,
-    #[clap(skip)]
+    #[cfg_attr(feature = "cli", clap(skip))]
     pub format_timeout: Option<u64>,
 }
 
@@ -95,51 +93,52 @@ pub struct GlobalFlags {
 /// Use `global = true` so these propagate into nested subcommands
 /// (e.g. `doc set`, `patch apply`). They only appear in help when
 /// the parent command flattens this struct.
-#[derive(Debug, Default, Args)]
+#[derive(Debug, Default)]
+#[cfg_attr(feature = "cli", derive(Args))]
 pub struct WriteFlags {
     /// Print unified diff for any write operation.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub diff: bool,
 
     /// Actually mutate files.
-    #[arg(long, global = true, conflicts_with = "check")]
+    #[cfg_attr(feature = "cli", arg(long, global = true, conflicts_with = "check"))]
     pub apply: bool,
 
     /// Compute and report changes without writing.
-    #[arg(long, global = true, conflicts_with = "apply")]
+    #[cfg_attr(feature = "cli", arg(long, global = true, conflicts_with = "apply"))]
     pub check: bool,
 
     /// Ensure non-empty written files end with a newline.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub ensure_final_newline: bool,
 
     /// Normalize line endings after write.
-    #[arg(long, global = true, value_enum)]
+    #[cfg_attr(feature = "cli", arg(long, global = true, value_enum))]
     pub normalize_eol: Option<EolMode>,
 
     /// Remove trailing whitespace on touched lines.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub trim_trailing_whitespace: bool,
 
     /// Read write policy from .editorconfig when present.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub respect_editorconfig: bool,
 
     /// Collapse consecutive blank lines into a single blank line after writing.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub collapse_blanks: bool,
 
     /// Show diff then prompt before applying. Implies --apply on confirmation.
-    #[arg(long, global = true, conflicts_with_all = ["apply", "check"])]
+    #[cfg_attr(feature = "cli", arg(long, global = true, conflicts_with_all = ["apply", "check"]))]
     pub confirm: bool,
 
     /// Run a shell command after successful --apply (e.g. "cargo fmt --all").
     /// Ignored in --diff and --check modes.
-    #[arg(long, global = true)]
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub format: Option<String>,
 
     /// Timeout in seconds for the --format command (default: 30).
-    #[arg(long, global = true, default_value = "30")]
+    #[cfg_attr(feature = "cli", arg(long, global = true, default_value = "30"))]
     pub format_timeout: Option<u64>,
 }
 
@@ -215,7 +214,14 @@ impl GlobalFlags {
                 if std::env::var_os("NO_COLOR").is_some() {
                     return false;
                 }
-                anstream::stdout().is_terminal()
+                #[cfg(feature = "cli")]
+                {
+                    anstream::stdout().is_terminal()
+                }
+                #[cfg(not(feature = "cli"))]
+                {
+                    false
+                }
             }
         }
     }
@@ -226,7 +232,16 @@ impl GlobalFlags {
     /// not set. This lets commands print brief summaries for humans without
     /// interfering with machine-readable stdout.
     pub fn show_status(&self) -> bool {
-        !self.quiet && !self.json && !self.jsonl && anstream::stderr().is_terminal()
+        !self.quiet && !self.json && !self.jsonl && {
+            #[cfg(feature = "cli")]
+            {
+                anstream::stderr().is_terminal()
+            }
+            #[cfg(not(feature = "cli"))]
+            {
+                false
+            }
+        }
     }
 
     /// Resolve the working directory from `--cwd`, defaulting to the process
