@@ -17,6 +17,12 @@ build: ## Run cargo build
 test: ## Run unit tests
 	cargo test --lib --all-features
 
+test-no-default: ## Run lib tests with no default features (pure lib use, exercises feature gating)
+	cargo test --lib --no-default-features
+
+test-ast-only: ## Run lib tests with only the ast feature (no cli, no mcp)
+	cargo test --lib --no-default-features --features ast
+
 integration-test: ## Run integration tests
 	cargo test --test integration --all-features
 
@@ -26,9 +32,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test integration-test pty-test check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test integration-test pty-test ## Fast check (skips doc verification)
+check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test ## Fast check (skips doc verification)
 
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
 	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \

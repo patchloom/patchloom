@@ -146,10 +146,7 @@ mod tests {
         let file = dir.path().join("target.txt");
         std::fs::write(&file, "content").unwrap();
 
-        let global = GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::test_apply();
         let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(!file.exists(), "--apply should delete the file");
@@ -161,10 +158,8 @@ mod tests {
         let file = dir.path().join("target.txt");
         std::fs::write(&file, "content").unwrap();
 
-        let global = GlobalFlags {
-            check: true,
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::test_default();
+        global.check = true;
         let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(file.exists(), "--check should not delete the file");
@@ -200,11 +195,8 @@ mod tests {
         let file = dir.path().join("target.txt");
         std::fs::write(&file, "content").unwrap();
 
-        let global = GlobalFlags {
-            cwd: Some(dir.path().to_string_lossy().into_owned()),
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
         let code = run(make_args(&file.to_string_lossy()), &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(!file.exists());

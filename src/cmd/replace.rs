@@ -400,10 +400,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn default_global() -> GlobalFlags {
-        GlobalFlags::default()
-    }
-
     fn make_args(from: &str, to: &str, paths: Vec<String>) -> ReplaceArgs {
         ReplaceArgs {
             from: from.to_string(),
@@ -435,7 +431,7 @@ mod tests {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -465,7 +461,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -495,7 +491,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(replacements.len(), 1);
         assert_eq!(
             replacements[0].replaced, "version = \"1.2.99\"\n",
@@ -514,7 +510,7 @@ mod tests {
             "replacement",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -529,7 +525,7 @@ mod tests {
             "new",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         let diff_output = make_diff_output(&replacements, false);
 
         assert!(diff_output.contains("--- a/"));
@@ -549,7 +545,7 @@ mod tests {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -570,7 +566,7 @@ mod tests {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 2);
         let total: usize = replacements.iter().map(|r| r.match_count).sum();
@@ -600,7 +596,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -627,7 +623,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -649,7 +645,7 @@ mod tests {
             "replaced",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             replacements.is_empty(),
             "binary files should be skipped, got {} matches",
@@ -668,7 +664,7 @@ mod tests {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
         global.ensure_final_newline = true;
 
@@ -702,7 +698,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 1);
@@ -732,7 +728,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert!(
             replacements.is_empty(),
@@ -751,7 +747,7 @@ mod tests {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.check = true;
 
         let code = run(args, &global).unwrap();
@@ -774,7 +770,7 @@ mod tests {
             "hello",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             replacements.is_empty(),
             "identity replacement must be filtered out"
@@ -792,7 +788,7 @@ mod tests {
             "hello",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.check = true;
 
         let code = run(args, &global).unwrap();
@@ -826,7 +822,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(err.to_string().contains("1-based"), "{err}");
     }
 
@@ -857,7 +853,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -894,7 +890,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -924,7 +920,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].replaced, "alpha\nreplaced line\ngamma\n");
@@ -953,7 +949,7 @@ mod tests {
             range: Some("1:3".to_string()),
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         // Only the bbb on line 2 should be deleted; the one on line 4 is outside range.
@@ -984,7 +980,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 1);
@@ -1015,7 +1011,7 @@ mod tests {
             range: Some("1:5".to_string()),
             write: Default::default(),
         };
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(
             err.to_string().contains("--range requires --whole-line"),
             "{err}"
@@ -1045,7 +1041,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(
             err.to_string()
                 .contains("--whole-line and --multiline cannot be combined"),
@@ -1080,7 +1076,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -1114,7 +1110,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(
@@ -1153,7 +1149,7 @@ mod tests {
             range: None,
             write: Default::default(),
         };
-        let replacements = collect_replacements(&args, &default_global()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         // SetupFile in the string IS matched (word boundaries don't know about strings)

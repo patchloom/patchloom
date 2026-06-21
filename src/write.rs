@@ -548,7 +548,7 @@ mod tests {
 
     #[cfg(feature = "cli")]
     fn test_global_flags() -> GlobalFlags {
-        GlobalFlags::default()
+        GlobalFlags::test_default()
     }
 
     #[test]

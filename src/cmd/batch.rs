@@ -484,10 +484,7 @@ mod tests {
             input: input_file.to_str().unwrap().to_string(),
             write: Default::default(),
         };
-        let global = GlobalFlags {
-            cwd: Some(dir.path().to_str().unwrap().to_string()),
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::test_with_cwd(dir.path());
         let err = run(args, &global).unwrap_err();
         assert!(
             err.to_string().contains("too many operations"),

@@ -162,13 +162,6 @@ mod tests {
     use std::path::Path;
     use tempfile::TempDir;
 
-    fn quiet_global() -> GlobalFlags {
-        GlobalFlags {
-            quiet: true,
-            ..GlobalFlags::default()
-        }
-    }
-
     fn create_backup(dir: &Path, filename: &str, content: &str) -> String {
         let file = dir.join(filename);
         std::fs::write(&file, content).unwrap();
@@ -180,7 +173,8 @@ mod tests {
     #[test]
     fn list_empty_exits_no_matches() {
         let dir = TempDir::new().unwrap();
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: true,
@@ -195,7 +189,8 @@ mod tests {
     fn list_with_sessions_exits_success() {
         let dir = TempDir::new().unwrap();
         create_backup(dir.path(), "a.txt", "content");
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: true,
@@ -211,7 +206,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let ts = create_backup(dir.path(), "b.txt", "original");
         std::fs::write(dir.path().join("b.txt"), "modified").unwrap();
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: false,
@@ -228,7 +224,8 @@ mod tests {
         let file = dir.path().join("c.txt");
         let ts = create_backup(dir.path(), "c.txt", "original");
         std::fs::write(&file, "modified").unwrap();
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: false,
@@ -249,7 +246,8 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         let _ts2 = create_backup(dir.path(), "d.txt", "v2");
         std::fs::write(&file, "v3").unwrap();
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: false,
@@ -265,7 +263,8 @@ mod tests {
     fn nonexistent_session_errors() {
         let dir = TempDir::new().unwrap();
         create_backup(dir.path(), "e.txt", "content");
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: false,
@@ -279,7 +278,8 @@ mod tests {
     #[test]
     fn no_sessions_without_apply_exits_no_matches() {
         let dir = TempDir::new().unwrap();
-        let mut global = quiet_global();
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         global.cwd = Some(dir.path().to_string_lossy().to_string());
         let args = UndoArgs {
             list: false,
