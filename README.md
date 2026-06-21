@@ -267,7 +267,7 @@ Add patchloom as a dependency (omit the MCP server with `default-features = fals
 
 ```toml
 [dependencies]
-patchloom = { version = "0.1", default-features = false }
+patchloom = { version = "0.3", default-features = false }
 ```
 
 ```rust
@@ -461,5 +461,3 @@ All commits must be signed off with `git commit -s`.
 ## Security
 
 For current security reporting guidance, see [SECURITY.md](./SECURITY.md).
-hook test
-# test
