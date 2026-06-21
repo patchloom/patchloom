@@ -47,6 +47,13 @@ Keep the working tree clean:
 
 See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`.
 
+## Release PRs (release-please)
+
+- The open release-please PR (#724 etc.) title must be correct. Use `gh pr edit --title` when it shows the wrong version.
+- The PR *body* can be very long and may temporarily show the wrong next version header (release-please behavior). This is tracked as tech-debt #740.
+- Primary curation is done via `RELEASE_NOTES.md` (applied to the final GitHub Release by the host job, not the PR body).
+- See `patchloom-contrib` skill ("Curated release notes" and "Major version bumps" sections) for the full process.
+
 ## Project structure
 
 ```
