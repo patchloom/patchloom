@@ -260,8 +260,12 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 // ---------------------------------------------------------------------------
 
 /// Read file content from the pending map or from disk.
+///
+/// When a file is first loaded from disk (Vacant entry), it is recorded in
+/// `existed_before` so the commit/rollback phase knows it was pre-existing.
 fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
+    existed_before: &mut HashSet<PathBuf>,
     path: &Path,
 ) -> anyhow::Result<&'a str> {
     match pending.entry(path.to_path_buf()) {
@@ -271,6 +275,7 @@ fn read_file_content<'a>(
             // so read directly without double-joining (#385).
             let content = std::fs::read_to_string(path)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+            existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
         }
     }
@@ -283,6 +288,7 @@ fn read_file_content<'a>(
 /// re-reads the full file.
 fn read_and_probe(
     pending: &mut HashMap<PathBuf, (String, String)>,
+    existed_before: &mut HashSet<PathBuf>,
     path: &Path,
 ) -> anyhow::Result<bool> {
     if pending.contains_key(path) {
@@ -300,6 +306,7 @@ fn read_and_probe(
         Ok(s) => s,
         Err(_) => return Ok(false),
     };
+    existed_before.insert(path.to_path_buf());
     pending.insert(path.to_path_buf(), (content.clone(), content));
     Ok(true)
 }
@@ -370,7 +377,7 @@ fn apply_md_heading_op(
     err_label: &str,
 ) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
-    let file_content = read_file_content(tx.pending, &file_path)?;
+    let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
     let new_content = op(file_content, heading, extra)
         .ok_or_else(|| anyhow::anyhow!("{err_label} not found: {heading}"))?;
     update_file_content(tx.pending, tx.deletions, &file_path, new_content);
@@ -394,6 +401,7 @@ fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> anyhow::Error
 /// `Value` fields into a closure.
 fn get_doc_root<'a>(
     pending: &mut HashMap<PathBuf, (String, String)>,
+    existed_before: &mut HashSet<PathBuf>,
     doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
     path: &str,
     cwd: &Path,
@@ -402,7 +410,7 @@ fn get_doc_root<'a>(
 
     // Ensure the document is in the cache.
     if !doc_cache.contains_key(&file_path) {
-        let content = read_file_content(pending, &file_path)?;
+        let content = read_file_content(pending, existed_before, &file_path)?;
         let format = detect_format(path).map_err(path_err(path))?;
         let root = parse_doc(content, &format).map_err(path_err(path))?;
         let old_value = match format {
@@ -444,6 +452,7 @@ struct CachedDoc {
 struct TxState<'a> {
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     deletions: &'a mut HashSet<PathBuf>,
+    existed_before: &'a mut HashSet<PathBuf>,
     doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
     tx_reads: &'a mut Vec<TxReadResult>,
     tx_searches: &'a mut Vec<TxSearchResult>,
@@ -500,7 +509,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
-        let content = read_file_content(tx.pending, &file_path)?;
+        let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
         let (replaced, match_count) = if *whole_line {
             replace_whole_lines(
                 content,
@@ -606,26 +615,13 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
         }
 
         for file_path in candidate_paths {
-            let content = if tx.pending.contains_key(&file_path) {
-                let result = read_file_content(tx.pending, &file_path);
-                match result {
-                    Ok(c) => c.to_owned(),
-                    Err(e) => {
-                        if !tx.structured && !tx.quiet {
-                            eprintln!("tx: replace: skipping {}: {e}", file_path.display());
-                        }
-                        continue;
+            let content = match read_file_content(tx.pending, tx.existed_before, &file_path) {
+                Ok(c) => c.to_owned(),
+                Err(e) => {
+                    if !tx.structured && !tx.quiet {
+                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
                     }
-                }
-            } else {
-                match std::fs::read_to_string(&file_path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        if !tx.structured && !tx.quiet {
-                            eprintln!("tx: replace: skipping {}: {e}", file_path.display());
-                        }
-                        continue;
-                    }
+                    continue;
                 }
             };
             let (replaced, match_count) = if *whole_line {
@@ -655,7 +651,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     // Ensure file is loaded into pending (mutable borrow), then release it.
-    read_file_content(tx.pending, &file_path)?;
+    read_file_content(tx.pending, tx.existed_before, &file_path)?;
     // Re-borrow immutably to avoid cloning the entire file content.
     let content = &tx.pending[&file_path].1;
     // Fast path: no line range requested, preserve raw content exactly and avoid
@@ -752,11 +748,11 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         // in the same buffer (avoids double-reading text files: 8 KiB probe +
         // full re-read). For single-file paths, skip the binary check.
         if file_paths.len() > 1 {
-            if !read_and_probe(tx.pending, file_path)? {
+            if !read_and_probe(tx.pending, tx.existed_before, file_path)? {
                 continue; // binary file, skip
             }
         } else {
-            read_file_content(tx.pending, file_path)?;
+            read_file_content(tx.pending, tx.existed_before, file_path)?;
         }
         let content = &tx.pending[file_path].1;
         let lines: Vec<&str> = content.lines().collect();
@@ -888,22 +884,22 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             value,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             set_at_path(root, &sel, value.clone()).map_err(path_err(path))?;
         }
 
         Operation::DocDelete { path, selector } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             delete_at_selector(root, &sel).map_err(path_err(path))?;
         }
 
         Operation::DocMerge { path, value } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             deep_merge(root, value);
         }
 
@@ -912,8 +908,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             value,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
             target
@@ -927,8 +923,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             value,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
             target
@@ -942,8 +938,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             value,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             let count = update_matching(root, &sel, value);
             if count == 0 {
@@ -952,8 +948,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
         }
 
         Operation::DocMove { path, from, to } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let from_sel = parse_selector(from).map_err(path_err(path))?;
             let to_sel = parse_selector(to).map_err(path_err(path))?;
             move_at_path(root, &from_sel, &to_sel).map_err(path_err(path))?;
@@ -964,8 +960,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             value,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             // If the path already exists, no-op.
             if selector::eval(root, &sel).is_empty() {
@@ -978,8 +974,8 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
             selector,
             predicate,
         } => {
-            let root =
-                get_doc_root(tx.pending, tx.doc_cache, path, tx.cwd).map_err(path_err(path))?;
+            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+                .map_err(path_err(path))?;
             let sel = parse_selector(selector).map_err(path_err(path))?;
             delete_where(root, &sel, predicate).map_err(path_err(path))?;
         }
@@ -999,7 +995,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
             {
                 anyhow::bail!("file does not exist: {path}");
             }
-            let existing = read_file_content(tx.pending, &file_path)?;
+            let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let mut combined = existing.to_string();
             if !combined.is_empty() && !combined.ends_with('\n') {
                 combined.push('\n');
@@ -1019,7 +1015,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
             }
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(tx.pending, &file_path)?;
+                    let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
                 }
                 update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
             } else {
@@ -1040,7 +1036,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
-                    let _ = read_file_content(tx.pending, &file_path)?;
+                    let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
                     false
                 }
             };
@@ -1076,14 +1072,23 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
             }
 
             // Read source content into pending (validates it exists).
-            let content = read_file_content(tx.pending, &src_path)?.to_string();
+            let content = read_file_content(tx.pending, tx.existed_before, &src_path)?.to_string();
 
             // Check destination does not already exist (unless force).
             if !force {
-                let dst_exists = tx.pending.contains_key(&dst_path) || dst_path.exists();
+                let dst_exists = (tx.pending.contains_key(&dst_path)
+                    && !tx.deletions.contains(&dst_path))
+                    || (!tx.deletions.contains(&dst_path) && dst_path.exists());
                 if dst_exists {
                     anyhow::bail!("destination already exists: {to}");
                 }
+            }
+
+            // If destination exists on disk, load it into pending first so
+            // existed_before is populated and commit uses atomic_write (not
+            // atomic_create_new which would fail on existing files).
+            if *force && !tx.pending.contains_key(&dst_path) && dst_path.exists() {
+                let _ = read_file_content(tx.pending, tx.existed_before, &dst_path)?;
             }
 
             // Write content to destination.
@@ -1196,11 +1201,12 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                     (source_path.canonicalize(), dest_path.canonicalize()),
                     (Ok(ref s), Ok(ref d)) if s == d
                 );
-            let source_content = read_file_content(tx.pending, &source_path)?.to_owned();
+            let source_content =
+                read_file_content(tx.pending, tx.existed_before, &source_path)?.to_owned();
             let dest_content = if same_file {
                 source_content.clone()
             } else {
-                read_file_content(tx.pending, &dest_path)?.to_owned()
+                read_file_content(tx.pending, tx.existed_before, &dest_path)?.to_owned()
             };
             let (new_source, new_dest) =
                 move_section_in(&source_content, heading, &dest_content, position, same_file)
@@ -1215,7 +1221,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::MdDedupeHeadings { path } => {
             let file_path = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, &file_path)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
             update_file_content(tx.pending, tx.deletions, &file_path, new_content);
         }
@@ -1227,7 +1233,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             normalize_eol,
         } => {
             let file_path = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &file_path)?.to_owned();
+            let content = read_file_content(tx.pending, tx.existed_before, &file_path)?.to_owned();
             let policy = WritePolicy {
                 ensure_final_newline: ensure_final_newline.unwrap_or(true),
                 trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
@@ -1264,7 +1270,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
-                    Ok(read_file_content(tx.pending, &file_path)?.to_string())
+                    Ok(read_file_content(tx.pending, tx.existed_before, &file_path)?.to_string())
                 },
                 options,
             )?;
@@ -1291,7 +1297,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 
         Operation::MdLintAgents { path } => {
             let file_path = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &file_path)?;
+            let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let issues = crate::cmd::md::lint_agents_content(content);
             tx.tx_lints.push(TxLintResult {
                 path: path.clone(),
@@ -1308,7 +1314,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &abs)?;
+            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
                 .map(crate::ast::Language::from_extension)
@@ -1348,7 +1354,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, &abs)?;
+            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
                 .map(crate::ast::Language::from_extension)
@@ -1799,6 +1805,7 @@ fn execute_and_collect(
 ) -> anyhow::Result<TxExecResult> {
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
+    let mut existed_before: HashSet<PathBuf> = HashSet::new();
     let mut has_non_idempotent_replace = false;
     let mut total_replace_matches = 0usize;
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
@@ -1829,6 +1836,7 @@ fn execute_and_collect(
         let mut tx = TxState {
             pending: &mut pending,
             deletions: &mut deletions,
+            existed_before: &mut existed_before,
             doc_cache: &mut doc_cache,
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
@@ -1857,12 +1865,6 @@ fn execute_and_collect(
     }
 
     flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-
-    let existed_before: HashSet<PathBuf> = pending
-        .keys()
-        .filter(|path| path.exists())
-        .cloned()
-        .collect();
 
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
     for (path, (original, current)) in &pending {
@@ -2526,8 +2528,9 @@ mod tests {
         let path = dir.path().join("existing.txt");
         fs::write(&path, "hello from disk\n").unwrap();
         let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
 
-        let content = read_file_content(&mut pending, &path).unwrap();
+        let content = read_file_content(&mut pending, &mut existed, &path).unwrap();
 
         assert_eq!(content, "hello from disk\n");
         assert_eq!(
@@ -2545,8 +2548,9 @@ mod tests {
         let path = dir.path().join("text.rs");
         fs::write(&path, "fn main() {}\n").unwrap();
         let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
 
-        assert!(read_and_probe(&mut pending, &path).unwrap());
+        assert!(read_and_probe(&mut pending, &mut existed, &path).unwrap());
         assert!(pending.contains_key(&path));
         assert_eq!(pending[&path].1, "fn main() {}\n");
     }
@@ -2557,8 +2561,9 @@ mod tests {
         let path = dir.path().join("data.bin");
         fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
         let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
 
-        assert!(!read_and_probe(&mut pending, &path).unwrap());
+        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
         assert!(!pending.contains_key(&path));
     }
 
@@ -2569,10 +2574,11 @@ mod tests {
         // Bare continuation bytes: invalid UTF-8 but no NUL (passes binary check)
         fs::write(&path, [0x80, 0x81, 0x82]).unwrap();
         let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
 
         // Should skip gracefully (false) instead of erroring,
         // matching standalone search/replace behavior.
-        assert!(!read_and_probe(&mut pending, &path).unwrap());
+        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
         assert!(!pending.contains_key(&path));
     }
 
