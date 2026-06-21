@@ -19780,7 +19780,10 @@ fn test_ast_diff_basic() {
     };
     assert!(git(&["init", "-q"]).success(), "git init failed");
     assert!(git(&["add", "-A"]).success(), "git add failed");
-    assert!(git(&["commit", "-q", "-m", "init"]).success(), "git commit failed; no HEAD");
+    assert!(
+        git(&["commit", "-q", "-m", "init"]).success(),
+        "git commit failed; no HEAD"
+    );
     // Modify after commit so there is a structural diff vs HEAD.
     fs::write(&f, "fn v1(){}\nfn v2(){}\n").unwrap();
     patchloom_in(dir.path())
