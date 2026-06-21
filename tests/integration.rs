@@ -19321,11 +19321,11 @@ fn test_editorconfig_per_extension_override() {
 }
 
 // ---------------------------------------------------------------------------
-// Concurrent MCP requests to the same file
+// Concurrent MCP requests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_mcp_concurrent_doc_set_same_file() {
+async fn test_mcp_concurrent_doc_set() {
     if !has_mcp_support() {
         return;
     }
