@@ -19330,33 +19330,34 @@ async fn test_mcp_concurrent_doc_set_same_file() {
         return;
     }
     let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("config.json"),
-        r#"{"a":"old_a","b":"old_b","c":"old_c"}"#,
-    )
-    .unwrap();
+    // Use separate files to avoid Windows tempfile rename races on a shared target
+    // (the previous same-file version tolerated partial success for that reason).
+    for key in ["a", "b", "c"] {
+        fs::write(
+            dir.path().join(format!("{key}.json")),
+            format!(r#"{{"value":"old_{key}"}}"#),
+        )
+        .unwrap();
+    }
 
     let client = spawn_mcp_client(dir.path()).await;
 
-    // Fire three doc_set calls concurrently targeting different keys in the same file.
-    // On Windows, concurrent tempfile renames to the same target can fail because the
-    // OS holds exclusive file locks during rename. We use the raw peer().call_tool()
-    // API so we can tolerate Err results instead of panicking.
+    // Fire three doc_set calls concurrently to *different* files.
     let params_a = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "config.json", "selector": "a", "value": "new_a"}),
+            serde_json::json!({"path": "a.json", "selector": "value", "value": "new_a"}),
         )
         .unwrap(),
     );
     let params_b = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "config.json", "selector": "b", "value": "new_b"}),
+            serde_json::json!({"path": "b.json", "selector": "value", "value": "new_b"}),
         )
         .unwrap(),
     );
     let params_c = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "config.json", "selector": "c", "value": "new_c"}),
+            serde_json::json!({"path": "c.json", "selector": "value", "value": "new_c"}),
         )
         .unwrap(),
     );
@@ -19367,34 +19368,16 @@ async fn test_mcp_concurrent_doc_set_same_file() {
         client.peer().call_tool(params_c),
     );
 
-    // At least one write must succeed.
-    // On Windows, concurrent renames through tempfile can hit persist errors
-    // (see https://github.com/patchloom/patchloom/issues/719). The test only
-    // requires partial success + final file validity.
-    let successes = [&r1, &r2, &r3].iter().filter(|r| r.is_ok()).count();
-    assert!(
-        successes >= 1,
-        "at least one concurrent doc_set must succeed, got: r1={r1:?}, r2={r2:?}, r3={r3:?}"
-    );
+    // All three must succeed now that files are distinct (no shared rename race).
+    assert!(r1.is_ok(), "a.json write failed: {r1:?}");
+    assert!(r2.is_ok(), "b.json write failed: {r2:?}");
+    assert!(r3.is_ok(), "c.json write failed: {r3:?}");
 
-    // The file must be valid JSON (no corruption from partial writes).
-    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
-    let v: serde_json::Value = serde_json::from_str(&content)
-        .unwrap_or_else(|_| panic!("file should be valid JSON after concurrent writes: {content}"));
-    // All three original keys must still be present with valid string values
-    // (no key loss or corruption from partial writes). Values may be old or new
-    // depending on which concurrent write succeeded.
-    for key in ["a", "b", "c"] {
-        let val = v
-            .get(key)
-            .and_then(|v| v.as_str())
-            .unwrap_or_else(|| panic!("key '{key}' must exist as a string"));
-        let old = format!("old_{key}");
-        let new = format!("new_{key}");
-        assert!(
-            val == old || val == new,
-            "key '{key}' has unexpected value {val:?}, expected {old:?} or {new:?}"
-        );
+    // Verify each file.
+    for (key, expected_new) in [("a", "new_a"), ("b", "new_b"), ("c", "new_c")] {
+        let content = fs::read_to_string(dir.path().join(format!("{key}.json"))).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(v["value"], expected_new, "wrong value in {key}.json");
     }
 
     client.cancel().await.unwrap();
@@ -19697,7 +19680,9 @@ fn test_ast_validate_ok() {
     patchloom_in(dir.path())
         .args(["ast", "validate", "ok.rs"])
         .assert()
-        .success();
+        .success()
+        // validate prints nothing on success; just ensure no failure
+        ;
 }
 
 #[test]
@@ -19710,7 +19695,9 @@ fn test_ast_search_basic() {
     patchloom_in(dir.path())
         .args(["ast", "search", "(function_item) @fn", "s.rs", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("f()"))
+        .stdout(predicates::str::contains("42"));
 }
 
 #[test]
@@ -19722,7 +19709,8 @@ fn test_ast_refs_basic() {
     patchloom_in(dir.path())
         .args(["ast", "refs", "callee", "r.rs", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("caller"));
 }
 
 #[test]
@@ -19734,7 +19722,9 @@ fn test_ast_deps_basic() {
     patchloom_in(dir.path())
         .args(["ast", "deps", "d.rs", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("HashMap"))
+        .stdout(predicates::str::contains("std"));
 }
 
 #[test]
@@ -19746,7 +19736,9 @@ fn test_ast_map_basic() {
     patchloom_in(dir.path())
         .args(["ast", "map", ".", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("a"))
+        .stdout(predicates::str::contains("b"));
 }
 
 #[test]
@@ -19758,7 +19750,8 @@ fn test_ast_impact_basic() {
     patchloom_in(dir.path())
         .args(["ast", "impact", "helper", "i.rs", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("entry"));
 }
 
 #[test]
@@ -19791,7 +19784,9 @@ fn test_ast_diff_basic() {
     patchloom_in(dir.path())
         .args(["ast", "diff", "diff.rs", "--from", "HEAD", "--json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("v2"))
+        .stdout(predicates::str::contains("added"));
 }
 
 #[test]
