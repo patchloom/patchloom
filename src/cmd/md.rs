@@ -368,14 +368,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    /// Default global flags with `--apply` enabled for write tests.
-    fn default_global() -> GlobalFlags {
-        GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        }
-    }
-
     // -- backup ------------------------------------------------------------
 
     #[test]
@@ -434,7 +426,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -461,7 +453,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -482,7 +474,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -508,7 +500,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -528,7 +520,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -550,7 +542,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -575,7 +567,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -597,7 +589,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -628,7 +620,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -644,7 +636,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -660,7 +652,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -676,7 +668,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
@@ -696,7 +688,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -716,7 +708,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -732,7 +724,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -775,7 +767,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
 
@@ -787,7 +779,7 @@ mod tests {
         let file = dir.path().join("test.md");
         fs::write(&file, "# Title\ncontent\n").unwrap();
 
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_apply();
         global.ensure_final_newline = true;
 
         let args = MdArgs {
@@ -865,7 +857,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -889,7 +881,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -907,7 +899,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let result = run(args, &default_global());
+        let result = run(args, &GlobalFlags::test_apply());
         assert!(result.is_err(), "expected error when no table is present");
     }
 
@@ -929,7 +921,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -966,7 +958,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -996,7 +988,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -1024,7 +1016,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let result = fs::read_to_string(&file).unwrap();
@@ -1067,7 +1059,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         let src_result = fs::read_to_string(&src).unwrap();
@@ -1112,7 +1104,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let code = run(args, &default_global()).unwrap();
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
     }
 
@@ -1132,7 +1124,7 @@ mod tests {
             },
             write: Default::default(),
         };
-        let result = run(args, &default_global());
+        let result = run(args, &GlobalFlags::test_apply());
         assert!(
             result.is_err(),
             "expected error when neither --before nor --after is provided"

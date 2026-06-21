@@ -305,6 +305,34 @@ impl GlobalFlags {
 }
 
 #[cfg(test)]
+impl GlobalFlags {
+    /// Test helper returning GlobalFlags with color=Never for deterministic
+    /// test output (avoids TTY/NO_COLOR variance).
+    pub fn test_default() -> Self {
+        GlobalFlags {
+            color: ColorMode::Never,
+            ..GlobalFlags::default()
+        }
+    }
+
+    /// Test helper with cwd set (simulates --cwd for cmd unit tests).
+    pub fn test_with_cwd(dir: &std::path::Path) -> Self {
+        GlobalFlags {
+            cwd: Some(dir.to_string_lossy().into_owned()),
+            color: ColorMode::Never,
+            ..GlobalFlags::default()
+        }
+    }
+
+    /// Test helper with apply=true (for write cmd tests that want mutation).
+    pub fn test_apply() -> Self {
+        let mut g = Self::test_default();
+        g.apply = true;
+        g
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

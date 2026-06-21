@@ -390,13 +390,6 @@ mod tests {
     use crate::cli::global::GlobalFlags;
     use tempfile::TempDir;
 
-    fn flags_for(dir: &std::path::Path) -> GlobalFlags {
-        GlobalFlags {
-            cwd: Some(dir.to_string_lossy().into_owned()),
-            ..GlobalFlags::default()
-        }
-    }
-
     #[test]
     fn merge_check_reports_conflict_without_writing() {
         let tmp = TempDir::new().unwrap();
@@ -408,7 +401,7 @@ mod tests {
             "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
         )
         .unwrap();
-        let mut global = flags_for(tmp.path());
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
         global.check = true;
         let code = run(
             PatchArgs {

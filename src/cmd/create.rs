@@ -234,10 +234,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn default_global() -> GlobalFlags {
-        GlobalFlags::default()
-    }
-
     #[test]
     fn create_writes_file_with_correct_content() {
         let dir = TempDir::new().unwrap();
@@ -250,7 +246,7 @@ mod tests {
             force: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -273,7 +269,7 @@ mod tests {
             force: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let err = run(args, &global).unwrap_err();
@@ -297,7 +293,7 @@ mod tests {
             force: true,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.apply = true;
 
         let code = run(args, &global).unwrap();
@@ -321,7 +317,7 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &default_global()).unwrap_err();
+        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(err.to_string().contains("target is not a file"));
     }
 
@@ -337,7 +333,7 @@ mod tests {
             force: false,
             write: Default::default(),
         };
-        let mut global = default_global();
+        let mut global = GlobalFlags::test_default();
         global.check = true;
 
         let code = run(args, &global).unwrap();
@@ -360,7 +356,7 @@ mod tests {
             write: Default::default(),
         };
         // Default mode: no --apply, no --check.
-        let global = default_global();
+        let global = GlobalFlags::test_default();
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -381,7 +377,7 @@ mod tests {
             force: false,
             write: Default::default(),
         };
-        let global = default_global();
+        let global = GlobalFlags::test_default();
 
         let err = run(args, &global).unwrap_err();
         assert!(err.to_string().contains("--content or --stdin"));
@@ -467,7 +463,7 @@ mod tests {
             force: false,
             write: Default::default(),
         };
-        let global = default_global();
+        let global = GlobalFlags::test_default();
 
         let err = run(args, &global).unwrap_err();
         assert!(
