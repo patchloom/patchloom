@@ -309,21 +309,33 @@ pub fn policy_from_flags(
 /// Create a new file at `path` after applying `policy`, failing if the file
 /// already exists.
 ///
-/// Uses `File::create_new` (O_CREAT | O_EXCL) so the existence check and
-/// creation happen in a single syscall, eliminating the TOCTOU race inherent
-/// in a separate `path.exists()` + write sequence.
+/// Uses `tempfile::NamedTempFile` + `persist_noclobber` so the write is
+/// crash-safe. The target file either has full content or does not exist;
+/// partial content is never visible. `persist_noclobber` uses
+/// `link` + `unlink` (or platform equivalent) to fail if the target already
+/// exists, preserving the exclusive-create semantics.
 pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
-    use std::io::Write;
     let final_content = apply_policy(content, policy);
-    let mut file = std::fs::File::create_new(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::AlreadyExists {
+
+    let parent = path
+        .parent()
+        .context("cannot determine parent directory of target path")?;
+
+    let tmp = NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create tempfile in {}", parent.display()))?;
+
+    std::fs::write(tmp.path(), final_content.as_bytes())
+        .with_context(|| format!("failed to write to tempfile {}", tmp.path().display()))?;
+
+    tmp.persist_noclobber(path).map_err(|e| {
+        if e.error.kind() == std::io::ErrorKind::AlreadyExists {
             anyhow::anyhow!("file already exists: {}", path.display())
         } else {
-            anyhow::Error::from(e).context(format!("failed to create {}", path.display()))
+            anyhow::Error::from(e.error)
+                .context(format!("failed to persist tempfile to {}", path.display()))
         }
     })?;
-    file.write_all(final_content.as_bytes())
-        .with_context(|| format!("failed to write {}", path.display()))?;
+
     Ok(())
 }
 
