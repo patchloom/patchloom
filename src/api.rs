@@ -1600,6 +1600,70 @@ mod tests {
     }
 
     #[test]
+    fn execute_plan_respects_relaxed_guard() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("plan.txt");
+        fs::write(&file, "old\n").unwrap();
+
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        let plan_json = format!(
+            r#"{{
+                "version": "1",
+                "operations": [
+                    {{
+                        "op": "replace",
+                        "path": "{}",
+                        "mode": "literal",
+                        "from": "old",
+                        "to": "new"
+                    }}
+                ]
+            }}"#,
+            file.to_string_lossy()
+        );
+
+        let plan = parse_plan(&plan_json).unwrap();
+        let (code, _output) = execute_plan(plan, dir.path(), Some(&guard)).unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("new"));
+    }
+
+    #[test]
+    fn execute_plan_rejects_on_guard() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("guarded.txt");
+        fs::write(&file, "content\n").unwrap();
+
+        // Strict reject on abs path outside
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let abs = file.canonicalize().unwrap_or_else(|_| file.clone());
+
+        let plan_json = format!(
+            r#"{{
+                "version": "1",
+                "operations": [
+                    {{
+                        "op": "file.delete",
+                        "path": "{}"
+                    }}
+                ]
+            }}"#,
+            abs.to_string_lossy()
+        );
+
+        let plan = parse_plan(&plan_json).unwrap();
+        let err = execute_plan(plan, dir.path(), Some(&guard)).unwrap_err();
+        assert!(err.to_string().contains("path rejected by workspace guard"));
+        // No mutation
+        assert!(fs::read_to_string(&file).unwrap().contains("content"));
+    }
+
+    #[test]
     fn apply_patch_works() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("code.rs");
