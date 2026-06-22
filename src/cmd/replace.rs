@@ -146,9 +146,9 @@ fn collect_replacements(
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<FileReplacement>> {
     let cwd = global.resolve_cwd()?;
-    let glob_matcher = crate::build_glob_matcher(global)?;
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
-    let glob_roots = crate::collect_glob_roots(&args.paths, global, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let replacement = build_replacement(args);
     let quiet = global.quiet;
 

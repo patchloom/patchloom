@@ -1,7 +1,15 @@
+#[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
+#[cfg(any(feature = "cli", feature = "files"))]
 use globset::{Glob, GlobSet, GlobSetBuilder};
+#[cfg(any(feature = "cli", feature = "files"))]
 use ignore::{WalkBuilder, WalkState};
-use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "cli")]
+use std::path::Component;
+use std::path::Path;
+#[cfg(any(feature = "cli", feature = "files"))]
+use std::path::PathBuf;
+#[cfg(feature = "cli")]
 use std::sync::Mutex;
 
 /// Compute a display-friendly relative path by stripping a `base` prefix.
@@ -9,7 +17,8 @@ use std::sync::Mutex;
 /// Returns the relative portion if `path` is under `base`, otherwise returns
 /// the original path unchanged. Used by diff headers, search results, and JSON
 /// output so users see `src/main.rs` instead of `/home/user/project/src/main.rs`.
-pub(crate) fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
     path.strip_prefix(base).unwrap_or(path)
 }
 
@@ -54,6 +63,8 @@ pub(crate) fn is_binary_file(path: &Path) -> bool {
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
 /// `include_hidden = true` so dotfiles are checked.
+#[cfg(feature = "cli")]
+#[cfg(feature = "cli")]
 pub(crate) fn collect_file_paths_opts(
     paths: &[String],
     global: &GlobalFlags,
@@ -145,20 +156,58 @@ pub(crate) fn collect_file_paths_opts(
     Ok(collected.into_inner().expect("all walkers done"))
 }
 
-/// Build a compiled glob matcher from `--glob`, or `None` if no globs given.
-pub(crate) fn build_glob_matcher(global: &GlobalFlags) -> anyhow::Result<Option<GlobSet>> {
-    if global.glob.is_empty() {
+/// Build a compiled glob matcher from globs, or `None` if no globs given.
+/// Available for library use when "files" feature is enabled.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn build_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
+    if globs.is_empty() {
         return Ok(None);
     }
     let mut builder = GlobSetBuilder::new();
-    for pattern in &global.glob {
+    for pattern in globs {
         builder.add(Glob::new(pattern)?);
     }
     Ok(Some(builder.build()?))
 }
 
-/// Collect roots used for matching `--glob` patterns against walked files.
-pub(crate) fn collect_glob_roots(
+/// Build from GlobalFlags (cli only).
+#[cfg(feature = "cli")]
+pub(crate) fn build_glob_matcher_from_global(
+    global: &GlobalFlags,
+) -> anyhow::Result<Option<GlobSet>> {
+    build_glob_matcher(&global.glob)
+}
+
+/// Collect roots used for matching globs against walked files.
+/// Lib version.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn collect_glob_roots(paths: &[PathBuf], root: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for path in paths {
+        let resolved = match root {
+            Some(r) => r.join(path),
+            None => path.clone(),
+        };
+        let glob_root = if resolved.is_file() {
+            resolved
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| resolved.clone())
+        } else {
+            resolved.clone()
+        };
+        let glob_root = normalize_glob_root(glob_root);
+        if !roots.contains(&glob_root) {
+            roots.push(glob_root);
+        }
+    }
+
+    roots
+}
+
+/// Collect roots from GlobalFlags (cli only, for --files-from etc).
+#[cfg(feature = "cli")]
+pub(crate) fn collect_glob_roots_from_global(
     paths: &[String],
     global: &GlobalFlags,
     root: Option<&Path>,
@@ -175,29 +224,18 @@ pub(crate) fn collect_glob_roots(
         paths
     };
 
-    let mut roots = Vec::new();
-    for path in effective {
-        let resolved = match root {
-            Some(r) => r.join(path),
-            None => PathBuf::from(path),
-        };
-        let glob_root = if resolved.is_file() {
-            resolved
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| resolved.clone())
-        } else {
-            resolved.clone()
-        };
-        let glob_root = normalize_glob_root(glob_root);
-        if !roots.contains(&glob_root) {
-            roots.push(glob_root);
-        }
-    }
+    let paths_buf: Vec<PathBuf> = effective
+        .iter()
+        .map(|p| match root {
+            Some(r) => r.join(p),
+            None => PathBuf::from(p),
+        })
+        .collect();
 
-    Ok(roots)
+    Ok(collect_glob_roots(&paths_buf, root))
 }
 
+#[cfg(feature = "cli")]
 fn normalize_glob_root(path: PathBuf) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -213,17 +251,15 @@ fn normalize_glob_root(path: PathBuf) -> PathBuf {
     }
 }
 
+#[cfg(any(feature = "cli", feature = "files"))]
 fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
     matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
 }
 
 /// Check whether `path` matches any of the globs, either directly or relative
 /// to one of the provided roots (always true if no globs).
-pub(crate) fn matches_glob_with_roots(
-    path: &Path,
-    matcher: Option<&GlobSet>,
-    roots: &[PathBuf],
-) -> bool {
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn matches_glob_with_roots(path: &Path, matcher: Option<&GlobSet>, roots: &[PathBuf]) -> bool {
     match matcher {
         None => true,
         Some(m) => {
@@ -238,7 +274,8 @@ pub(crate) fn matches_glob_with_roots(
 }
 
 /// Check whether `path` matches any of the globs (always true if no globs).
-pub(crate) fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     match matcher {
         None => true,
         Some(m) => glob_matches_path(path, m),
@@ -257,6 +294,7 @@ pub fn read_text_file(path: &Path) -> Option<String> {
 }
 
 /// Internal version with optional diagnostic logging for CLI commands.
+#[cfg(feature = "cli")]
 pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
     if quiet {
         read_text_file_inner(path, None)
@@ -348,6 +386,22 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
     }
 }
 
+/// Simple file collection for library use (sequential for simplicity; full parallel in par_process_files).
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<Vec<PathBuf>> {
+    let mut paths = vec![];
+    let mut builder = WalkBuilder::new(root);
+    if include_hidden {
+        builder.hidden(false);
+    }
+    for entry in builder.build().filter_map(Result::ok) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            paths.push(entry.into_path());
+        }
+    }
+    Ok(paths)
+}
+
 /// Process file paths using adaptive parallelism via `std::thread::scope`.
 ///
 /// Files are split into chunks (one per available core). The calling thread
@@ -355,7 +409,8 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
 /// rest. Thread creation cost is ~0.05ms per thread (vs ~2ms for rayon's
 /// global thread pool init), so overhead is near-zero even for small
 /// workloads. For large workloads, all cores run concurrently.
-pub(crate) fn par_process_files<T, F>(
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn par_process_files<T, F>(
     paths: &[PathBuf],
     glob_matcher: Option<&GlobSet>,
     glob_roots: &[PathBuf],
@@ -487,13 +542,16 @@ mod tests {
     }
 
     // ── matches_glob ──────────────────────────────────────────────────
+    // These require the glob/walker APIs which are behind "cli" or "files" feature.
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn no_matcher_matches_everything() {
         assert!(matches_glob(Path::new("any/file.rs"), None));
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_matches_extension() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("*.rs").unwrap());
@@ -502,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_rejects_non_matching() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("*.rs").unwrap());
@@ -510,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_matches_nested_relative_pattern_with_root() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("sub/*.txt").unwrap());
@@ -529,16 +589,20 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn collect_glob_roots_normalizes_current_directory_segments() {
         let global = GlobalFlags::default();
-        let roots = collect_glob_roots(&[], &global, Some(Path::new("/tmp/project"))).unwrap();
+        let roots =
+            collect_glob_roots_from_global(&[], &global, Some(Path::new("/tmp/project"))).unwrap();
 
         assert_eq!(roots, vec![PathBuf::from("/tmp/project")]);
     }
 
     // ── par_process_files ─────────────────────────────────────────────
+    // These require the glob/walker APIs which are behind "cli" or "files" feature.
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_single_file() {
         let paths = vec![PathBuf::from("a.txt")];
         let results = par_process_files(&paths, None, &[], |p| {
@@ -548,6 +612,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_filters_with_glob() {
         let paths = vec![
             PathBuf::from("a.rs"),
@@ -566,6 +631,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_filters_with_relative_glob_root() {
         let paths = vec![
             PathBuf::from("/tmp/project/sub/a.txt"),
@@ -582,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_empty_paths() {
         let paths: Vec<PathBuf> = vec![];
         let results: Vec<String> = par_process_files(&paths, None, &[], |p| {
@@ -591,6 +658,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_closure_can_filter() {
         let paths = vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")];
         let results = par_process_files(&paths, None, &[], |p| {

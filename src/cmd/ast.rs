@@ -1049,7 +1049,7 @@ fn collect_source_files(
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let mut paths = Vec::new();
-    let glob_matcher = crate::files::build_glob_matcher(global)?;
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
 
     let walker = ignore::WalkBuilder::new(dir)
         .hidden(true)

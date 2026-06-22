@@ -93,9 +93,9 @@ fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
 /// so dotfiles are also checked.  File scanning is parallelized.
 fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<TidyIssue>> {
     let root = global.resolve_cwd()?;
-    let glob_matcher = crate::build_glob_matcher(global)?;
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
-    let glob_roots = crate::collect_glob_roots(paths, global, Some(&root))?;
+    let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&root))?;
 
     let quiet = global.quiet;
     let file_issues: Vec<Vec<TidyIssue>> =
@@ -177,9 +177,9 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         TidyAction::Fix { paths } => {
             let root = global.resolve_cwd()?;
-            let glob_matcher = crate::build_glob_matcher(global)?;
+            let glob_matcher = crate::build_glob_matcher_from_global(global)?;
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
-            let glob_roots = crate::collect_glob_roots(&paths, global, Some(&root))?;
+            let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&root))?;
 
             // Parallel read+compute phase: each file is read, checked for
             // binary content, and has the write policy applied concurrently.

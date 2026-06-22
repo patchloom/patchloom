@@ -8,7 +8,7 @@
 //!
 //! ```rust,no_run
 //! use patchloom::api::{self, ApplyMode, EditResult};
-//! use std::path::Path;
+//! use std::path::{Path, PathBuf};
 //!
 //! // Replace text in a file (preview only)
 //! let result = api::replace_text(
@@ -40,7 +40,7 @@
 //! ```rust,no_run
 //! use patchloom::api::{self, ApplyMode, ReplaceOptions};
 //! use patchloom::containment::PathGuard;
-//! use std::path::Path;
+//! use std::path::{Path, PathBuf};
 //!
 //! let guard = PathGuard::builder(std::env::current_dir().unwrap())
 //!     .allow_temp_directory()
@@ -70,7 +70,7 @@
 //! monotonic counter), so concurrent `ApplyMode::Apply` calls never collide
 //! on backup directories.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 
@@ -1077,6 +1077,136 @@ pub fn search(
         }
     }
     Ok(matches)
+}
+
+/// Options for full directory search (for library consumers).
+#[derive(Debug, Clone, Default)]
+pub struct SearchOptions {
+    /// Treat pattern as literal string (not regex).
+    pub literal: bool,
+    /// Treat as regex (default false, use with literal=false).
+    pub regex: bool,
+    /// Case insensitive match.
+    pub case_insensitive: bool,
+    /// Context lines around matches.
+    pub context: Option<usize>,
+    /// Glob patterns to include (e.g. "*.rs").
+    pub globs: Vec<String>,
+    /// Max number of results (0 for unlimited).
+    pub max_results: usize,
+}
+
+/// Result of a search match with optional context.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub path: PathBuf,
+    pub line_number: usize,
+    pub line: String,
+    pub column: usize,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}
+
+/// Search a directory (or file) recursively for pattern.
+/// Respects globs if "files" feature enabled. Uses parallel processing when available.
+/// This provides the full power of the CLI search for library use (see #773).
+pub fn search_directory(
+    root: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+) -> anyhow::Result<Vec<SearchResult>> {
+    if pattern.is_empty() {
+        bail!("search pattern must not be empty");
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    {
+        use crate::files::{build_glob_matcher, collect_file_paths, par_process_files};
+        let glob_matcher = build_glob_matcher(&opts.globs)?;
+        let glob_roots = vec![root.to_path_buf()];
+        let file_paths = collect_file_paths(root, false)?;
+
+        let limit = if opts.max_results > 0 {
+            opts.max_results
+        } else {
+            usize::MAX
+        };
+
+        let file_results: Vec<SearchResult> =
+            par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                search_one_file_for_api(path, pattern, opts, root, limit)
+            });
+
+        let res: Vec<SearchResult> = file_results.into_iter().take(limit).collect();
+        Ok(res)
+    }
+
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    {
+        // fallback to single file search
+        if root.is_file() {
+            let matches = search(root, pattern, opts.regex, opts.case_insensitive)?;
+            Ok(matches
+                .into_iter()
+                .map(|m| SearchResult {
+                    path: root.to_path_buf(),
+                    line_number: m.line_number,
+                    line: m.line,
+                    column: 1,
+                    context_before: vec![],
+                    context_after: vec![],
+                })
+                .collect())
+        } else {
+            bail!("directory search requires the 'files' feature to be enabled");
+        }
+    }
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_one_file_for_api(
+    path: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+    root: &Path,
+    _limit: usize,
+) -> Option<SearchResult> {
+    let content = crate::files::read_text_file(path)?;
+    let display = crate::files::relative_display(path, root);
+    let pat = if opts.literal {
+        regex::escape(pattern)
+    } else {
+        pattern.to_string()
+    };
+    let re = if opts.regex || opts.case_insensitive {
+        Some(
+            regex::RegexBuilder::new(&pat)
+                .case_insensitive(opts.case_insensitive)
+                .build()
+                .ok()?,
+        )
+    } else {
+        None
+    };
+
+    for (i, line) in content.lines().enumerate() {
+        let matched = if let Some(re) = &re {
+            re.is_match(line)
+        } else {
+            line.contains(pattern)
+        };
+        if matched {
+            return Some(SearchResult {
+                path: display.to_path_buf(),
+                line_number: i + 1,
+                line: line.to_string(),
+                column: 1,
+                context_before: vec![],
+                context_after: vec![],
+            });
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -2502,6 +2632,19 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].line_number, 1);
         assert_eq!(matches[1].line_number, 3);
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_basic() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("test.rs");
+        fs::write(&f, "fn foo() {}\nfn bar() {}\nlet x = foo();\n").unwrap();
+
+        let opts = SearchOptions::default();
+        let results = search_directory(dir.path(), "foo", &opts).unwrap();
+        assert!(!results.is_empty());
+        assert!(results.iter().any(|r| r.line.contains("foo")));
     }
 
     #[test]

@@ -73,8 +73,8 @@ pub(crate) fn collect_status(
         );
     }
 
-    let glob_matcher = crate::build_glob_matcher(global)?;
-    let glob_roots = crate::collect_glob_roots(paths, global, Some(&cwd))?;
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+    let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
 
     let mut modified = Vec::new();
     let mut created = Vec::new();
