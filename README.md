@@ -294,7 +294,7 @@ api::doc_set(
 )?;
 ```
 
-All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS per #781); see the `containment` and `api` module rustdocs. See the `patchloom::api` module docs for the full surface.
+All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS per #781); see the `containment` and `api` module rustdocs. See the `patchloom::api` module docs for the full surface (includes `search_directory` with context/globs/max_results for content search, added in recent library expansions). Recent work: #785 merged (assertion hygiene); gate addressed #779 (full context+multi for search_directory) and #784 (test auditor).
 
 ## Getting started
 
