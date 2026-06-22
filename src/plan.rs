@@ -272,6 +272,71 @@ pub enum Operation {
     },
 }
 
+/// Returns the file paths (as `&str`) that are declared by the operation
+/// and should be subject to PathGuard / containment validation.
+///
+/// This eliminates duplication between:
+/// - upfront checks in `execute_plan` (library use, #755)
+/// - test validation logic in MCP
+///
+/// - `Replace`: includes `path` (if present) and `glob` pattern (if present).
+/// - Cross-file ops (`FileRename`, `MdMoveSection`): includes both source
+///   and destination file paths.
+/// - `PatchApply`: returns empty; embedded paths are validated by the
+///   caller (MCP always parses the diff and checks before execute).
+/// - All other ops: their primary `path` (or equivalent).
+/// - AST variants are included only when the `ast` feature is enabled.
+pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
+    match op {
+        Operation::Replace { path, glob, .. } => {
+            let mut p = Vec::new();
+            if let Some(s) = path {
+                p.push(s.as_str());
+            }
+            if let Some(s) = glob {
+                p.push(s.as_str());
+            }
+            p
+        }
+        Operation::FileRename { from, to, .. } => vec![from.as_str(), to.as_str()],
+        Operation::MdMoveSection { path, to, .. } => {
+            let mut p = vec![path.as_str()];
+            if let Some(t) = to {
+                p.push(t.as_str());
+            }
+            p
+        }
+        Operation::PatchApply { .. } => vec![],
+        // Single-path operations (file, doc, md, read, search, tidy, lint, etc.)
+        Operation::DocSet { path, .. }
+        | Operation::DocDelete { path, .. }
+        | Operation::DocMerge { path, .. }
+        | Operation::DocAppend { path, .. }
+        | Operation::DocPrepend { path, .. }
+        | Operation::DocUpdate { path, .. }
+        | Operation::DocMove { path, .. }
+        | Operation::DocEnsure { path, .. }
+        | Operation::DocDeleteWhere { path, .. }
+        | Operation::MdReplaceSection { path, .. }
+        | Operation::MdInsertAfterHeading { path, .. }
+        | Operation::MdInsertBeforeHeading { path, .. }
+        | Operation::MdUpsertBullet { path, .. }
+        | Operation::MdTableAppend { path, .. }
+        | Operation::MdDedupeHeadings { path, .. }
+        | Operation::TidyFix { path, .. }
+        | Operation::FileAppend { path, .. }
+        | Operation::FileCreate { path, .. }
+        | Operation::FileDelete { path, .. }
+        | Operation::Read { path, .. }
+        | Operation::Search { path, .. }
+        | Operation::MdLintAgents { path, .. } => vec![path.as_str()],
+        #[cfg(feature = "ast")]
+        Operation::AstRename { path, .. } | Operation::AstReplace { path, .. } => {
+            vec![path.as_str()]
+        }
+    }
+}
+
 /// A validation step to run after applying operations.
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
