@@ -1600,6 +1600,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn execute_plan_respects_relaxed_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("plan.txt");
@@ -1634,6 +1635,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn execute_plan_rejects_on_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("guarded.txt");
