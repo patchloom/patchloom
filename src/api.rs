@@ -1624,7 +1624,7 @@ mod tests {
                     }}
                 ]
             }}"#,
-            file.to_string_lossy()
+            file.to_string_lossy().replace('\\', "/")
         );
 
         let plan = parse_plan(&plan_json).unwrap();
@@ -1655,7 +1655,7 @@ mod tests {
                     }}
                 ]
             }}"#,
-            abs.to_string_lossy()
+            abs.to_string_lossy().replace('\\', "/")
         );
 
         let plan = parse_plan(&plan_json).unwrap();
