@@ -624,4 +624,46 @@ mod tests {
         assert_eq!(val.required, Some(true));
         assert_eq!(val.timeout, Some(120));
     }
+
+    #[test]
+    fn declared_paths_covers_operation_variants() {
+        // Replace with path + glob (both collected for guard)
+        let json = r#"{"version":"1","operations":[{"op":"replace","path":"src/main.rs","glob":"**/*.rs","from":"old","to":"new"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        let ps = declared_paths(&plan.operations[0]);
+        assert!(ps.contains(&"src/main.rs") && ps.contains(&"**/*.rs"));
+
+        // FileRename (cross-file paths)
+        let json = r#"{"version":"1","operations":[{"op":"file.rename","from":"old.txt","to":"new.txt","force":false}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(
+            declared_paths(&plan.operations[0]),
+            vec!["old.txt", "new.txt"]
+        );
+
+        // MdMoveSection same-file (to omitted)
+        let json = r#"{"version":"1","operations":[{"op":"md.move_section","path":"doc.md","heading":"Section"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(declared_paths(&plan.operations[0]), vec!["doc.md"]);
+
+        // MdMoveSection cross-file
+        let json = r#"{"version":"1","operations":[{"op":"md.move_section","path":"src.md","heading":"H","to":"dst.md"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        let ps = declared_paths(&plan.operations[0]);
+        assert!(ps.contains(&"src.md") && ps.contains(&"dst.md"));
+
+        // PatchApply: declared empty (diff paths handled by caller in MCP)
+        let json = r#"{"version":"1","operations":[{"op":"patch.apply","diff":"--- a/x\n+++ b/x\n@@ -1 +1 @@\n- old\n+ new\n"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(declared_paths(&plan.operations[0]).is_empty());
+
+        // Representative single-path ops
+        let json = r#"{"version":"1","operations":[{"op":"doc.set","path":"c.json","selector":"v","value":42}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(declared_paths(&plan.operations[0]), vec!["c.json"]);
+
+        let json = r#"{"version":"1","operations":[{"op":"read","path":"f.txt"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(declared_paths(&plan.operations[0]), vec!["f.txt"]);
+    }
 }
