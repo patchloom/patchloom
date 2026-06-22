@@ -254,7 +254,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     let manifest_path = session_dir.join("manifest.json");
 
     let content = std::fs::read_to_string(&manifest_path)
-        .with_context(|| format!("no backup session found for {timestamp}"))?;
+        .with_context(|| format!("no backup session found for {timestamp} (use `patchloom undo --list` to see available sessions)"))?;
     let manifest: Manifest = serde_json::from_str(&content)
         .with_context(|| format!("parsing backup manifest for session {timestamp}"))?;
 
