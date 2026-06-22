@@ -463,10 +463,12 @@ struct TxState<'a> {
     cwd: &'a Path,
     quiet: bool,
     structured: bool,
+    #[allow(dead_code)]
     guard: Option<&'a crate::containment::PathGuard>,
 }
 
 impl<'a> TxState<'a> {
+    #[allow(dead_code)]
     fn check_path(&self, p: &str) -> anyhow::Result<()> {
         if let Some(g) = self.guard {
             g.check_path(p)
@@ -1127,10 +1129,9 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
 }
 
 fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
-    // Touch guard to ensure field is considered used (enforcement wired via check_path helper and upfront).
-    // Individual ops can call tx.check_path(...) for their paths.
-    // Example use of instance guard (full per-op enforcement can expand this).
-    let _ = tx.check_path(""); // exercises the guard field + helper (no-op for unknown; real paths checked in upfront + can be expanded)
+    // Guard is enforced upfront in execute_plan_direct (for library plans) and via MCP pre-checks.
+    // Single-op api::* uses ensure_contained inside write paths.
+    // Per-op enforcement inside tx collect can be expanded later if needed.
     match op {
         Operation::Replace { .. } => {
             return execute_replace_op(op, tx);
@@ -2158,7 +2159,6 @@ fn validate_and_prepare_plan(
     plan: &Plan,
     cwd: &Path,
     no_strict: bool,
-    _guard: Option<&crate::containment::PathGuard>,
 ) -> Result<(PathBuf, bool, GlobalFlags), (u8, String)> {
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
@@ -2205,8 +2205,7 @@ pub fn execute_plan_direct(
         guard.is_some()
     );
 
-    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false, guard)
-    {
+    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
         Ok(v) => v,
         Err((code, json)) => return Ok((code, json)),
     };
@@ -2392,7 +2391,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 3. Validate plan and resolve working directory.
     let base_cwd = global.resolve_cwd()?;
     let (cwd, strict, _resolved_global) =
-        match validate_and_prepare_plan(&plan, &base_cwd, args.no_strict, None) {
+        match validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
             Ok(v) => v,
             Err((code, msg)) => {
                 if structured {
