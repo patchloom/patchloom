@@ -19767,8 +19767,8 @@ fn test_ast_map_basic() {
         .args(["ast", "map", ".", "--json"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("a"))
-        .stdout(predicates::str::contains("b"));
+        .stdout(predicates::str::contains("\"name\": \"a\""))
+        .stdout(predicates::str::contains("\"name\": \"b\""));
 }
 
 #[test]
