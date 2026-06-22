@@ -143,14 +143,7 @@ jobs:
           CURRENT_BODY=$(gh pr view "$PR_NUMBER" --json body -q .body || echo "")
           if echo "$CURRENT_BODY" | grep -qE '## \[[0-9]+\.[0-9]+\.[0-9]+\]'; then
             echo "Setting short curated body on release PR #$PR_NUMBER"
-            gh pr edit "$PR_NUMBER" --body "$(cat << 'EOPRBODY'
-:robot: Release PR
-
-See [RELEASE_NOTES.md](https://github.com/patchloom/patchloom/blob/main/RELEASE_NOTES.md) for the curated highlights of this release.
-
-The detailed changelog will be part of the published GitHub Release.
-EOPRBODY
-)" || echo "Failed to edit PR body (non-fatal)"
+            gh pr edit "$PR_NUMBER" --body $':robot: Release PR\n\nSee [RELEASE_NOTES.md](https://github.com/patchloom/patchloom/blob/main/RELEASE_NOTES.md) for the curated highlights of this release.\n\nThe detailed changelog will be part of the published GitHub Release.' || echo "Failed to edit PR body (non-fatal)"
           else
             echo "PR body looks reasonable, leaving as-is"
           fi
