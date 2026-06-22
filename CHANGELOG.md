@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
-## [0.5.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.4.0...patchloom-v0.5.0) (2026-06-22)
+## [0.4.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.4.0) (2026-06-22)
 
 
 ### ⚠ BREAKING CHANGES
