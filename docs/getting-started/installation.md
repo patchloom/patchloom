@@ -68,7 +68,7 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 
 ```toml
 [dependencies]
-patchloom = { version = "0.3", default-features = false }
+patchloom = { version = "0.5", default-features = false }
 ```
 
 To add AST support without CLI/MCP:
