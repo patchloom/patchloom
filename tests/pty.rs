@@ -187,8 +187,11 @@ fn pty_append_confirm_yes_runs_format_command() {
 
     let mut session = spawn_pty(cmd);
 
-    // Consume diff output before matching the prompt.
-    session.expect("extra").expect("should see diff output");
+    // Consume diff output (header is reliably emitted early) before matching the prompt.
+    // "extra" (added content) may race under high load; filename in diff header is stable.
+    session
+        .expect("f.txt")
+        .expect("should see diff output (file header)");
     session.expect("Apply?").expect("should see Apply? prompt");
     session.send_line("y").expect("failed to send y");
     session.expect(Eof).expect("process should exit");
