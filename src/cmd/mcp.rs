@@ -18,6 +18,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::cli::global::GlobalFlags;
+use crate::containment::PathGuard;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 
@@ -679,8 +680,12 @@ impl PatchloomService {
 ///
 /// Each individual MCP tool validates paths via `check_path` before calling
 /// this function, so no redundant validation is needed here.
-fn execute_plan_validated(plan: Plan, cwd: &std::path::Path) -> Result<CallToolResult, McpError> {
-    let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd)
+fn execute_plan_validated(
+    plan: Plan,
+    cwd: &std::path::Path,
+    guard: Option<&PathGuard>,
+) -> Result<CallToolResult, McpError> {
+    let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
         .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
 
     exit_code_to_result(code, &json, "Operation completed successfully.")
@@ -755,6 +760,7 @@ impl PatchloomService {
                 Some(p.strict),
             ),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -773,6 +779,7 @@ impl PatchloomService {
                 selector: p.selector,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -791,6 +798,7 @@ impl PatchloomService {
                 value: p.value,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -811,6 +819,7 @@ impl PatchloomService {
                 value: p.value,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -831,6 +840,7 @@ impl PatchloomService {
                 value: p.value,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -851,6 +861,7 @@ impl PatchloomService {
                 value: p.value,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -871,6 +882,7 @@ impl PatchloomService {
                 predicate: p.predicate,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -891,6 +903,7 @@ impl PatchloomService {
                 value: p.value,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -911,6 +924,7 @@ impl PatchloomService {
                 to: p.to,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1125,6 +1139,7 @@ impl PatchloomService {
                 lines: p.lines,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1225,6 +1240,7 @@ impl PatchloomService {
                 Some(p.strict),
             ),
             self.cwd(),
+            Some(&self.path_guard),
         )?;
 
         // Append validation warnings to the response.
@@ -1259,6 +1275,7 @@ impl PatchloomService {
                 bullet: p.bullet,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1278,6 +1295,7 @@ impl PatchloomService {
                 row: p.row,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1297,6 +1315,7 @@ impl PatchloomService {
                 content: p.content,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1316,6 +1335,7 @@ impl PatchloomService {
                 content: p.content,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1335,6 +1355,7 @@ impl PatchloomService {
                 content: p.content,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1370,6 +1391,7 @@ impl PatchloomService {
                 after: p.after,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1406,6 +1428,7 @@ impl PatchloomService {
                 normalize_eol: None,
             }]),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1514,6 +1537,7 @@ impl PatchloomService {
                 Some(p.strict),
             ),
             self.cwd(),
+            Some(&self.path_guard),
         )
     }
 
@@ -1563,7 +1587,11 @@ impl PatchloomService {
                 after_context: None,
             })
             .collect();
-        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
+        execute_plan_validated(
+            make_plan_strict(ops, Some(p.strict)),
+            self.cwd(),
+            Some(&self.path_guard),
+        )
     }
 
     #[tool(
@@ -1593,7 +1621,11 @@ impl PatchloomService {
                 normalize_eol: None,
             })
             .collect();
-        execute_plan_validated(make_plan_strict(ops, Some(p.strict)), self.cwd())
+        execute_plan_validated(
+            make_plan_strict(ops, Some(p.strict)),
+            self.cwd(),
+            Some(&self.path_guard),
+        )
     }
 }
 

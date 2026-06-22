@@ -3817,7 +3817,7 @@ fn test_tx_rollback_failed_when_restore_incomplete() {
     .unwrap();
 
     let _guard = patchloom::cmd::tx::RestoreFailGuard::engage();
-    let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path()).unwrap();
+    let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
 
     assert_eq!(code, 1, "json: {json_str}");
     let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
