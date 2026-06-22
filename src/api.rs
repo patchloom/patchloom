@@ -1107,6 +1107,28 @@ pub struct SearchResult {
     pub context_after: Vec<String>,
 }
 
+/// Helper to build context slices for a match line. DRY for search impls.
+fn build_context_lines(
+    all_lines: &[&str],
+    match_idx: usize,
+    ctx: usize,
+) -> (Vec<String>, Vec<String>) {
+    if ctx == 0 {
+        return (vec![], vec![]);
+    }
+    let before_start = match_idx.saturating_sub(ctx);
+    let after_end = (match_idx + 1 + ctx).min(all_lines.len());
+    let before = all_lines[before_start..match_idx]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let after = all_lines[match_idx + 1..after_end]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    (before, after)
+}
+
 /// Search a directory (or file) recursively for pattern.
 /// Respects globs if "files" feature enabled. Uses parallel processing when available.
 /// This provides the full power of the CLI search for library use (see #773).
@@ -1132,31 +1154,52 @@ pub fn search_directory(
             usize::MAX
         };
 
-        let file_results: Vec<SearchResult> =
+        let file_result_groups: Vec<Vec<SearchResult>> =
             par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-                search_one_file_for_api(path, pattern, opts, root, limit)
+                let v = search_one_file_for_api(path, pattern, opts, root);
+                if v.is_empty() { None } else { Some(v) }
             });
 
-        let res: Vec<SearchResult> = file_results.into_iter().take(limit).collect();
+        let mut res: Vec<SearchResult> = file_result_groups.into_iter().flatten().collect();
+        if limit < usize::MAX {
+            res.truncate(limit);
+        }
         Ok(res)
     }
 
     #[cfg(not(any(feature = "cli", feature = "files")))]
     {
-        // fallback to single file search
+        // fallback to single file search (multi-match supported via basic search)
         if root.is_file() {
-            let matches = search(root, pattern, opts.regex, opts.case_insensitive)?;
-            Ok(matches
+            let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
+            let display = root.to_path_buf();
+            // re-read for context lines (fallback is rare / no "files" feature)
+            let all_lines: Vec<&str> = std::fs::read_to_string(root)
+                .with_context(|| format!("failed to read {}", root.display()))?
+                .lines()
+                .collect();
+            let c = opts.context.unwrap_or(0);
+            let content = std::fs::read_to_string(root)
+                .with_context(|| format!("failed to read {}", root.display()))?;
+            let all_lines: Vec<&str> = content.lines().collect();
+            let results: Vec<SearchResult> = basic
                 .into_iter()
-                .map(|m| SearchResult {
-                    path: root.to_path_buf(),
-                    line_number: m.line_number,
-                    line: m.line,
-                    column: 1,
-                    context_before: vec![],
-                    context_after: vec![],
+                .map(|m| {
+                    let i = m.line_number - 1;
+                    let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+                    // column not tracked in basic fallback search (always 1; full impl behind "files" feature)
+                    let column = 1;
+                    SearchResult {
+                        path: display.clone(),
+                        line_number: m.line_number,
+                        line: m.line,
+                        column,
+                        context_before,
+                        context_after,
+                    }
                 })
-                .collect())
+                .collect();
+            Ok(results)
         } else {
             bail!("directory search requires the 'files' feature to be enabled");
         }
@@ -1169,9 +1212,11 @@ fn search_one_file_for_api(
     pattern: &str,
     opts: &SearchOptions,
     root: &Path,
-    _limit: usize,
-) -> Option<SearchResult> {
-    let content = crate::files::read_text_file(path)?;
+) -> Vec<SearchResult> {
+    let content = match crate::files::read_text_file(path) {
+        Some(c) => c,
+        None => return vec![],
+    };
     let display = crate::files::relative_display(path, root);
     let pat = if opts.literal {
         regex::escape(pattern)
@@ -1179,16 +1224,15 @@ fn search_one_file_for_api(
         pattern.to_string()
     };
     let re = if opts.regex || opts.case_insensitive {
-        Some(
-            regex::RegexBuilder::new(&pat)
-                .case_insensitive(opts.case_insensitive)
-                .build()
-                .ok()?,
-        )
+        regex::RegexBuilder::new(&pat)
+            .case_insensitive(opts.case_insensitive)
+            .build()
+            .ok()
     } else {
         None
     };
 
+    let mut results = Vec::new();
     for (i, line) in content.lines().enumerate() {
         let matched = if let Some(re) = &re {
             re.is_match(line)
@@ -1198,35 +1242,27 @@ fn search_one_file_for_api(
         if matched {
             let all_lines: Vec<&str> = content.lines().collect();
             let c = opts.context.unwrap_or(0);
-            let before_start = i.saturating_sub(c);
-            let after_end = (i + 1 + c).min(all_lines.len());
-            let context_before: Vec<String> = if c > 0 {
-                all_lines[before_start..i]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
+            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+            let column = if opts.regex || opts.case_insensitive {
+                if let Some(re) = &re {
+                    re.find(line).map_or(1, |m| m.start() + 1)
+                } else {
+                    1
+                }
             } else {
-                vec![]
+                line.find(pattern).map_or(1, |p| p + 1)
             };
-            let context_after: Vec<String> = if c > 0 {
-                all_lines[i + 1..after_end]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            } else {
-                vec![]
-            };
-            return Some(SearchResult {
+            results.push(SearchResult {
                 path: display.to_path_buf(),
                 line_number: i + 1,
                 line: line.to_string(),
-                column: 1,
+                column,
                 context_before,
                 context_after,
             });
         }
     }
-    None
+    results
 }
 
 // ---------------------------------------------------------------------------
@@ -2717,11 +2753,18 @@ mod tests {
             ..Default::default()
         };
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
-        assert_eq!(results.len(), 1);
-        let r = &results[0];
-        assert!(r.line.contains("foo()"));
-        assert!(r.context_before.len() <= 1);
-        assert!(r.context_after.len() <= 1);
+        // multi-match per file now supported (addresses #779)
+        assert_eq!(results.len(), 2);
+        // first match "foo(); }" on line 1, no before, 1 after
+        assert!(results[0].line.contains("foo()"));
+        assert_eq!(results[0].context_before.len(), 0);
+        assert_eq!(results[0].context_after, vec!["// comment".to_string()]);
+        assert_eq!(results[0].column, 13); // position of 'f' in "foo();"
+        // second match
+        assert!(results[1].line.contains("foo()"));
+        assert_eq!(results[1].context_before, vec!["// comment".to_string()]);
+        assert_eq!(results[1].context_after.len(), 0);
+        assert_eq!(results[1].column, 9);
     }
 
     #[test]
@@ -2738,7 +2781,7 @@ mod tests {
             ..Default::default()
         };
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
-        assert_eq!(results.len(), 2); // capped at 2 files
+        assert_eq!(results.len(), 2); // capped at 2 results (max_results limits matches)
         assert!(
             results.iter().any(|r| r.line.contains("Foo")
                 || r.line.contains("foo")

@@ -40,8 +40,8 @@ audit-test-hygiene: ## Audit test names/comments for staleness and weak assertio
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
 	@grep -rnE 'test_.*(same_file|same-file|core_feature|old_module)' tests/ src/ --include='*.rs' --include='*.py' || echo "(none found)"
 	@echo "=== Weak assertions (bare .failure/.success without content checks) ==="
-	@grep -rnE '\.(failure|success)\(\)' tests/integration.rs | grep -v 'contains\|stdout\|stderr\|output' | head -10 || echo "(none obvious)"
-	@echo "Run this after refactors or MPI cycles. Strengthen names + assertions."
+	@python3 -c "import re,sys; lines=open('tests/integration.rs').readlines(); bare=[f'{i+1}: {lines[i].strip()}' for i in range(len(lines)) if re.search(r'\.(failure|success)\(\)',lines[i]) and not re.search(r'contains|stdout|stderr|output|predicate',''.join(lines[i:i+4]))]; print('\n'.join(bare[:10]) or '(none obvious after 4-line lookahead)')" 
+	@echo "Run this after refactors or MPI cycles. Strengthen names + assertions. (improved lookahead per Test Auditor #784 follow-up)"
 
 verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated releases, addresses long generated changelog bloat)
 	@if [ -f RELEASE_NOTES.md ]; then \
