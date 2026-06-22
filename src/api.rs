@@ -1201,12 +1201,18 @@ fn search_one_file_for_api(
             let before_start = i.saturating_sub(c);
             let after_end = (i + 1 + c).min(all_lines.len());
             let context_before: Vec<String> = if c > 0 {
-                all_lines[before_start..i].iter().map(|s| s.to_string()).collect()
+                all_lines[before_start..i]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             } else {
                 vec![]
             };
             let context_after: Vec<String> = if c > 0 {
-                all_lines[i + 1..after_end].iter().map(|s| s.to_string()).collect()
+                all_lines[i + 1..after_end]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             } else {
                 vec![]
             };
@@ -2667,7 +2673,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let src = dir.path().join("src");
         std::fs::create_dir(&src).unwrap();
-        std::fs::write(src.join("main.rs"), "fn main() { foo(); }\n// comment\nlet x = foo();\n").unwrap();
+        std::fs::write(
+            src.join("main.rs"),
+            "fn main() { foo(); }\n// comment\nlet x = foo();\n",
+        )
+        .unwrap();
         std::fs::write(src.join("lib.txt"), "foo in text\n").unwrap(); // should be skipped by glob
 
         let mut opts = SearchOptions::default();
@@ -2694,7 +2704,11 @@ mod tests {
         opts.max_results = 2;
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
         assert_eq!(results.len(), 2); // capped at 2 files
-        assert!(results.iter().any(|r| r.line.contains("Foo") || r.line.contains("foo") || r.line.contains("FOO")));
+        assert!(
+            results.iter().any(|r| r.line.contains("Foo")
+                || r.line.contains("foo")
+                || r.line.contains("FOO"))
+        );
     }
 
     #[test]
