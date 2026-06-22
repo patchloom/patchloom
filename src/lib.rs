@@ -44,7 +44,15 @@
 //!     .allow_temp_directory()
 //!     .build()
 //!     .expect("guard");
-//! // then use guard.check_path(...) or pass to api if integrated
+//! // pass to high-level api functions, e.g.
+//! let _ = patchloom::api::replace_text(
+//!     std::path::Path::new("foo.txt"),
+//!     "old",
+//!     "new",
+//!     &patchloom::api::ReplaceOptions::default(),
+//!     patchloom::api::ApplyMode::Preview,
+//!     Some(&guard),
+//! );
 //! ```
 //!
 //! (The `files`, `cli`, and `cmd` modules are only available with the `cli` feature.)
