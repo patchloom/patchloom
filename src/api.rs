@@ -29,6 +29,34 @@
 //! - [`ApplyMode::Apply`] — write changes to disk with backup.
 //! - [`ApplyMode::Check`] — report whether changes would occur (for CI).
 //!
+//! # Using with PathGuard (containment)
+//!
+//! All write operations accept an optional `guard: Option<&PathGuard>` (added for library users needing relaxed containment).
+//! Pass `None` for no additional checks (default for most internal use).
+//! Pass `Some(&guard)` to enforce the policy (e.g. allow temp dirs via the builder).
+//!
+//! Example:
+//!
+//! ```rust,no_run
+//! use patchloom::api::{self, ApplyMode, ReplaceOptions};
+//! use patchloom::containment::PathGuard;
+//! use std::path::Path;
+//!
+//! let guard = PathGuard::builder(std::env::current_dir().unwrap())
+//!     .allow_temp_directory()
+//!     .build()
+//!     .unwrap();
+//!
+//! let _ = api::replace_text(
+//!     Path::new("src/main.rs"),
+//!     "old",
+//!     "new",
+//!     &ReplaceOptions::default(),
+//!     ApplyMode::Preview,
+//!     Some(&guard),
+//! );
+//! ```
+//!
 //! # Thread safety
 //!
 //! All types in this module are `Send + Sync`. Functions are safe to call
@@ -274,7 +302,12 @@ pub fn doc_set(
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
-pub fn doc_delete(path: &Path, selector: &str, mode: ApplyMode, guard: Option<&PathGuard>) -> anyhow::Result<EditResult> {
+pub fn doc_delete(
+    path: &Path,
+    selector: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
 
@@ -786,7 +819,11 @@ pub fn file_create(
 }
 
 /// Delete a file.
-pub fn file_delete(path: &Path, mode: ApplyMode, guard: Option<&PathGuard>) -> anyhow::Result<EditResult> {
+pub fn file_delete(
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy().to_string();
 
     if !path.exists() {
@@ -891,7 +928,12 @@ pub fn file_rename(
 /// Apply a unified diff patch to a file.
 ///
 /// Returns an `EditResult` with the patched content.
-pub fn apply_patch(path: &Path, patch_text: &str, mode: ApplyMode, guard: Option<&PathGuard>) -> anyhow::Result<EditResult> {
+pub fn apply_patch(
+    path: &Path,
+    patch_text: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
@@ -1097,6 +1139,8 @@ pub fn execute_plan(plan: crate::plan::Plan, cwd: &Path) -> anyhow::Result<(u8, 
 mod tests {
     use super::*;
     use std::fs;
+
+    use crate::containment::{AbsolutePathPolicy, PathGuard};
     use tempfile::TempDir;
 
     #[test]
@@ -1128,9 +1172,42 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Apply, None).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
+        assert!(result.applied);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("2.0"));
+    }
+
+    #[test]
+    fn doc_set_respects_guard() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.json");
+        fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .unwrap();
+
         assert!(result.applied);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("2.0"));
@@ -1242,7 +1319,8 @@ mod tests {
         .unwrap();
 
         let result =
-            md_replace_section(&file, "Section A", "New body.\n", ApplyMode::Preview, None).unwrap();
+            md_replace_section(&file, "Section A", "New body.\n", ApplyMode::Preview, None)
+                .unwrap();
 
         assert!(result.changed);
         assert!(result.new_content.contains("New body."));
@@ -1255,7 +1333,8 @@ mod tests {
         let file = dir.path().join("CHANGELOG.md");
         fs::write(&file, "# Changes\n\n- Item 1\n").unwrap();
 
-        let result = md_upsert_bullet(&file, "# Changes", "- Item 2", ApplyMode::Preview, None).unwrap();
+        let result =
+            md_upsert_bullet(&file, "# Changes", "- Item 2", ApplyMode::Preview, None).unwrap();
 
         assert!(result.changed);
         assert!(result.new_content.contains("- Item 2"));
@@ -1327,7 +1406,14 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Check, None).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Check,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
         assert!(!result.applied);
@@ -1342,7 +1428,8 @@ mod tests {
         let file = dir.path().join("data.json");
         fs::write(&file, r#"{"items": [1, 2]}"#).unwrap();
 
-        let result = doc_append(&file, "items", serde_json::json!(3), ApplyMode::Apply, None).unwrap();
+        let result =
+            doc_append(&file, "items", serde_json::json!(3), ApplyMode::Apply, None).unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1394,6 +1481,7 @@ mod tests {
             "version",
             serde_json::json!("1.0"),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1411,7 +1499,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Apply, None).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1499,6 +1594,7 @@ mod tests {
             "Second",
             "Inserted before second.\n\n",
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1518,6 +1614,7 @@ mod tests {
             "First",
             "Inserted after first.\n\n",
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1612,7 +1709,8 @@ mod tests {
         let file = dir.path().join("data.json");
         fs::write(&file, r#"{"items": [2, 3]}"#).unwrap();
 
-        let result = doc_prepend(&file, "items", serde_json::json!(1), ApplyMode::Apply, None).unwrap();
+        let result =
+            doc_prepend(&file, "items", serde_json::json!(1), ApplyMode::Apply, None).unwrap();
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
@@ -1634,6 +1732,7 @@ mod tests {
             "items[*].val",
             serde_json::json!(99),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
         assert!(result.changed);
@@ -1655,6 +1754,7 @@ mod tests {
             "new_key",
             serde_json::json!("added"),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
         assert!(result.changed);
@@ -1667,6 +1767,7 @@ mod tests {
             "existing",
             serde_json::json!("overwrite"),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
         assert!(!result.changed);
@@ -1682,7 +1783,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = doc_delete_where(&file, "items", "name=remove", ApplyMode::Apply, None).unwrap();
+        let result =
+            doc_delete_where(&file, "items", "name=remove", ApplyMode::Apply, None).unwrap();
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(!on_disk.contains("remove"));
@@ -1701,7 +1803,8 @@ mod tests {
         .unwrap();
 
         // Move section A to after section C.
-        let result = md_move_section(&file, "A", ("after", "C"), None, ApplyMode::Preview, None).unwrap();
+        let result =
+            md_move_section(&file, "A", ("after", "C"), None, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         let pos_b = result.new_content.find("# B").unwrap();
         let pos_a = result.new_content.find("# A").unwrap();
@@ -1725,6 +1828,7 @@ mod tests {
             ("after", "Target"),
             Some(&dst),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
 
@@ -1966,9 +2070,14 @@ mod tests {
             for i in 0..num_threads {
                 s.spawn(move || {
                     let file = dir_path.join(format!("file_{i}.json"));
-                    let result =
-                        doc_set(&file, "value", serde_json::json!(i * 100), ApplyMode::Apply, None)
-                            .unwrap();
+                    let result = doc_set(
+                        &file,
+                        "value",
+                        serde_json::json!(i * 100),
+                        ApplyMode::Apply,
+                        None,
+                    )
+                    .unwrap();
                     assert!(result.changed);
                     assert!(result.applied);
                 });
@@ -2090,6 +2199,7 @@ mod tests {
                         &format!("Section {i}"),
                         &format!("Updated body {i}.\n"),
                         ApplyMode::Apply,
+                        None,
                     )
                     .unwrap();
                     assert!(result.changed);
@@ -2203,9 +2313,14 @@ mod tests {
             for i in 0..num_threads {
                 s.spawn(move || {
                     let file = dir_path.join(format!("new_{i}.txt"));
-                    let result =
-                        file_create(&file, &format!("content_{i}\n"), false, ApplyMode::Apply, None)
-                            .unwrap();
+                    let result = file_create(
+                        &file,
+                        &format!("content_{i}\n"),
+                        false,
+                        ApplyMode::Apply,
+                        None,
+                    )
+                    .unwrap();
                     assert!(result.applied);
                 });
             }
