@@ -32,10 +32,20 @@
 //! This gives you the [`api`] module (primary editing interface), [`ops`],
 //! and utility modules:
 //!
-//! - [`containment`] -- workspace path guard preventing traversal attacks
+//! - [`containment`] -- workspace path guard (flexible `AbsolutePathPolicy` via builder for temp dirs/extra roots in library use; strict `Reject` for MCP)
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
 //! - [`write`] -- atomic file writes with write-policy transformations
+//!
+//! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
+//! ```rust,no_run
+//! use patchloom::containment::PathGuard;
+//! let guard = PathGuard::builder(std::env::current_dir().unwrap())
+//!     .allow_temp_directory()
+//!     .build()
+//!     .expect("guard");
+//! // then use guard.check_path(...) or pass to api if integrated
+//! ```
 //!
 //! (The `files`, `cli`, and `cmd` modules are only available with the `cli` feature.)
 //!

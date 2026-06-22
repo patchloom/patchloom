@@ -8,6 +8,18 @@
 //! 1. **Syntactic check** (no I/O): rejects `../` traversal that goes beyond root depth
 //! 2. **Symlink-aware check**: canonicalizes and verifies the resolved path is contained
 //!
+//! ## Policy choices for different use cases
+//!
+//! | Policy | Use when | Example |
+//! |--------|----------|---------|
+//! | `Reject` | MCP server or untrusted agent output (default for safety) | CLI tools exposed over network |
+//! | `AllowIfContained` | Trusted library use, absolute paths inside workspace only | Standard agent in project dir |
+//! | `AllowAdditionalRoots(...)` or builder | Agents needing /tmp, build artifacts, scratch dirs while keeping guard for sensitive paths | Bline `--yolo` or experiment mode |
+//!
+//! **Threat model note**: MCP uses untrusted LLM-generated paths, so strict `Reject`.
+//! Direct library embedding (e.g. Bline) can use relaxed policies because the host controls the agent.
+//! Even with extra roots, escapes *out of* allowed roots are still blocked.
+//!
 //! # Example
 //!
 //! ```rust,no_run
@@ -25,16 +37,49 @@
 //! // Error: escapes workspace
 //! assert!(guard.check_path("../../etc/passwd").is_err());
 //! ```
+//!
+//! ## Builder for agents
+//!
+//! ```rust,no_run
+//! use patchloom::containment::PathGuard;
+//!
+//! let guard = PathGuard::builder(std::env::current_dir().unwrap())
+//!     .allow_temp_directory()           // /tmp etc.
+//!     .allow_root("/tmp/my-experiments")
+//!     .build()
+//!     .unwrap();
+//! ```
 
 use std::path::{Component, Path, PathBuf};
 
 /// Policy for handling absolute paths.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbsolutePathPolicy {
-    /// Reject all absolute paths (current patchloom MCP behavior).
+    /// Reject all absolute paths (current strict default, used by MCP).
     Reject,
-    /// Allow absolute paths if they resolve within the workspace root.
+
+    /// Allow absolute paths only if they resolve inside the primary workspace root.
     AllowIfContained,
+
+    /// Allow absolute paths if they resolve inside the workspace root **or**
+    /// inside any of the additional allowed roots.
+    ///
+    /// Recommended for most library/agent use cases (e.g. /tmp, scratch dirs).
+    AllowAdditionalRoots(Vec<PathBuf>),
+}
+
+impl AbsolutePathPolicy {
+    /// Workspace root + the platform's temp directory.
+    /// Covers the common case for agents needing temp files or build outputs.
+    pub fn allow_workspace_and_temp_dir() -> Self {
+        let temp = std::env::temp_dir();
+        AbsolutePathPolicy::AllowAdditionalRoots(vec![temp])
+    }
+
+    /// Allow the workspace plus any number of extra trusted roots.
+    pub fn allow_additional_roots(roots: impl IntoIterator<Item = PathBuf>) -> Self {
+        AbsolutePathPolicy::AllowAdditionalRoots(roots.into_iter().collect())
+    }
 }
 
 /// Errors from workspace path validation.
@@ -108,42 +153,42 @@ impl PathGuard {
         root: PathBuf,
         absolute_policy: AbsolutePathPolicy,
     ) -> Result<Self, ContainmentError> {
-        let canon_root = root
-            .canonicalize()
-            .map_err(|e| ContainmentError::Canonicalize {
-                path: root.display().to_string(),
-                source: e,
-            })?;
-        Ok(Self {
-            root,
-            canon_root,
-            absolute_policy,
-        })
+        Self::new_with_policy(root, absolute_policy)
     }
 
-    /// Validate that `path` stays within the workspace root.
+    /// Validate that `path` stays within the workspace root (or additional roots if configured).
     ///
     /// Returns the canonicalized path on success. Rejects paths that
-    /// escape the workspace via `../` traversal or symlinks.
+    /// escape the allowed roots via `../` traversal or symlinks.
     pub fn check_path(&self, path: &str) -> Result<PathBuf, ContainmentError> {
         let p = Path::new(path);
 
         if p.is_absolute() {
-            match self.absolute_policy {
+            match &self.absolute_policy {
                 AbsolutePathPolicy::Reject => {
                     return Err(ContainmentError::AbsolutePath(path.to_string()));
                 }
                 AbsolutePathPolicy::AllowIfContained => {
                     // Skip syntactic check, go straight to symlink-aware check.
-                    return self.check_resolved_absolute(path, p);
+                    let roots = vec![self.canon_root.clone()];
+                    return self.check_resolved_absolute(path, p, &roots);
+                }
+                AbsolutePathPolicy::AllowAdditionalRoots(extra) => {
+                    let mut allowed = vec![self.canon_root.clone()];
+                    for r in extra {
+                        if let Ok(c) = r.canonicalize() {
+                            allowed.push(c);
+                        }
+                    }
+                    return self.check_resolved_absolute(path, p, &allowed);
                 }
             }
         }
 
-        // Syntactic depth-tracking check (no I/O).
+        // Syntactic depth-tracking check (no I/O). Relative always against primary root.
         validate_relative_depth(path, p)?;
 
-        // Symlink-aware containment check.
+        // Symlink-aware containment check (primary root).
         self.check_resolved_relative(path)
     }
 
@@ -157,13 +202,25 @@ impl PathGuard {
         &self.canon_root
     }
 
-    /// Check that an absolute path resolves within the workspace.
-    fn check_resolved_absolute(&self, path: &str, p: &Path) -> Result<PathBuf, ContainmentError> {
+    /// Returns true if the path would be allowed under the current policy
+    /// (dry-run, no error details).
+    pub fn would_allow(&self, path: &str) -> bool {
+        self.check_path(path).is_ok()
+    }
+
+    /// Check that an absolute path resolves within one of the allowed roots.
+    fn check_resolved_absolute(
+        &self,
+        path: &str,
+        p: &Path,
+        allowed_roots: &[PathBuf],
+    ) -> Result<PathBuf, ContainmentError> {
         let canon = canonicalize_or_ancestor(p).map_err(|e| ContainmentError::Canonicalize {
             path: path.to_string(),
             source: e,
         })?;
-        if !canon.starts_with(&self.canon_root) {
+        let contained = allowed_roots.iter().any(|r| canon.starts_with(r));
+        if !contained {
             return Err(ContainmentError::Escaped {
                 path: path.to_string(),
                 root: self.root.display().to_string(),
@@ -187,6 +244,84 @@ impl PathGuard {
             });
         }
         Ok(canon)
+    }
+}
+
+/// Builder for `PathGuard` to ergonomically configure flexible policies
+/// (useful for library users like agents that need temp dirs or extra roots).
+pub struct PathGuardBuilder {
+    root: PathBuf,
+    policy: AbsolutePathPolicy,
+}
+
+impl PathGuard {
+    /// Create a builder for ergonomic configuration of allowed roots.
+    pub fn builder(root: PathBuf) -> PathGuardBuilder {
+        PathGuardBuilder {
+            root,
+            policy: AbsolutePathPolicy::Reject,
+        }
+    }
+
+    /// Create with explicit policy (back-compat + power users).
+    pub fn new_with_policy(
+        root: PathBuf,
+        policy: AbsolutePathPolicy,
+    ) -> Result<Self, ContainmentError> {
+        let canon_root = root
+            .canonicalize()
+            .map_err(|e| ContainmentError::Canonicalize {
+                path: root.display().to_string(),
+                source: e,
+            })?;
+        Ok(Self {
+            root,
+            canon_root,
+            absolute_policy: policy,
+        })
+    }
+}
+
+impl PathGuardBuilder {
+    /// Allow the system temporary directory (cross-platform via `std::env::temp_dir()`).
+    /// Merges into existing policy if needed.
+    pub fn allow_temp_directory(mut self) -> Self {
+        let temp = std::env::temp_dir();
+        self.policy = match self.policy {
+            AbsolutePathPolicy::Reject | AbsolutePathPolicy::AllowIfContained => {
+                AbsolutePathPolicy::AllowAdditionalRoots(vec![temp])
+            }
+            AbsolutePathPolicy::AllowAdditionalRoots(mut roots) => {
+                if !roots.contains(&temp) {
+                    roots.push(temp);
+                }
+                AbsolutePathPolicy::AllowAdditionalRoots(roots)
+            }
+        };
+        self
+    }
+
+    /// Allow one or more additional trusted roots (e.g. scratch dirs).
+    /// Merges into existing policy.
+    pub fn allow_root(mut self, additional: impl Into<PathBuf>) -> Self {
+        let extra = additional.into();
+        self.policy = match self.policy {
+            AbsolutePathPolicy::Reject | AbsolutePathPolicy::AllowIfContained => {
+                AbsolutePathPolicy::AllowAdditionalRoots(vec![extra])
+            }
+            AbsolutePathPolicy::AllowAdditionalRoots(mut roots) => {
+                if !roots.contains(&extra) {
+                    roots.push(extra);
+                }
+                AbsolutePathPolicy::AllowAdditionalRoots(roots)
+            }
+        };
+        self
+    }
+
+    /// Build the `PathGuard`.
+    pub fn build(self) -> Result<PathGuard, ContainmentError> {
+        PathGuard::new_with_policy(self.root, self.policy)
     }
 }
 
@@ -486,5 +621,58 @@ mod tests {
             root: "/r".to_string(),
         };
         assert!(err2.source().is_none());
+    }
+
+    #[test]
+    fn allow_additional_roots_allows_temp_and_extra() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let temp = std::env::temp_dir();
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowAdditionalRoots(vec![temp.clone()]),
+        )
+        .unwrap();
+        // absolute in extra root should work
+        let tmp_file = temp.join("patchloom_test_extra.txt");
+        // create it
+        std::fs::write(&tmp_file, "ok").unwrap();
+        let res = guard.check_path(tmp_file.to_str().unwrap());
+        assert!(res.is_ok());
+        // clean
+        let _ = std::fs::remove_file(&tmp_file);
+    }
+
+    #[test]
+    fn allow_additional_roots_still_rejects_outside() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::allow_workspace_and_temp_dir(),
+        )
+        .unwrap();
+        let err = guard.check_path("/etc/passwd").unwrap_err();
+        assert!(matches!(err, ContainmentError::Escaped { .. }));
+    }
+
+    #[test]
+    fn builder_allows_temp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+        // should allow temp
+        let temp = std::env::temp_dir().join("patchloom_builder_test.txt");
+        std::fs::write(&temp, "ok").unwrap();
+        assert!(guard.check_path(temp.to_str().unwrap()).is_ok());
+        let _ = std::fs::remove_file(&temp);
+    }
+
+    #[test]
+    fn would_allow_works() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        assert!(guard.would_allow("foo.txt"));
+        assert!(!guard.would_allow("../escape"));
     }
 }

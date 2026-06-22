@@ -44,6 +44,7 @@ use std::path::Path;
 use anyhow::{Context, bail};
 
 use crate::backup::BackupSession;
+use crate::containment::PathGuard;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
 use crate::ops;
 use crate::selector;
@@ -167,9 +168,14 @@ fn write_if_apply(
     new_content: &str,
     mode: ApplyMode,
     policy: &WritePolicy,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<bool> {
     if mode != ApplyMode::Apply {
         return Ok(false);
+    }
+    if let Some(g) = guard {
+        g.check_path(&path.to_string_lossy())
+            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
     }
     // Use the project root (parent of the file) as backup root.
     // For library users, backup is best-effort.
@@ -236,7 +242,7 @@ fn finish_doc_edit(
     let new_content =
         ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(
         &doc.path_str,
         doc.original.clone(),
@@ -445,6 +451,7 @@ pub fn replace_text(
     to: &str,
     opts: &ReplaceOptions,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -511,7 +518,7 @@ pub fn replace_text(
     }
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -534,7 +541,7 @@ pub fn md_replace_section(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -555,7 +562,7 @@ pub fn md_upsert_bullet(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -574,7 +581,7 @@ pub fn md_table_append(
         .ok_or_else(|| anyhow::anyhow!("no table found under heading '{}'", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -593,7 +600,7 @@ pub fn md_insert_after_heading(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -625,9 +632,9 @@ pub fn md_move_section(
     let policy = WritePolicy::default();
     // Write the destination file for cross-file moves.
     if let Some(dest_path) = to {
-        write_if_apply(dest_path, &new_dest, mode, &policy)?;
+        write_if_apply(dest_path, &new_dest, mode, &policy, None)?;
     }
-    let applied = write_if_apply(path, &new_source, mode, &policy)?;
+    let applied = write_if_apply(path, &new_source, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_source, applied))
 }
 
@@ -645,7 +652,7 @@ pub fn md_dedupe_headings(
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok((
         build_edit_result(&path_str, original, new_content, applied),
         removed,
@@ -683,7 +690,7 @@ pub fn md_insert_before_heading(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -871,7 +878,7 @@ pub fn apply_patch(path: &Path, patch_text: &str, mode: ApplyMode) -> anyhow::Re
         .map_err(|e| anyhow::anyhow!("patch apply error: {e}"))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -894,7 +901,7 @@ pub fn apply_patch_file(
             .map_err(|e| anyhow::anyhow!("patch apply error for {}: {e}", pf.path))?;
 
         let policy = WritePolicy::default();
-        let applied = write_if_apply(&file_path, &new_content, mode, &policy)?;
+        let applied = write_if_apply(&file_path, &new_content, mode, &policy, None)?;
         results.push(build_edit_result(&pf.path, original, new_content, applied));
     }
     Ok(results)
@@ -923,7 +930,7 @@ pub fn tidy(
     // Use a default (no-op) policy for writing since we already applied
     // the transformations above.
     let noop_policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &noop_policy)?;
+    let applied = write_if_apply(path, &new_content, mode, &noop_policy, None)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -1149,6 +1156,7 @@ mod tests {
             "new_name",
             &ReplaceOptions::default(),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1169,6 +1177,7 @@ mod tests {
             "new_name",
             &ReplaceOptions::default(),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
 
@@ -1323,6 +1332,7 @@ mod tests {
             "x",
             &ReplaceOptions::default(),
             ApplyMode::Preview,
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("empty search pattern"));
@@ -1827,7 +1837,7 @@ mod tests {
             whole_line: true,
             ..Default::default()
         };
-        let result = replace_text(&file, "remove", "", &opts, ApplyMode::Preview).unwrap();
+        let result = replace_text(&file, "remove", "", &opts, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         assert!(!result.new_content.contains("remove me"));
         assert!(result.new_content.contains("keep this"));
@@ -1844,7 +1854,7 @@ mod tests {
             range: Some((1, Some(3))),
             ..Default::default()
         };
-        let result = replace_text(&file, "b", "", &opts, ApplyMode::Preview).unwrap();
+        let result = replace_text(&file, "b", "", &opts, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         // Only the 'b' on line 2 (within range 1:3) should be removed.
         // The 'b' on line 4 should remain.
@@ -1866,7 +1876,7 @@ mod tests {
             if_exists: true,
             ..Default::default()
         };
-        let result = replace_text(&file, "missing", "x", &opts, ApplyMode::Preview).unwrap();
+        let result = replace_text(&file, "missing", "x", &opts, ApplyMode::Preview, None).unwrap();
         assert!(!result.changed);
         assert!(!result.applied);
     }
@@ -1881,7 +1891,7 @@ mod tests {
             range: Some((1, Some(5))),
             ..Default::default()
         };
-        let err = replace_text(&file, "hello", "x", &opts, ApplyMode::Preview).unwrap_err();
+        let err = replace_text(&file, "hello", "x", &opts, ApplyMode::Preview, None).unwrap_err();
         assert!(err.to_string().contains("range requires whole_line"));
     }
 
@@ -1997,6 +2007,7 @@ mod tests {
                         &format!("renamed_{i}"),
                         &ReplaceOptions::default(),
                         ApplyMode::Apply,
+                        None,
                     )
                     .unwrap();
                     assert!(result.changed);
@@ -2089,6 +2100,7 @@ mod tests {
             "version = 99",
             &opts,
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -2111,7 +2123,7 @@ mod tests {
             nth: Some(2),
             ..ReplaceOptions::default()
         };
-        let result = replace_text(&file, "foo", "qux", &opts, ApplyMode::Preview).unwrap();
+        let result = replace_text(&file, "foo", "qux", &opts, ApplyMode::Preview, None).unwrap();
 
         assert!(result.changed);
         assert_eq!(result.new_content, "foo bar qux baz foo\n");
@@ -2127,7 +2139,7 @@ mod tests {
             insert_after: Some(" beautiful".to_string()),
             ..ReplaceOptions::default()
         };
-        let result = replace_text(&file, "hello", "", &opts, ApplyMode::Preview).unwrap();
+        let result = replace_text(&file, "hello", "", &opts, ApplyMode::Preview, None).unwrap();
 
         assert!(result.changed);
         assert!(
