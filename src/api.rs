@@ -695,10 +695,14 @@ pub fn md_move_section(
     let policy = WritePolicy::default();
     // Write the destination file for cross-file moves.
     if let Some(dest_path) = to {
-        ensure_contained(guard, dest_path)?;
-        write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
+        if mode == ApplyMode::Apply {
+            ensure_contained(guard, dest_path)?;
+        }
+        let _ = write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
-    ensure_contained(guard, path)?;
+    if mode == ApplyMode::Apply {
+        ensure_contained(guard, path)?;
+    }
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_source, applied))
 }

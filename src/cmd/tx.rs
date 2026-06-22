@@ -2244,7 +2244,9 @@ pub fn execute_plan_direct(
                 Operation::Read { path: p, .. } => Some(p.as_str()),
                 Operation::Search { path: p, .. } => Some(p.as_str()),
                 Operation::MdLintAgents { path: p, .. } => Some(p.as_str()),
+                #[cfg(feature = "ast")]
                 Operation::AstRename { path: p, .. } => Some(p.as_str()),
+                #[cfg(feature = "ast")]
                 Operation::AstReplace { path: p, .. } => Some(p.as_str()),
                 _ => None,
             } {
