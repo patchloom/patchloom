@@ -457,11 +457,8 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         no_strict: false,
         write: args.write,
     };
+    // Delegate to tx, which handles --apply / --confirm / --format / plan lifecycle.
     let result = crate::cmd::tx::run(tx_args, global)?;
-    if result == crate::exit::SUCCESS && global.apply {
-        let cwd = global.resolve_cwd()?;
-        crate::write::run_format_command(global, &cwd)?;
-    }
     Ok(result)
 }
 
