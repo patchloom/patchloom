@@ -1108,7 +1108,11 @@ pub struct SearchResult {
 }
 
 /// Helper to build context slices for a match line. DRY for search impls.
-fn build_context_lines(all_lines: &[&str], match_idx: usize, ctx: usize) -> (Vec<String>, Vec<String>) {
+fn build_context_lines(
+    all_lines: &[&str],
+    match_idx: usize,
+    ctx: usize,
+) -> (Vec<String>, Vec<String>) {
     if ctx == 0 {
         return (vec![], vec![]);
     }
