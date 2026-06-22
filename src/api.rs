@@ -1301,6 +1301,33 @@ mod tests {
     }
 
     #[test]
+    fn replace_text_with_relaxed_guard() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        fs::write(&file, "fn old_name() {}\n").unwrap();
+
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        let result = replace_text(
+            &file,
+            "old_name",
+            "new_name",
+            &ReplaceOptions::default(),
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .unwrap();
+
+        assert!(result.changed);
+        assert!(result.applied);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("new_name"));
+    }
+
+    #[test]
     fn md_replace_section_works() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("README.md");
@@ -1394,6 +1421,21 @@ mod tests {
             dst_content, "content\n",
             "rename must preserve file content"
         );
+    }
+
+    #[test]
+    fn file_rename_rejects_guard_on_destination() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("old.txt");
+        let dst = dir.path().join("new.txt");
+        fs::write(&src, "content\n").unwrap();
+
+        // Strict Reject guard: passing an absolute dst triggers rejection on the destination.
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let abs_dst = dst.canonicalize().unwrap_or(dst);
+
+        let err = file_rename(&src, &abs_dst, false, ApplyMode::Apply, Some(&guard)).unwrap_err();
+        assert!(err.to_string().contains("path rejected by workspace guard"));
     }
 
     #[test]
@@ -1818,13 +1860,18 @@ mod tests {
         fs::write(&src, "# Keep\n\nStay.\n\n# Move\n\nGoing.\n").unwrap();
         fs::write(&dst, "# Target\n\nHere.\n").unwrap();
 
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
         md_move_section(
             &src,
             "Move",
             ("after", "Target"),
             Some(&dst),
             ApplyMode::Apply,
-            None,
+            Some(&guard),
         )
         .unwrap();
 
@@ -1838,6 +1885,34 @@ mod tests {
             dst_content.contains("# Move"),
             "section should be inserted into destination"
         );
+    }
+
+    #[test]
+    fn md_move_section_cross_file_rejects_guard_on_destination() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.md");
+        let dst = dir.path().join("dst.md");
+        fs::write(&src, "# Keep\n\nStay.\n\n# Move\n\nGoing.\n").unwrap();
+        fs::write(&dst, "# Target\n\nHere.\n").unwrap();
+
+        // Strict Reject: absolute dst should be rejected by guard before writing dest.
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let abs_dst = dst.canonicalize().unwrap_or(dst);
+
+        let err = md_move_section(
+            &src,
+            "Move",
+            ("after", "Target"),
+            Some(&abs_dst),
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("path rejected by workspace guard"));
+        // src should be untouched since dest was rejected first
+        let src_content = fs::read_to_string(&src).unwrap();
+        assert!(src_content.contains("# Move"));
     }
 
     #[test]
