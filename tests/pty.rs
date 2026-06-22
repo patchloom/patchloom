@@ -39,6 +39,18 @@ fn shell_touch(path: &std::path::Path) -> String {
     format!("touch '{path}'")
 }
 
+/// Cross-platform command that always fails (non-zero exit).
+fn shell_false() -> &'static str {
+    #[cfg(windows)]
+    {
+        "cmd /C exit 1"
+    }
+    #[cfg(not(windows))]
+    {
+        "false"
+    }
+}
+
 // ── --confirm path tests ───────────────────────────────────────
 
 #[test]
@@ -241,5 +253,153 @@ fn pty_confirm_default_enter_accepts() {
     assert_eq!(
         content, "bbb\n",
         "pressing Enter should accept the default (Y)"
+    );
+}
+
+// ── tx + plan + --confirm lifecycle (format/validate steps) ───────
+
+#[test]
+fn pty_tx_confirm_yes_runs_plan_format_and_validate_steps() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "old\n").unwrap();
+    let format_marker = dir.path().join("plan_format_ran.marker");
+    let validate_marker = dir.path().join("plan_validate_ran.marker");
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+        ],
+        "format": [
+            {"cmd": shell_touch(&format_marker)}
+        ],
+        "validate": [
+            {"cmd": shell_touch(&validate_marker), "required": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let mut cmd = patchloom_cmd(dir.path());
+    cmd.args(["tx", plan_file.to_str().unwrap(), "--confirm"]);
+
+    let mut session = spawn_pty(cmd);
+
+    // The tx will print a diff before the prompt.
+    session
+        .expect("new")
+        .expect("should see replacement in diff");
+    session.expect("Apply?").expect("should see Apply? prompt");
+    session.send_line("y").expect("failed to send y");
+    session.expect(Eof).expect("process should exit");
+
+    // Both plan format and validate steps must have executed.
+    assert!(
+        format_marker.exists(),
+        "plan 'format' step should have run after tx --confirm y"
+    );
+    assert!(
+        validate_marker.exists(),
+        "plan 'validate' step should have run after tx --confirm y"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "new\n",
+        "replace from plan should have been applied"
+    );
+}
+
+#[test]
+fn pty_tx_confirm_nonstrict_validate_failure_keeps_applied_changes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "old\n").unwrap();
+    let format_marker = dir.path().join("plan_format_ran.marker");
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+        ],
+        "format": [
+            {"cmd": shell_touch(&format_marker)}
+        ],
+        "validate": [
+            {"cmd": shell_false(), "required": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let mut cmd = patchloom_cmd(dir.path());
+    cmd.args([
+        "tx",
+        plan_file.to_str().unwrap(),
+        "--confirm",
+        "--no-strict",
+    ]);
+
+    let mut session = spawn_pty(cmd);
+
+    session.expect("Apply?").expect("should see Apply? prompt");
+    session.send_line("y").expect("failed to send y");
+    session.expect(Eof).expect("process should exit");
+
+    // Format step ran (before validate), replace applied, but validate failed (non-strict).
+    // Per design: changes are kept, exit code is VALIDATION_FAILED (not rolled back).
+    assert!(
+        format_marker.exists(),
+        "plan format step should run even if later validate fails"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "new\n",
+        "changes should remain after non-strict validate failure on --confirm"
+    );
+}
+
+#[test]
+fn pty_tx_confirm_strict_validate_failure_rolls_back() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "old\n").unwrap();
+    let format_marker = dir.path().join("plan_format_ran.marker");
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "strict": true,
+        "operations": [
+            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+        ],
+        "format": [
+            {"cmd": shell_touch(&format_marker)}
+        ],
+        "validate": [
+            {"cmd": shell_false(), "required": true}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let mut cmd = patchloom_cmd(dir.path());
+    cmd.args(["tx", plan_file.to_str().unwrap(), "--confirm"]);
+
+    let mut session = spawn_pty(cmd);
+
+    session.expect("Apply?").expect("should see Apply? prompt");
+    session.send_line("y").expect("failed to send y");
+    session.expect(Eof).expect("process should exit");
+
+    // Strict mode: on validate failure, changes rolled back.
+    // External format side-effect (marker) remains.
+    assert!(
+        format_marker.exists(),
+        "format side effect remains even on strict rollback"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "old\n",
+        "file should be rolled back on strict validate failure during --confirm"
     );
 }
