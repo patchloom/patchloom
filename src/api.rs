@@ -1495,6 +1495,37 @@ mod tests {
         assert!(on_disk.contains("new_name"));
     }
 
+    /// QA coverage: exercise actual write to a conventional temp path using high-level api
+    /// under .allow_temp_directory() guard (the main motivation for relaxed policy in
+    /// library use by agents). Uses literal /tmp (exercises #781 fix path + ancestor canon).
+    #[cfg(unix)]
+    #[test]
+    fn file_create_writes_to_literal_tmp_under_allow_temp_guard() {
+        let dir = TempDir::new().unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        let tmp_path = format!("/tmp/patchloom_api_tmp_test_{}.txt", std::process::id());
+        let _ = fs::remove_file(&tmp_path);
+
+        let result = file_create(
+            Path::new(&tmp_path),
+            "temp content via guard\n",
+            true, // force ok for test
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .unwrap();
+
+        assert!(result.applied);
+        assert!(result.changed);
+        let content = fs::read_to_string(&tmp_path).unwrap();
+        assert!(content.contains("temp content via guard"));
+        let _ = fs::remove_file(&tmp_path);
+    }
+
     #[test]
     fn md_replace_section_works() {
         let dir = TempDir::new().unwrap();
