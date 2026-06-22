@@ -463,10 +463,12 @@ struct TxState<'a> {
     cwd: &'a Path,
     quiet: bool,
     structured: bool,
+    #[allow(dead_code)]
     guard: Option<&'a crate::containment::PathGuard>,
 }
 
 impl<'a> TxState<'a> {
+    #[allow(dead_code)]
     fn check_path(&self, p: &str) -> anyhow::Result<()> {
         if let Some(g) = self.guard {
             g.check_path(p)
