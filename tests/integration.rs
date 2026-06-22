@@ -1104,7 +1104,7 @@ fn test_replace_apply_modifies_file() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("new_text"), "file should contain new_text");
@@ -1129,7 +1129,7 @@ fn test_replace_dry_run_does_not_modify_file() {
         .arg("new_text")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
