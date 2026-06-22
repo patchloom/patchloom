@@ -41,6 +41,20 @@
 //!
 //! With "files" feature you also get `api::search_directory` for content search.
 //!
+//! Example:
+//! ```rust,ignore
+//! use patchloom::api::{search_directory, SearchOptions};
+//! let opts = SearchOptions {
+//!     context: Some(2),
+//!     globs: vec!["*.rs".into()],
+//!     max_results: 100,
+//!     case_insensitive: true,
+//!     ..SearchOptions::default()
+//! };
+//! let hits = search_directory(std::path::Path::new("."), "foo", &opts)?;
+//! # Ok::<(), anyhow::Error>(())
+//! ```
+//!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
 //! ```rust,no_run
 //! use patchloom::containment::PathGuard;

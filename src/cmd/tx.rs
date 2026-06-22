@@ -3647,7 +3647,9 @@ mod tests {
         let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
 
         assert!(!err.rollback_ok, "restore should be reported as failed");
-        assert!(err.backup_session.is_some());
+        let _session = err
+            .backup_session
+            .expect("backup session should be present on failure");
         assert_eq!(fs::read_to_string(&f1).unwrap(), "new-a");
     }
 
