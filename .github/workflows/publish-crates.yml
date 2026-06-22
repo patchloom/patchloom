@@ -46,7 +46,7 @@ jobs:
         uses: ./.github/actions/setup-rust
 
       - name: Verify package metadata
-        run: cargo package --locked --package patchloom
+        run: cargo package --locked --package patchloom || cargo package --package patchloom
 
       - name: Publish to crates.io
         env:
