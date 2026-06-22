@@ -202,10 +202,7 @@ fn write_if_apply(
     if mode != ApplyMode::Apply {
         return Ok(false);
     }
-    if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy())
-            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-    }
+    ensure_contained(guard, path)?;
     // Use the project root (parent of the file) as backup root.
     // For library users, backup is best-effort.
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
@@ -214,6 +211,17 @@ fn write_if_apply(
     atomic_write(path, new_content, policy)?;
     backup.finalize()?;
     Ok(true)
+}
+
+/// Private helper to centralize the guard check and eliminate duplicated
+/// inline `if let Some(g) = guard { g.check_path... }` blocks in every
+/// write path.
+fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
+    if let Some(g) = guard {
+        g.check_path(&path.to_string_lossy())
+            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+    }
+    Ok(())
 }
 
 fn build_edit_result(
@@ -680,16 +688,10 @@ pub fn md_move_section(
     let policy = WritePolicy::default();
     // Write the destination file for cross-file moves.
     if let Some(dest_path) = to {
-        if let Some(g) = guard {
-            g.check_path(&dest_path.to_string_lossy())
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-        }
+        ensure_contained(guard, dest_path)?;
         write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
-    if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy())
-            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-    }
+    ensure_contained(guard, path)?;
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_source, applied))
 }
@@ -784,10 +786,7 @@ pub fn file_create(
     }
 
     let applied = if mode == ApplyMode::Apply {
-        if let Some(g) = guard {
-            g.check_path(&path.to_string_lossy())
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-        }
+        ensure_contained(guard, path)?;
         // Ensure parent directories exist.
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
@@ -837,10 +836,7 @@ pub fn file_delete(
         .with_context(|| format!("failed to read {}", path.display()))?;
 
     let applied = if mode == ApplyMode::Apply {
-        if let Some(g) = guard {
-            g.check_path(&path.to_string_lossy())
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-        }
+        ensure_contained(guard, path)?;
         let cwd = path.parent().unwrap_or_else(|| Path::new("."));
         let mut backup = BackupSession::new(cwd)?;
         backup.save_before_delete(path)?;
@@ -887,12 +883,8 @@ pub fn file_rename(
         .with_context(|| format!("failed to read {}", src.display()))?;
 
     let applied = if mode == ApplyMode::Apply {
-        if let Some(g) = guard {
-            g.check_path(&src.to_string_lossy())
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-            g.check_path(&dst.to_string_lossy())
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-        }
+        ensure_contained(guard, src)?;
+        ensure_contained(guard, dst)?;
         let cwd = src.parent().unwrap_or_else(|| Path::new("."));
         let mut backup = BackupSession::new(cwd)?;
         backup.save_before_write(src)?;
@@ -1389,7 +1381,11 @@ mod tests {
         let dst = dir.path().join("new.txt");
         fs::write(&src, "content\n").unwrap();
 
-        let result = file_rename(&src, &dst, false, ApplyMode::Apply, None).unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+        let result = file_rename(&src, &dst, false, ApplyMode::Apply, Some(&guard)).unwrap();
         assert!(result.applied);
         assert!(!src.exists());
         assert!(dst.exists());
