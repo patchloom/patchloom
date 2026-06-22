@@ -1107,6 +1107,24 @@ pub struct SearchResult {
     pub context_after: Vec<String>,
 }
 
+/// Helper to build context slices for a match line. DRY for search impls.
+fn build_context_lines(all_lines: &[&str], match_idx: usize, ctx: usize) -> (Vec<String>, Vec<String>) {
+    if ctx == 0 {
+        return (vec![], vec![]);
+    }
+    let before_start = match_idx.saturating_sub(ctx);
+    let after_end = (match_idx + 1 + ctx).min(all_lines.len());
+    let before = all_lines[before_start..match_idx]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let after = all_lines[match_idx + 1..after_end]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    (before, after)
+}
+
 /// Search a directory (or file) recursively for pattern.
 /// Respects globs if "files" feature enabled. Uses parallel processing when available.
 /// This provides the full power of the CLI search for library use (see #773).
@@ -1161,24 +1179,7 @@ pub fn search_directory(
                 .into_iter()
                 .map(|m| {
                     let i = m.line_number - 1;
-                    let before_start = i.saturating_sub(c);
-                    let after_end = (i + 1 + c).min(all_lines.len());
-                    let context_before: Vec<String> = if c > 0 {
-                        all_lines[before_start..i]
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect()
-                    } else {
-                        vec![]
-                    };
-                    let context_after: Vec<String> = if c > 0 {
-                        all_lines[i + 1..after_end]
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect()
-                    } else {
-                        vec![]
-                    };
+                    let (context_before, context_after) = build_context_lines(&all_lines, i, c);
                     // column not tracked in basic fallback search (always 1; full impl behind "files" feature)
                     let column = 1;
                     SearchResult {
@@ -1234,24 +1235,7 @@ fn search_one_file_for_api(
         if matched {
             let all_lines: Vec<&str> = content.lines().collect();
             let c = opts.context.unwrap_or(0);
-            let before_start = i.saturating_sub(c);
-            let after_end = (i + 1 + c).min(all_lines.len());
-            let context_before: Vec<String> = if c > 0 {
-                all_lines[before_start..i]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            } else {
-                vec![]
-            };
-            let context_after: Vec<String> = if c > 0 {
-                all_lines[i + 1..after_end]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            } else {
-                vec![]
-            };
+            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
             let column = if opts.regex || opts.case_insensitive {
                 if let Some(re) = &re {
                     re.find(line).map_or(1, |m| m.start() + 1)
