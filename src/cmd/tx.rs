@@ -463,19 +463,6 @@ struct TxState<'a> {
     cwd: &'a Path,
     quiet: bool,
     structured: bool,
-    #[allow(dead_code)]
-    guard: Option<&'a crate::containment::PathGuard>,
-}
-
-impl<'a> TxState<'a> {
-    #[allow(dead_code)]
-    fn check_path(&self, p: &str) -> anyhow::Result<()> {
-        if let Some(g) = self.guard {
-            g.check_path(p)
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-        }
-        Ok(())
-    }
 }
 
 /// Execute a replace operation within a transaction.
@@ -1820,7 +1807,6 @@ fn execute_and_collect(
     global: &GlobalFlags,
     quiet: bool,
     structured: bool,
-    guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<TxExecResult> {
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
@@ -1864,7 +1850,6 @@ fn execute_and_collect(
             cwd,
             quiet,
             structured,
-            guard,
         };
         match execute_operation(op, &mut tx) {
             Ok(count) => {
@@ -2223,7 +2208,7 @@ pub fn execute_plan_direct(
     }
 
     // Execute operations and collect changes in memory.
-    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true, guard) {
+    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
             return Ok((
@@ -2375,8 +2360,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // 4. Execute all operations, collecting changes in memory (no writes).
-    let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured, None)
-    {
+    let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
         Ok(r) => r,
         Err(e) => {
             let msg = e.to_string();
