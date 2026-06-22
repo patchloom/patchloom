@@ -648,7 +648,9 @@ mod tests {
             source: io_err,
         };
         // strengthened (was bare is_some); expect gives context on failure
-        let _src = err.source().expect("Canonicalize error must carry inner io source");
+        let _src = err
+            .source()
+            .expect("Canonicalize error must carry inner io source");
         let msg = err.to_string();
         assert!(msg.contains("failed to canonicalize"), "got: {msg}");
     }
