@@ -5033,7 +5033,7 @@ fn test_rename_same_path_without_force_is_noop() {
 }
 
 #[test]
-fn test_rename_same_file_via_different_path_is_noop() {
+fn test_rename_different_path_string_is_noop() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("same.txt");
     fs::write(&file, "content\n").unwrap();
@@ -6332,7 +6332,7 @@ fn test_md_lint_agents_jsonl_output() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_md_move_section_same_file_reorder() {
+fn test_md_move_section_equivalent_path_reorder() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.md");
     fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
@@ -6362,7 +6362,7 @@ fn test_md_move_section_same_file_reorder() {
 }
 
 #[test]
-fn test_md_move_section_explicit_to_same_file_reorders() {
+fn test_md_move_section_explicit_to_equivalent_path_reorders() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.md");
     fs::write(&file, "# A\na-content\n# B\nb-content\n# C\nc-content\n").unwrap();
@@ -7913,7 +7913,7 @@ fn test_tx_file_rename_same_path_is_noop() {
 }
 
 #[test]
-fn test_tx_file_rename_same_file_via_different_path_is_noop() {
+fn test_tx_file_rename_different_path_string_is_noop() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("same.txt"), "keep me\n").unwrap();
 
@@ -10421,7 +10421,7 @@ fn test_tx_md_dedupe_headings_in_plan() {
 }
 
 #[test]
-fn test_tx_md_move_section_same_file_in_plan() {
+fn test_tx_md_move_section_equivalent_path_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");
     fs::write(&file, "# A\na-body\n# B\nb-body\n# C\nc-body\n").unwrap();
@@ -10455,7 +10455,7 @@ fn test_tx_md_move_section_same_file_in_plan() {
 }
 
 #[test]
-fn test_tx_md_move_section_explicit_to_same_file_in_plan() {
+fn test_tx_md_move_section_explicit_to_equivalent_path_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");
     fs::write(&file, "# A\na-body\n# B\nb-body\n# C\nc-body\n").unwrap();
@@ -13587,7 +13587,7 @@ fn test_tx_multi_op_batch_all_new_ops() {
 }
 
 #[test]
-fn test_tx_create_then_replace_on_same_file() {
+fn test_tx_create_then_replace_on_equivalent_path() {
     let dir = TempDir::new().unwrap();
     let new_file = dir.path().join("created.txt");
 
@@ -13669,7 +13669,7 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
 }
 
 #[test]
-fn test_tx_doc_set_then_replace_on_same_file_flushes_cache() {
+fn test_tx_doc_set_then_replace_on_equivalent_path_flushes_cache() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
     fs::write(&file, r#"{"name": "old", "version": "1.0"}"#).unwrap();
