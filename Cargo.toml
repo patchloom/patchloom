@@ -31,7 +31,9 @@ exclude = [
 default = ["cli", "mcp", "ast"]
 # CLI (clap parser + all commands). Enabled by default; disable for pure-library use
 # to avoid pulling clap and related dependencies.
-cli = ["dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs", "dep:ignore", "dep:globset"]
+cli = ["files", "dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs"]
+# files: pure file helpers + walker for library search (enables ignore/globset without full CLI)
+files = ["dep:ignore", "dep:globset"]
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
 # AST-aware operations using tree-sitter grammars (20 languages).
@@ -60,7 +62,7 @@ ast = [
     "dep:tree-sitter-php",
 ]
 # Full: everything. Equivalent to default today.
-full = ["cli", "mcp", "ast"]
+full = ["cli", "mcp", "ast", "files"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }

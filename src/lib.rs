@@ -12,6 +12,7 @@
 //! | `cli`   | **yes** | CLI parser (clap) and all subcommand implementations. Disable for pure library use. |
 //! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
 //! | `ast`   | **yes** | AST-aware operations using tree-sitter (20 language grammars) |
+//! | `files` | no      | File scanning helpers (`is_binary`, `read_text_file`, `par_process_files`, globs, walker) for library search etc. |
 //! | `full`  | no      | Everything: `cli` + `mcp` + `ast` |
 //!
 //! ## Embedding as a library
@@ -35,7 +36,10 @@
 //! - [`containment`] -- workspace path guard (flexible `AbsolutePathPolicy` via builder for temp dirs/extra roots in library use; strict `Reject` for MCP)
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
+//! - [`files`] -- `is_binary`, `read_text_file`, and (with "files" feature) parallel scanning helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
+//!
+//! With "files" feature you also get `api::search_directory` for content search.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
 //! ```rust,no_run
@@ -55,7 +59,8 @@
 //! );
 //! ```
 //!
-//! (The `files`, `cli`, and `cmd` modules are only available with the `cli` feature.)
+//! The `files` module (pure helpers like `is_binary`, `read_text_file`, and scanning tools when "files" feature enabled) is always available.
+//! The `cli` and `cmd` modules require the `cli` feature.
 //!
 //! ## Migration for high-level api::* signature changes (PathGuard, #758)
 //!
@@ -112,7 +117,6 @@ pub(crate) mod diff;
 pub mod exec;
 pub(crate) mod exit;
 pub mod fallback;
-#[cfg(feature = "cli")]
 pub mod files;
 pub mod ops;
 pub mod plan;

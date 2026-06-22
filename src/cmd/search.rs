@@ -360,10 +360,10 @@ pub(crate) fn collect_matches(
         args.paths
     );
     let cwd = global.resolve_cwd()?;
-    let glob_matcher = crate::build_glob_matcher(global)?;
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let matcher = build_matcher(args)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
-    let glob_roots = crate::collect_glob_roots(&args.paths, global, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let count_only = args.count || args.files_with_matches;
 
     // Process files in parallel (#167).
