@@ -1196,13 +1196,27 @@ fn search_one_file_for_api(
             line.contains(pattern)
         };
         if matched {
+            let all_lines: Vec<&str> = content.lines().collect();
+            let c = opts.context.unwrap_or(0);
+            let before_start = i.saturating_sub(c);
+            let after_end = (i + 1 + c).min(all_lines.len());
+            let context_before: Vec<String> = if c > 0 {
+                all_lines[before_start..i].iter().map(|s| s.to_string()).collect()
+            } else {
+                vec![]
+            };
+            let context_after: Vec<String> = if c > 0 {
+                all_lines[i + 1..after_end].iter().map(|s| s.to_string()).collect()
+            } else {
+                vec![]
+            };
             return Some(SearchResult {
                 path: display.to_path_buf(),
                 line_number: i + 1,
                 line: line.to_string(),
                 column: 1,
-                context_before: vec![],
-                context_after: vec![],
+                context_before,
+                context_after,
             });
         }
     }
@@ -2645,6 +2659,52 @@ mod tests {
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
         assert!(!results.is_empty());
         assert!(results.iter().any(|r| r.line.contains("foo")));
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_with_context_and_globs() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main() { foo(); }\n// comment\nlet x = foo();\n").unwrap();
+        std::fs::write(src.join("lib.txt"), "foo in text\n").unwrap(); // should be skipped by glob
+
+        let mut opts = SearchOptions::default();
+        opts.context = Some(1);
+        opts.globs = vec!["*.rs".to_string()];
+        let results = search_directory(dir.path(), "foo", &opts).unwrap();
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert!(r.line.contains("foo()"));
+        assert!(r.context_before.len() <= 1);
+        assert!(r.context_after.len() <= 1);
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_max_results_and_case() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a1.txt"), "Foo one\n").unwrap();
+        std::fs::write(dir.path().join("a2.txt"), "foo two\n").unwrap();
+        std::fs::write(dir.path().join("a3.txt"), "FOO three\n").unwrap();
+
+        let mut opts = SearchOptions::default();
+        opts.case_insensitive = true;
+        opts.max_results = 2;
+        let results = search_directory(dir.path(), "foo", &opts).unwrap();
+        assert_eq!(results.len(), 2); // capped at 2 files
+        assert!(results.iter().any(|r| r.line.contains("Foo") || r.line.contains("foo") || r.line.contains("FOO")));
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_empty_pattern_errors() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "content\n").unwrap();
+        let opts = SearchOptions::default();
+        let err = search_directory(dir.path(), "", &opts).unwrap_err();
+        assert!(err.to_string().contains("must not be empty"));
     }
 
     #[test]
