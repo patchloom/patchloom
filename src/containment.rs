@@ -79,13 +79,10 @@ fn system_temp_directory_roots() -> Vec<PathBuf> {
 
     #[cfg(unix)]
     {
-        roots.push(PathBuf::from("/tmp"));
-        roots.push(PathBuf::from("/var/tmp"));
+        push_unique(&mut roots, PathBuf::from("/tmp"));
+        push_unique(&mut roots, PathBuf::from("/var/tmp"));
         if let Ok(v) = std::env::var("TMPDIR") {
-            let p = PathBuf::from(v);
-            if !roots.contains(&p) {
-                roots.push(p);
-            }
+            push_unique(&mut roots, PathBuf::from(v));
         }
     }
 
@@ -93,15 +90,20 @@ fn system_temp_directory_roots() -> Vec<PathBuf> {
     {
         for var in ["TEMP", "TMP"] {
             if let Ok(v) = std::env::var(var) {
-                let p = PathBuf::from(v);
-                if !roots.contains(&p) {
-                    roots.push(p);
-                }
+                push_unique(&mut roots, PathBuf::from(v));
             }
         }
     }
 
     roots
+}
+
+/// Helper to keep additional roots deduplicated (used by temp root builder
+/// and policy merge paths).
+fn push_unique(roots: &mut Vec<PathBuf>, p: PathBuf) {
+    if !roots.contains(&p) {
+        roots.push(p);
+    }
 }
 
 impl AbsolutePathPolicy {
@@ -334,9 +336,7 @@ impl PathGuardBuilder {
             }
             AbsolutePathPolicy::AllowAdditionalRoots(mut roots) => {
                 for t in temps {
-                    if !roots.contains(&t) {
-                        roots.push(t);
-                    }
+                    push_unique(&mut roots, t);
                 }
                 AbsolutePathPolicy::AllowAdditionalRoots(roots)
             }
@@ -353,9 +353,7 @@ impl PathGuardBuilder {
                 AbsolutePathPolicy::AllowAdditionalRoots(vec![extra])
             }
             AbsolutePathPolicy::AllowAdditionalRoots(mut roots) => {
-                if !roots.contains(&extra) {
-                    roots.push(extra);
-                }
+                push_unique(&mut roots, extra);
                 AbsolutePathPolicy::AllowAdditionalRoots(roots)
             }
         };
@@ -813,5 +811,26 @@ mod tests {
             let stdt = std::env::temp_dir();
             assert!(roots.iter().any(|r| r == &stdt));
         }
+    }
+
+    /// Regression for coverage: paths using ../ to escape an *allowed additional root*
+    /// (e.g. literal /tmp on macOS) must still be rejected after canonicalization.
+    /// This was not explicitly asserted in prior temp-allow tests.
+    #[cfg(unix)]
+    #[test]
+    fn allow_temp_rejects_escape_from_tmp_via_parent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        let escape_path = "/tmp/../etc/passwd";
+        let err = guard.check_path(escape_path).unwrap_err();
+        assert!(
+            matches!(err, ContainmentError::Escaped { .. }),
+            "expected Escaped for escape from /tmp root via .., got {:?}",
+            err
+        );
     }
 }
