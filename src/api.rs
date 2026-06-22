@@ -1163,6 +1163,7 @@ pub fn search_directory(
     }
 }
 
+#[cfg(any(feature = "cli", feature = "files"))]
 fn search_one_file_for_api(
     path: &Path,
     pattern: &str,
@@ -2634,6 +2635,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn search_directory_basic() {
         let dir = TempDir::new().unwrap();
         let f = dir.path().join("test.rs");

@@ -4,7 +4,12 @@ use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::{WalkBuilder, WalkState};
-use std::path::{Component, Path, PathBuf};
+#[cfg(feature = "cli")]
+use std::path::Component;
+use std::path::Path;
+#[cfg(any(feature = "cli", feature = "files"))]
+use std::path::PathBuf;
+#[cfg(feature = "cli")]
 use std::sync::Mutex;
 
 /// Compute a display-friendly relative path by stripping a `base` prefix.
@@ -230,6 +235,7 @@ pub(crate) fn collect_glob_roots_from_global(
     Ok(collect_glob_roots(&paths_buf, root))
 }
 
+#[cfg(feature = "cli")]
 fn normalize_glob_root(path: PathBuf) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
@@ -245,6 +251,7 @@ fn normalize_glob_root(path: PathBuf) -> PathBuf {
     }
 }
 
+#[cfg(any(feature = "cli", feature = "files"))]
 fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
     matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
 }
@@ -287,6 +294,7 @@ pub fn read_text_file(path: &Path) -> Option<String> {
 }
 
 /// Internal version with optional diagnostic logging for CLI commands.
+#[cfg(feature = "cli")]
 pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
     if quiet {
         read_text_file_inner(path, None)
@@ -534,13 +542,16 @@ mod tests {
     }
 
     // ── matches_glob ──────────────────────────────────────────────────
+    // These require the glob/walker APIs which are behind "cli" or "files" feature.
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn no_matcher_matches_everything() {
         assert!(matches_glob(Path::new("any/file.rs"), None));
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_matches_extension() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("*.rs").unwrap());
@@ -549,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_rejects_non_matching() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("*.rs").unwrap());
@@ -557,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn glob_matches_nested_relative_pattern_with_root() {
         let mut builder = GlobSetBuilder::new();
         builder.add(Glob::new("sub/*.txt").unwrap());
@@ -586,8 +599,10 @@ mod tests {
     }
 
     // ── par_process_files ─────────────────────────────────────────────
+    // These require the glob/walker APIs which are behind "cli" or "files" feature.
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_single_file() {
         let paths = vec![PathBuf::from("a.txt")];
         let results = par_process_files(&paths, None, &[], |p| {
@@ -597,6 +612,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_filters_with_glob() {
         let paths = vec![
             PathBuf::from("a.rs"),
@@ -615,6 +631,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_filters_with_relative_glob_root() {
         let paths = vec![
             PathBuf::from("/tmp/project/sub/a.txt"),
@@ -631,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_empty_paths() {
         let paths: Vec<PathBuf> = vec![];
         let results: Vec<String> = par_process_files(&paths, None, &[], |p| {
@@ -640,6 +658,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn par_process_closure_can_filter() {
         let paths = vec![PathBuf::from("a.txt"), PathBuf::from("b.txt")];
         let results = par_process_files(&paths, None, &[], |p| {
