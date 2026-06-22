@@ -2680,9 +2680,11 @@ mod tests {
         .unwrap();
         std::fs::write(src.join("lib.txt"), "foo in text\n").unwrap(); // should be skipped by glob
 
-        let mut opts = SearchOptions::default();
-        opts.context = Some(1);
-        opts.globs = vec!["*.rs".to_string()];
+        let opts = SearchOptions {
+            context: Some(1),
+            globs: vec!["*.rs".to_string()],
+            ..Default::default()
+        };
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
         assert_eq!(results.len(), 1);
         let r = &results[0];
@@ -2699,9 +2701,11 @@ mod tests {
         std::fs::write(dir.path().join("a2.txt"), "foo two\n").unwrap();
         std::fs::write(dir.path().join("a3.txt"), "FOO three\n").unwrap();
 
-        let mut opts = SearchOptions::default();
-        opts.case_insensitive = true;
-        opts.max_results = 2;
+        let opts = SearchOptions {
+            case_insensitive: true,
+            max_results: 2,
+            ..Default::default()
+        };
         let results = search_directory(dir.path(), "foo", &opts).unwrap();
         assert_eq!(results.len(), 2); // capped at 2 files
         assert!(
