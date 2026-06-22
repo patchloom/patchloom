@@ -2211,54 +2211,12 @@ pub fn execute_plan_direct(
     };
 
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
-    // Upfront check on declared paths; dynamic (globs, patches) checked at use or best-effort.
+    // Upfront check on declared paths using shared helper; dynamic (globs
+    // patterns, patch embedded paths) are best-effort or handled by loaders.
     if let Some(g) = guard {
         for op in &plan.operations {
-            // Check primary path for most ops.
-            if let Some(p) = match op {
-                Operation::Replace { path: Some(p), .. } => Some(p.as_str()),
-                Operation::Replace { glob: Some(g), .. } => Some(g.as_str()), // pattern-level
-                Operation::DocSet { path: p, .. } => Some(p.as_str()),
-                Operation::DocDelete { path: p, .. } => Some(p.as_str()),
-                Operation::DocMerge { path: p, .. } => Some(p.as_str()),
-                Operation::DocAppend { path: p, .. } => Some(p.as_str()),
-                Operation::DocPrepend { path: p, .. } => Some(p.as_str()),
-                Operation::DocUpdate { path: p, .. } => Some(p.as_str()),
-                Operation::DocMove { path: p, .. } => Some(p.as_str()),
-                Operation::DocEnsure { path: p, .. } => Some(p.as_str()),
-                Operation::DocDeleteWhere { path: p, .. } => Some(p.as_str()),
-                Operation::MdReplaceSection { path: p, .. } => Some(p.as_str()),
-                Operation::MdInsertAfterHeading { path: p, .. } => Some(p.as_str()),
-                Operation::MdInsertBeforeHeading { path: p, .. } => Some(p.as_str()),
-                Operation::MdUpsertBullet { path: p, .. } => Some(p.as_str()),
-                Operation::MdTableAppend { path: p, .. } => Some(p.as_str()),
-                Operation::MdMoveSection { path: p, .. } => Some(p.as_str()),
-                Operation::MdDedupeHeadings { path: p, .. } => Some(p.as_str()),
-                Operation::TidyFix { path: p, .. } => Some(p.as_str()),
-                Operation::FileAppend { path: p, .. } => Some(p.as_str()),
-                Operation::FileCreate { path: p, .. } => Some(p.as_str()),
-                Operation::FileDelete { path: p, .. } => Some(p.as_str()),
-                Operation::FileRename { from: p, .. } => Some(p.as_str()),
-                Operation::PatchApply { .. } => None, // diff may contain paths; validated by MCP pre or at apply loader
-                Operation::Read { path: p, .. } => Some(p.as_str()),
-                Operation::Search { path: p, .. } => Some(p.as_str()),
-                Operation::MdLintAgents { path: p, .. } => Some(p.as_str()),
-                #[cfg(feature = "ast")]
-                Operation::AstRename { path: p, .. } => Some(p.as_str()),
-                #[cfg(feature = "ast")]
-                Operation::AstReplace { path: p, .. } => Some(p.as_str()),
-                _ => None,
-            } {
+            for p in crate::plan::declared_paths(op) {
                 g.check_path(p)
-                    .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-            }
-            // Cross dest for move/rename.
-            if let Some(dest) = match op {
-                Operation::MdMoveSection { to: Some(d), .. } => Some(d.as_str()),
-                Operation::FileRename { to: d, .. } => Some(d.as_str()),
-                _ => None,
-            } {
-                g.check_path(dest)
                     .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
             }
         }
