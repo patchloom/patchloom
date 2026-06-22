@@ -2768,10 +2768,12 @@ mod tests {
         assert!(results[0].line.contains("foo()"));
         assert_eq!(results[0].context_before.len(), 0);
         assert_eq!(results[0].context_after, vec!["// comment".to_string()]);
+        assert_eq!(results[0].column, 13); // position of 'f' in "foo();"
         // second match
         assert!(results[1].line.contains("foo()"));
         assert_eq!(results[1].context_before, vec!["// comment".to_string()]);
         assert_eq!(results[1].context_after.len(), 0);
+        assert_eq!(results[1].column, 9);
     }
 
     #[test]
