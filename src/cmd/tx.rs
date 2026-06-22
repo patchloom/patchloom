@@ -2203,8 +2203,7 @@ pub fn execute_plan_direct(
         guard.is_some()
     );
 
-    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false)
-    {
+    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
         Ok(v) => v,
         Err((code, json)) => return Ok((code, json)),
     };
