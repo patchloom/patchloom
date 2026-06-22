@@ -1191,8 +1191,6 @@ fn search_one_file_for_api(
     for (i, line) in content.lines().enumerate() {
         let matched = if let Some(re) = &re {
             re.is_match(line)
-        } else if opts.literal {
-            line.contains(pattern)
         } else {
             line.contains(pattern)
         };

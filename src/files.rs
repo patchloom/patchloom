@@ -386,11 +386,9 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
     if include_hidden {
         builder.hidden(false);
     }
-    for entry in builder.build() {
-        if let Ok(e) = entry {
-            if e.file_type().map_or(false, |ft| ft.is_file()) {
-                paths.push(e.into_path());
-            }
+    for entry in builder.build().filter_map(Result::ok) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            paths.push(entry.into_path());
         }
     }
     Ok(paths)
