@@ -302,9 +302,10 @@ mod tests {
     fn completion_install_path_returns_some_for_known_shells() {
         // Requires HOME to be set (normal in test environments).
         if std::env::var("HOME").is_ok() {
-            assert!(completion_install_path("bash").is_some());
-            assert!(completion_install_path("zsh").is_some());
-            assert!(completion_install_path("fish").is_some());
+            // strengthened from bare is_some per Test Auditor (gives message on fail)
+            let _ = completion_install_path("bash").expect("bash shell path");
+            let _ = completion_install_path("zsh").expect("zsh shell path");
+            let _ = completion_install_path("fish").expect("fish shell path");
             assert!(completion_install_path("elvish").is_none());
         }
     }
