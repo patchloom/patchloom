@@ -520,71 +520,26 @@ fn validate_operation_paths(
     )
     .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
     for op in operations {
-        let paths: Vec<&str> = match op {
-            Operation::DocSet { path, .. }
-            | Operation::DocDelete { path, .. }
-            | Operation::DocAppend { path, .. }
-            | Operation::DocPrepend { path, .. }
-            | Operation::DocEnsure { path, .. }
-            | Operation::DocDeleteWhere { path, .. }
-            | Operation::DocUpdate { path, .. }
-            | Operation::DocMove { path, .. }
-            | Operation::MdReplaceSection { path, .. }
-            | Operation::MdInsertAfterHeading { path, .. }
-            | Operation::MdInsertBeforeHeading { path, .. }
-            | Operation::MdUpsertBullet { path, .. }
-            | Operation::MdTableAppend { path, .. }
-            | Operation::MdDedupeHeadings { path, .. }
-            | Operation::MdLintAgents { path, .. }
-            | Operation::TidyFix { path, .. }
-            | Operation::FileAppend { path, .. }
-            | Operation::FileCreate { path, .. }
-            | Operation::FileDelete { path, .. }
-            | Operation::Read { path, .. }
-            | Operation::Search { path, .. } => vec![path.as_str()],
-            #[cfg(feature = "ast")]
-            Operation::AstRename { path, .. } | Operation::AstReplace { path, .. } => {
-                vec![path.as_str()]
-            }
-            Operation::MdMoveSection { path, to, .. } => {
-                let mut p = vec![path.as_str()];
-                if let Some(to) = to {
-                    p.push(to.as_str());
-                }
-                p
-            }
-            Operation::DocMerge { path, .. } => vec![path.as_str()],
-            Operation::Replace { path, glob, .. } => {
-                let mut p = Vec::new();
-                if let Some(path) = path {
-                    p.push(path.as_str());
-                }
-                if let Some(glob) = glob {
-                    p.push(glob.as_str());
-                }
-                p
-            }
-            Operation::FileRename { from, to, .. } => vec![from.as_str(), to.as_str()],
-            Operation::PatchApply { diff, .. } => {
-                // Validate paths embedded in the unified diff text (#229).
-                let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
-                    McpError::invalid_params(
-                        format!("failed to parse diff for path validation: {e}"),
-                        None,
-                    )
-                })?;
-                for pf in &patch_files {
-                    guard
-                        .check_path(&pf.path)
-                        .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                }
-                vec![]
-            }
-        };
-        for path in paths {
+        for path in crate::plan::declared_paths(op) {
             guard
                 .check_path(path)
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        }
+        if let Operation::PatchApply { diff, .. } = op {
+            // Validate paths embedded in the unified diff text (special case
+            // because paths live inside the diff payload, not as top-level
+            // declared fields).
+            let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
+                McpError::invalid_params(
+                    format!("failed to parse diff for path validation: {e}"),
+                    None,
+                )
+            })?;
+            for pf in &patch_files {
+                guard
+                    .check_path(&pf.path)
+                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+            }
         }
     }
     Ok(())
