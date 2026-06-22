@@ -2468,7 +2468,45 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         ) {
             return handle_commit_error(err, structured, compact);
         }
+
         run_format_command(global, &cwd)?;
+
+        // Run format steps, then validation steps. (full parity with direct --apply path)
+        if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
+            if strict {
+                rollback_strict(
+                    &result.changes,
+                    &result.pending,
+                    &result.deletions,
+                    &result.existed_before,
+                );
+                let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
+                if structured {
+                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, compact);
+                } else {
+                    eprintln!("tx: {rollback_msg}");
+                }
+                return Ok(exit::ROLLBACK);
+            }
+            if structured {
+                emit_error_json(err.kind, &err.message, None, compact);
+            }
+            return Ok(exit::VALIDATION_FAILED);
+        }
+
+        if result.replace_no_matches {
+            return Ok(exit::NO_MATCHES);
+        }
+        if structured {
+            let output = build_full_tx_output("success", &mut result, &cwd);
+            emit_output_json(&output, compact);
+        } else if global.show_status() {
+            let n_changed = result.changes.len();
+            let n_deleted = result.deletions.len();
+            let total = n_changed + n_deleted;
+            eprintln!("applied: {total} file(s) affected");
+        }
+        return Ok(exit::SUCCESS);
     }
 
     Ok(exit::SUCCESS)
