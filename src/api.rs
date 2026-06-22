@@ -1179,6 +1179,9 @@ pub fn search_directory(
                 .lines()
                 .collect();
             let c = opts.context.unwrap_or(0);
+            let content = std::fs::read_to_string(root)
+                .with_context(|| format!("failed to read {}", root.display()))?;
+            let all_lines: Vec<&str> = content.lines().collect();
             let results: Vec<SearchResult> = basic
                 .into_iter()
                 .map(|m| {
