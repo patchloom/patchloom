@@ -59,7 +59,7 @@
 //! ```rust,no_run
 //! use patchloom::containment::PathGuard;
 //! let guard = PathGuard::builder(std::env::current_dir().unwrap())
-//!     .allow_temp_directory()
+//!     .allow_temp_directory()  // includes /tmp and handles macOS /tmp -> /private/tmp
 //!     .build()
 //!     .expect("guard");
 //! // pass to high-level api functions, e.g.

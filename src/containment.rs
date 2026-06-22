@@ -14,7 +14,7 @@
 //! |--------|----------|---------|
 //! | `Reject` | MCP server or untrusted agent output (default for safety) | CLI tools exposed over network |
 //! | `AllowIfContained` | Trusted library use, absolute paths inside workspace only | Standard agent in project dir |
-//! | `AllowAdditionalRoots(...)` or builder | Agents needing /tmp, build artifacts, scratch dirs while keeping guard for sensitive paths | Bline `--yolo` or experiment mode |
+//! | `AllowAdditionalRoots(...)` or builder | Agents needing /tmp (incl. macOS symlinks), build artifacts, scratch dirs while keeping guard for sensitive paths | Bline `--yolo` or experiment mode |
 //!
 //! **Threat model note**: MCP uses untrusted LLM-generated paths, so strict `Reject`.
 //! Direct library embedding (e.g. Bline) can use relaxed policies because the host controls the agent.
@@ -44,7 +44,7 @@
 //! use patchloom::containment::PathGuard;
 //!
 //! let guard = PathGuard::builder(std::env::current_dir().unwrap())
-//!     .allow_temp_directory()           // /tmp etc.
+//!     .allow_temp_directory()           // /tmp + std temp (handles macOS symlinks)
 //!     .allow_root("/tmp/my-experiments")
 //!     .build()
 //!     .unwrap();
@@ -68,12 +68,49 @@ pub enum AbsolutePathPolicy {
     AllowAdditionalRoots(Vec<PathBuf>),
 }
 
+/// Return a list of common system temp directory paths (entry points).
+/// Includes `std::env::temp_dir()` plus conventional locations like `/tmp`
+/// (and its symlinked target on macOS), `/var/tmp`, and `$TMPDIR` on Unix.
+/// On Windows also considers TEMP/TMP.
+/// These are stored raw; callers canonicalize at check time so that
+/// paths passed as `/tmp/...` resolve correctly under the allowed root.
+fn system_temp_directory_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = vec![std::env::temp_dir()];
+
+    #[cfg(unix)]
+    {
+        roots.push(PathBuf::from("/tmp"));
+        roots.push(PathBuf::from("/var/tmp"));
+        if let Ok(v) = std::env::var("TMPDIR") {
+            let p = PathBuf::from(v);
+            if !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        for var in ["TEMP", "TMP"] {
+            if let Ok(v) = std::env::var(var) {
+                let p = PathBuf::from(v);
+                if !roots.contains(&p) {
+                    roots.push(p);
+                }
+            }
+        }
+    }
+
+    roots
+}
+
 impl AbsolutePathPolicy {
-    /// Workspace root + the platform's temp directory.
-    /// Covers the common case for agents needing temp files or build outputs.
+    /// Workspace root + common system temp directories (via `system_temp_directory_roots`).
+    /// This covers `std::env::temp_dir()` plus `/tmp` (and symlinked forms like `/private/tmp`
+    /// on macOS), `$TMPDIR`, etc. Intended for agents that need temp files or build outputs
+    /// and commonly spell temp paths as `/tmp/...`.
     pub fn allow_workspace_and_temp_dir() -> Self {
-        let temp = std::env::temp_dir();
-        AbsolutePathPolicy::AllowAdditionalRoots(vec![temp])
+        AbsolutePathPolicy::AllowAdditionalRoots(system_temp_directory_roots())
     }
 
     /// Allow the workspace plus any number of extra trusted roots.
@@ -283,17 +320,23 @@ impl PathGuard {
 }
 
 impl PathGuardBuilder {
-    /// Allow the system temporary directory (cross-platform via `std::env::temp_dir()`).
+    /// Allow the system temporary directory (and common aliases such as `/tmp` on Unix).
+    /// Uses `system_temp_directory_roots()` so that literal `/tmp/...` paths (common
+    /// from agents, scripts, and LLM output) are allowed even on macOS where
+    /// `std::env::temp_dir()` returns a `/var/folders/...` path and `/tmp` is a symlink
+    /// to `/private/tmp`.
     /// Merges into existing policy if needed.
     pub fn allow_temp_directory(mut self) -> Self {
-        let temp = std::env::temp_dir();
+        let temps = system_temp_directory_roots();
         self.policy = match self.policy {
             AbsolutePathPolicy::Reject | AbsolutePathPolicy::AllowIfContained => {
-                AbsolutePathPolicy::AllowAdditionalRoots(vec![temp])
+                AbsolutePathPolicy::AllowAdditionalRoots(temps)
             }
             AbsolutePathPolicy::AllowAdditionalRoots(mut roots) => {
-                if !roots.contains(&temp) {
-                    roots.push(temp);
+                for t in temps {
+                    if !roots.contains(&t) {
+                        roots.push(t);
+                    }
                 }
                 AbsolutePathPolicy::AllowAdditionalRoots(roots)
             }
@@ -668,11 +711,107 @@ mod tests {
         let _ = std::fs::remove_file(&temp);
     }
 
+    /// Regression test for #781: literal `/tmp/...` (common spelling from agents/LLMs)
+    /// must be allowed by `allow_temp_directory()` even on macOS where
+    /// std::env::temp_dir() is under /var/folders and /tmp symlinks to /private/tmp.
+    #[cfg(unix)]
+    #[test]
+    fn builder_allows_literal_tmp_path_unix() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        // Use a unique name under the conventional /tmp to simulate real usage
+        // (Bline yolo flush tests, agent-generated paths, etc.).
+        let tmp_path = format!("/tmp/patchloom_781_test_{}.txt", std::process::id());
+        let _ = std::fs::remove_file(&tmp_path);
+        std::fs::write(&tmp_path, "data for 781").unwrap();
+        let res = guard.check_path(&tmp_path);
+        assert!(
+            res.is_ok(),
+            "literal /tmp path must be allowed: {:?}",
+            res.err()
+        );
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
+    /// Non-existing file under /tmp must still be allowed (via ancestor canonicalization).
+    #[cfg(unix)]
+    #[test]
+    fn builder_allows_nonexistent_under_literal_tmp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+
+        let tmp_path = format!("/tmp/patchloom_781_nonexist_{}.txt", std::process::id());
+        // do not create it
+        let res = guard.check_path(&tmp_path);
+        assert!(
+            res.is_ok(),
+            "non-existing /tmp path must be allowed via ancestor: {:?}",
+            res.err()
+        );
+    }
+
+    #[test]
+    fn allow_workspace_and_temp_dir_allows_std_temp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::allow_workspace_and_temp_dir(),
+        )
+        .unwrap();
+        let temp = std::env::temp_dir().join("patchloom_awtd_std.txt");
+        std::fs::write(&temp, "ok").unwrap();
+        assert!(guard.check_path(temp.to_str().unwrap()).is_ok());
+        let _ = std::fs::remove_file(&temp);
+    }
+
+    /// #781: allow_workspace_and_temp_dir must also cover literal /tmp.
+    #[cfg(unix)]
+    #[test]
+    fn allow_workspace_and_temp_dir_allows_literal_tmp() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::allow_workspace_and_temp_dir(),
+        )
+        .unwrap();
+
+        let tmp_path = format!("/tmp/patchloom_781_awtd_{}.txt", std::process::id());
+        let _ = std::fs::remove_file(&tmp_path);
+        std::fs::write(&tmp_path, "data").unwrap();
+        assert!(guard.check_path(&tmp_path).is_ok());
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+
     #[test]
     fn would_allow_works() {
         let dir = tempfile::TempDir::new().unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
         assert!(guard.would_allow("foo.txt"));
         assert!(!guard.would_allow("../escape"));
+    }
+
+    /// Basic coverage for the helper (addresses review note for direct test of system_temp...).
+    #[test]
+    fn system_temp_directory_roots_contains_expected_entries() {
+        let roots = system_temp_directory_roots();
+        // Always at least the std one
+        assert!(!roots.is_empty());
+        // On unix we explicitly add the conventional ones
+        #[cfg(unix)]
+        {
+            assert!(roots.iter().any(
+                |r| r == std::path::Path::new("/tmp") || r == std::path::Path::new("/var/tmp")
+            ));
+            // std env temp is present
+            let stdt = std::env::temp_dir();
+            assert!(roots.iter().any(|r| r == &stdt));
+        }
     }
 }
