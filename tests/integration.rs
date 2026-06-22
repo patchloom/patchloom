@@ -3825,6 +3825,36 @@ fn test_tx_rollback_failed_when_restore_incomplete() {
     assert!(json["backup_session"].is_string());
 }
 
+/// Guard rejection during upfront declared_paths check in execute_plan_direct.
+/// Covers the PathGuard/tx validation path added for #755 (previously only
+/// exercised with `None` guard in integration, or unit tests in containment.rs).
+#[test]
+fn test_tx_guard_rejects_escaping_declared_path() {
+    let dir = TempDir::new().unwrap();
+    let guard = patchloom::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        patchloom::containment::AbsolutePathPolicy::Reject,
+    )
+    .unwrap();
+
+    // Relative escape via declared path (rename cross "file" uses both)
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "file.rename", "from": "ok.txt", "to": "../escape.txt", "force": false}
+        ]
+    }))
+    .unwrap();
+
+    let res = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), Some(&guard));
+    assert!(res.is_err(), "guard should reject before any apply");
+    let msg = res.unwrap_err().to_string();
+    assert!(
+        msg.contains("path rejected by workspace guard") || msg.contains("Escaped"),
+        "unexpected error: {msg}"
+    );
+}
+
 #[test]
 fn test_tx_success_applies_all() {
     let dir = TempDir::new().unwrap();
