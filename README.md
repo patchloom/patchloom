@@ -280,6 +280,7 @@ let result = api::replace_text(
     "old_value", "new_value",
     &api::ReplaceOptions::default(),
     ApplyMode::Preview,
+    None,
 )?;
 println!("{}", result.diff);
 
@@ -289,6 +290,7 @@ api::doc_set(
     "version",
     serde_json::json!("2.0"),
     ApplyMode::Apply,
+    None,
 )?;
 ```
 

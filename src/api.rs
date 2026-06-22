@@ -17,6 +17,7 @@
 //!     "new_value",
 //!     &api::ReplaceOptions::default(),
 //!     ApplyMode::Preview,
+//!     None,
 //! ).unwrap();
 //! println!("diff:\n{}", result.diff);
 //! ```
@@ -27,6 +28,34 @@
 //! - [`ApplyMode::Preview`] — compute the result without writing to disk.
 //! - [`ApplyMode::Apply`] — write changes to disk with backup.
 //! - [`ApplyMode::Check`] — report whether changes would occur (for CI).
+//!
+//! # Using with PathGuard (containment)
+//!
+//! All write operations accept an optional `guard: Option<&PathGuard>` (added for library users needing relaxed containment).
+//! Pass `None` for no additional checks (default for most internal use).
+//! Pass `Some(&guard)` to enforce the policy (e.g. allow temp dirs via the builder).
+//!
+//! Example:
+//!
+//! ```rust,no_run
+//! use patchloom::api::{self, ApplyMode, ReplaceOptions};
+//! use patchloom::containment::PathGuard;
+//! use std::path::Path;
+//!
+//! let guard = PathGuard::builder(std::env::current_dir().unwrap())
+//!     .allow_temp_directory()
+//!     .build()
+//!     .unwrap();
+//!
+//! let _ = api::replace_text(
+//!     Path::new("src/main.rs"),
+//!     "old",
+//!     "new",
+//!     &ReplaceOptions::default(),
+//!     ApplyMode::Preview,
+//!     Some(&guard),
+//! );
+//! ```
 //!
 //! # Thread safety
 //!
@@ -238,11 +267,12 @@ fn finish_doc_edit(
     doc: &LoadedDoc,
     new_value: &serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let new_content =
         ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(
         &doc.path_str,
         doc.original.clone(),
@@ -260,6 +290,7 @@ pub fn doc_set(
     selector: &str,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -267,18 +298,23 @@ pub fn doc_set(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::set_at_path(&mut new_value, &segments, value)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
-pub fn doc_delete(path: &Path, selector: &str, mode: ApplyMode) -> anyhow::Result<EditResult> {
+pub fn doc_delete(
+    path: &Path,
+    selector: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
 
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_at_selector(&mut new_value, &segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Deep-merge a value into the root of a JSON, YAML, or TOML file.
@@ -286,13 +322,14 @@ pub fn doc_merge(
     path: &Path,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
 
     ops::doc::deep_merge(&mut new_value, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
@@ -331,6 +368,7 @@ pub fn doc_append(
     selector: &str,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -342,7 +380,7 @@ pub fn doc_append(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.push(value);
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Prepend a value to an array at a selector path.
@@ -351,6 +389,7 @@ pub fn doc_prepend(
     selector: &str,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -362,7 +401,7 @@ pub fn doc_prepend(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.insert(0, value);
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Update all values matching a selector with a new value.
@@ -374,6 +413,7 @@ pub fn doc_update(
     selector: &str,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -381,7 +421,7 @@ pub fn doc_update(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::update_matching(&mut new_value, &segments, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Ensure a value exists at a selector path; set it only if missing.
@@ -390,6 +430,7 @@ pub fn doc_ensure(
     selector: &str,
     value: serde_json::Value,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -401,7 +442,7 @@ pub fn doc_ensure(
         ops::doc::set_at_path(&mut new_value, &segments, value)?;
     }
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Delete array elements matching a predicate (e.g., `"name=old"`).
@@ -410,6 +451,7 @@ pub fn doc_delete_where(
     selector: &str,
     predicate: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -417,7 +459,7 @@ pub fn doc_delete_where(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_where(&mut new_value, &segments, predicate)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 /// Move a value from one selector path to another within the same file.
@@ -426,6 +468,7 @@ pub fn doc_move(
     from_selector: &str,
     to_selector: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let doc = load_doc(path)?;
     let mut new_value = doc.value.clone();
@@ -434,7 +477,7 @@ pub fn doc_move(
     let to_segments = selector::parse_anyhow(to_selector)?;
     ops::doc::move_at_path(&mut new_value, &from_segments, &to_segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode)
+    finish_doc_edit(path, &doc, &new_value, mode, guard)
 }
 
 // ---------------------------------------------------------------------------
@@ -532,6 +575,7 @@ pub fn md_replace_section(
     heading: &str,
     content: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -541,7 +585,7 @@ pub fn md_replace_section(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -553,6 +597,7 @@ pub fn md_upsert_bullet(
     heading: &str,
     bullet: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -562,7 +607,7 @@ pub fn md_upsert_bullet(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -572,6 +617,7 @@ pub fn md_table_append(
     heading: &str,
     row: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -581,7 +627,7 @@ pub fn md_table_append(
         .ok_or_else(|| anyhow::anyhow!("no table found under heading '{}'", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -591,6 +637,7 @@ pub fn md_insert_after_heading(
     heading: &str,
     insertion: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -600,7 +647,7 @@ pub fn md_insert_after_heading(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -614,6 +661,7 @@ pub fn md_move_section(
     position: (&str, &str),
     to: Option<&Path>,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -632,9 +680,17 @@ pub fn md_move_section(
     let policy = WritePolicy::default();
     // Write the destination file for cross-file moves.
     if let Some(dest_path) = to {
-        write_if_apply(dest_path, &new_dest, mode, &policy, None)?;
+        if let Some(g) = guard {
+            g.check_path(&dest_path.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+        }
+        write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
-    let applied = write_if_apply(path, &new_source, mode, &policy, None)?;
+    if let Some(g) = guard {
+        g.check_path(&path.to_string_lossy())
+            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+    }
+    let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_source, applied))
 }
 
@@ -644,6 +700,7 @@ pub fn md_move_section(
 pub fn md_dedupe_headings(
     path: &Path,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<(EditResult, Vec<String>)> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -652,7 +709,7 @@ pub fn md_dedupe_headings(
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok((
         build_edit_result(&path_str, original, new_content, applied),
         removed,
@@ -681,6 +738,7 @@ pub fn md_insert_before_heading(
     heading: &str,
     insertion: &str,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -690,7 +748,7 @@ pub fn md_insert_before_heading(
         .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -706,6 +764,7 @@ pub fn file_create(
     content: &str,
     force: bool,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy().to_string();
 
@@ -725,6 +784,10 @@ pub fn file_create(
     }
 
     let applied = if mode == ApplyMode::Apply {
+        if let Some(g) = guard {
+            g.check_path(&path.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+        }
         // Ensure parent directories exist.
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
@@ -756,7 +819,11 @@ pub fn file_create(
 }
 
 /// Delete a file.
-pub fn file_delete(path: &Path, mode: ApplyMode) -> anyhow::Result<EditResult> {
+pub fn file_delete(
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy().to_string();
 
     if !path.exists() {
@@ -770,6 +837,10 @@ pub fn file_delete(path: &Path, mode: ApplyMode) -> anyhow::Result<EditResult> {
         .with_context(|| format!("failed to read {}", path.display()))?;
 
     let applied = if mode == ApplyMode::Apply {
+        if let Some(g) = guard {
+            g.check_path(&path.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+        }
         let cwd = path.parent().unwrap_or_else(|| Path::new("."));
         let mut backup = BackupSession::new(cwd)?;
         backup.save_before_delete(path)?;
@@ -795,6 +866,7 @@ pub fn file_rename(
     dst: &Path,
     force: bool,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let src_str = src.to_string_lossy().to_string();
 
@@ -815,6 +887,12 @@ pub fn file_rename(
         .with_context(|| format!("failed to read {}", src.display()))?;
 
     let applied = if mode == ApplyMode::Apply {
+        if let Some(g) = guard {
+            g.check_path(&src.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+            g.check_path(&dst.to_string_lossy())
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+        }
         let cwd = src.parent().unwrap_or_else(|| Path::new("."));
         let mut backup = BackupSession::new(cwd)?;
         backup.save_before_write(src)?;
@@ -850,7 +928,12 @@ pub fn file_rename(
 /// Apply a unified diff patch to a file.
 ///
 /// Returns an `EditResult` with the patched content.
-pub fn apply_patch(path: &Path, patch_text: &str, mode: ApplyMode) -> anyhow::Result<EditResult> {
+pub fn apply_patch(
+    path: &Path,
+    patch_text: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
@@ -878,7 +961,7 @@ pub fn apply_patch(path: &Path, patch_text: &str, mode: ApplyMode) -> anyhow::Re
         .map_err(|e| anyhow::anyhow!("patch apply error: {e}"))?;
 
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -887,6 +970,7 @@ pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
     let patch_files = ops::patch::parse_patch(patch_text)
         .map_err(|e| anyhow::anyhow!("patch parse error: {e}"))?;
@@ -901,7 +985,7 @@ pub fn apply_patch_file(
             .map_err(|e| anyhow::anyhow!("patch apply error for {}: {e}", pf.path))?;
 
         let policy = WritePolicy::default();
-        let applied = write_if_apply(&file_path, &new_content, mode, &policy, None)?;
+        let applied = write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
         results.push(build_edit_result(&pf.path, original, new_content, applied));
     }
     Ok(results)
@@ -919,6 +1003,7 @@ pub fn tidy(
     path: &Path,
     policy_opts: &WritePolicyOptions,
     mode: ApplyMode,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
@@ -930,7 +1015,7 @@ pub fn tidy(
     // Use a default (no-op) policy for writing since we already applied
     // the transformations above.
     let noop_policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &noop_policy, None)?;
+    let applied = write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
     Ok(build_edit_result(&path_str, original, new_content, applied))
 }
 
@@ -1054,6 +1139,8 @@ pub fn execute_plan(plan: crate::plan::Plan, cwd: &Path) -> anyhow::Result<(u8, 
 mod tests {
     use super::*;
     use std::fs;
+
+    use crate::containment::{AbsolutePathPolicy, PathGuard};
     use tempfile::TempDir;
 
     #[test]
@@ -1067,6 +1154,7 @@ mod tests {
             "version",
             serde_json::json!("2.0"),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1084,9 +1172,42 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Apply).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
+        assert!(result.applied);
+        let on_disk = fs::read_to_string(&file).unwrap();
+        assert!(on_disk.contains("2.0"));
+    }
+
+    #[test]
+    fn doc_set_respects_guard() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.json");
+        fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .unwrap();
+
         assert!(result.applied);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("2.0"));
@@ -1118,7 +1239,7 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"a": 1, "b": 2}"#).unwrap();
 
-        let result = doc_delete(&file, "b", ApplyMode::Apply).unwrap();
+        let result = doc_delete(&file, "b", ApplyMode::Apply, None).unwrap();
         assert!(result.changed);
         assert!(result.applied);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1131,7 +1252,7 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"a": 1}"#).unwrap();
 
-        let result = doc_merge(&file, serde_json::json!({"b": 2}), ApplyMode::Apply).unwrap();
+        let result = doc_merge(&file, serde_json::json!({"b": 2}), ApplyMode::Apply, None).unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1198,7 +1319,8 @@ mod tests {
         .unwrap();
 
         let result =
-            md_replace_section(&file, "Section A", "New body.\n", ApplyMode::Preview).unwrap();
+            md_replace_section(&file, "Section A", "New body.\n", ApplyMode::Preview, None)
+                .unwrap();
 
         assert!(result.changed);
         assert!(result.new_content.contains("New body."));
@@ -1211,7 +1333,8 @@ mod tests {
         let file = dir.path().join("CHANGELOG.md");
         fs::write(&file, "# Changes\n\n- Item 1\n").unwrap();
 
-        let result = md_upsert_bullet(&file, "# Changes", "- Item 2", ApplyMode::Preview).unwrap();
+        let result =
+            md_upsert_bullet(&file, "# Changes", "- Item 2", ApplyMode::Preview, None).unwrap();
 
         assert!(result.changed);
         assert!(result.new_content.contains("- Item 2"));
@@ -1223,12 +1346,12 @@ mod tests {
         let file = dir.path().join("new.txt");
 
         // Create
-        let result = file_create(&file, "hello\n", false, ApplyMode::Apply).unwrap();
+        let result = file_create(&file, "hello\n", false, ApplyMode::Apply, None).unwrap();
         assert!(result.applied);
         assert!(file.exists());
 
         // Delete
-        let result = file_delete(&file, ApplyMode::Apply).unwrap();
+        let result = file_delete(&file, ApplyMode::Apply, None).unwrap();
         assert!(result.applied);
         assert!(!file.exists());
     }
@@ -1250,7 +1373,7 @@ mod tests {
             return;
         }
 
-        let err = file_create(&file, "new", true, ApplyMode::Apply).unwrap_err();
+        let err = file_create(&file, "new", true, ApplyMode::Apply, None).unwrap_err();
         // Restore permissions so TempDir cleanup succeeds.
         fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(
@@ -1266,7 +1389,7 @@ mod tests {
         let dst = dir.path().join("new.txt");
         fs::write(&src, "content\n").unwrap();
 
-        let result = file_rename(&src, &dst, false, ApplyMode::Apply).unwrap();
+        let result = file_rename(&src, &dst, false, ApplyMode::Apply, None).unwrap();
         assert!(result.applied);
         assert!(!src.exists());
         assert!(dst.exists());
@@ -1283,7 +1406,14 @@ mod tests {
         let file = dir.path().join("config.json");
         fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Check).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Check,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
         assert!(!result.applied);
@@ -1298,7 +1428,8 @@ mod tests {
         let file = dir.path().join("data.json");
         fs::write(&file, r#"{"items": [1, 2]}"#).unwrap();
 
-        let result = doc_append(&file, "items", serde_json::json!(3), ApplyMode::Apply).unwrap();
+        let result =
+            doc_append(&file, "items", serde_json::json!(3), ApplyMode::Apply, None).unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1312,7 +1443,7 @@ mod tests {
         let file = dir.path().join("data.json");
         fs::write(&file, r#"{"old_key": "value"}"#).unwrap();
 
-        let result = doc_move(&file, "old_key", "new_key", ApplyMode::Apply).unwrap();
+        let result = doc_move(&file, "old_key", "new_key", ApplyMode::Apply, None).unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1350,6 +1481,7 @@ mod tests {
             "version",
             serde_json::json!("1.0"),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1367,7 +1499,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = doc_set(&file, "version", serde_json::json!("2.0"), ApplyMode::Apply).unwrap();
+        let result = doc_set(
+            &file,
+            "version",
+            serde_json::json!("2.0"),
+            ApplyMode::Apply,
+            None,
+        )
+        .unwrap();
 
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1415,7 +1554,7 @@ mod tests {
             f = "code.rs"
         );
 
-        let result = apply_patch(&file, &patch, ApplyMode::Preview).unwrap();
+        let result = apply_patch(&file, &patch, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         assert!(!result.applied);
         assert!(result.new_content.contains("hello world"));
@@ -1436,7 +1575,7 @@ mod tests {
         .unwrap();
 
         let result =
-            md_table_append(&file, "# Data", "| b    | 2     |", ApplyMode::Apply).unwrap();
+            md_table_append(&file, "# Data", "| b    | 2     |", ApplyMode::Apply, None).unwrap();
 
         assert!(result.changed);
         assert!(result.applied);
@@ -1455,6 +1594,7 @@ mod tests {
             "Second",
             "Inserted before second.\n\n",
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1474,6 +1614,7 @@ mod tests {
             "First",
             "Inserted after first.\n\n",
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
 
@@ -1506,7 +1647,7 @@ mod tests {
 -bbb\n\
 +BBB\n";
 
-        let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply).unwrap();
+        let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.changed && r.applied));
         assert_eq!(fs::read_to_string(&a).unwrap(), "AAA\n");
@@ -1531,7 +1672,7 @@ mod tests {
 -original\n\
 +changed\n";
 
-        let result = apply_patch(&file, patch, ApplyMode::Preview);
+        let result = apply_patch(&file, patch, ApplyMode::Preview, None);
         assert!(result.is_err() || !result.unwrap().changed);
     }
 
@@ -1568,7 +1709,8 @@ mod tests {
         let file = dir.path().join("data.json");
         fs::write(&file, r#"{"items": [2, 3]}"#).unwrap();
 
-        let result = doc_prepend(&file, "items", serde_json::json!(1), ApplyMode::Apply).unwrap();
+        let result =
+            doc_prepend(&file, "items", serde_json::json!(1), ApplyMode::Apply, None).unwrap();
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
@@ -1590,6 +1732,7 @@ mod tests {
             "items[*].val",
             serde_json::json!(99),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
         assert!(result.changed);
@@ -1611,6 +1754,7 @@ mod tests {
             "new_key",
             serde_json::json!("added"),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
         assert!(result.changed);
@@ -1623,6 +1767,7 @@ mod tests {
             "existing",
             serde_json::json!("overwrite"),
             ApplyMode::Preview,
+            None,
         )
         .unwrap();
         assert!(!result.changed);
@@ -1638,7 +1783,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = doc_delete_where(&file, "items", "name=remove", ApplyMode::Apply).unwrap();
+        let result =
+            doc_delete_where(&file, "items", "name=remove", ApplyMode::Apply, None).unwrap();
         assert!(result.changed);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(!on_disk.contains("remove"));
@@ -1657,7 +1803,8 @@ mod tests {
         .unwrap();
 
         // Move section A to after section C.
-        let result = md_move_section(&file, "A", ("after", "C"), None, ApplyMode::Preview).unwrap();
+        let result =
+            md_move_section(&file, "A", ("after", "C"), None, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         let pos_b = result.new_content.find("# B").unwrap();
         let pos_a = result.new_content.find("# A").unwrap();
@@ -1681,6 +1828,7 @@ mod tests {
             ("after", "Target"),
             Some(&dst),
             ApplyMode::Apply,
+            None,
         )
         .unwrap();
 
@@ -1706,7 +1854,7 @@ mod tests {
         )
         .unwrap();
 
-        let (result, removed) = md_dedupe_headings(&file, ApplyMode::Preview).unwrap();
+        let (result, removed) = md_dedupe_headings(&file, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         assert!(
             removed.iter().any(|r| r.contains("Title")),
@@ -1743,7 +1891,7 @@ mod tests {
             collapse_blanks: true,
             ..Default::default()
         };
-        let result = tidy(&file, &opts, ApplyMode::Preview).unwrap();
+        let result = tidy(&file, &opts, ApplyMode::Preview, None).unwrap();
         assert!(result.changed);
         assert!(
             !result.new_content.contains("  \n"),
@@ -1922,9 +2070,14 @@ mod tests {
             for i in 0..num_threads {
                 s.spawn(move || {
                     let file = dir_path.join(format!("file_{i}.json"));
-                    let result =
-                        doc_set(&file, "value", serde_json::json!(i * 100), ApplyMode::Apply)
-                            .unwrap();
+                    let result = doc_set(
+                        &file,
+                        "value",
+                        serde_json::json!(i * 100),
+                        ApplyMode::Apply,
+                        None,
+                    )
+                    .unwrap();
                     assert!(result.changed);
                     assert!(result.applied);
                 });
@@ -2046,6 +2199,7 @@ mod tests {
                         &format!("Section {i}"),
                         &format!("Updated body {i}.\n"),
                         ApplyMode::Apply,
+                        None,
                     )
                     .unwrap();
                     assert!(result.changed);
@@ -2159,9 +2313,14 @@ mod tests {
             for i in 0..num_threads {
                 s.spawn(move || {
                     let file = dir_path.join(format!("new_{i}.txt"));
-                    let result =
-                        file_create(&file, &format!("content_{i}\n"), false, ApplyMode::Apply)
-                            .unwrap();
+                    let result = file_create(
+                        &file,
+                        &format!("content_{i}\n"),
+                        false,
+                        ApplyMode::Apply,
+                        None,
+                    )
+                    .unwrap();
                     assert!(result.applied);
                 });
             }
