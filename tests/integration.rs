@@ -20137,3 +20137,37 @@ fn test_format_flag_failure_is_reported() {
         .failure()
         .stderr(predicates::str::contains("format command failed"));
 }
+
+#[test]
+fn test_tx_format_flag_runs_after_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "aaa\n").unwrap();
+    let marker = dir.path().join("format_ran.marker");
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {"op": "replace", "path": "f.txt", "from": "aaa", "to": "bbb"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "tx",
+            plan_file.to_str().unwrap(),
+            "--apply",
+            "--format",
+            &shell_touch(&marker),
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        marker.exists(),
+        "--format command should have run after tx --apply"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+}

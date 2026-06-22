@@ -16,7 +16,9 @@ use crate::ops::replace::{
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
-use crate::write::{WritePolicy, apply_policy, atomic_create_new, atomic_write};
+use crate::write::{
+    WritePolicy, apply_policy, atomic_create_new, atomic_write, run_format_command,
+};
 use anyhow::Context;
 use clap::Args;
 use globset::Glob;
@@ -2393,6 +2395,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return handle_commit_error(err, structured, compact);
         }
 
+        // Run --format command (CLI write flag) after successful writes.
+        // This makes --format parity with direct commands (batch, replace, etc).
+        run_format_command(global, &cwd)?;
+
         // Show diffs if --diff flag is set.
         if global.diff && !result.changes.is_empty() {
             print_diffs(&result.changes, &cwd, global.should_color());
@@ -2453,16 +2459,16 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
-    if !result.no_effective_changes
-        && global.should_apply()
-        && let Err(err) = commit_changes(
+    if !result.no_effective_changes && global.should_apply() {
+        if let Err(err) = commit_changes(
             &result.changes,
             &result.deletions,
             &result.existed_before,
             &cwd,
-        )
-    {
-        return handle_commit_error(err, structured, compact);
+        ) {
+            return handle_commit_error(err, structured, compact);
+        }
+        run_format_command(global, &cwd)?;
     }
 
     Ok(exit::SUCCESS)
