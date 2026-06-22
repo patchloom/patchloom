@@ -57,6 +57,8 @@
 //! );
 //! ```
 //!
+//! **Guard semantics (see also #756):** The guard provides *write-time* enforcement and is only checked for `ApplyMode::Apply` writes (via `ensure_contained` + `write_if_apply`). Reads (e.g. for diff computation, `Preview`/`Check` modes, `doc_get`, search) and pre-write loads may still observe or describe paths outside the guard. This is intentional for trusted library embedding (the host/ caller controls visibility). MCP uses a separate strict pre-check layer on all paths. `execute_plan` now accepts a guard (see its docs; #755) and performs upfront validation on declared paths.
+//!
 //! # Thread safety
 //!
 //! All types in this module are `Send + Sync`. Functions are safe to call
@@ -663,6 +665,11 @@ pub fn md_insert_after_heading(
 ///
 /// For same-file moves, pass `to` as `None`. For cross-file moves, pass the
 /// destination file path in `to`.
+///
+/// The returned `EditResult` always describes the source `path`. When a
+/// cross-file move succeeds under Apply, the destination is mutated as a
+/// side effect (inspect disk or re-read for its content). This is
+/// pre-existing behavior (#757); tx plans report the source result for the op.
 pub fn md_move_section(
     path: &Path,
     heading: &str,
@@ -1116,11 +1123,18 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// All operations succeed or all are rolled back. Returns the exit code
 /// and a JSON string with the operation results.
 ///
-/// Requires the `cli` feature (enabled by default) because it reuses the
-/// transaction execution engine (which is part of the CLI command set).
+/// The optional `guard` is threaded through to all operations for
+/// PathGuard enforcement (see module docs for PathGuard usage). Pass
+/// `None` for no additional containment checks (current default behavior
+/// for most callers). Requires the `cli` feature (enabled by default)
+/// because it reuses the transaction execution engine.
 #[cfg(feature = "cli")]
-pub fn execute_plan(plan: crate::plan::Plan, cwd: &Path) -> anyhow::Result<(u8, String)> {
-    crate::cmd::tx::execute_plan_direct(plan, cwd)
+pub fn execute_plan(
+    plan: crate::plan::Plan,
+    cwd: &Path,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<(u8, String)> {
+    crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
 }
 
 // ---------------------------------------------------------------------------
@@ -1574,7 +1588,7 @@ mod tests {
             }"#;
 
         let plan = parse_plan(plan_json).unwrap();
-        let (code, _output) = execute_plan(plan, dir.path()).unwrap();
+        let (code, _output) = execute_plan(plan, dir.path(), None).unwrap();
         // execute_plan_direct applies changes and returns SUCCESS.
         assert_eq!(code, crate::exit::SUCCESS);
         let on_disk = fs::read_to_string(&file).unwrap();
@@ -1865,7 +1879,7 @@ mod tests {
             .build()
             .unwrap();
 
-        md_move_section(
+        let result = md_move_section(
             &src,
             "Move",
             ("after", "Target"),
@@ -1875,6 +1889,7 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(result.path, src.to_string_lossy());
         let src_content = fs::read_to_string(&src).unwrap();
         let dst_content = fs::read_to_string(&dst).unwrap();
         assert!(

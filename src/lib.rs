@@ -57,6 +57,25 @@
 //!
 //! (The `files`, `cli`, and `cmd` modules are only available with the `cli` feature.)
 //!
+//! ## Migration for high-level api::* signature changes (PathGuard, #758)
+//!
+//! The addition of the trailing `guard: Option<&PathGuard>` parameter to all mutating
+//! functions (replace_text, doc_*, md_*, file_*, tidy, apply_patch, etc.) and to
+//! `execute_plan` is a source-breaking change from pre-#749 usage.
+//!
+//! ```rust,ignore
+//! // Before
+//! patchloom::api::doc_set(&p, "k", v, ApplyMode::Apply)?;
+//!
+//! // After (pass None to keep previous strict-root behavior, or a guard for relaxed)
+//! patchloom::api::doc_set(&p, "k", v, ApplyMode::Apply, None)?;
+//! ```
+//!
+//! See the "Using with PathGuard" section in the `api` module docs, the builder
+//! for relaxed policies, and AGENTS.md "High-level library API signature changes"
+//! for the full checklist (doctests, greps, examples, tests). `execute_plan` now
+//! also accepts the guard (threaded into tx; #755).
+//!
 //! With `features = ["ast"]`, the [`ast`] module provides tree-sitter parsing,
 //! symbol extraction, structural search, rename, and more for 20 languages.
 //!

@@ -44,6 +44,7 @@ Keep the working tree clean:
 - Run `make git-clean` to remove temp files such as `.lycheecache` (created when `cache = true` in `lychee.toml`).
 - At the end of any session or before switching tasks: `git fetch --all --prune`, `make git-clean`, `git status --short`, and ensure you are on a clean `origin/main` (or the allowed release-please branch).
 - Common sources of "dirty" state: lychee cache, local edits during rebase/force work on release-please, Cargo.lock drift from different tool versions. Fix them explicitly rather than carrying them.
+- After a core PR merges mid-session (e.g. #753 while polish for #754 was in flight): the feature branch tip is no longer ancestor of main ("has merged PR" from pre-commit hook). Recovery: `gh pr view N --json state` (confirm merged), `git checkout -b rescue-YYYYMMDD origin/main`, cherry-pick the useful commits (or `git show <oldsha> | patch -p1`), `git add <explicit files only>`, commit -s, push, create PR. See patchloom-contrib for full "Follow-up polish after base PR" and #759.
 
 See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`.
 
@@ -265,10 +266,11 @@ async fn new_tool(
     Parameters(p): Parameters<NewToolParams>,
 ) -> Result<CallToolResult, McpError> {
     validate_path_contained(&p.path)?;
-    // For write tools: build an Operation and call execute_plan()
+    // For write tools: build an Operation and call execute_plan() (pass guard for PathGuard support, #755)
     execute_plan(
         make_plan(vec![Operation::Variant { /* fields */ }]),
         &self.cwd,
+        None, // or Some(&guard)
     )
     // For read-only tools: call run_readonly_command()
 }
