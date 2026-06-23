@@ -85,8 +85,8 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
 /// Merge a [`ProjectConfig`] into [`GlobalFlags`](crate::cli::global::GlobalFlags), applying config values only
 /// where the CLI did not explicitly set them.
 ///
-/// Only available with the `cli` feature.
-#[cfg(feature = "cli")]
+/// Apply config values as defaults into GlobalFlags (CLI flags still win where set).
+/// Available for library tx execution as well as CLI.
 pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &ProjectConfig) {
     // Write policy: config provides defaults, CLI flags win.
     if !global.ensure_final_newline && config.write_policy.ensure_final_newline == Some(true) {

@@ -924,6 +924,89 @@ pub fn file_rename(
     ))
 }
 
+/// Append content to an existing file.
+///
+/// The file must exist (use file_create for new files). A trailing newline
+/// is ensured between existing content and the appended content when needed.
+pub fn file_append(
+    path: &Path,
+    content: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy().to_string();
+
+    if !path.exists() {
+        bail!("file does not exist: {}", path.display());
+    }
+    if !path.is_file() {
+        bail!("target is not a file: {}", path.display());
+    }
+
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let mut combined = original.clone();
+    if !combined.is_empty() && !combined.ends_with('\n') {
+        combined.push('\n');
+    }
+    combined.push_str(content);
+
+    let applied = if mode == ApplyMode::Apply {
+        ensure_contained(guard, path)?;
+        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut backup = BackupSession::new(cwd)?;
+        backup.save_before_write(path)?;
+        let policy = WritePolicy::default();
+        atomic_write(path, &combined, &policy)?;
+        backup.finalize()?;
+        true
+    } else {
+        false
+    };
+
+    Ok(build_edit_result(&path_str, original, combined, applied))
+}
+
+/// Prepend content to an existing file.
+///
+/// The file must exist. Content is inserted at the beginning.
+pub fn file_prepend(
+    path: &Path,
+    content: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy().to_string();
+
+    if !path.exists() {
+        bail!("file does not exist: {}", path.display());
+    }
+    if !path.is_file() {
+        bail!("target is not a file: {}", path.display());
+    }
+
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let combined = format!("{}{}", content, original);
+
+    let applied = if mode == ApplyMode::Apply {
+        ensure_contained(guard, path)?;
+        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut backup = BackupSession::new(cwd)?;
+        backup.save_before_write(path)?;
+        let policy = WritePolicy::default();
+        atomic_write(path, &combined, &policy)?;
+        backup.finalize()?;
+        true
+    } else {
+        false
+    };
+
+    Ok(build_edit_result(&path_str, original, combined, applied))
+}
+
 // ---------------------------------------------------------------------------
 // Patch operations
 // ---------------------------------------------------------------------------
@@ -1316,15 +1399,17 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// The optional `guard` is threaded through to all operations for
 /// PathGuard enforcement (see module docs for PathGuard usage). Pass
 /// `None` for no additional containment checks (current default behavior
-/// for most callers). Requires the `cli` feature (enabled by default)
-/// because it reuses the transaction execution engine.
-#[cfg(feature = "cli")]
+/// for most callers).
+///
+/// Available with the `files` feature (for pure library use without the
+/// CLI) or the `cli` feature.
+#[cfg(any(feature = "cli", feature = "files"))]
 pub fn execute_plan(
     plan: crate::plan::Plan,
     cwd: &Path,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(u8, String)> {
-    crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
+    crate::tx::execute_plan_direct(plan, cwd, guard)
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,7 +1874,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_runs_operations() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
@@ -1817,7 +1902,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_respects_relaxed_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("plan.txt");
@@ -1852,7 +1937,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_rejects_on_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("guarded.txt");
@@ -2826,6 +2911,36 @@ mod tests {
 
         let matches = search(&file, "nonexistent", false, false).unwrap();
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn file_append_and_prepend_basic() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "hello").unwrap();
+
+        // append
+        let res = file_append(&file, " world", ApplyMode::Apply, None).unwrap();
+        assert!(res.changed);
+        assert!(res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n world");
+
+        // prepend
+        let res2 = file_prepend(&file, ">> ", ApplyMode::Apply, None).unwrap();
+        assert!(res2.changed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), ">> hello\n world");
+    }
+
+    #[test]
+    fn file_append_preview_does_not_write() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("b.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        let res = file_append(&file, "y", ApplyMode::Preview, None).unwrap();
+        assert!(res.changed);
+        assert!(!res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "x");
     }
 
     #[test]

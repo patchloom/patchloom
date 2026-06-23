@@ -5,7 +5,6 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::{WalkBuilder, WalkState};
 #[cfg(feature = "cli")]
-use std::path::Component;
 use std::path::Path;
 #[cfg(any(feature = "cli", feature = "files"))]
 use std::path::PathBuf;
@@ -235,12 +234,12 @@ pub(crate) fn collect_glob_roots_from_global(
     Ok(collect_glob_roots(&paths_buf, root))
 }
 
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 fn normalize_glob_root(path: PathBuf) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::CurDir => {}
+            std::path::Component::CurDir => {}
             _ => normalized.push(component.as_os_str()),
         }
     }
