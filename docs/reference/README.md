@@ -267,6 +267,11 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode. If at least one requested file is read successfully, the command still exits successfully and reports errors only for the missing files.
 - **Use when:** An agent needs to inspect one or several files before deciding on an edit. For AI agents, native read_file tools are typically faster for single-file reads.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
+
+## Library API
+
+Patchloom can be used as a Rust library (disable default `cli` feature for smaller dep). See `patchloom::api` (search_directory with context/globs/max_results, replace_text, read, etc) and `execute_plan` for tx. Full details and examples in crate docs and README "Embedding as a library". Recent expansions (#779 etc) and hygiene (#784) improved coverage.
+
 - **Related:** `search`, `doc get`
 
 <!-- ref:command:status -->

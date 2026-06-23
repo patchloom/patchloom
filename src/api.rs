@@ -2800,6 +2800,20 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_invalid_glob_errors() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "content\n").unwrap();
+        let opts = SearchOptions {
+            globs: vec!["[unclosed".to_string()],
+            ..Default::default()
+        };
+        let err = search_directory(dir.path(), "foo", &opts).unwrap_err();
+        // exact message from glob parse (exercises build_glob_matcher error path)
+        assert!(err.to_string().contains("parsing glob") || err.to_string().contains("unclosed"));
+    }
+
+    #[test]
     fn search_no_match_returns_empty() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("code.rs");
