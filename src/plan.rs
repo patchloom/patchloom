@@ -240,6 +240,16 @@ pub enum Operation {
         after_context: Option<usize>,
         /// Assert that the total match count equals N. Fails the operation otherwise.
         assert_count: Option<usize>,
+        #[serde(default)]
+        literal: bool,
+        #[serde(default)]
+        globs: Vec<String>,
+        #[serde(default)]
+        max_results: usize,
+        #[serde(default)]
+        exclude_patterns: Vec<String>,
+        #[serde(default)]
+        custom_ignore_filenames: Vec<String>,
     },
     #[serde(rename = "read", alias = "read_file")]
     Read {
@@ -483,6 +493,7 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "hello"},
             {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true},
             {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5},
+            {"op": "search", "path": ".", "pattern": "foo", "literal": true, "exclude_patterns": ["target/**"], "custom_ignore_filenames": [".blineignore"], "max_results": 10},
             {"op": "ast.rename", "path": "f.rs", "old_name": "Foo", "new_name": "Bar"},
             {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"}
         ]}"#;

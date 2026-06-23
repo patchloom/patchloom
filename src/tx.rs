@@ -241,10 +241,15 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         Operation::Search {
             invert_match,
             multiline,
+            literal,
+            regex,
             ..
         } => {
             if *invert_match && *multiline {
                 anyhow::bail!("search: invert_match and multiline cannot be combined");
+            }
+            if *literal && *regex {
+                anyhow::bail!("search: literal and regex cannot be combined");
             }
             Ok(())
         }
@@ -709,6 +714,11 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         before_context,
         after_context,
         assert_count,
+        literal,
+        globs,
+        max_results,
+        exclude_patterns,
+        custom_ignore_filenames,
     } = op
     else {
         unreachable!()
@@ -717,15 +727,18 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     if *invert_match && *multiline {
         anyhow::bail!("invert_match and multiline cannot be combined");
     }
+    if *literal && *regex {
+        anyhow::bail!("search: literal and regex cannot be combined");
+    }
 
-    let re = if *regex {
-        let mut builder = RegexBuilder::new(pattern);
-        builder.case_insensitive(*case_insensitive);
-        builder.dot_matches_new_line(*multiline);
-        builder.build()?
+    // literal means treat pattern as literal text (escape it); !regex also escapes for backward compat in plans.
+    let pat = if *literal || !*regex {
+        regex::escape(pattern)
     } else {
-        let escaped = regex::escape(pattern);
-        let mut builder = RegexBuilder::new(&escaped);
+        pattern.clone()
+    };
+    let re = {
+        let mut builder = RegexBuilder::new(&pat);
         builder.case_insensitive(*case_insensitive);
         builder.dot_matches_new_line(*multiline);
         builder.build()?
@@ -735,7 +748,22 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     let ctx_after = after_context.or(*context).unwrap_or(0);
 
     let resolved = tx.cwd.join(path);
-    let file_paths: Vec<PathBuf> = if resolved.is_dir() {
+    // Use the shared advanced ignore collection when available for parity with
+    // api::search_directory / CLI (respects .gitignore + custom_ignore_filenames + exclude_patterns).
+    // Then apply include globs.
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let candidate_paths: Vec<PathBuf> = if resolved.is_dir() {
+        crate::files::collect_file_paths_with_ignores(
+            &resolved,
+            custom_ignore_filenames,
+            exclude_patterns,
+            false,
+        )?
+    } else {
+        vec![resolved.clone()]
+    };
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let candidate_paths: Vec<PathBuf> = if resolved.is_dir() {
         let mut paths = Vec::new();
         for entry in WalkBuilder::new(&resolved).build() {
             let entry = entry?;
@@ -746,7 +774,19 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         paths.sort();
         paths
     } else {
-        vec![resolved]
+        vec![resolved.clone()]
+    };
+
+    let glob_matcher = crate::files::build_glob_matcher(globs)?;
+    let glob_roots = vec![if resolved.is_dir() { resolved.clone() } else { resolved.clone() }];
+
+    let file_paths: Vec<PathBuf> = if let Some(m) = &glob_matcher {
+        candidate_paths
+            .into_iter()
+            .filter(|p| crate::files::matches_glob_with_roots(p, Some(m), &glob_roots))
+            .collect()
+    } else {
+        candidate_paths
     };
 
     let mut all_matches = Vec::new();
@@ -828,6 +868,13 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
                 }
             }
         }
+    }
+
+    // Cap after collection (and the inner loop has already sorted? no, tx does not sort here; append order is walk order).
+    // For determinism in report we could sort, but to minimize diff keep original order and just truncate.
+    // (CLI sorts for output; tx report order is from walk.)
+    if *max_results > 0 {
+        all_matches.truncate(*max_results);
     }
 
     if let Some(expected) = assert_count
