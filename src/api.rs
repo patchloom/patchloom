@@ -2801,32 +2801,17 @@ mod tests {
 
     #[test]
     #[cfg(any(feature = "cli", feature = "files"))]
-    fn search_directory_invalid_glob_errors() {
+fn search_directory_invalid_glob_errors() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("f.txt"), "content\n").unwrap();
+        std::fs::write(dir.path().join("f.txt"), "content
+").unwrap();
         let opts = SearchOptions {
-<<<<<<< HEAD
             globs: vec!["[unclosed".to_string()],
             ..Default::default()
         };
         let err = search_directory(dir.path(), "foo", &opts).unwrap_err();
         // exact message from glob parse (exercises build_glob_matcher error path)
         assert!(err.to_string().contains("parsing glob") || err.to_string().contains("unclosed"));
-=======
-            globs: vec!["[invalid".to_string()],
-            ..Default::default()
-        };
-        let err = search_directory(dir.path(), "content", &opts).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("glob")
-                || msg.contains("pattern")
-                || msg.contains("parse")
-                || msg.contains("invalid"),
-            "unexpected glob error message: {}",
-            msg
-        );
->>>>>>> 6ef3151 (test: add search_directory invalid glob error path test (QA Engineer gap))
     }
 
     #[test]
