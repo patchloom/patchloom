@@ -1,7 +1,10 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
-use crate::plan::{self, Plan};
+
+use crate::ops::replace::{ReplaceModeError, validate_replace_mode};
+use crate::plan::{self, Operation, Plan};
+use crate::selector;
 use crate::tx::{CommitError, TxChange, TxExecResult, TxOutput};
 use crate::write::run_format_command;
 
@@ -11,6 +14,7 @@ use std::collections::HashSet;
 
 use std::path::{Path, PathBuf};
 
+#[allow(dead_code)]
 #[derive(Debug, Args)]
 #[non_exhaustive]
 #[command(after_help = "\
@@ -36,6 +40,110 @@ pub struct TxArgs {
 
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 use crate::exec;
+
+#[allow(dead_code)]
+fn validate_operation(op: &Operation) -> anyhow::Result<()> {
+    match op {
+        Operation::Replace {
+            from,
+            to,
+            insert_before,
+            insert_after,
+            nth,
+            ..
+        } => {
+            if from.is_empty() {
+                anyhow::bail!("replace operation requires a non-empty search pattern");
+            }
+            if *nth == Some(0) {
+                anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
+            }
+            match validate_replace_mode(
+                to.is_some(),
+                insert_before.is_some(),
+                insert_after.is_some(),
+            ) {
+                Ok(()) => Ok(()),
+                Err(ReplaceModeError::MissingMode) => {
+                    anyhow::bail!(
+                        "replace operation requires one of to, insert_before, or insert_after"
+                    )
+                }
+                Err(ReplaceModeError::BothInsertModes) => {
+                    anyhow::bail!("insert_before and insert_after cannot both be set")
+                }
+                Err(ReplaceModeError::ToWithInsert) => {
+                    anyhow::bail!("to cannot be combined with insert_before or insert_after")
+                }
+            }
+        }
+        // Exhaustive match ensures the compiler flags new variants that may
+        // need validation constraints.
+        Operation::DocSet { .. }
+        | Operation::DocDelete { .. }
+        | Operation::DocMerge { .. }
+        | Operation::DocAppend { .. }
+        | Operation::DocPrepend { .. }
+        | Operation::DocUpdate { .. }
+        | Operation::DocMove { .. }
+        | Operation::DocEnsure { .. }
+        | Operation::DocDeleteWhere { .. }
+        | Operation::MdReplaceSection { .. }
+        | Operation::MdInsertAfterHeading { .. }
+        | Operation::MdInsertBeforeHeading { .. }
+        | Operation::MdUpsertBullet { .. }
+        | Operation::MdTableAppend { .. }
+        | Operation::MdDedupeHeadings { .. }
+        | Operation::TidyFix { .. }
+        | Operation::FileAppend { .. }
+        | Operation::FileCreate { .. }
+        | Operation::FileDelete { .. }
+        | Operation::FileRename { .. }
+        | Operation::Read { .. }
+        | Operation::MdLintAgents { .. }
+        | Operation::PatchApply { .. } => Ok(()),
+        #[cfg(feature = "ast")]
+        Operation::AstRename { .. } | Operation::AstReplace { .. } => Ok(()),
+        Operation::MdMoveSection { before, after, .. } => {
+            if before.is_none() && after.is_none() {
+                anyhow::bail!("md.move_section requires either 'before' or 'after'");
+            }
+            if before.is_some() && after.is_some() {
+                anyhow::bail!("md.move_section: 'before' and 'after' cannot both be set");
+            }
+            Ok(())
+        }
+        Operation::Search {
+            invert_match,
+            multiline,
+            literal,
+            regex,
+            ..
+        } => {
+            if *invert_match && *multiline {
+                anyhow::bail!("search: invert_match and multiline cannot be combined");
+            }
+            if *literal && *regex {
+                anyhow::bail!("search: literal and regex cannot be combined");
+            }
+            Ok(())
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
+    for op in &plan.operations {
+        validate_operation(op)?;
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
+    selector::parse_anyhow(input)
+}
 
 // ---------------------------------------------------------------------------
 // Diff output helper
@@ -135,6 +243,46 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
+fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
+    match backup_session {
+        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
+        None => error.to_string(),
+    }
+}
+
+fn build_error_output(
+    error_kind: &'static str,
+    legacy_error_prefix: &str,
+    error: &str,
+    backup_session: Option<&str>,
+) -> TxOutput {
+    TxOutput {
+        ok: false,
+        status: "error".to_string(),
+        files_changed: 0,
+        files_created: 0,
+        files_deleted: 0,
+        changes: Vec::new(),
+        reads: Vec::new(),
+        searches: Vec::new(),
+        lints: Vec::new(),
+        error_kind: Some(error_kind.to_string()),
+        error: Some(format!(
+            "{legacy_error_prefix}: {}",
+            format_error_with_backup_hint(error, backup_session)
+        )),
+        backup_session: backup_session.map(str::to_string),
+    }
+}
+
+fn legacy_error_prefix(error_kind: &str) -> &str {
+    if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    }
+}
+
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
@@ -143,7 +291,7 @@ fn emit_error_json_with_prefix(
     compact: bool,
 ) {
     emit_output_json(
-        &crate::tx::build_error_output(error_kind, legacy_error_prefix, error, backup_session),
+        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
         compact,
     );
 }
@@ -156,7 +304,7 @@ fn emit_error_json(
 ) {
     emit_error_json_with_prefix(
         error_kind,
-        crate::tx::legacy_error_prefix(error_kind),
+        legacy_error_prefix(error_kind),
         error,
         backup_session,
         compact,
@@ -333,11 +481,14 @@ fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleEr
         })
 }
 
-// ---------------------------------------------------------------------------
-// Direct execution (MCP / in-process callers)
-// ---------------------------------------------------------------------------
-
 pub use crate::tx::RestoreFailGuard;
+
+#[allow(dead_code)]
+fn config_tx_strict(cwd: &Path) -> Option<bool> {
+    crate::config::find_and_load(cwd)
+        .map(|(config, _)| config.tx.strict)
+        .unwrap_or(None)
+}
 
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {
@@ -360,7 +511,7 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
             compact,
         );
     } else {
-        let msg = crate::tx::format_error_with_backup_hint(&err.message, backup_session);
+        let msg = format_error_with_backup_hint(&err.message, backup_session);
         eprintln!("tx: {msg}");
     }
     Ok(exit_code)
@@ -649,11 +800,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::replace::replacement_text;
+    use crate::write::WritePolicy;
     use std::collections::{HashMap, HashSet};
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
-
-    use crate::write::WritePolicy;
 
     fn shell_true() -> &'static str {
         #[cfg(windows)]
@@ -836,17 +988,14 @@ mod tests {
 
     #[test]
     fn legacy_error_prefix_maps_format_failed() {
-        assert_eq!(
-            crate::tx::legacy_error_prefix("format_failed"),
-            "validation_failed"
-        );
-        assert_eq!(crate::tx::legacy_error_prefix("rollback"), "rollback");
-        assert_eq!(crate::tx::legacy_error_prefix("parse_error"), "parse_error");
+        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
+        assert_eq!(legacy_error_prefix("rollback"), "rollback");
+        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
     }
 
     #[test]
     fn build_error_output_produces_expected_shape() {
-        let output = crate::tx::build_error_output("rollback", "rollback", "disk full", None);
+        let output = build_error_output("rollback", "rollback", "disk full", None);
         assert!(!output.ok);
         assert_eq!(output.status, "error".to_string());
         assert_eq!(output.error_kind, Some("rollback".to_string()));
@@ -981,7 +1130,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "replace operation requires one of to, insert_before, or insert_after"
@@ -1003,7 +1152,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "insert_before and insert_after cannot both be set"
@@ -1012,16 +1161,14 @@ mod tests {
 
     #[test]
     fn regex_insert_before_uses_match_anchor_in_replacement_text() {
-        let text =
-            crate::ops::replace::replacement_text("b+", &None, &Some("X".to_string()), &None, true);
+        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true);
 
         assert_eq!(text, "X${0}");
     }
 
     #[test]
     fn regex_insert_after_uses_match_anchor_in_replacement_text() {
-        let text =
-            crate::ops::replace::replacement_text("b+", &None, &None, &Some("X".to_string()), true);
+        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true);
 
         assert_eq!(text, "${0}X");
     }
@@ -1041,7 +1188,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "to cannot be combined with insert_before or insert_after"
@@ -1136,7 +1283,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string().contains("non-empty search pattern"),
             "expected 'non-empty search pattern' error, got: {}",
@@ -1159,7 +1306,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string().contains("1-based"),
             "expected '1-based' error, got: {}",
@@ -1182,7 +1329,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string()
                 .contains("invert_match and multiline cannot be combined"),
@@ -1206,7 +1353,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string()
                 .contains("literal and regex cannot be combined"),
