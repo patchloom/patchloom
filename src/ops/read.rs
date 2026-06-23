@@ -75,31 +75,25 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
     }
 
     let (start, end) = lines;
-    let start_idx = start.saturating_sub(1);
+    if start == 0 || start > total_lines {
+        return SelectedLines::empty(total_lines);
+    }
+    let start_idx = start - 1;
     let end_idx = match end {
         Some(e) => e.min(total_lines),
         None => total_lines,
     };
 
-    if start_idx >= total_lines {
-        return SelectedLines {
-            content: String::new(),
-            start_line: start,
-            end_line: start,
-            total_lines,
-        };
+    if start_idx >= end_idx {
+        return SelectedLines::empty(total_lines);
     }
 
     let selected: Vec<&str> = all_lines[start_idx..end_idx].to_vec();
     let joined = selected.join("\n");
-    let content = if !joined.is_empty() {
-        joined + "\n"
-    } else {
-        String::new()
-    };
-
+    let add_nl = end_idx == total_lines && content.ends_with('\n');
+    let out = if add_nl && !joined.is_empty() { joined + "\n" } else { joined };
     SelectedLines {
-        content,
+        content: out,
         start_line: start_idx + 1,
         end_line: end_idx,
         total_lines,
