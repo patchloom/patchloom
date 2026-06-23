@@ -21,14 +21,17 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.5", default-features = false }
+//! patchloom = { version = "0.4", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.5", default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.4", default-features = false, features = ["ast"] }
 //! ```
+//!
+//! (Update the version number in these examples when the next release-please
+//! PR bumps the crate version. See the release checklist.)
 //!
 //! This gives you the [`api`] module (primary editing interface), [`ops`],
 //! and utility modules:
@@ -166,7 +169,7 @@ pub mod write;
 // Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
 pub use api::{
     ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
-    build_context_lines, format_search_results, search_file,
+    build_context_lines, format_search_results, search_file, search_one_file,
 };
 pub use plan::Plan;
 

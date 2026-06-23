@@ -1219,7 +1219,8 @@ pub struct SearchMatch {
 
 /// Search for a pattern in a file, returning all matching lines.
 ///
-/// This is a read-only operation.
+/// This is a read-only operation. For richer results with column/context use
+/// `search_file` (the one taking SearchOptions) or the low-level `search_one_file`.
 pub fn search(
     path: &Path,
     pattern: &str,
@@ -1265,6 +1266,8 @@ pub fn search(
 ///
 /// Returns rich `SearchResult` entries (with column + context when requested).
 /// This is the recommended per-file primitive for library/agent hosts (#812).
+/// For callers that do their own walking (custom ignores, limits, etc.) see
+/// [`search_one_file`].
 pub fn search_file(
     path: &Path,
     pattern: &str,
@@ -1344,6 +1347,8 @@ pub fn build_context_lines(
 /// This provides the full power of the CLI search for library use (see #773, #796).
 /// See `SearchOptions` for `exclude_patterns` and `custom_ignore_filenames` (blineignore etc.).
 ///
+/// For callers that already have a list of files (custom walker), see [`search_one_file`].
+///
 /// Example for custom ignore (bline style):
 /// ```ignore
 /// let opts = SearchOptions {
@@ -1384,7 +1389,7 @@ pub fn search_directory(
 
         let file_result_groups: Vec<Vec<SearchResult>> =
             par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-                let v = search_one_file_for_api(path, pattern, opts, root);
+                let v = search_one_file(path, pattern, opts, root);
                 if v.is_empty() { None } else { Some(v) }
             });
 
@@ -1437,7 +1442,16 @@ pub fn search_directory(
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
-fn search_one_file_for_api(
+/// Low-level single-file matcher for callers that already selected the files.
+///
+/// Returns rich [`SearchResult`]s (including `column` and context when requested
+/// via [`SearchOptions`]). Intended for advanced library users (e.g. custom
+/// `WalkBuilder` with extra ignores, size caps, depth limits, custom truncation)
+/// who then want to apply patchloom's matching logic.
+///
+/// Prefer [`search_file`] for simple per-file use and [`search_directory`] for
+/// full directory walking with built-in ignore support.
+pub fn search_one_file(
     path: &Path,
     pattern: &str,
     opts: &SearchOptions,
@@ -3184,6 +3198,11 @@ mod tests {
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].column, 4); // 'f' in fn foo
         assert!(!res[0].context_after.is_empty() || !res[1].context_before.is_empty());
+
+        // Direct low-level matcher (for custom walkers) - #812 follow-up
+        let res2 = search_one_file(&f, "foo", &opts, dir.path());
+        assert_eq!(res2.len(), 2);
+        assert_eq!(res2[0].column, 4);
 
         // context builder directly
         let lines: Vec<&str> = "a\nb\nc\n".lines().collect();

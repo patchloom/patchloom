@@ -53,6 +53,7 @@ See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`
 
 - The open release-please PR (#724 etc.) title must be correct. Use `gh pr edit --title` when it shows the wrong version.
 - The PR *body* can be very long and may temporarily show the wrong next version header (release-please behavior). This is tracked as tech-debt #740.
+- When updating library embedding examples (in lib.rs, README, docs/), keep the version string in sync with the current Cargo.toml / .release-please-manifest.json (avoids the 0.4 vs 0.5 drift reported in #816 follow-up).
 - Primary curation is done via `RELEASE_NOTES.md` (applied to the final GitHub Release by the host job, not the PR body).
 - See `patchloom-contrib` skill ("Curated release notes" and "Major version bumps" sections) for the full process.
 
