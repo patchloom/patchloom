@@ -177,7 +177,23 @@ pub fn move_section_in(
         );
         let result = match position.0 {
             "before" => insert_before_heading_in(&without_section, position.1, section_text)?,
-            "after" => insert_after_heading_in(&without_section, position.1, section_text)?,
+            "after" => {
+                // Insert after the *full* destination section body (so that the
+                // destination's table/list/etc stays under its heading).
+                if let Some((_, dest_body_end)) = find_section(&without_section, position.1) {
+                    let mut out =
+                        String::with_capacity(without_section.len() + section_text.len() + 2);
+                    out.push_str(&without_section[..dest_body_end]);
+                    out.push_str(section_text);
+                    if !section_text.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    out.push_str(&without_section[dest_body_end..]);
+                    out
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
         Some((result.clone(), result))
@@ -190,7 +206,21 @@ pub fn move_section_in(
         );
         let new_dest = match position.0 {
             "before" => insert_before_heading_in(dest_content, position.1, section_text)?,
-            "after" => insert_after_heading_in(dest_content, position.1, section_text)?,
+            "after" => {
+                if let Some((_, dest_body_end)) = find_section(dest_content, position.1) {
+                    let mut out =
+                        String::with_capacity(dest_content.len() + section_text.len() + 2);
+                    out.push_str(&dest_content[..dest_body_end]);
+                    out.push_str(section_text);
+                    if !section_text.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    out.push_str(&dest_content[dest_body_end..]);
+                    out
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
         Some((new_source, new_dest))
@@ -790,6 +820,27 @@ mod tests {
             let c_pos = result.find("# C").unwrap();
             assert!(b_pos < a_pos);
             assert!(a_pos < c_pos);
+        }
+
+        #[test]
+        fn move_section_after_preserves_dest_table_body() {
+            // Regression for #825: moving a section "after" a dest that owns a
+            // table must keep the table under the dest heading.
+            let content = "# T\n\n## Commands\n\ncmd body\n\n## Rules\n\n- rule1\n\n## Features\n\n| Name | Status |\n|------|--------|\n| search | done |\n";
+            let (result, _) =
+                move_section_in(content, "## Rules", content, ("after", "## Features"), true)
+                    .unwrap();
+            // Features heading should still be followed (eventually) by its table,
+            // and Rules after the table.
+            let features_pos = result.find("## Features").unwrap();
+            let rules_pos = result.find("## Rules").unwrap();
+            let table_pos = result.find("| search | done |").unwrap();
+            assert!(
+                features_pos < table_pos,
+                "table should still be after Features"
+            );
+            assert!(table_pos < rules_pos, "Rules should be after the table");
+            assert!(result.contains("- rule1"));
         }
 
         #[test]
