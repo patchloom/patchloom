@@ -59,6 +59,13 @@
 //!
 //! **Guard semantics (see also #756):** The guard provides *write-time* enforcement and is only checked for `ApplyMode::Apply` writes (via `ensure_contained` + `write_if_apply`). Reads (e.g. for diff computation, `Preview`/`Check` modes, `doc_get`, search) and pre-write loads may still observe or describe paths outside the guard. This is intentional for trusted library embedding (the host/ caller controls visibility). MCP uses a separate strict pre-check layer on all paths. `execute_plan` now accepts a guard (see its docs; #755) and performs upfront validation on declared paths.
 //!
+//! ## Guard & WritePolicy contract (#801 exhaustive audit)
+//!
+//! - Every public write API and plan `Operation` (file.create/delete/rename/append, doc.set/merge/append/..., md.*, patch, replace, tidy writes, etc.) goes through `ensure_contained` (Apply only) + `BackupSession` + `atomic_*` + `WritePolicy`.
+//! - Upfront declared paths checked for `execute_plan` under guard.
+//! - No gaps found on review (greps for ensure/Backup/atomic in api.rs + tx.rs + spot in ops).
+//! - Regression: the `write_if_apply` + `ensure_contained` helpers + upfront in execute_plan + existing guard tests under ["files"] matrix.
+//!
 //! # Thread safety
 //!
 //! All types in this module are `Send + Sync`. Functions are safe to call
@@ -1250,6 +1257,11 @@ pub fn search(
 }
 
 /// Options for full directory search (for library consumers).
+///
+/// Supports customization for advanced ignore behavior (e.g. blineignore)
+/// via `exclude_patterns` and `custom_ignore_filenames`. The underlying
+/// `ignore::WalkBuilder` is used when the "files" feature is enabled, so
+/// standard .gitignore is respected by default.
 #[derive(Debug, Clone, Default)]
 pub struct SearchOptions {
     /// Treat pattern as literal string (not regex).
@@ -1264,6 +1276,12 @@ pub struct SearchOptions {
     pub globs: Vec<String>,
     /// Max number of results (0 for unlimited).
     pub max_results: usize,
+    /// Additional gitignore-style patterns to *exclude* (e.g. from a .blineignore).
+    /// These are applied in addition to any .gitignore respected by the walker.
+    pub exclude_patterns: Vec<String>,
+    /// Custom ignore filenames to respect in addition to .gitignore / .ignore
+    /// (e.g. `vec![".blineignore".to_string()]`).
+    pub custom_ignore_filenames: Vec<String>,
 }
 
 /// Result of a search match with optional context.
@@ -1300,8 +1318,20 @@ fn build_context_lines(
 }
 
 /// Search a directory (or file) recursively for pattern.
-/// Respects globs if "files" feature enabled. Uses parallel processing when available.
-/// This provides the full power of the CLI search for library use (see #773).
+/// Respects globs and custom ignores (via `SearchOptions`) if "files" feature enabled.
+/// Uses parallel processing when available.
+/// This provides the full power of the CLI search for library use (see #773, #796).
+/// See `SearchOptions` for `exclude_patterns` and `custom_ignore_filenames` (blineignore etc.).
+///
+/// Example for custom ignore (bline style):
+/// ```ignore
+/// let opts = SearchOptions {
+///     custom_ignore_filenames: vec![".blineignore".into()],
+///     exclude_patterns: vec!["*.tmp".into()],
+///     ..Default::default()
+/// };
+/// let hits = search_directory(Path::new("."), "TODO", &opts)?;
+/// ```
 pub fn search_directory(
     root: &Path,
     pattern: &str,
@@ -1313,10 +1343,32 @@ pub fn search_directory(
 
     #[cfg(any(feature = "cli", feature = "files"))]
     {
-        use crate::files::{build_glob_matcher, collect_file_paths, par_process_files};
+        use crate::files::{build_glob_matcher, par_process_files};
         let glob_matcher = build_glob_matcher(&opts.globs)?;
         let glob_roots = vec![root.to_path_buf()];
-        let file_paths = collect_file_paths(root, false)?;
+
+        // Use WalkBuilder directly so we can inject custom ignore files (e.g. .blineignore)
+        // and exclude patterns. This is the thin adapter surface for library consumers.
+        let mut builder = ignore::WalkBuilder::new(root);
+        for name in &opts.custom_ignore_filenames {
+            builder.add_custom_ignore_filename(name);
+        }
+        let mut file_paths: Vec<PathBuf> = builder
+            .build()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+            .map(|e| e.into_path())
+            .collect();
+
+        // Apply additional exclude patterns (gitignore-style globs)
+        if !opts.exclude_patterns.is_empty() {
+            let mut exb = globset::GlobSetBuilder::new();
+            for pat in &opts.exclude_patterns {
+                exb.add(globset::Glob::new(pat)?);
+            }
+            let ex = exb.build()?;
+            file_paths.retain(|p| !ex.is_match(p));
+        }
 
         let limit = if opts.max_results > 0 {
             opts.max_results
@@ -3026,6 +3078,29 @@ mod tests {
         let err = search_directory(dir.path(), "foo", &opts).unwrap_err();
         // exact message from glob parse (exercises build_glob_matcher error path)
         assert!(err.to_string().contains("parsing glob") || err.to_string().contains("unclosed"));
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_directory_exclude_patterns_and_custom_ignore() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "keep this\n").unwrap();
+        std::fs::write(dir.path().join("ignore.txt"), "ignore me\n").unwrap();
+        std::fs::write(dir.path().join("bline.txt"), "bline secret\n").unwrap();
+
+        // Create a custom ignore file (blineignore style)
+        std::fs::write(dir.path().join(".blineignore"), "bline.txt\n").unwrap();
+
+        let opts = SearchOptions {
+            regex: true,
+            exclude_patterns: vec!["*ignore*".to_string()],
+            custom_ignore_filenames: vec![".blineignore".to_string()],
+            ..Default::default()
+        };
+        let results = search_directory(dir.path(), "keep|me|secret", &opts).unwrap();
+        // Only the keep file should match; excludes + custom ignore filtered the rest.
+        assert_eq!(results.len(), 1);
+        assert!(results[0].line.contains("keep"));
     }
 
     #[test]
