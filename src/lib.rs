@@ -12,7 +12,7 @@
 //! | `cli`   | **yes** | CLI parser (clap) and all subcommand implementations. Disable for pure library use. |
 //! | `mcp`   | **yes** | MCP server support (adds `tokio`, `rmcp`, `schemars`) |
 //! | `ast`   | **yes** | AST-aware operations using tree-sitter (20 language grammars) |
-//! | `files` | no      | File scanning helpers (`is_binary`, `read_text_file`, `par_process_files`, globs, walker) for library search etc. |
+//! | `files` | no      | File scanning helpers + library plan execution + search_directory + append etc. for pure-library use (no CLI/clap). |
 //! | `full`  | no      | Everything: `cli` + `mcp` + `ast` |
 //!
 //! ## Embedding as a library
@@ -39,19 +39,29 @@
 //! - [`files`] -- `is_binary`, `read_text_file`, and (with "files" feature) parallel scanning helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
 //!
-//! With "files" feature you also get `api::search_directory` for content search.
+//! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
+//! `api::file_append`/`file_prepend`, and full plan execution for library use.
+//! For advanced filters (e.g. .blineignore on top of .gitignore), layer your own
+//! filter over files::collect_file_paths + search, or use the walker directly.
 //!
-//! Example:
+//! Example (pure library with plans):
 //! ```rust,ignore
-//! use patchloom::api::{search_directory, SearchOptions};
-//! let opts = SearchOptions {
-//!     context: Some(2),
-//!     globs: vec!["*.rs".into()],
-//!     max_results: 100,
-//!     case_insensitive: true,
-//!     ..SearchOptions::default()
-//! };
-//! let hits = search_directory(std::path::Path::new("."), "foo", &opts)?;
+//! use patchloom::api::{execute_plan, parse_plan, ApplyMode, file_append};
+//! use patchloom::containment::PathGuard;
+//! use std::path::Path;
+//!
+//! let guard = PathGuard::builder(std::env::current_dir().unwrap())
+//!     .allow_temp_directory()
+//!     .build()?;
+//!
+//! // Simple append via api
+//! let _ = file_append(Path::new("log.txt"), "entry\n", ApplyMode::Apply, Some(&guard))?;
+//!
+//! // Or via plan for atomic multi-op
+//! let plan_json = r#"{"version":1,"ops":[{"op":"file.append","path":"log.txt","content":"more\n"}]}"#;
+//! let plan = parse_plan(plan_json)?;
+//! let (code, json) = execute_plan(plan, Path::new("."), Some(&guard))?;
+//! assert_eq!(code, 0);
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
@@ -138,6 +148,15 @@ pub mod schema;
 pub mod selector;
 pub mod write;
 
+// Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
+pub use api::{
+    ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
+};
+pub use plan::Plan;
+
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) mod tx;
+
 #[cfg(feature = "cli")]
 pub(crate) use files::*;
 
@@ -154,6 +173,7 @@ pub fn is_verbose() -> bool {
 }
 
 /// Enable verbose mode globally. Called once at startup.
+#[allow(dead_code)]
 fn enable_verbose() {
     VERBOSE.store(true, std::sync::atomic::Ordering::Relaxed);
 }

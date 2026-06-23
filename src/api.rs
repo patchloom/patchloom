@@ -96,6 +96,9 @@ pub struct EditResult {
     pub applied: bool,
     /// Whether the content changed.
     pub changed: bool,
+    /// Action/kind of the edit (e.g. "append", "create", "replace", "rename", "doc.set").
+    /// Helps consumers (like Bline) distinguish cross-file or op type without parsing path.
+    pub action: &'static str,
 }
 
 /// Controls whether an operation writes to disk.
@@ -231,6 +234,7 @@ fn build_edit_result(
     original: String,
     new_content: String,
     applied: bool,
+    action: &'static str,
 ) -> EditResult {
     let diff = make_diff(path_str, &original, &new_content);
     let changed = original != new_content;
@@ -241,6 +245,7 @@ fn build_edit_result(
         diff,
         applied,
         changed,
+        action,
     }
 }
 
@@ -288,6 +293,7 @@ fn finish_doc_edit(
         doc.original.clone(),
         new_content,
         applied,
+        "doc.set",
     ))
 }
 
@@ -567,12 +573,19 @@ pub fn replace_text(
             original.clone(),
             original,
             false,
+            "edit",
         ));
     }
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +609,13 @@ pub fn md_replace_section(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Insert or update a bullet point under a markdown heading.
@@ -618,7 +637,13 @@ pub fn md_upsert_bullet(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Append a row to a markdown table under a heading.
@@ -638,7 +663,13 @@ pub fn md_table_append(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Insert content after a markdown heading.
@@ -658,7 +689,13 @@ pub fn md_insert_after_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Move a markdown section to a position relative to another heading.
@@ -704,7 +741,9 @@ pub fn md_move_section(
         ensure_contained(guard, path)?;
     }
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_source, applied))
+    Ok(build_edit_result(
+        &path_str, original, new_source, applied, "md.move",
+    ))
 }
 
 /// Remove duplicate headings at the same level in a markdown file.
@@ -724,7 +763,7 @@ pub fn md_dedupe_headings(
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok((
-        build_edit_result(&path_str, original, new_content, applied),
+        build_edit_result(&path_str, original, new_content, applied, "md.dedupe"),
         removed,
     ))
 }
@@ -762,7 +801,13 @@ pub fn md_insert_before_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +870,7 @@ pub fn file_create(
         original,
         content.to_string(),
         applied,
+        "create",
     ))
 }
 
@@ -864,6 +910,7 @@ pub fn file_delete(
         original,
         String::new(),
         applied,
+        "delete",
     ))
 }
 
@@ -921,6 +968,90 @@ pub fn file_rename(
         original.clone(),
         original,
         applied,
+        "rename",
+    ))
+}
+
+/// Append content to an existing file.
+///
+/// The file must exist (use file_create for new files). A trailing newline
+/// is ensured between existing content and the appended content when needed.
+pub fn file_append(
+    path: &Path,
+    content: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy().to_string();
+
+    if !path.exists() {
+        bail!("file does not exist: {}", path.display());
+    }
+    if !path.is_file() {
+        bail!("target is not a file: {}", path.display());
+    }
+
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let combined = crate::ops::file::append_content(&original, content);
+
+    let applied = if mode == ApplyMode::Apply {
+        ensure_contained(guard, path)?;
+        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut backup = BackupSession::new(cwd)?;
+        backup.save_before_write(path)?;
+        let policy = WritePolicy::default();
+        atomic_write(path, &combined, &policy)?;
+        backup.finalize()?;
+        true
+    } else {
+        false
+    };
+
+    Ok(build_edit_result(
+        &path_str, original, combined, applied, "append",
+    ))
+}
+
+/// Prepend content to an existing file.
+///
+/// The file must exist. Content is inserted at the beginning.
+pub fn file_prepend(
+    path: &Path,
+    content: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let path_str = path.to_string_lossy().to_string();
+
+    if !path.exists() {
+        bail!("file does not exist: {}", path.display());
+    }
+    if !path.is_file() {
+        bail!("target is not a file: {}", path.display());
+    }
+
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let combined = crate::ops::file::prepend_content(&original, content);
+
+    let applied = if mode == ApplyMode::Apply {
+        ensure_contained(guard, path)?;
+        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut backup = BackupSession::new(cwd)?;
+        backup.save_before_write(path)?;
+        let policy = WritePolicy::default();
+        atomic_write(path, &combined, &policy)?;
+        backup.finalize()?;
+        true
+    } else {
+        false
+    };
+
+    Ok(build_edit_result(
+        &path_str, original, combined, applied, "prepend",
     ))
 }
 
@@ -965,7 +1096,13 @@ pub fn apply_patch(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Apply a multi-file patch. Returns one `EditResult` per affected file.
@@ -989,7 +1126,13 @@ pub fn apply_patch_file(
 
         let policy = WritePolicy::default();
         let applied = write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
-        results.push(build_edit_result(&pf.path, original, new_content, applied));
+        results.push(build_edit_result(
+            &pf.path,
+            original,
+            new_content,
+            applied,
+            "patch",
+        ));
     }
     Ok(results)
 }
@@ -1019,7 +1162,13 @@ pub fn tidy(
     // the transformations above.
     let noop_policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1316,15 +1465,17 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// The optional `guard` is threaded through to all operations for
 /// PathGuard enforcement (see module docs for PathGuard usage). Pass
 /// `None` for no additional containment checks (current default behavior
-/// for most callers). Requires the `cli` feature (enabled by default)
-/// because it reuses the transaction execution engine.
-#[cfg(feature = "cli")]
+/// for most callers).
+///
+/// Available with the `files` feature (for pure library use without the
+/// CLI) or the `cli` feature.
+#[cfg(any(feature = "cli", feature = "files"))]
 pub fn execute_plan(
     plan: crate::plan::Plan,
     cwd: &Path,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(u8, String)> {
-    crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
+    crate::tx::execute_plan_direct(plan, cwd, guard)
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,7 +1940,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_runs_operations() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
@@ -1804,6 +1955,11 @@ mod tests {
                         "mode": "literal",
                         "from": "hello",
                         "to": "goodbye"
+                    },
+                    {
+                        "op": "file.append",
+                        "path": "test.txt",
+                        "content": "\n+appended"
                     }
                 ]
             }"#;
@@ -1814,10 +1970,11 @@ mod tests {
         assert_eq!(code, crate::exit::SUCCESS);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("goodbye"));
+        assert!(on_disk.contains("+appended"));
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_respects_relaxed_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("plan.txt");
@@ -1852,7 +2009,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn execute_plan_rejects_on_guard() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("guarded.txt");
@@ -2826,6 +2983,75 @@ mod tests {
 
         let matches = search(&file, "nonexistent", false, false).unwrap();
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn file_append_and_prepend_basic() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "hello").unwrap();
+
+        // append
+        let res = file_append(&file, " world", ApplyMode::Apply, None).unwrap();
+        assert!(res.changed);
+        assert!(res.applied);
+        assert_eq!(res.action, "append");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n world");
+
+        // prepend
+        let res2 = file_prepend(&file, ">> ", ApplyMode::Apply, None).unwrap();
+        assert!(res2.changed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), ">> hello\n world");
+    }
+
+    #[test]
+    fn file_append_preview_does_not_write() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("b.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        let res = file_append(&file, "y", ApplyMode::Preview, None).unwrap();
+        assert!(res.changed);
+        assert!(!res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "x");
+    }
+
+    #[test]
+    fn file_append_check_reports_without_writing() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("c.txt");
+        std::fs::write(&file, "base").unwrap();
+
+        let res = file_append(&file, " +more", ApplyMode::Check, None).unwrap();
+        assert!(res.changed);
+        assert!(!res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base"); // no write
+        assert!(res.new_content.contains("+more"));
+    }
+
+    #[test]
+    fn file_append_respects_guard_and_relaxed() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("g.txt");
+        std::fs::write(&file, "base").unwrap();
+
+        // strict guard rejects outside? but inside ok
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let res = file_append(&file, " +append", ApplyMode::Apply, Some(&guard)).unwrap();
+        assert!(res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base\n +append");
+
+        // relaxed yolo/temp
+        let yolo = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+        let res2 = file_append(&file, " +yolo", ApplyMode::Apply, Some(&yolo)).unwrap();
+        assert!(res2.applied);
     }
 
     #[test]

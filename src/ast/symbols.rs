@@ -137,6 +137,61 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
     }
 }
 
+/// Tree-sitter based helper for function signature updates (Rust focus for now).
+/// Locates the exact `function_item` node by identifier, replaces only the signature
+/// portion (up to body or semicolon) with `new_sig`.
+/// Preserves the rest of the source exactly. This is much safer than line-scan.
+/// For other languages or full attrs/generics/docs, extend with queries.
+pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -> Option<String> {
+    let (tree, _) = parse_source(source, Language::Rust)?;
+    let root = tree.root_node();
+
+    // Find function_item whose identifier matches
+    fn find_fn<'a>(
+        node: tree_sitter_lib::Node<'a>,
+        source: &str,
+        old_name: &str,
+    ) -> Option<tree_sitter_lib::Node<'a>> {
+        if node.kind() == "function_item"
+            && let Some(id) = child_text_by_kind(node, "identifier", source)
+            && id == old_name
+        {
+            return Some(node);
+        }
+        let mut c = node.walk();
+        for child in node.children(&mut c) {
+            if let Some(found) = find_fn(child, source, old_name) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    let fn_node = find_fn(root, source, old_name)?;
+
+    // Signature is from start of node to start of body (or end if no body, e.g. decl)
+    let sig_end = if let Some(_body) = child_text_by_kind(fn_node, "body", source) {
+        // body starts after sig; find byte offset of body in source? Use node children.
+        // Simpler: find the '{' or ';' position after params/return.
+        let mut end_byte = fn_node.end_byte();
+        let mut c2 = fn_node.walk();
+        for ch in fn_node.children(&mut c2) {
+            if ch.kind() == "body" || ch.kind() == ";" {
+                end_byte = ch.start_byte();
+                break;
+            }
+        }
+        end_byte
+    } else {
+        fn_node.end_byte()
+    };
+
+    let start = fn_node.start_byte();
+    let before = &source[..start];
+    let after = &source[sig_end..];
+    Some(format!("{}{}{}", before, new_sig, after))
+}
+
 fn visit_node(
     cursor: &mut tree_sitter_lib::TreeCursor,
     source: &str,
@@ -592,5 +647,16 @@ impl Server {
         let source = "fn hello(x: i32) {\n    x + 1\n}\n";
         let symbols = extract_symbols(source, Language::Rust);
         assert_eq!(symbols[0].signature, "fn hello(x: i32)");
+    }
+
+    #[test]
+    fn replace_function_signature_basic() {
+        let src = "fn old(a: i32) -> i32 { a }\nfn other() {}";
+        let res = replace_function_signature(src, "old", "pub fn new(b: u32) -> u32");
+        assert!(res.is_some());
+        let out = res.unwrap();
+        assert!(out.contains("pub fn new(b: u32) -> u32"));
+        assert!(out.contains("fn other"));
+        assert!(!out.contains("fn old"));
     }
 }

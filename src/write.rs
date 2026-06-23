@@ -267,8 +267,9 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
 /// `file_path` is provided, EditorConfig values fill in any flag that was not
 /// explicitly set by the user.
 ///
-/// Only available with the `cli` feature.
-#[cfg(feature = "cli")]
+/// Build WritePolicy from GlobalFlags (and EditorConfig if respect_editorconfig).
+/// Usable from library tx execution paths as well (GlobalFlags can be simulated).
+#[allow(unused_mut, unused_assignments, unused_variables)]
 pub fn policy_from_flags(
     global: &crate::cli::global::GlobalFlags,
     file_path: Option<&std::path::Path>,
@@ -281,35 +282,40 @@ pub fn policy_from_flags(
     });
     let mut ttw = global.trim_trailing_whitespace;
 
-    if global.respect_editorconfig
-        && let Some(path) = file_path
-        && let Ok(props) = ec4rs::properties_of(path)
+    let mut respect_ec = global.respect_editorconfig;
+    #[cfg(not(feature = "cli"))]
     {
-        // insert_final_newline
-        if !global.ensure_final_newline
-            && let Ok(ec4rs::property::FinalNewline::Value(true)) =
-                props.get::<ec4rs::property::FinalNewline>()
-        {
-            efn = true;
-        }
+        respect_ec = false;
+    }
+    if respect_ec && let Some(path) = file_path {
+        #[cfg(feature = "cli")]
+        if let Ok(props) = ec4rs::properties_of(path) {
+            // insert_final_newline
+            if !global.ensure_final_newline
+                && let Ok(ec4rs::property::FinalNewline::Value(true)) =
+                    props.get::<ec4rs::property::FinalNewline>()
+            {
+                efn = true;
+            }
 
-        // end_of_line
-        if global.normalize_eol.is_none()
-            && let Ok(val) = props.get::<ec4rs::property::EndOfLine>()
-        {
-            eol = Some(match val {
-                ec4rs::property::EndOfLine::Lf => EolMode::Lf,
-                ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
-                ec4rs::property::EndOfLine::Cr => EolMode::Keep,
-            });
-        }
+            // end_of_line
+            if global.normalize_eol.is_none()
+                && let Ok(val) = props.get::<ec4rs::property::EndOfLine>()
+            {
+                eol = Some(match val {
+                    ec4rs::property::EndOfLine::Lf => EolMode::Lf,
+                    ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
+                    ec4rs::property::EndOfLine::Cr => EolMode::Keep,
+                });
+            }
 
-        // trim_trailing_whitespace
-        if !global.trim_trailing_whitespace
-            && let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
-                props.get::<ec4rs::property::TrimTrailingWs>()
-        {
-            ttw = true;
+            // trim_trailing_whitespace
+            if !global.trim_trailing_whitespace
+                && let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
+                    props.get::<ec4rs::property::TrimTrailingWs>()
+            {
+                ttw = true;
+            }
         }
     }
 

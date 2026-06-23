@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports)]
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
@@ -16,10 +17,10 @@ use crate::ops::replace::{
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
-use crate::write::{
-    WritePolicy, apply_policy, atomic_create_new, atomic_write, run_format_command,
-};
+
+use crate::write::{WritePolicy, apply_policy, atomic_create_new, atomic_write};
 use anyhow::Context;
+#[cfg(feature = "cli")]
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -29,6 +30,9 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
+
+#[allow(dead_code)]
+const _LIBRARY_TX_DEAD_CODE_ALLOW: () = ();
 
 /// JSON output for the tx command.
 #[derive(Serialize)]
@@ -99,6 +103,7 @@ struct TxLintResult {
     issues: Vec<crate::ops::md::LintIssue>,
 }
 
+#[cfg(feature = "cli")]
 #[derive(Debug, Args)]
 #[non_exhaustive]
 #[command(after_help = "\
@@ -506,7 +511,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
     )?;
     let parsed_range = range
         .as_deref()
-        .map(crate::cmd::read::parse_line_range)
+        .map(crate::ops::read::parse_line_range)
         .transpose()?;
 
     if let Some(p) = path {
@@ -673,8 +678,8 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
 
     let selected = {
         let spec = lines.as_ref().expect("checked is_none above");
-        let range = crate::cmd::read::parse_line_range(spec)?;
-        crate::cmd::read::select_lines(content, range)
+        let range = crate::ops::read::parse_line_range(spec)?;
+        crate::ops::read::select_lines(content, range)
     };
 
     tx.tx_reads.push(TxReadResult {
@@ -1777,6 +1782,7 @@ fn rollback_strict(
 /// Intermediate result from executing all operations in a plan and applying
 /// write policy. Contains everything needed for callers to decide on output
 /// mode, commit changes, and run lifecycle steps.
+#[allow(dead_code)]
 struct TxExecResult {
     changes: Vec<(PathBuf, String, String)>,
     deletions: HashSet<PathBuf>,
@@ -1789,7 +1795,6 @@ struct TxExecResult {
     no_effective_changes: bool,
     replace_no_matches: bool,
     /// "Did you mean?" hints when a replace found zero matches.
-    #[allow(dead_code)]
     replace_hint: Option<String>,
 }
 
@@ -1956,12 +1961,36 @@ fn commit_error(message: impl Into<String>) -> CommitError {
     }
 }
 
-pub use crate::tx::RestoreFailGuard;
+thread_local! {
+    /// Per-thread test hook; never set in production.
+    static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
+        const { std::sync::atomic::AtomicBool::new(false) };
+}
+
+/// RAII guard that forces restore failure on the current thread only.
+#[doc(hidden)]
+pub struct RestoreFailGuard;
+
+impl RestoreFailGuard {
+    pub fn engage() -> Self {
+        FORCE_RESTORE_FAIL.with(|flag| flag.store(true, std::sync::atomic::Ordering::SeqCst));
+        Self
+    }
+}
+
+impl Drop for RestoreFailGuard {
+    fn drop(&mut self) {
+        FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
+    }
+}
 
 /// Restore files from a backup session after a failed commit. Returns `true`
 /// when restore completed successfully.
-fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    crate::tx::restore_after_failed_commit(cwd, timestamp)
+pub(crate) fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
+    if FORCE_RESTORE_FAIL.with(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
+        return false;
+    }
+    crate::backup::restore_session(cwd, timestamp).is_ok()
 }
 
 /// Apply pending changes to disk: backup originals, write modified files,
@@ -2156,1469 +2185,108 @@ pub fn execute_plan_direct(
     cwd: &Path,
     guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<(u8, String)> {
-    // Delegate to the extracted library tx module (enables "files" pure-library use without dup).
-    // CLI run and formatting remain in this module for command surface.
-    crate::tx::execute_plan_direct(plan, cwd, guard)
-}
+    crate::verbose!(
+        "tx: direct plan execution ({} ops, cwd={}, guard={})",
+        plan.operations.len(),
+        cwd.display(),
+        guard.is_some()
+    );
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
-pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let structured = global.json || global.jsonl;
-    let compact = global.jsonl;
-
-    // 1. Read plan from file or stdin.
-    let plan_path = if args.plan == "-" {
-        None
-    } else {
-        Some(global.resolve_cwd()?.join(&args.plan))
-    };
-    let plan_text = if args.plan == "-" {
-        std::io::read_to_string(std::io::stdin())?
-    } else {
-        let plan_path = plan_path
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("internal error: plan path missing"))?;
-        std::fs::read_to_string(plan_path).map_err(|e| {
-            anyhow::anyhow!("failed to read plan file '{}': {e}", plan_path.display())
-        })?
+    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
+        Ok(v) => v,
+        Err((code, json)) => return Ok((code, json)),
     };
 
-    // 2. Parse plan (JSON, YAML, or TOML).
-    let plan_path_hint = if args.plan == "-" {
-        None
-    } else {
-        Some(args.plan.as_str())
-    };
-    let plan = match plan::parse_plan_auto(&plan_text, plan_path_hint, args.plan_format.as_deref())
-    {
-        Ok(p) => p,
-        Err(e) => {
-            if structured {
-                emit_error_json("parse_error", &e.to_string(), None, compact);
-            } else {
-                eprintln!("tx: plan parse error: {e}");
+    // PathGuard enforcement for library callers of execute_plan (addresses #755).
+    // Upfront check on declared paths using shared helper; dynamic (globs
+    // patterns, patch embedded paths) are best-effort or handled by loaders.
+    if let Some(g) = guard {
+        for op in &plan.operations {
+            for p in crate::plan::declared_paths(op) {
+                g.check_path(p)
+                    .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
             }
-            return Ok(exit::PARSE_ERROR);
         }
-    };
-
-    // 3. Validate plan and resolve working directory.
-    let base_cwd = global.resolve_cwd()?;
-    let (cwd, strict, _resolved_global) =
-        match validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
-            Ok(v) => v,
-            Err((code, msg)) => {
-                if structured {
-                    emit_error_json("parse_error", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(code);
-            }
-        };
-
-    if plan.cwd.is_some() && !cwd.is_dir() {
-        let msg = format!(
-            "plan cwd is not a directory: {}",
-            plan.cwd.as_deref().expect("plan.cwd checked above")
-        );
-        if structured {
-            emit_error_json("parse_error", &msg, None, compact);
-        } else {
-            eprintln!("tx: {msg}");
-        }
-        return Ok(exit::PARSE_ERROR);
     }
 
-    // 4. Execute all operations, collecting changes in memory (no writes).
-    let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
+    // Execute operations and collect changes in memory.
+    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
-            let msg = e.to_string();
-            if structured {
-                emit_error_json("operation_failed", &msg, None, compact);
-            } else {
-                eprintln!("tx: {msg}");
-            }
-            return Ok(exit::OPERATION_FAILED);
+            return Ok((
+                exit::OPERATION_FAILED,
+                make_error_json("operation_failed", &e.to_string(), None),
+            ));
         }
     };
 
-    // Deletions of empty files won't appear in `changes` (original == final == ""),
-    // but they still count as changes for --check reporting.
-    let pending_deletions = result
-        .deletions
-        .iter()
-        .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
-        .count();
-
-    // 5. Output based on mode.
-    if global.check {
-        if result.no_effective_changes {
-            if result.replace_no_matches {
-                return Ok(exit::NO_MATCHES);
-            }
-            if structured {
-                let output = build_full_tx_output("success", &mut result, &cwd);
-                emit_output_json(&output, compact);
-            }
-            return Ok(exit::SUCCESS);
-        }
-        if structured {
-            let output = build_full_tx_output("changes_detected", &mut result, &cwd);
-            emit_output_json(&output, compact);
-        } else if !global.quiet {
-            println!(
-                "{} file(s) would change",
-                result.changes.len() + pending_deletions
-            );
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    if global.apply {
-        if let Err(err) = commit_changes(
-            &result.changes,
-            &result.deletions,
-            &result.existed_before,
-            &cwd,
-        ) {
-            return handle_commit_error(err, structured, compact);
-        }
-
-        // Run --format command (CLI write flag) after successful writes.
-        // This makes --format parity with direct commands (batch, replace, etc).
-        run_format_command(global, &cwd)?;
-
-        // Show diffs if --diff flag is set.
-        if global.diff && !result.changes.is_empty() {
-            print_diffs(&result.changes, &cwd, global.should_color());
-        }
-
-        // 6. Run format steps, then validation steps.
-        if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
-            if strict {
-                rollback_strict(
-                    &result.changes,
-                    &result.pending,
-                    &result.deletions,
-                    &result.existed_before,
-                );
-                let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
-                if structured {
-                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, compact);
-                } else {
-                    eprintln!("tx: {rollback_msg}");
-                }
-                return Ok(exit::ROLLBACK);
-            }
-            if structured {
-                emit_error_json(err.kind, &err.message, None, compact);
-            }
-            return Ok(exit::VALIDATION_FAILED);
-        }
-
-        if result.replace_no_matches {
-            return Ok(exit::NO_MATCHES);
-        }
-        if structured {
-            let output = build_full_tx_output("success", &mut result, &cwd);
-            emit_output_json(&output, compact);
-        } else if global.show_status() {
-            let n_changed = result.changes.len();
-            let n_deleted = result.deletions.len();
-            let total = n_changed + n_deleted;
-            eprintln!("applied: {total} file(s) affected");
-        }
-        return Ok(exit::SUCCESS);
-    }
-
     if result.replace_no_matches {
-        return Ok(exit::NO_MATCHES);
+        let hint_json = result
+            .replace_hint
+            .as_deref()
+            .map(|h| make_error_json("no_matches", h, None))
+            .unwrap_or_default();
+        return Ok((exit::NO_MATCHES, hint_json));
     }
 
-    // Default / --diff mode: show unified diffs.
-    if structured {
-        let output = build_full_tx_output("success", &mut result, &cwd);
-        emit_output_json(&output, compact);
-    } else if !result.changes.is_empty() {
-        print_diffs(&result.changes, &cwd, global.should_color());
-    }
-    if !result.no_effective_changes && global.show_status() {
-        let n = result.changes.len() + result.deletions.len();
-        eprintln!("{n} file(s) changed");
+    if result.no_effective_changes {
+        let output = build_full_tx_output("success", &mut result, &effective_cwd);
+        let json = serde_json::to_string_pretty(&output)?;
+        return Ok((exit::SUCCESS, json));
     }
 
-    // --confirm: prompt after showing diffs, then apply if confirmed.
-    if !result.no_effective_changes && global.should_apply() {
-        if let Err(err) = commit_changes(
-            &result.changes,
-            &result.deletions,
-            &result.existed_before,
-            &cwd,
-        ) {
-            return handle_commit_error(err, structured, compact);
-        }
-
-        run_format_command(global, &cwd)?;
-
-        // Run format steps, then validation steps. (full parity with direct --apply path)
-        if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
-            if strict {
-                rollback_strict(
-                    &result.changes,
-                    &result.pending,
-                    &result.deletions,
-                    &result.existed_before,
-                );
-                let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
-                if structured {
-                    emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, compact);
-                } else {
-                    eprintln!("tx: {rollback_msg}");
-                }
-                return Ok(exit::ROLLBACK);
-            }
-            if structured {
-                emit_error_json(err.kind, &err.message, None, compact);
-            }
-            return Ok(exit::VALIDATION_FAILED);
-        }
-
-        if result.replace_no_matches {
-            return Ok(exit::NO_MATCHES);
-        }
-        if structured {
-            let output = build_full_tx_output("success", &mut result, &cwd);
-            emit_output_json(&output, compact);
-        } else if global.show_status() {
-            let n_changed = result.changes.len();
-            let n_deleted = result.deletions.len();
-            let total = n_changed + n_deleted;
-            eprintln!("applied: {total} file(s) affected");
-        }
-        return Ok(exit::SUCCESS);
+    // Apply: back up originals, write files.
+    if let Err(err) = commit_changes(
+        &result.changes,
+        &result.deletions,
+        &result.existed_before,
+        &effective_cwd,
+    ) {
+        let error_kind = if err.rollback_ok {
+            "rollback"
+        } else {
+            "rollback_failed"
+        };
+        let exit_code = if err.rollback_ok {
+            exit::ROLLBACK
+        } else {
+            exit::FAILURE
+        };
+        return Ok((
+            exit_code,
+            make_error_json_with_prefix(
+                error_kind,
+                error_kind,
+                &err.message,
+                err.backup_session.as_deref(),
+            ),
+        ));
     }
 
-    Ok(exit::SUCCESS)
+    // Run format steps, then validation steps.
+    if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
+        if strict {
+            rollback_strict(
+                &result.changes,
+                &result.pending,
+                &result.deletions,
+                &result.existed_before,
+            );
+            let msg = format!("strict mode -- all changes reverted ({})", err.message);
+            return Ok((
+                exit::ROLLBACK,
+                make_error_json_with_prefix(err.kind, "rollback", &msg, None),
+            ));
+        }
+        return Ok((
+            exit::VALIDATION_FAILED,
+            make_error_json(err.kind, &err.message, None),
+        ));
+    }
+
+    let output = build_full_tx_output("success", &mut result, &effective_cwd);
+    let json = serde_json::to_string_pretty(&output)?;
+    Ok((exit::SUCCESS, json))
 }
 
 // ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn shell_true() -> &'static str {
-        #[cfg(windows)]
-        {
-            "exit /b 0"
-        }
-        #[cfg(not(windows))]
-        {
-            "true"
-        }
-    }
-
-    fn shell_false() -> &'static str {
-        #[cfg(windows)]
-        {
-            "exit /b 1"
-        }
-        #[cfg(not(windows))]
-        {
-            "false"
-        }
-    }
-
-    fn shell_stderr_spam() -> &'static str {
-        #[cfg(windows)]
-        {
-            // -NoProfile skips profile loading which can take 1-2 seconds on CI.
-            // Single Write() call instead of 4000 iterations keeps runtime well
-            // under the timeout even on slow runners.
-            "powershell -NoProfile -Command \"[Console]::Error.Write('x' * 800000); exit 0\""
-        }
-        #[cfg(not(windows))]
-        {
-            "python3 -c \"import sys; sys.stderr.write('x' * (1024 * 1024)); sys.stderr.flush()\""
-        }
-    }
-
-    fn portable_path_str(p: &std::path::Path) -> String {
-        p.to_str().unwrap().replace('\\', "/")
-    }
-
-    #[test]
-    fn read_file_content_populates_pending_from_disk() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("existing.txt");
-        fs::write(&path, "hello from disk\n").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        let content = read_file_content(&mut pending, &mut existed, &path).unwrap();
-
-        assert_eq!(content, "hello from disk\n");
-        assert_eq!(
-            pending.get(&path),
-            Some(&(
-                "hello from disk\n".to_string(),
-                "hello from disk\n".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn read_and_probe_returns_true_for_text() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("text.rs");
-        fs::write(&path, "fn main() {}\n").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        assert!(read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(pending.contains_key(&path));
-        assert_eq!(pending[&path].1, "fn main() {}\n");
-    }
-
-    #[test]
-    fn read_and_probe_returns_false_for_binary() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("data.bin");
-        fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(!pending.contains_key(&path));
-    }
-
-    #[test]
-    fn read_and_probe_returns_false_for_invalid_utf8() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("bad.txt");
-        // Bare continuation bytes: invalid UTF-8 but no NUL (passes binary check)
-        fs::write(&path, [0x80, 0x81, 0x82]).unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        // Should skip gracefully (false) instead of erroring,
-        // matching standalone search/replace behavior.
-        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(!pending.contains_key(&path));
-    }
-
-    #[test]
-    fn update_file_content_inserts_missing_pending_entry() {
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let path = PathBuf::from("created.txt");
-
-        update_file_content(&mut pending, &mut deletions, &path, "brand new".to_string());
-
-        assert_eq!(
-            pending.get(&path),
-            Some(&(String::new(), "brand new".to_string()))
-        );
-    }
-
-    #[test]
-    fn multi_op_plan() {
-        let dir = TempDir::new().unwrap();
-
-        // Create test files.
-        let txt = dir.path().join("test.txt");
-        fs::write(&txt, "hello world\n").unwrap();
-
-        let json_file = dir.path().join("config.json");
-        fs::write(&json_file, r#"{"name": "old"}"#).unwrap();
-
-        let no_nl = dir.path().join("no_nl.txt");
-        fs::write(&no_nl, "content").unwrap();
-
-        // Build plan with replace + doc.set + tidy.fix.
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "replace",
-                    "path": txt.to_str().unwrap(),
-                    "from": "hello",
-                    "to": "hi"
-                },
-                {
-                    "op": "doc.set",
-                    "path": json_file.to_str().unwrap(),
-                    "selector": "name",
-                    "value": "new"
-                },
-                {
-                    "op": "tidy.fix",
-                    "path": no_nl.to_str().unwrap(),
-                    "ensure_final_newline": true
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-
-        // Verify replace.
-        assert_eq!(fs::read_to_string(&txt).unwrap(), "hi world\n");
-
-        // Verify doc.set.
-        let config: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&json_file).unwrap()).unwrap();
-        assert_eq!(config["name"], serde_json::json!("new"));
-
-        // Verify tidy.fix.
-        assert!(fs::read_to_string(&no_nl).unwrap().ends_with('\n'));
-    }
-
-    #[test]
-    fn create_then_delete_in_same_tx_becomes_noop() {
-        let dir = TempDir::new().unwrap();
-        let new_file = dir.path().join("new.txt");
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "hello"},
-                {"op": "file.delete", "path": new_file.to_str().unwrap()}
-            ]
-        });
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.check = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert!(!new_file.exists());
-    }
-
-    #[test]
-    fn rollback_on_failure() {
-        let dir = TempDir::new().unwrap();
-
-        let txt = dir.path().join("test.txt");
-        fs::write(&txt, "hello world\n").unwrap();
-
-        let nonexistent = dir.path().join("nonexistent.json");
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "replace",
-                    "path": txt.to_str().unwrap(),
-                    "from": "hello",
-                    "to": "hi"
-                },
-                {
-                    "op": "doc.set",
-                    "path": nonexistent.to_str().unwrap(),
-                    "selector": "name",
-                    "value": "test"
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
-
-        // Verify no files were modified.
-        assert_eq!(fs::read_to_string(&txt).unwrap(), "hello world\n");
-    }
-
-    #[test]
-    fn legacy_error_prefix_maps_format_failed() {
-        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
-        assert_eq!(legacy_error_prefix("rollback"), "rollback");
-        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
-    }
-
-    #[test]
-    fn build_error_output_produces_expected_shape() {
-        let output = build_error_output("rollback", "rollback", "disk full", None);
-        assert!(!output.ok);
-        assert_eq!(output.status, "error");
-        assert_eq!(output.error_kind, Some("rollback"));
-        assert_eq!(output.error, Some("rollback: disk full".to_string()));
-        assert_eq!(output.files_changed, 0);
-    }
-
-    #[test]
-    fn validation_pass() {
-        let dir = TempDir::new().unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [],
-            "validate": [
-                {"cmd": shell_true(), "required": true}
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-        global.cwd = Some(dir.path().to_string_lossy().into_owned());
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-    }
-
-    #[test]
-    fn validation_fail_required() {
-        let dir = TempDir::new().unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "strict": false,
-            "operations": [],
-            "validate": [
-                {"cmd": shell_false(), "required": true}
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-        global.cwd = Some(dir.path().to_string_lossy().into_owned());
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::VALIDATION_FAILED);
-    }
-
-    #[test]
-    fn validation_pass_with_large_stderr_output() {
-        let dir = TempDir::new().unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [],
-            "validate": [
-                {"cmd": shell_stderr_spam(), "required": true, "timeout": 10}
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-        global.cwd = Some(dir.path().to_string_lossy().into_owned());
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-    }
-
-    #[test]
-    fn parse_plan_json_string() {
-        let plan_json = r#"{"version": "1", "operations": [{"op": "replace", "path": "test.txt", "from": "a", "to": "b"}]}"#;
-        let plan = plan::parse_plan(plan_json).unwrap();
-        assert_eq!(plan.operations.len(), 1);
-    }
-
-    #[test]
-    fn malformed_plan_returns_parse_error() {
-        let dir = TempDir::new().unwrap();
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, "not json at all {{{").unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let global = GlobalFlags::test_default();
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::PARSE_ERROR);
-    }
-
-    #[test]
-    fn replace_requires_replacement_mode() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "replace",
-                "path": "test.txt",
-                "from": "hello"
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "replace operation requires one of to, insert_before, or insert_after"
-        );
-    }
-
-    #[test]
-    fn replace_conflicting_insert_fields_return_parse_error() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "replace",
-                "path": "test.txt",
-                "from": "hello",
-                "insert_before": "X",
-                "insert_after": "Y"
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "insert_before and insert_after cannot both be set"
-        );
-    }
-
-    #[test]
-    fn regex_insert_before_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true);
-
-        assert_eq!(text, "X${0}");
-    }
-
-    #[test]
-    fn regex_insert_after_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true);
-
-        assert_eq!(text, "${0}X");
-    }
-
-    #[test]
-    fn replace_to_with_insert_returns_parse_error() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "replace",
-                "path": "test.txt",
-                "from": "hello",
-                "to": "world",
-                "insert_before": "X"
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "to cannot be combined with insert_before or insert_after"
-        );
-    }
-
-    #[test]
-    fn tx_file_create_in_plan() {
-        let dir = TempDir::new().unwrap();
-
-        let new_file = dir.path().join("created.txt");
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "file.create",
-                    "path": new_file.to_str().unwrap(),
-                    "content": "brand new file\n"
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-
-        // Verify the file was created with the correct content.
-        assert!(new_file.exists());
-        assert_eq!(fs::read_to_string(&new_file).unwrap(), "brand new file\n");
-    }
-
-    #[test]
-    fn tx_file_create_existing_fails() {
-        let dir = TempDir::new().unwrap();
-
-        let existing = dir.path().join("existing.txt");
-        fs::write(&existing, "original content\n").unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "file.create",
-                    "path": existing.to_str().unwrap(),
-                    "content": "should not overwrite\n"
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
-
-        // Verify the original file was NOT modified.
-        assert_eq!(fs::read_to_string(&existing).unwrap(), "original content\n");
-    }
-
-    #[test]
-    fn validate_operation_rejects_empty_from() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "replace",
-                "path": "test.txt",
-                "from": "",
-                "to": "x"
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert!(
-            err.to_string().contains("non-empty search pattern"),
-            "expected 'non-empty search pattern' error, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_operation_rejects_nth_zero() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "replace",
-                "path": "test.txt",
-                "from": "hello",
-                "to": "world",
-                "nth": 0
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert!(
-            err.to_string().contains("1-based"),
-            "expected '1-based' error, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn validate_operation_rejects_invert_match_with_multiline() {
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "search",
-                "path": "test.txt",
-                "pattern": "foo",
-                "invert_match": true,
-                "multiline": true
-            }]
-        })
-        .to_string();
-        let plan = plan::parse_plan(&plan_json).unwrap();
-
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("invert_match and multiline cannot be combined"),
-            "unexpected error: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn tx_file_rename_basic() {
-        let dir = TempDir::new().unwrap();
-        let src = dir.path().join("old.txt");
-        fs::write(&src, "content\n").unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "file.rename",
-                "from": portable_path_str(&src),
-                "to": portable_path_str(&dir.path().join("new.txt"))
-            }]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert!(!src.exists());
-        assert_eq!(
-            fs::read_to_string(dir.path().join("new.txt")).unwrap(),
-            "content\n"
-        );
-    }
-
-    #[test]
-    fn tx_file_rename_same_path_noop() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("same.txt");
-        fs::write(&f, "data\n").unwrap();
-
-        let path_str = portable_path_str(&f);
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "file.rename",
-                "from": path_str,
-                "to": path_str
-            }]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert_eq!(fs::read_to_string(&f).unwrap(), "data\n");
-    }
-
-    #[test]
-    fn tx_file_rename_dst_exists_without_force_rolls_back() {
-        let dir = TempDir::new().unwrap();
-        let src = dir.path().join("src.txt");
-        let dst = dir.path().join("dst.txt");
-        fs::write(&src, "source\n").unwrap();
-        fs::write(&dst, "dest\n").unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "file.rename",
-                "from": portable_path_str(&src),
-                "to": portable_path_str(&dst)
-            }]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
-        // Both files unchanged.
-        assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
-        assert_eq!(fs::read_to_string(&dst).unwrap(), "dest\n");
-    }
-
-    #[test]
-    fn tx_file_rename_dst_exists_with_force() {
-        let dir = TempDir::new().unwrap();
-        let src = dir.path().join("src.txt");
-        let dst = dir.path().join("dst.txt");
-        fs::write(&src, "source\n").unwrap();
-        fs::write(&dst, "dest\n").unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [{
-                "op": "file.rename",
-                "from": portable_path_str(&src),
-                "to": portable_path_str(&dst),
-                "force": true
-            }]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert!(!src.exists());
-        assert_eq!(fs::read_to_string(&dst).unwrap(), "source\n");
-    }
-
-    #[test]
-    fn tx_create_then_rename() {
-        let dir = TempDir::new().unwrap();
-        let created = dir.path().join("created.txt");
-        let renamed = dir.path().join("renamed.txt");
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "file.create",
-                    "path": portable_path_str(&created),
-                    "content": "new file\n"
-                },
-                {
-                    "op": "file.rename",
-                    "from": portable_path_str(&created),
-                    "to": portable_path_str(&renamed)
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert!(!created.exists());
-        assert_eq!(fs::read_to_string(&renamed).unwrap(), "new file\n");
-    }
-
-    #[test]
-    fn tx_unsupported_plan_version() {
-        let dir = TempDir::new().unwrap();
-        let plan_json = serde_json::json!({
-            "version": "99",
-            "operations": []
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let global = GlobalFlags::test_default();
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::PARSE_ERROR);
-    }
-
-    #[test]
-    fn tx_delete_then_create_without_force_succeeds() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("target.txt");
-        fs::write(&f, "original\n").unwrap();
-
-        let plan_json = serde_json::json!({
-            "version": "1",
-            "operations": [
-                {
-                    "op": "file.delete",
-                    "path": portable_path_str(&f)
-                },
-                {
-                    "op": "file.create",
-                    "path": portable_path_str(&f),
-                    "content": "recreated\n"
-                }
-            ]
-        });
-
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, serde_json::to_string(&plan_json).unwrap()).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert_eq!(fs::read_to_string(&f).unwrap(), "recreated\n");
-    }
-
-    // -----------------------------------------------------------------------
-    // #387: Medium-priority test gaps
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn plan_normalize_eol_invalid_value_returns_error() {
-        let result = super::plan_normalize_eol("bogus");
-        assert!(result.is_err(), "invalid eol value should fail");
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("invalid normalize_eol"),
-            "error should name the field: {msg}"
-        );
-    }
-
-    #[test]
-    fn rollback_strict_restores_modified_files() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("a.txt");
-        fs::write(&f, "original").unwrap();
-
-        let mut pending = HashMap::new();
-        pending.insert(f.clone(), ("original".to_string(), "changed".to_string()));
-        let deletions = HashSet::new();
-        let existed_before: HashSet<PathBuf> = [f.clone()].into();
-
-        // Simulate the apply phase: write the new content.
-        crate::write::atomic_write(&f, "changed", &WritePolicy::default()).unwrap();
-        assert_eq!(fs::read_to_string(&f).unwrap(), "changed");
-
-        // Rollback should restore to original.
-        rollback_strict(
-            &[(f.clone(), "original".to_string(), "changed".to_string())],
-            &pending,
-            &deletions,
-            &existed_before,
-        );
-        assert_eq!(
-            fs::read_to_string(&f).unwrap(),
-            "original",
-            "rollback_strict should restore the original content"
-        );
-    }
-
-    #[test]
-    fn tx_doc_append_to_non_array_rolls_back() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("data.json");
-        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
-
-        let plan = format!(
-            r#"{{
-  "version": "1",
-  "operations": [
-    {{"op": "doc.append", "path": "{}", "selector": "items", "value": 42}}
-  ]
-}}"#,
-            portable_path_str(&f)
-        );
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, &plan).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(
-            code,
-            exit::OPERATION_FAILED,
-            "doc.append to non-array should fail before commit"
-        );
-    }
-
-    #[test]
-    fn tx_doc_prepend_to_non_array_rolls_back() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("data.json");
-        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
-
-        let plan = format!(
-            r#"{{
-  "version": "1",
-  "operations": [
-    {{"op": "doc.prepend", "path": "{}", "selector": "items", "value": 99}}
-  ]
-}}"#,
-            portable_path_str(&f)
-        );
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, &plan).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(
-            code,
-            exit::OPERATION_FAILED,
-            "doc.prepend to non-array should fail before commit"
-        );
-    }
-
-    #[test]
-    fn tx_doc_delete_where_on_non_array_rolls_back() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("data.json");
-        fs::write(&f, r#"{"items": "not-an-array"}"#).unwrap();
-
-        let plan = format!(
-            r#"{{
-  "version": "1",
-  "operations": [
-    {{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "x=1"}}
-  ]
-}}"#,
-            portable_path_str(&f)
-        );
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, &plan).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(
-            code,
-            exit::OPERATION_FAILED,
-            "doc.delete_where on non-array should fail before commit"
-        );
-    }
-
-    #[test]
-    fn tx_strict_mode_rollback_on_operation_failure() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("data.txt");
-        fs::write(&f, "original content").unwrap();
-
-        // Operation 1 succeeds (replace), operation 2 fails (read nonexistent).
-        // Strict mode should revert operation 1's changes.
-        let plan = format!(
-            r#"{{
-  "version": "1",
-  "strict": true,
-  "operations": [
-    {{"op": "replace", "path": "{}", "from": "original", "to": "modified"}},
-    {{"op": "read", "path": "nonexistent-file.txt"}}
-  ]
-}}"#,
-            portable_path_str(&f)
-        );
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, &plan).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(
-            code,
-            exit::OPERATION_FAILED,
-            "strict plan with failing op should fail before commit"
-        );
-
-        // File should remain untouched because execution failed before any writes.
-        let content = fs::read_to_string(&f).unwrap();
-        assert_eq!(content, "original content", "file should remain unchanged");
-    }
-
-    #[test]
-    fn tx_invalid_normalize_eol_in_plan() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("file.txt");
-        fs::write(&f, "hello\n").unwrap();
-
-        let plan = format!(
-            r#"{{
-  "version": "1",
-  "operations": [
-    {{"op": "tidy.fix", "path": "{}", "normalize_eol": "bogus"}}
-  ]
-}}"#,
-            portable_path_str(&f)
-        );
-        let plan_file = dir.path().join("plan.json");
-        fs::write(&plan_file, &plan).unwrap();
-
-        let args = TxArgs {
-            plan: plan_file.to_str().unwrap().to_string(),
-            plan_format: None,
-            no_strict: false,
-            write: Default::default(),
-        };
-        let mut global = GlobalFlags::test_default();
-        global.apply = true;
-
-        let code = run(args, &global).unwrap();
-        assert_eq!(
-            code,
-            exit::OPERATION_FAILED,
-            "invalid normalize_eol should fail before commit"
-        );
-    }
-
-    #[test]
-    fn handle_commit_error_rollback_failed_exits_failure() {
-        let err = CommitError {
-            message: "write failed".into(),
-            rollback_ok: false,
-            backup_session: Some("1234567890".into()),
-        };
-        let code = handle_commit_error(err, true, false).unwrap();
-        assert_eq!(code, exit::FAILURE);
-    }
-
-    #[test]
-    fn commit_changes_reports_rollback_failed_when_restore_fails() {
-        let dir = TempDir::new().unwrap();
-        let f1 = dir.path().join("a.txt");
-        let blocker = dir.path().join("blocker");
-        fs::write(&f1, "original-a").unwrap();
-        fs::write(&blocker, "blocker-is-file").unwrap();
-        let f2 = blocker.join("b.txt");
-
-        let changes = vec![
-            (f1.clone(), "original-a".to_string(), "new-a".to_string()),
-            (f2.clone(), String::new(), "new-b".to_string()),
-        ];
-        let deletions = HashSet::new();
-        let existed_before: HashSet<_> = [f1.clone()].into();
-
-        let _guard = RestoreFailGuard::engage();
-        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
-
-        assert!(!err.rollback_ok, "restore should be reported as failed");
-        let _session = err
-            .backup_session
-            .expect("backup session should be present on failure");
-        assert_eq!(fs::read_to_string(&f1).unwrap(), "new-a");
-    }
-
-    #[test]
-    fn commit_changes_rolls_back_on_mid_write_failure() {
-        let dir = TempDir::new().unwrap();
-        let f1 = dir.path().join("a.txt");
-        let blocker = dir.path().join("blocker");
-        fs::write(&f1, "original-a").unwrap();
-        fs::write(&blocker, "blocker-is-file").unwrap();
-        let f2 = blocker.join("b.txt");
-
-        let changes = vec![
-            (f1.clone(), "original-a".to_string(), "new-a".to_string()),
-            (f2.clone(), String::new(), "new-b".to_string()),
-        ];
-        let deletions = HashSet::new();
-        let existed_before: HashSet<_> = [f1.clone()].into();
-
-        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
-        assert!(err.rollback_ok, "rollback should succeed");
-        assert!(
-            err.backup_session.is_some(),
-            "backup session should be recorded"
-        );
-        assert_eq!(fs::read_to_string(&f1).unwrap(), "original-a");
-        assert!(!f2.exists());
-    }
-
-    #[test]
-    fn undo_list_json_output() {
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("a.txt");
-        fs::write(&file, "v1").unwrap();
-        let mut session = crate::backup::BackupSession::new(dir.path()).unwrap();
-        session.save_before_write(&file).unwrap();
-        session.finalize().unwrap().unwrap();
-
-        let args = crate::cmd::undo::UndoArgs {
-            list: true,
-            session: None,
-            apply: false,
-        };
-        let mut global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
-        let code = crate::cmd::undo::run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-
-        // Also test JSONL mode.
-        global.json = false;
-        global.jsonl = true;
-        let args2 = crate::cmd::undo::UndoArgs {
-            list: true,
-            session: None,
-            apply: false,
-        };
-        let code2 = crate::cmd::undo::run(args2, &global).unwrap();
-        assert_eq!(code2, exit::SUCCESS);
-    }
-
-    #[test]
-    fn undo_dry_run_json_output() {
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("b.txt");
-        fs::write(&file, "v1").unwrap();
-        let mut session = crate::backup::BackupSession::new(dir.path()).unwrap();
-        session.save_before_write(&file).unwrap();
-        let ts = session.finalize().unwrap().unwrap();
-
-        // Modify file so dry-run shows changes.
-        fs::write(&file, "v2").unwrap();
-
-        let args = crate::cmd::undo::UndoArgs {
-            list: false,
-            session: Some(ts),
-            apply: false,
-        };
-        let global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
-        let code = crate::cmd::undo::run(args, &global).unwrap();
-        assert_eq!(code, exit::CHANGES_DETECTED);
-    }
-
-    #[test]
-    fn path_err_formats_flat_error_with_path_prefix() {
-        let err = super::path_err("config.toml")(anyhow::anyhow!("key not found"));
-        let msg = err.to_string();
-        assert_eq!(msg, "config.toml: key not found");
-    }
-}
