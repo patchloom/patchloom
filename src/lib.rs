@@ -149,7 +149,9 @@ pub mod selector;
 pub mod write;
 
 // Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
-pub use api::{ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions};
+pub use api::{
+    ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
+};
 pub use plan::Plan;
 
 #[cfg(any(feature = "cli", feature = "files"))]
