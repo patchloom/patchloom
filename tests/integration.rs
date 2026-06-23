@@ -20015,7 +20015,7 @@ fn test_tx_file_append_missing_file_fails() {
         .arg("--apply")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("does not exist"));
 }
 
 #[test]
