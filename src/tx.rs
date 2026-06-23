@@ -33,71 +33,71 @@ use std::path::{Path, PathBuf};
 
 /// JSON output for the tx command.
 #[derive(Serialize)]
-struct TxOutput {
-    ok: bool,
-    status: &'static str,
-    files_changed: usize,
-    files_created: usize,
-    files_deleted: usize,
-    changes: Vec<TxChange>,
+pub(crate) struct TxOutput {
+    pub(crate) ok: bool,
+    pub(crate) status: &'static str,
+    pub(crate) files_changed: usize,
+    pub(crate) files_created: usize,
+    pub(crate) files_deleted: usize,
+    pub(crate) changes: Vec<TxChange>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    reads: Vec<TxReadResult>,
+    pub(crate) reads: Vec<TxReadResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    searches: Vec<TxSearchResult>,
+    pub(crate) searches: Vec<TxSearchResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    lints: Vec<TxLintResult>,
+    pub(crate) lints: Vec<TxLintResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error_kind: Option<&'static str>,
+    pub(crate) error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    pub(crate) error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    backup_session: Option<String>,
+    pub(crate) backup_session: Option<String>,
 }
 
 /// A single file change in the tx output.
 #[derive(Serialize)]
-struct TxChange {
-    path: String,
-    action: &'static str,
+pub(crate) struct TxChange {
+    pub(crate) path: String,
+    pub(crate) action: &'static str,
 }
 
 /// A search match in the tx output.
 #[derive(Serialize)]
-struct TxSearchMatch {
-    line: usize,
-    column: usize,
-    text: String,
+pub(crate) struct TxSearchMatch {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
+    pub(crate) text: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_before: Vec<String>,
+    pub(crate) context_before: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_after: Vec<String>,
+    pub(crate) context_after: Vec<String>,
 }
 
 /// A search result in the tx output.
 #[derive(Serialize)]
-struct TxSearchResult {
-    path: String,
-    pattern: String,
-    match_count: usize,
-    matches: Vec<TxSearchMatch>,
+pub(crate) struct TxSearchResult {
+    pub(crate) path: String,
+    pub(crate) pattern: String,
+    pub(crate) match_count: usize,
+    pub(crate) matches: Vec<TxSearchMatch>,
 }
 
 /// A file read result in the tx output.
 #[derive(Serialize)]
-struct TxReadResult {
-    path: String,
-    content: String,
-    start_line: usize,
-    end_line: usize,
-    total_lines: usize,
+pub(crate) struct TxReadResult {
+    pub(crate) path: String,
+    pub(crate) content: String,
+    pub(crate) start_line: usize,
+    pub(crate) end_line: usize,
+    pub(crate) total_lines: usize,
 }
 
 /// A lint result in the tx output.
 #[derive(Serialize)]
-struct TxLintResult {
-    path: String,
-    issue_count: usize,
-    issues: Vec<crate::ops::md::LintIssue>,
+pub(crate) struct TxLintResult {
+    pub(crate) path: String,
+    pub(crate) issue_count: usize,
+    pub(crate) issues: Vec<crate::ops::md::LintIssue>,
 }
 
 #[cfg(feature = "cli")]
@@ -441,30 +441,30 @@ fn get_doc_root<'a>(
 
 /// Cached parsed document for avoiding redundant parse-serialize cycles when
 /// multiple doc.* operations target the same file in a single transaction.
-struct CachedDoc {
-    value: serde_json::Value,
-    format: FileFormat,
+pub(crate) struct CachedDoc {
+    pub(crate) value: serde_json::Value,
+    pub(crate) format: FileFormat,
     /// The text content at the time the document was first parsed.
     /// Used as `original_content` for comment-preserving serialization.
-    original_text: String,
+    pub(crate) original_text: String,
     /// Snapshot of the value at parse time; needed by YAML/TOML comment
     /// preservation. Null for JSON (#224).
-    old_value: serde_json::Value,
+    pub(crate) old_value: serde_json::Value,
 }
 
 /// Mutable transaction state passed through operation execution.
-struct TxState<'a> {
-    pending: &'a mut HashMap<PathBuf, (String, String)>,
-    deletions: &'a mut HashSet<PathBuf>,
-    existed_before: &'a mut HashSet<PathBuf>,
-    doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
-    tx_reads: &'a mut Vec<TxReadResult>,
-    tx_searches: &'a mut Vec<TxSearchResult>,
-    tx_lints: &'a mut Vec<TxLintResult>,
-    replace_hint: Option<String>,
-    cwd: &'a Path,
-    quiet: bool,
-    structured: bool,
+pub(crate) struct TxState<'a> {
+    pub(crate) pending: &'a mut HashMap<PathBuf, (String, String)>,
+    pub(crate) deletions: &'a mut HashSet<PathBuf>,
+    pub(crate) existed_before: &'a mut HashSet<PathBuf>,
+    pub(crate) doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
+    pub(crate) tx_reads: &'a mut Vec<TxReadResult>,
+    pub(crate) tx_searches: &'a mut Vec<TxSearchResult>,
+    pub(crate) tx_lints: &'a mut Vec<TxLintResult>,
+    pub(crate) replace_hint: Option<String>,
+    pub(crate) cwd: &'a Path,
+    pub(crate) quiet: bool,
+    pub(crate) structured: bool,
 }
 
 /// Execute a replace operation within a transaction.
@@ -1783,19 +1783,19 @@ fn rollback_strict(
 /// write policy. Contains everything needed for callers to decide on output
 /// mode, commit changes, and run lifecycle steps.
 #[allow(dead_code)]
-struct TxExecResult {
-    changes: Vec<(PathBuf, String, String)>,
-    deletions: HashSet<PathBuf>,
-    existed_before: HashSet<PathBuf>,
+pub(crate) struct TxExecResult {
+    pub(crate) changes: Vec<(PathBuf, String, String)>,
+    pub(crate) deletions: HashSet<PathBuf>,
+    pub(crate) existed_before: HashSet<PathBuf>,
     /// Original pending map, retained for `rollback_strict`.
-    pending: HashMap<PathBuf, (String, String)>,
-    tx_reads: Vec<TxReadResult>,
-    tx_searches: Vec<TxSearchResult>,
-    tx_lints: Vec<TxLintResult>,
-    no_effective_changes: bool,
-    replace_no_matches: bool,
+    pub(crate) pending: HashMap<PathBuf, (String, String)>,
+    pub(crate) tx_reads: Vec<TxReadResult>,
+    pub(crate) tx_searches: Vec<TxSearchResult>,
+    pub(crate) tx_lints: Vec<TxLintResult>,
+    pub(crate) no_effective_changes: bool,
+    pub(crate) replace_no_matches: bool,
     /// "Did you mean?" hints when a replace found zero matches.
-    replace_hint: Option<String>,
+    pub(crate) replace_hint: Option<String>,
 }
 
 /// Execute all plan operations in memory, apply write policy, and return
