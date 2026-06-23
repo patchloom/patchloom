@@ -21,14 +21,17 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.5", default-features = false }
+//! patchloom = { version = "0.4", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.5", default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.4", default-features = false, features = ["ast"] }
 //! ```
+//!
+//! (Update the version number in these examples when the next release-please
+//! PR bumps the crate version. See the release checklist.)
 //!
 //! This gives you the [`api`] module (primary editing interface), [`ops`],
 //! and utility modules:
@@ -41,10 +44,11 @@
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
-//! For advanced search ignore (e.g. .blineignore on top of .gitignore):
-//! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`.
-//! Or use `files::collect_file_paths_with_ignores` (or `api::search_directory`) + `par_process_files` for full ignore support.
-//! See `api::SearchOptions` docs.
+//! For advanced search ignore (e.g. .blineignore on top of .gitignore) + custom walkers:
+//! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`/`search_file`,
+//! or collect paths with `files::collect_file_paths_with_ignores` (or your own `WalkBuilder`) then
+//! pair with the low-level `api::search_one_file` inside `par_process_files` + `format_search_results` / `build_context_lines`.
+//! See `api::search_one_file` (and its docs for custom `WalkBuilder` use), `api::SearchOptions`, and `files` module.
 //!
 //! Example (pure library with plans):
 //! ```rust,ignore
@@ -164,6 +168,8 @@ pub mod selector;
 pub mod write;
 
 // Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
+#[cfg(any(feature = "cli", feature = "files"))]
+pub use api::search_one_file;
 pub use api::{
     ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
     build_context_lines, format_search_results, search_file,

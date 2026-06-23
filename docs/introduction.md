@@ -61,7 +61,7 @@ Patchloom is also a Rust library. Add it as a dependency to embed structured fil
 
 ```toml
 [dependencies]
-patchloom = { version = "0.5", default-features = false }
+patchloom = { version = "0.4", default-features = false }
 ```
 
 The `api` module exposes doc, replace, markdown, file, and patch operations. All API types are `Send + Sync`. Disabling default features omits the MCP server and its async dependencies.
