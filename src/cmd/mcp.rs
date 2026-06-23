@@ -1013,6 +1013,7 @@ impl PatchloomService {
             multiline: p.multiline,
             case_insensitive: p.case_insensitive,
             assert_count: p.assert_count,
+            max_results: 0,
         };
         let global = GlobalFlags {
             json: true,
