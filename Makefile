@@ -23,6 +23,10 @@ test-no-default: ## Run lib tests with no default features (pure lib use, exerci
 test-ast-only: ## Run lib tests with only the ast feature (no cli, no mcp)
 	cargo test --lib --no-default-features --features ast
 
+test-library-hygiene: ## Run clippy + lib tests under exact Bline pure-library set (ast+files) to enforce no dead_code and hygiene (addresses #800 #802)
+	cargo clippy --no-default-features --features "ast,files" -- -D warnings
+	cargo test --no-default-features --features "ast,files" --lib
+
 integration-test: ## Run integration tests
 	cargo test --test integration --all-features
 
@@ -34,7 +38,7 @@ clippy: ## Run clippy linter
 
 check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="

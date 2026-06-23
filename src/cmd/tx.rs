@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
@@ -17,13 +19,11 @@ use crate::ops::replace::{
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::tx::{
-    CachedDoc, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult, TxSearchMatch,
-    TxSearchResult, TxState,
+    CachedDoc, CommitError, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult,
+    TxSearchMatch, TxSearchResult, TxState,
 };
-use crate::write::{
-    WritePolicy, apply_policy, atomic_create_new, atomic_write, run_format_command,
-};
-use anyhow::Context;
+use crate::write::{WritePolicy, run_format_command};
+
 use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
@@ -34,6 +34,7 @@ use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
 
+#[allow(dead_code)]
 #[derive(Debug, Args)]
 #[non_exhaustive]
 #[command(after_help = "\
@@ -60,42 +61,7 @@ pub struct TxArgs {
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 use crate::exec;
 
-/// Short label for an operation, used in error messages.
-fn op_label(op: &Operation) -> &'static str {
-    match op {
-        Operation::Replace { .. } => "replace",
-        Operation::DocSet { .. } => "doc.set",
-        Operation::DocDelete { .. } => "doc.delete",
-        Operation::DocMerge { .. } => "doc.merge",
-        Operation::DocAppend { .. } => "doc.append",
-        Operation::DocPrepend { .. } => "doc.prepend",
-        Operation::DocUpdate { .. } => "doc.update",
-        Operation::DocMove { .. } => "doc.move",
-        Operation::DocEnsure { .. } => "doc.ensure",
-        Operation::DocDeleteWhere { .. } => "doc.delete_where",
-        Operation::MdReplaceSection { .. } => "md.replace_section",
-        Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
-        Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
-        Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
-        Operation::MdTableAppend { .. } => "md.table_append",
-        Operation::MdMoveSection { .. } => "md.move_section",
-        Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
-        Operation::TidyFix { .. } => "tidy.fix",
-        Operation::FileAppend { .. } => "file.append",
-        Operation::FileCreate { .. } => "file.create",
-        Operation::FileDelete { .. } => "file.delete",
-        Operation::FileRename { .. } => "file.rename",
-        Operation::PatchApply { .. } => "patch.apply",
-        Operation::Read { .. } => "read",
-        Operation::Search { .. } => "search",
-        Operation::MdLintAgents { .. } => "md.lint_agents",
-        #[cfg(feature = "ast")]
-        Operation::AstRename { .. } => "ast.rename",
-        #[cfg(feature = "ast")]
-        Operation::AstReplace { .. } => "ast.replace",
-    }
-}
-
+#[allow(dead_code)]
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
@@ -180,6 +146,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     }
 }
 
+#[allow(dead_code)]
 fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     for op in &plan.operations {
         validate_operation(op)?;
@@ -188,6 +155,7 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
     selector::parse_anyhow(input)
 }
@@ -200,6 +168,7 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 ///
 /// When a file is first loaded from disk (Vacant entry), it is recorded in
 /// `existed_before` so the commit/rollback phase knows it was pre-existing.
+#[allow(dead_code)]
 fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
@@ -270,6 +239,7 @@ fn update_file_content(
 // ---------------------------------------------------------------------------
 
 /// Flush a single cached document back to the pending text map.
+#[allow(dead_code)]
 fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
@@ -1363,19 +1333,19 @@ fn build_tx_output(
         if deletions.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "deleted",
+                action: "deleted".to_string(),
             });
             deleted_count += 1;
         } else if !existed_before.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "created",
+                action: "created".to_string(),
             });
             created += 1;
         } else {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "modified",
+                action: "modified".to_string(),
             });
             modified += 1;
         }
@@ -1385,7 +1355,7 @@ fn build_tx_output(
         if !changes.iter().any(|(c, _, _)| c == path) {
             tx_changes.push(TxChange {
                 path: display_path(path),
-                action: "deleted",
+                action: "deleted".to_string(),
             });
             deleted_count += 1;
         }
@@ -1393,7 +1363,7 @@ fn build_tx_output(
 
     TxOutput {
         ok,
-        status,
+        status: status.to_string(),
         files_changed: modified,
         files_created: created,
         files_deleted: deleted_count,
@@ -1448,7 +1418,7 @@ fn build_error_output(
 ) -> TxOutput {
     TxOutput {
         ok: false,
-        status: "error",
+        status: "error".to_string(),
         files_changed: 0,
         files_created: 0,
         files_deleted: 0,
@@ -1456,7 +1426,7 @@ fn build_error_output(
         reads: Vec::new(),
         searches: Vec::new(),
         lints: Vec::new(),
-        error_kind: Some(error_kind),
+        error_kind: Some(error_kind.to_string()),
         error: Some(format!(
             "{legacy_error_prefix}: {}",
             format_error_with_backup_hint(error, backup_session)
@@ -1648,35 +1618,6 @@ fn run_validate_steps(
     Ok(())
 }
 
-fn rollback_strict(
-    changes: &[(PathBuf, String, String)],
-    pending: &HashMap<PathBuf, (String, String)>,
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
-) {
-    let noop_policy = WritePolicy::default();
-    for (path, original, _) in changes {
-        if !existed_before.contains(path) && !deletions.contains(path) {
-            if let Err(e) = std::fs::remove_file(path) {
-                eprintln!("tx: rollback: failed to remove {}: {e}", path.display());
-            }
-        } else if let Err(e) = atomic_write(path, original, &noop_policy) {
-            eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
-        }
-    }
-    for path in deletions {
-        if let Some((orig, _)) = pending.get(path)
-            && existed_before.contains(path)
-            && let Err(e) = atomic_write(path, orig, &noop_policy)
-        {
-            eprintln!(
-                "tx: rollback: failed to restore deleted {}: {e}",
-                path.display()
-            );
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Shared execution core
 // ---------------------------------------------------------------------------
@@ -1686,108 +1627,6 @@ fn rollback_strict(
 ///
 /// On operation failure the error message is pre-formatted as
 /// `"operation N (label) failed: ..."` so callers can emit it directly.
-fn execute_and_collect(
-    plan: &Plan,
-    cwd: &Path,
-    global: &GlobalFlags,
-    quiet: bool,
-    structured: bool,
-) -> anyhow::Result<TxExecResult> {
-    let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
-    let mut deletions: HashSet<PathBuf> = HashSet::new();
-    let mut existed_before: HashSet<PathBuf> = HashSet::new();
-    let mut has_non_idempotent_replace = false;
-    let mut total_replace_matches = 0usize;
-    let mut tx_reads: Vec<TxReadResult> = Vec::new();
-    let mut tx_searches: Vec<TxSearchResult> = Vec::new();
-    let mut tx_lints: Vec<TxLintResult> = Vec::new();
-    let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
-    let mut replace_hint: Option<String> = None;
-
-    crate::verbose!(
-        "tx: executing plan with {} operations",
-        plan.operations.len()
-    );
-    for (i, op) in plan.operations.iter().enumerate() {
-        crate::verbose!(
-            "tx: operation {}/{}: {}",
-            i + 1,
-            plan.operations.len(),
-            op_label(op)
-        );
-        if let Operation::Replace { if_exists, .. } = op
-            && !if_exists
-        {
-            has_non_idempotent_replace = true;
-        }
-        if op_needs_doc_flush(op) {
-            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-        }
-        let mut tx = TxState {
-            pending: &mut pending,
-            deletions: &mut deletions,
-            existed_before: &mut existed_before,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut tx_reads,
-            tx_searches: &mut tx_searches,
-            tx_lints: &mut tx_lints,
-            replace_hint: None,
-            cwd,
-            quiet,
-            structured,
-        };
-        match execute_operation(op, &mut tx) {
-            Ok(count) => {
-                crate::verbose!(
-                    "tx: operation {} succeeded (replace_matches: {count})",
-                    i + 1
-                );
-                total_replace_matches += count;
-                if replace_hint.is_none() {
-                    replace_hint = tx.replace_hint.take();
-                }
-            }
-            Err(e) => {
-                crate::verbose!("tx: operation {} failed: {e}", i + 1);
-                anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
-            }
-        }
-    }
-
-    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
-
-    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
-    for (path, (original, current)) in &pending {
-        let write_policy = build_write_policy(plan, global, path)?;
-        let final_content = apply_policy(current, &write_policy);
-        if *original != *final_content {
-            changes.push((path.clone(), original.clone(), final_content.into_owned()));
-        }
-    }
-    changes.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let pending_deletions = deletions
-        .iter()
-        .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
-        .count();
-    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
-    let replace_no_matches =
-        has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
-
-    Ok(TxExecResult {
-        changes,
-        deletions,
-        existed_before,
-        pending,
-        tx_reads,
-        tx_searches,
-        tx_lints,
-        no_effective_changes,
-        replace_no_matches,
-        replace_hint,
-    })
-}
-
 /// Run format and validation lifecycle steps. Returns `None` on success.
 fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
     plan.format
@@ -1820,30 +1659,6 @@ pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathB
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
-/// Failure while committing staged changes to disk.
-#[derive(Debug)]
-pub struct CommitError {
-    pub message: String,
-    pub rollback_ok: bool,
-    pub backup_session: Option<String>,
-}
-
-impl std::fmt::Display for CommitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CommitError {}
-
-fn commit_error(message: impl Into<String>) -> CommitError {
-    CommitError {
-        message: message.into(),
-        rollback_ok: true,
-        backup_session: None,
-    }
-}
-
 pub use crate::tx::RestoreFailGuard;
 
 /// Restore files from a backup session after a failed commit. Returns `true`
@@ -1857,82 +1672,6 @@ fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
 ///
 /// If any write fails, restores all already-written files from the backup
 /// session before returning [`CommitError`].
-fn commit_changes(
-    changes: &[(PathBuf, String, String)],
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
-    cwd: &Path,
-) -> Result<(), CommitError> {
-    let mut backup = crate::backup::BackupSession::new(cwd)
-        .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
-    for (path, _, _) in changes {
-        if deletions.contains(path) {
-            backup
-                .save_before_delete(path)
-                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-        } else {
-            backup
-                .save_before_write(path)
-                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-        }
-    }
-    for path in deletions {
-        backup
-            .save_before_delete(path)
-            .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-    }
-
-    // Finalize before writes so undo can recover from a mid-commit failure.
-    let backup_session = backup
-        .finalize()
-        .map_err(|e| commit_error(format!("finalizing backup session: {e}")))?;
-
-    let noop_policy = WritePolicy::default();
-    let write_result = (|| -> anyhow::Result<()> {
-        for (path, _, new_content) in changes {
-            if deletions.contains(path) {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("deleting {}", path.display()))?;
-            } else {
-                if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty()
-                    && !parent.exists()
-                {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("creating directory {}", parent.display()))?;
-                }
-                if !existed_before.contains(path) {
-                    atomic_create_new(path, new_content, &noop_policy)?;
-                } else {
-                    atomic_write(path, new_content, &noop_policy)?;
-                }
-            }
-        }
-        for path in deletions {
-            if path.exists() {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("deleting {}", path.display()))?;
-            }
-        }
-        Ok(())
-    })();
-
-    if let Err(e) = write_result {
-        let rollback_ok = if let Some(ref ts) = backup_session {
-            restore_after_failed_commit(cwd, ts)
-        } else {
-            true
-        };
-        return Err(CommitError {
-            message: e.to_string(),
-            rollback_ok,
-            backup_session,
-        });
-    }
-
-    Ok(())
-}
-
 /// Build a JSON error string without writing to stdout.
 fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
     make_error_json_with_prefix(
@@ -1944,6 +1683,7 @@ fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
+#[allow(dead_code)]
 fn make_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &str,
@@ -1959,6 +1699,7 @@ fn make_error_json_with_prefix(
     .unwrap_or_default()
 }
 
+#[allow(dead_code)]
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
     crate::config::find_and_load(cwd)
         .map(|(config, _)| config.tx.strict)
@@ -1998,47 +1739,6 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
 /// This is the in-process equivalent of spawning
 /// `patchloom --json tx <plan-file> --apply` and capturing its output.
 /// The MCP server and library API call this to avoid subprocess overhead.
-/// Validate a plan and resolve its effective working directory, strictness, and
-/// config-derived global flags. Returns `Err` with `(exit_code, json)` on
-/// validation failure so callers can propagate early.
-fn validate_and_prepare_plan(
-    plan: &Plan,
-    cwd: &Path,
-    no_strict: bool,
-) -> Result<(PathBuf, bool, GlobalFlags), (u8, String)> {
-    if plan.version != crate::plan::SCHEMA_VERSION {
-        let msg = format!(
-            "unsupported plan version '{}' (this build supports version {})",
-            plan.version,
-            crate::plan::SCHEMA_VERSION
-        );
-        return Err((
-            exit::PARSE_ERROR,
-            make_error_json("parse_error", &msg, None),
-        ));
-    }
-    if let Err(e) = validate_plan_operations(plan) {
-        return Err((
-            exit::PARSE_ERROR,
-            make_error_json("parse_error", &e.to_string(), None),
-        ));
-    }
-
-    let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
-    let config_strict = config_tx_strict(&effective_cwd);
-    let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
-
-    let mut global = GlobalFlags {
-        cwd: Some(effective_cwd.to_string_lossy().into_owned()),
-        ..GlobalFlags::default()
-    };
-    if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
-        crate::config::apply_config(&mut global, &config);
-    }
-
-    Ok((effective_cwd, strict, global))
-}
-
 pub fn execute_plan_direct(
     plan: Plan,
     cwd: &Path,
@@ -2096,7 +1796,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // 3. Validate plan and resolve working directory.
     let base_cwd = global.resolve_cwd()?;
     let (cwd, strict, _resolved_global) =
-        match validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
+        match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
             Ok(v) => v,
             Err((code, msg)) => {
                 if structured {
@@ -2122,18 +1822,19 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // 4. Execute all operations, collecting changes in memory (no writes).
-    let mut result = match execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
-        Ok(r) => r,
-        Err(e) => {
-            let msg = e.to_string();
-            if structured {
-                emit_error_json("operation_failed", &msg, None, compact);
-            } else {
-                eprintln!("tx: {msg}");
+    let mut result =
+        match crate::tx::execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = e.to_string();
+                if structured {
+                    emit_error_json("operation_failed", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::OPERATION_FAILED);
             }
-            return Ok(exit::OPERATION_FAILED);
-        }
-    };
+        };
 
     // Deletions of empty files won't appear in `changes` (original == final == ""),
     // but they still count as changes for --check reporting.
@@ -2168,7 +1869,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.apply {
-        if let Err(err) = commit_changes(
+        if let Err(err) = crate::tx::commit_changes(
             &result.changes,
             &result.deletions,
             &result.existed_before,
@@ -2189,7 +1890,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 6. Run format steps, then validation steps.
         if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
             if strict {
-                rollback_strict(
+                crate::tx::rollback_strict(
                     &result.changes,
                     &result.pending,
                     &result.deletions,
@@ -2242,7 +1943,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diffs, then apply if confirmed.
     if !result.no_effective_changes && global.should_apply() {
-        if let Err(err) = commit_changes(
+        if let Err(err) = crate::tx::commit_changes(
             &result.changes,
             &result.deletions,
             &result.existed_before,
@@ -2256,7 +1957,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Run format steps, then validation steps. (full parity with direct --apply path)
         if let Some(err) = run_lifecycle(&plan, &base_cwd, &cwd) {
             if strict {
-                rollback_strict(
+                crate::tx::rollback_strict(
                     &result.changes,
                     &result.pending,
                     &result.deletions,
@@ -2568,8 +2269,8 @@ mod tests {
     fn build_error_output_produces_expected_shape() {
         let output = build_error_output("rollback", "rollback", "disk full", None);
         assert!(!output.ok);
-        assert_eq!(output.status, "error");
-        assert_eq!(output.error_kind, Some("rollback"));
+        assert_eq!(output.status, "error".to_string());
+        assert_eq!(output.error_kind, Some("rollback".to_string()));
         assert_eq!(output.error, Some("rollback: disk full".to_string()));
         assert_eq!(output.files_changed, 0);
     }
@@ -3182,7 +2883,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&f).unwrap(), "changed");
 
         // Rollback should restore to original.
-        rollback_strict(
+        crate::tx::rollback_strict(
             &[(f.clone(), "original".to_string(), "changed".to_string())],
             &pending,
             &deletions,
@@ -3406,7 +3107,8 @@ mod tests {
         let existed_before: HashSet<_> = [f1.clone()].into();
 
         let _guard = RestoreFailGuard::engage();
-        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
+        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path())
+            .unwrap_err();
 
         assert!(!err.rollback_ok, "restore should be reported as failed");
         let _session = err
@@ -3431,7 +3133,8 @@ mod tests {
         let deletions = HashSet::new();
         let existed_before: HashSet<_> = [f1.clone()].into();
 
-        let err = commit_changes(&changes, &deletions, &existed_before, dir.path()).unwrap_err();
+        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path())
+            .unwrap_err();
         assert!(err.rollback_ok, "rollback should succeed");
         assert!(
             err.backup_session.is_some(),
