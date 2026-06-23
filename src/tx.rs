@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)]
+#![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
@@ -1568,7 +1568,7 @@ fn legacy_error_prefix(error_kind: &str) -> &str {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(feature = "cli")]
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
@@ -1582,7 +1582,7 @@ fn emit_error_json_with_prefix(
     );
 }
 
-#[allow(dead_code)]
+#[cfg(feature = "cli")]
 fn emit_error_json(
     error_kind: &'static str,
     error: &str,
@@ -1615,7 +1615,7 @@ fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(feature = "cli")]
 fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
@@ -2106,7 +2106,7 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
         .unwrap_or(None)
 }
 
-#[allow(dead_code)]
+#[cfg(feature = "cli")]
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {
         "rollback"
