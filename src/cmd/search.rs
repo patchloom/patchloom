@@ -660,7 +660,10 @@ mod tests {
         assert_eq!(results.matches.len(), 1);
         // file_match_counts reflect the pre-limit collection (fixture has 2 "Hello" matches total)
         let total: usize = results.file_match_counts.values().sum();
-        assert_eq!(total, 2, "counts should be full (2), not capped by max_results");
+        assert_eq!(
+            total, 2,
+            "counts should be full (2), not capped by max_results"
+        );
     }
 
     #[test]
@@ -680,9 +683,13 @@ mod tests {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.max_results = 1;
-        args.assert_count = Some(2);  // fixture has 2 "Hello" matches
+        args.assert_count = Some(2); // fixture has 2 "Hello" matches
         let code = run(args, &GlobalFlags::test_default()).unwrap();
-        assert_eq!(code, exit::SUCCESS, "assert should pass on full count despite max=1");
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "assert should pass on full count despite max=1"
+        );
     }
 
     #[test]
