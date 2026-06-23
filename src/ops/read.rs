@@ -91,7 +91,11 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
     let selected: Vec<&str> = all_lines[start_idx..end_idx].to_vec();
     let joined = selected.join("\n");
     let add_nl = end_idx == total_lines && content.ends_with('\n');
-    let out = if add_nl && !joined.is_empty() { joined + "\n" } else { joined };
+    let out = if add_nl && !joined.is_empty() {
+        joined + "\n"
+    } else {
+        joined
+    };
     SelectedLines {
         content: out,
         start_line: start_idx + 1,
