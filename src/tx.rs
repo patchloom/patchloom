@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 use crate::cli::global::{EolMode, GlobalFlags};
-use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
+
 use crate::exit;
 use crate::ops::doc::{
     FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
@@ -1517,87 +1517,6 @@ fn build_full_tx_output(status: &'static str, result: &mut TxExecResult, cwd: &P
     output
 }
 
-fn emit_output_json(output: &TxOutput, compact: bool) {
-    let result = if compact {
-        serde_json::to_string(output)
-    } else {
-        serde_json::to_string_pretty(output)
-    };
-    if let Ok(json) = result {
-        println!("{json}");
-    }
-}
-
-fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
-    match backup_session {
-        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
-        None => error.to_string(),
-    }
-}
-
-fn build_error_output(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> TxOutput {
-    TxOutput {
-        ok: false,
-        status: "error",
-        files_changed: 0,
-        files_created: 0,
-        files_deleted: 0,
-        changes: Vec::new(),
-        reads: Vec::new(),
-        searches: Vec::new(),
-        lints: Vec::new(),
-        error_kind: Some(error_kind),
-        error: Some(format!(
-            "{legacy_error_prefix}: {}",
-            format_error_with_backup_hint(error, backup_session)
-        )),
-        backup_session: backup_session.map(str::to_string),
-    }
-}
-
-fn legacy_error_prefix(error_kind: &str) -> &str {
-    if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    }
-}
-
-#[cfg(feature = "cli")]
-fn emit_error_json_with_prefix(
-    error_kind: &'static str,
-    legacy_error_prefix: &'static str,
-    error: &str,
-    backup_session: Option<&str>,
-    compact: bool,
-) {
-    emit_output_json(
-        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
-        compact,
-    );
-}
-
-#[cfg(feature = "cli")]
-fn emit_error_json(
-    error_kind: &'static str,
-    error: &str,
-    backup_session: Option<&str>,
-    compact: bool,
-) {
-    emit_error_json_with_prefix(
-        error_kind,
-        legacy_error_prefix(error_kind),
-        error,
-        backup_session,
-        compact,
-    );
-}
-
 fn describe_exit_status(status: std::process::ExitStatus) -> String {
     match status.code() {
         Some(code) => format!("exit code {code}"),
@@ -1613,19 +1532,6 @@ fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
             .display()
             .to_string()
     }
-}
-
-#[cfg(feature = "cli")]
-fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
-    let diffs: Vec<_> = changes
-        .iter()
-        .map(|(p, old, new)| {
-            let display = crate::files::relative_display(p, cwd);
-            unified_diff(&display.to_string_lossy(), old, new)
-        })
-        .collect();
-    let result = DiffResult { diffs };
-    print!("{}", format_diff_result_colored(&result, color));
 }
 
 // ---------------------------------------------------------------------------
@@ -2074,6 +1980,46 @@ fn commit_changes(
     Ok(())
 }
 
+fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
+    match backup_session {
+        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
+        None => error.to_string(),
+    }
+}
+
+fn build_error_output(
+    error_kind: &'static str,
+    legacy_error_prefix: &str,
+    error: &str,
+    backup_session: Option<&str>,
+) -> TxOutput {
+    TxOutput {
+        ok: false,
+        status: "error",
+        files_changed: 0,
+        files_created: 0,
+        files_deleted: 0,
+        changes: Vec::new(),
+        reads: Vec::new(),
+        searches: Vec::new(),
+        lints: Vec::new(),
+        error_kind: Some(error_kind),
+        error: Some(format!(
+            "{legacy_error_prefix}: {}",
+            format_error_with_backup_hint(error, backup_session)
+        )),
+        backup_session: backup_session.map(str::to_string),
+    }
+}
+
+fn legacy_error_prefix(error_kind: &str) -> &str {
+    if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    }
+}
+
 /// Build a JSON error string without writing to stdout.
 fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
     make_error_json_with_prefix(
@@ -2104,34 +2050,6 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
     crate::config::find_and_load(cwd)
         .map(|(config, _)| config.tx.strict)
         .unwrap_or(None)
-}
-
-#[cfg(feature = "cli")]
-fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
-    let error_kind = if err.rollback_ok {
-        "rollback"
-    } else {
-        "rollback_failed"
-    };
-    let exit_code = if err.rollback_ok {
-        exit::ROLLBACK
-    } else {
-        exit::FAILURE
-    };
-    let backup_session = err.backup_session.as_deref();
-    if structured {
-        emit_error_json_with_prefix(
-            error_kind,
-            error_kind,
-            &err.message,
-            backup_session,
-            compact,
-        );
-    } else {
-        let msg = format_error_with_backup_hint(&err.message, backup_session);
-        eprintln!("tx: {msg}");
-    }
-    Ok(exit_code)
 }
 
 /// Execute a parsed [`Plan`] directly and return the exit code and JSON
