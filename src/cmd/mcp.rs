@@ -682,6 +682,25 @@ impl PatchloomService {
             Some(&self.path_guard),
         )
     }
+
+    /// Validate paths for a single operation (including embedded paths for PatchApply).
+    fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
+        for declared in crate::plan::declared_paths(op) {
+            self.check_path(declared)?;
+        }
+        if let Operation::PatchApply { diff, .. } = op {
+            let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
+                McpError::invalid_params(
+                    format!("failed to parse diff for path validation: {e}"),
+                    None,
+                )
+            })?;
+            for pf in &patch_files {
+                self.check_path(&pf.path)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Execute a plan whose paths have already been validated by the caller.
@@ -1645,12 +1664,10 @@ impl PatchloomService {
             ));
         };
 
-        // Validate every path declared by operations against the PathGuard.
-        // (The plan file itself was already checked above when plan_path was used.)
+        // Validate every path declared by operations against the PathGuard
+        // (including special handling for paths embedded in PatchApply diffs).
         for op in &plan.operations {
-            for declared in crate::plan::declared_paths(op) {
-                self.check_path(declared)?;
-            }
+            self.validate_op_paths(op)?;
         }
 
         // The `strict` parameter from the MCP invocation always controls the execution
