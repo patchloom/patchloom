@@ -16,6 +16,10 @@ use crate::ops::replace::{
 };
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
+use crate::tx::{
+    CachedDoc, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult, TxSearchMatch,
+    TxSearchResult, TxState,
+};
 use crate::write::{
     WritePolicy, apply_policy, atomic_create_new, atomic_write, run_format_command,
 };
@@ -24,80 +28,11 @@ use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
-use serde::Serialize;
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
-
-/// JSON output for the tx command.
-#[derive(Serialize)]
-struct TxOutput {
-    ok: bool,
-    status: &'static str,
-    files_changed: usize,
-    files_created: usize,
-    files_deleted: usize,
-    changes: Vec<TxChange>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    reads: Vec<TxReadResult>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    searches: Vec<TxSearchResult>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    lints: Vec<TxLintResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_kind: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    backup_session: Option<String>,
-}
-
-/// A single file change in the tx output.
-#[derive(Serialize)]
-struct TxChange {
-    path: String,
-    action: &'static str,
-}
-
-/// A search match in the tx output.
-#[derive(Serialize)]
-struct TxSearchMatch {
-    line: usize,
-    column: usize,
-    text: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_before: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    context_after: Vec<String>,
-}
-
-/// A search result in the tx output.
-#[derive(Serialize)]
-struct TxSearchResult {
-    path: String,
-    pattern: String,
-    match_count: usize,
-    matches: Vec<TxSearchMatch>,
-}
-
-/// A file read result in the tx output.
-#[derive(Serialize)]
-struct TxReadResult {
-    path: String,
-    content: String,
-    start_line: usize,
-    end_line: usize,
-    total_lines: usize,
-}
-
-/// A lint result in the tx output.
-#[derive(Serialize)]
-struct TxLintResult {
-    path: String,
-    issue_count: usize,
-    issues: Vec<crate::ops::md::LintIssue>,
-}
 
 #[derive(Debug, Args)]
 #[non_exhaustive]
@@ -435,34 +370,6 @@ fn get_doc_root<'a>(
         .get_mut(&file_path)
         .expect("just inserted into doc_cache")
         .value)
-}
-
-/// Cached parsed document for avoiding redundant parse-serialize cycles when
-/// multiple doc.* operations target the same file in a single transaction.
-struct CachedDoc {
-    value: serde_json::Value,
-    format: FileFormat,
-    /// The text content at the time the document was first parsed.
-    /// Used as `original_content` for comment-preserving serialization.
-    original_text: String,
-    /// Snapshot of the value at parse time; needed by YAML/TOML comment
-    /// preservation. Null for JSON (#224).
-    old_value: serde_json::Value,
-}
-
-/// Mutable transaction state passed through operation execution.
-struct TxState<'a> {
-    pending: &'a mut HashMap<PathBuf, (String, String)>,
-    deletions: &'a mut HashSet<PathBuf>,
-    existed_before: &'a mut HashSet<PathBuf>,
-    doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
-    tx_reads: &'a mut Vec<TxReadResult>,
-    tx_searches: &'a mut Vec<TxSearchResult>,
-    tx_lints: &'a mut Vec<TxLintResult>,
-    replace_hint: Option<String>,
-    cwd: &'a Path,
-    quiet: bool,
-    structured: bool,
 }
 
 /// Execute a replace operation within a transaction.
@@ -1773,25 +1680,6 @@ fn rollback_strict(
 // ---------------------------------------------------------------------------
 // Shared execution core
 // ---------------------------------------------------------------------------
-
-/// Intermediate result from executing all operations in a plan and applying
-/// write policy. Contains everything needed for callers to decide on output
-/// mode, commit changes, and run lifecycle steps.
-struct TxExecResult {
-    changes: Vec<(PathBuf, String, String)>,
-    deletions: HashSet<PathBuf>,
-    existed_before: HashSet<PathBuf>,
-    /// Original pending map, retained for `rollback_strict`.
-    pending: HashMap<PathBuf, (String, String)>,
-    tx_reads: Vec<TxReadResult>,
-    tx_searches: Vec<TxSearchResult>,
-    tx_lints: Vec<TxLintResult>,
-    no_effective_changes: bool,
-    replace_no_matches: bool,
-    /// "Did you mean?" hints when a replace found zero matches.
-    #[allow(dead_code)]
-    replace_hint: Option<String>,
-}
 
 /// Execute all plan operations in memory, apply write policy, and return
 /// the collected results without touching the filesystem.
