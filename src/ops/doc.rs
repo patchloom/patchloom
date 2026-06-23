@@ -85,22 +85,25 @@ pub fn serialize_value_preserving(
                             apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
                         let result = file.to_string();
                         // Validate the CST output is still valid YAML
-                        // that parses to a mapping.
-                        if serde_yaml_ng::from_str::<serde_json::Value>(&result)
-                            .is_ok_and(|v| v.is_object())
+                        // that parses to a mapping AND matches the target structure.
+                        // If CST mangled nesting (e.g. new intermediates), fall back
+                        // to plain serialize for correctness (may lose some comments
+                        // on siblings, but structure is guaranteed correct).
+                        if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
+                            && reparsed.is_object()
+                            && reparsed == *new_value
+                            && !has_array_growth
+                            && all_cst_applied
                         {
-                            if !has_array_growth && all_cst_applied {
-                                return Ok(result);
-                            }
-                            // There were array-growth diffs left
-                            // unhandled by the CST.  Splice them
-                            // into the text to preserve comments.
-                            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
-                            if let Some(spliced) =
-                                splice_yaml_array_diffs(&result, &reparsed, new_value)?
-                            {
-                                return Ok(spliced);
-                            }
+                            return Ok(result);
+                        }
+                        // There were array-growth diffs left
+                        // unhandled by the CST or structure mismatch. Splice or fall.
+                        let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
+                        if let Some(spliced) =
+                            splice_yaml_array_diffs(&result, &reparsed, new_value)?
+                        {
+                            return Ok(spliced);
                         }
                     }
                 } else if let Some(seq) = doc.as_sequence()
@@ -140,11 +143,33 @@ pub fn serialize_value_preserving(
                 }
             }
             // Fall back to non-preserving serialization so mutations
-            // are not lost.
+            // are not lost. Prefix leading comments from the original to
+            // avoid dropping file headers / section docs on complex cases
+            // (e.g. add-inside-existing-nested-object).
             if old_value == new_value {
                 Ok(original_content.to_string())
             } else {
-                serialize_value(new_value, format)
+                let body = serialize_value(new_value, format)?;
+                // Hoist all comment lines (and blanks) from original so that
+                // file and section comments are not lost on fallback paths.
+                let comments: String = original_content
+                    .lines()
+                    .filter(|l| {
+                        let t = l.trim_start();
+                        t.is_empty() || t.starts_with('#')
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !comments.trim().is_empty() {
+                    let sep = if comments.ends_with('\n') || body.starts_with('\n') {
+                        ""
+                    } else {
+                        "\n"
+                    };
+                    Ok(format!("{}{}{}", comments, sep, body))
+                } else {
+                    Ok(body)
+                }
             }
         }
         // JSON has no comments.
@@ -344,7 +369,11 @@ fn apply_yaml_mapping_diff(
                 continue;
             }
             match (old_val, new_val) {
-                // Both objects: recurse into the nested mapping.
+                // Both objects: recurse using child view from get_mapping. Updates to
+                // pre-existing keys inside the sub use in-place set_value (preserves
+                // sibling inline comments). Brand-new keys inside may not attach on the
+                // cloned sub view (structure check will catch and fallback with comments
+                // preserved).
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                     if let Some(child) = mapping.get_mapping(key.as_str()) {
                         if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
@@ -383,7 +412,24 @@ fn apply_yaml_mapping_diff(
             }
         } else {
             // New key: add it.
-            mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+            if new_val.is_object() {
+                // Follow yaml-edit's own pattern for creating nested: set empty first,
+                // re-fetch the nested view (to get linked node), then populate.
+                // This ensures correct block indentation and attachment in the CST.
+                let empty = yaml_edit::Mapping::new();
+                mapping.set(key.as_str(), &empty);
+                if let Some(nested) = mapping.get_mapping(key.as_str()) {
+                    if let Some(obj) = new_val.as_object() {
+                        for (k, v) in obj {
+                            nested.set(k.as_str(), json_to_yaml_node(v)?);
+                        }
+                    }
+                } else {
+                    mapping.set(key.as_str(), json_to_yaml_mapping(new_val)?);
+                }
+            } else {
+                mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+            }
         }
     }
     Ok(all_applied)
@@ -1554,6 +1600,72 @@ mod tests {
                 serialize_value_preserving(yaml, &old, &old, &crate::ops::doc::FileFormat::Yaml)
                     .unwrap();
             assert_eq!(result, yaml, "no-op roundtrip should be identical");
+        }
+
+        #[test]
+        fn yaml_nested_keys_create_correct_structure() {
+            // Regression for #824: new nested via set/ensure/merge must produce
+            // valid indented mappings, not "key:\nleaf: " (null parent + sibling).
+            let yaml = "a: 1\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut newv = old.clone();
+            set_at_path(
+                &mut newv,
+                &crate::selector::parse("server.port").unwrap(),
+                json!(9090),
+            )
+            .unwrap();
+            let result = serialize_value_preserving(yaml, &old, &newv, &FileFormat::Yaml).unwrap();
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(reparsed, json!({"a":1, "server":{"port":9090}}));
+            // Also for ensure path (no-op if exists, but create case)
+            let mut new2 = old.clone();
+            // simulate ensure by set since not exist
+            set_at_path(
+                &mut new2,
+                &crate::selector::parse("settings.debug").unwrap(),
+                json!(false),
+            )
+            .unwrap();
+            let r2 = serialize_value_preserving(yaml, &old, &new2, &FileFormat::Yaml).unwrap();
+            let p2: serde_json::Value = serde_yaml_ng::from_str(&r2).unwrap();
+            assert_eq!(p2, json!({"a":1, "settings":{"debug":false}}));
+            // merge case
+            let mut new3 = old.clone();
+            deep_merge(&mut new3, &json!({"server": {"port": 9090}}));
+            let r3 = serialize_value_preserving(yaml, &old, &new3, &FileFormat::Yaml).unwrap();
+            let p3: serde_json::Value = serde_yaml_ng::from_str(&r3).unwrap();
+            assert_eq!(p3, json!({"a":1, "server":{"port":9090}}));
+        }
+
+        #[test]
+        fn yaml_ensure_nested_in_existing_subobject_preserves_top_comments() {
+            // Mirrors the integration test_doc_ensure_yaml_preserves_comments
+            // server.port ensure when "server" key already exists as object.
+            let yaml = "# Config\nname: my-app\n\n# Server\nserver:\n  host: localhost\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut newv = old.clone();
+            set_at_path(
+                &mut newv,
+                &crate::selector::parse("server.port").unwrap(),
+                json!(8080),
+            )
+            .unwrap();
+            let result = serialize_value_preserving(yaml, &old, &newv, &FileFormat::Yaml).unwrap();
+            // Must preserve top and section comments (the bug was falling back to plain serialize)
+            assert!(
+                result.contains("# Config"),
+                "top comment lost in ensure nested: {result}"
+            );
+            assert!(
+                result.contains("# Server"),
+                "section comment lost: {result}"
+            );
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(
+                reparsed,
+                json!({"name":"my-app","server":{"host":"localhost","port":8080}})
+            );
         }
 
         #[test]
