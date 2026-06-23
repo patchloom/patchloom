@@ -159,16 +159,8 @@ pub(crate) fn collect_file_paths_opts(
     });
     let mut paths = collected.into_inner().expect("all walkers done");
 
-    // Apply runtime exclude patterns after the walker (which already respected .gitignore + custom ignore files).
-    // This matches the precedence in `collect_file_paths_with_ignores` + library search.
-    if !global.exclude.is_empty() {
-        let mut exb = GlobSetBuilder::new();
-        for pat in &global.exclude {
-            exb.add(Glob::new(pat)?);
-        }
-        let ex = exb.build()?;
-        paths.retain(|p| !ex.is_match(p));
-    }
+    // Apply runtime exclude patterns (shared helper for parity with with_ignores).
+    apply_exclude_globs(&mut paths, &global.exclude)?;
     Ok(paths)
 }
 
@@ -418,6 +410,23 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
     Ok(paths)
 }
 
+/// Apply exclude glob patterns to a list of paths (post-filter).
+/// Shared to avoid duplication between collect_file_paths_with_ignores and
+/// the advanced logic in collect_file_paths_opts.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_exclude_globs(paths: &mut Vec<PathBuf>, patterns: &[String]) -> anyhow::Result<()> {
+    if patterns.is_empty() {
+        return Ok(());
+    }
+    let mut exb = globset::GlobSetBuilder::new();
+    for pat in patterns {
+        exb.add(globset::Glob::new(pat)?);
+    }
+    let ex = exb.build()?;
+    paths.retain(|p| !ex.is_match(p));
+    Ok(())
+}
+
 /// Collect files while respecting .gitignore + custom ignore files (e.g. .blineignore)
 /// + additional exclude globs.
 ///
@@ -444,14 +453,7 @@ pub fn collect_file_paths_with_ignores(
         .map(|e| e.into_path())
         .collect();
 
-    if !exclude_patterns.is_empty() {
-        let mut exb = globset::GlobSetBuilder::new();
-        for pat in exclude_patterns {
-            exb.add(globset::Glob::new(pat)?);
-        }
-        let ex = exb.build()?;
-        paths.retain(|p| !ex.is_match(p));
-    }
+    apply_exclude_globs(&mut paths, exclude_patterns)?;
     Ok(paths)
 }
 
