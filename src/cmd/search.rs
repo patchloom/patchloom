@@ -658,9 +658,12 @@ mod tests {
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // detailed matches capped
         assert_eq!(results.matches.len(), 1);
-        // file_match_counts reflect the pre-limit collection (2 files had matches originally? test dir has 2 "Hello")
-        // In this fixture there are 2 matches in one file typically; accept >=1
-        assert!(!results.file_match_counts.is_empty());
+        // file_match_counts reflect the pre-limit collection (fixture has 2 "Hello" matches total)
+        let total: usize = results.file_match_counts.values().sum();
+        assert_eq!(
+            total, 2,
+            "counts should be full (2), not capped by max_results"
+        );
     }
 
     #[test]
@@ -672,6 +675,21 @@ mod tests {
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(results.matches.len(), 1);
         // context fields may be present depending on impl
+    }
+
+    #[test]
+    fn max_results_does_not_affect_assert_count() {
+        // Per design: assert_count uses full file_match_counts even when max_results caps detailed matches.
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.max_results = 1;
+        args.assert_count = Some(2); // fixture has 2 "Hello" matches
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "assert should pass on full count despite max=1"
+        );
     }
 
     #[test]
