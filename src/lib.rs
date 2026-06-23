@@ -41,6 +41,8 @@
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
+//! For advanced filters (e.g. .blineignore on top of .gitignore), layer your own
+//! filter over files::collect_file_paths + search, or use the walker directly.
 //!
 //! Example (pure library with plans):
 //! ```rust,ignore
@@ -145,6 +147,10 @@ pub mod plan;
 pub mod schema;
 pub mod selector;
 pub mod write;
+
+// Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
+pub use api::{ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions};
+pub use plan::Plan;
 
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) mod tx;

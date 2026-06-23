@@ -6,7 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+* Full pure-library support for embedders (`default-features=false, features=["ast","files"]`):
+  - `execute_plan` (and tx engine) now available without "cli"/clap (via "files").
+  - `api::file_append` and `api::file_prepend`.
+  - Shared content helpers in `ops::file`.
+  - Enhanced `EditResult` with `action` field for better cross-op identification.
+  - Minimal `ast::symbols::replace_function_signature` starter for Rust sig updates.
+  - Re-exports for ergonomics (Plan, EditResult, etc.).
+  - Expanded embedding docs + examples in lib.rs and api.
+  - Addresses all gaps in #792 for Bline full adoption (search layering docs, guard+append examples, no dup shims).
+* Tests and matrix verification for no-cli builds.
+
 ### Changed
+* Refactored tx execution out of cmd/ for library use.
+* Config/write helpers partially ungated for library policy support.
+* Read line helpers shared via ops::read.
 
 * tech-debt fixes for release-please major bumps and post-refactor hygiene (#725-#728):
   - Expanded documented process for major version bumps and manual manifest edits in AGENTS.md and patchloom-contrib (addresses stale PRs, version confusion, positive intent framing).

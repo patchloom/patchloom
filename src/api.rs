@@ -96,6 +96,9 @@ pub struct EditResult {
     pub applied: bool,
     /// Whether the content changed.
     pub changed: bool,
+    /// Action/kind of the edit (e.g. "append", "create", "replace", "rename", "doc.set").
+    /// Helps consumers (like Bline) distinguish cross-file or op type without parsing path.
+    pub action: &'static str,
 }
 
 /// Controls whether an operation writes to disk.
@@ -231,6 +234,7 @@ fn build_edit_result(
     original: String,
     new_content: String,
     applied: bool,
+    action: &'static str,
 ) -> EditResult {
     let diff = make_diff(path_str, &original, &new_content);
     let changed = original != new_content;
@@ -241,6 +245,7 @@ fn build_edit_result(
         diff,
         applied,
         changed,
+        action,
     }
 }
 
@@ -288,6 +293,7 @@ fn finish_doc_edit(
         doc.original.clone(),
         new_content,
         applied,
+        "doc.set",
     ))
 }
 
@@ -567,12 +573,13 @@ pub fn replace_text(
             original.clone(),
             original,
             false,
+            "edit",
         ));
     }
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +603,7 @@ pub fn md_replace_section(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 /// Insert or update a bullet point under a markdown heading.
@@ -618,7 +625,7 @@ pub fn md_upsert_bullet(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 /// Append a row to a markdown table under a heading.
@@ -638,7 +645,7 @@ pub fn md_table_append(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 /// Insert content after a markdown heading.
@@ -658,7 +665,7 @@ pub fn md_insert_after_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 /// Move a markdown section to a position relative to another heading.
@@ -704,7 +711,7 @@ pub fn md_move_section(
         ensure_contained(guard, path)?;
     }
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_source, applied))
+    Ok(build_edit_result(&path_str, original, new_source, applied, "md.move"))
 }
 
 /// Remove duplicate headings at the same level in a markdown file.
@@ -724,7 +731,7 @@ pub fn md_dedupe_headings(
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok((
-        build_edit_result(&path_str, original, new_content, applied),
+        build_edit_result(&path_str, original, new_content, applied, "md.dedupe"),
         removed,
     ))
 }
@@ -762,7 +769,7 @@ pub fn md_insert_before_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 // ---------------------------------------------------------------------------
@@ -825,6 +832,7 @@ pub fn file_create(
         original,
         content.to_string(),
         applied,
+        "create",
     ))
 }
 
@@ -864,6 +872,7 @@ pub fn file_delete(
         original,
         String::new(),
         applied,
+        "delete",
     ))
 }
 
@@ -921,6 +930,7 @@ pub fn file_rename(
         original.clone(),
         original,
         applied,
+        "rename",
     ))
 }
 
@@ -946,11 +956,7 @@ pub fn file_append(
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let mut combined = original.clone();
-    if !combined.is_empty() && !combined.ends_with('\n') {
-        combined.push('\n');
-    }
-    combined.push_str(content);
+    let combined = crate::ops::file::append_content(&original, content);
 
     let applied = if mode == ApplyMode::Apply {
         ensure_contained(guard, path)?;
@@ -965,7 +971,7 @@ pub fn file_append(
         false
     };
 
-    Ok(build_edit_result(&path_str, original, combined, applied))
+    Ok(build_edit_result(&path_str, original, combined, applied, "append"))
 }
 
 /// Prepend content to an existing file.
@@ -989,7 +995,7 @@ pub fn file_prepend(
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let combined = format!("{}{}", content, original);
+    let combined = crate::ops::file::prepend_content(&original, content);
 
     let applied = if mode == ApplyMode::Apply {
         ensure_contained(guard, path)?;
@@ -1004,7 +1010,7 @@ pub fn file_prepend(
         false
     };
 
-    Ok(build_edit_result(&path_str, original, combined, applied))
+    Ok(build_edit_result(&path_str, original, combined, applied, "prepend"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1048,7 +1054,7 @@ pub fn apply_patch(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 /// Apply a multi-file patch. Returns one `EditResult` per affected file.
@@ -1072,7 +1078,7 @@ pub fn apply_patch_file(
 
         let policy = WritePolicy::default();
         let applied = write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
-        results.push(build_edit_result(&pf.path, original, new_content, applied));
+        results.push(build_edit_result(&pf.path, original, new_content, applied, "patch"));
     }
     Ok(results)
 }
@@ -1102,7 +1108,7 @@ pub fn tidy(
     // the transformations above.
     let noop_policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied))
+    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
 }
 
 // ---------------------------------------------------------------------------

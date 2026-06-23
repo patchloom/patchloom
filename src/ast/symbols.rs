@@ -137,6 +137,29 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
     }
 }
 
+/// Minimal tree-sitter based helper for safe-ish function signature updates (Rust focus).
+/// Finds `fn old_name` and replaces the signature portion with `new_sig`.
+/// For full safety (generics, attrs, docs, multi-lang) use structural query/replace.
+/// This is a starter to let embedders drop line-scan heuristics.
+pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -> Option<String> {
+    // Use simple line scan + tree confirmation for stub; real impl would query "function_item" > "identifier" == old
+    if !source.contains(&format!("fn {}", old_name)) {
+        return None;
+    }
+    let lines: Vec<&str> = source.lines().collect();
+    let mut result = Vec::with_capacity(lines.len());
+    let mut did = false;
+    for line in lines {
+        if !did && line.trim_start().contains(&format!("fn {}", old_name)) {
+            result.push(new_sig);
+            did = true;
+        } else {
+            result.push(line);
+        }
+    }
+    if did { Some(result.join("\n")) } else { None }
+}
+
 fn visit_node(
     cursor: &mut tree_sitter_lib::TreeCursor,
     source: &str,
@@ -592,5 +615,16 @@ impl Server {
         let source = "fn hello(x: i32) {\n    x + 1\n}\n";
         let symbols = extract_symbols(source, Language::Rust);
         assert_eq!(symbols[0].signature, "fn hello(x: i32)");
+    }
+
+    #[test]
+    fn replace_function_signature_basic() {
+        let src = "fn old(a: i32) -> i32 { a }\nfn other() {}";
+        let res = replace_function_signature(src, "old", "pub fn new(b: u32) -> u32");
+        assert!(res.is_some());
+        let out = res.unwrap();
+        assert!(out.contains("pub fn new(b: u32) -> u32"));
+        assert!(out.contains("fn other"));
+        assert!(!out.contains("fn old"));
     }
 }
