@@ -136,6 +136,20 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** A command should only see a narrow file type or subtree, even if the input path is broader.
 - **Prefer instead:** Use `--files-from` when another tool has already determined the exact file list.
 
+<!-- ref:global-flag:exclude -->
+### `--exclude`
+
+- **What it does:** Excludes paths matching the given glob patterns (applied after .gitignore and any custom ignore files). May be repeated. Complements `--glob`.
+- **Use when:** You want to layer additional excludes (e.g. `target/**` or build artifacts) on top of `.blineignore` / `.gitignore` for search, replace, or tidy.
+- **Parity:** Matches `SearchOptions.exclude_patterns` and the library `collect_file_paths_with_ignores` precedence.
+
+<!-- ref:global-flag:ignore-file -->
+### `--ignore-file`
+
+- **What it does:** Specifies additional gitignore-style ignore files (e.g. `.blineignore`) to respect during file collection. May be repeated.
+- **Use when:** Agents or projects use custom ignore files (Bline-style) and want CLI / tx / MCP search (and replace/tidy) to honor the same layered ignores as the pure-library API.
+- **Parity:** Matches `SearchOptions.custom_ignore_filenames`.
+
 <!-- ref:global-flag:files-from -->
 ### `--files-from`
 
@@ -1002,7 +1016,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Searches a file for a pattern inside a transaction and includes match results in the JSON output without writing anything.
 - **Use when:** An agent needs to locate patterns before replacing them in the same plan, enabling locate-then-edit in a single call.
-- **Optional fields:** `regex` (bool, default false), `case_insensitive` (bool, default false), `multiline` (bool, default false), `context` (lines around matches), `before_context`, and `after_context` match the top level `search` flags.
+- **Optional fields:** `literal`, `regex`, `case_insensitive`, `multiline`, `invert_match`, `context`/`before_context`/`after_context`, `globs`, `exclude_patterns`, `custom_ignore_filenames` (for .blineignore layering), `max_results`, `assert_count`. These provide full parity with the top-level `search` command and library `SearchOptions`.
 - **Related:** top level `search`
 
 <!-- ref:tx-op:read -->

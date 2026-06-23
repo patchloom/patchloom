@@ -452,6 +452,11 @@ mod tests {
             before_context: None,
             after_context: None,
             assert_count: None,
+            literal: false,
+            globs: vec![],
+            max_results: 0,
+            exclude_patterns: vec![],
+            custom_ignore_filenames: vec![],
         };
         assert!(describe_operation(&op).contains("(regex)"));
     }

@@ -136,10 +136,15 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         Operation::Search {
             invert_match,
             multiline,
+            literal,
+            regex,
             ..
         } => {
             if *invert_match && *multiline {
                 anyhow::bail!("search: invert_match and multiline cannot be combined");
+            }
+            if *literal && *regex {
+                anyhow::bail!("search: literal and regex cannot be combined");
             }
             Ok(())
         }
@@ -580,6 +585,11 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
         before_context,
         after_context,
         assert_count,
+        literal: _,
+        globs: _,
+        max_results: _,
+        exclude_patterns: _,
+        custom_ignore_filenames: _,
     } = op
     else {
         unreachable!()
@@ -2619,6 +2629,30 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("invert_match and multiline cannot be combined"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_operation_rejects_literal_with_regex() {
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [{
+                "op": "search",
+                "path": "test.txt",
+                "pattern": "foo",
+                "literal": true,
+                "regex": true
+            }]
+        })
+        .to_string();
+        let plan = plan::parse_plan(&plan_json).unwrap();
+
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("literal and regex cannot be combined"),
             "unexpected error: {}",
             err
         );

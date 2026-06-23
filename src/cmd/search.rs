@@ -15,7 +15,8 @@ EXAMPLES:
   patchloom search 'TODO' src/
   patchloom search 'fn main' src/ --count
   patchloom search 'error|warn' --regex src/ -C 2
-  patchloom search 'password' . --glob '*.yaml'")]
+  patchloom search 'password' . --glob '*.yaml'
+  patchloom search 'TODO' . --ignore-file .blineignore --exclude 'target/**' --max-results 50")]
 pub struct SearchArgs {
     /// Pattern to search for.
     pub pattern: String,
@@ -60,6 +61,11 @@ pub struct SearchArgs {
     /// Assert that the total match count equals N. Exits 0 if exact, 2 otherwise.
     #[arg(long)]
     pub assert_count: Option<usize>,
+
+    /// Maximum number of detailed match results to return (0 = unlimited).
+    /// Primarily affects non-count output modes. Matches library SearchOptions.max_results behavior.
+    #[arg(long, default_value_t = 0)]
+    pub max_results: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -386,6 +392,13 @@ pub(crate) fn collect_matches(
         all_matches.sort_unstable_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
     }
 
+    // Apply max_results after full collection + sort (for deterministic "first N" by path/line).
+    // Only for detailed match output (not count/files_with modes). Matches library capping.
+    // assert_count and count modes see the full collection (see run() and design in #821 plan).
+    if args.max_results > 0 && !count_only {
+        all_matches.truncate(args.max_results);
+    }
+
     Ok(SearchResults {
         matches: all_matches,
         file_match_counts,
@@ -620,6 +633,7 @@ mod tests {
             multiline: false,
             case_insensitive: false,
             assert_count: None,
+            max_results: 0,
         }
     }
 
@@ -634,6 +648,30 @@ mod tests {
             msg.contains("must not be empty"),
             "error should mention empty pattern: {msg}"
         );
+    }
+
+    #[test]
+    fn max_results_limits_detailed_matches_but_not_counts() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.max_results = 1;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        // detailed matches capped
+        assert_eq!(results.matches.len(), 1);
+        // file_match_counts reflect the pre-limit collection (2 files had matches originally? test dir has 2 "Hello")
+        // In this fixture there are 2 matches in one file typically; accept >=1
+        assert!(!results.file_match_counts.is_empty());
+    }
+
+    #[test]
+    fn max_results_with_context() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.context = Some(1);
+        args.max_results = 1;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(results.matches.len(), 1);
+        // context fields may be present depending on impl
     }
 
     #[test]

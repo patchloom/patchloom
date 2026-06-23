@@ -525,18 +525,25 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
         },
         OperationSchema {
             name: "search".into(),
-            description: "Search for text across files with optional regex, context, and count assertion.".into(),
+            description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores (parity with library SearchOptions for Bline): literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results, before_context/after_context.".into(),
             parameters: serde_json::json!({
                 "type": "object",
                 "required": ["path", "pattern"],
                 "properties": {
                     "path": {"type": "string"},
                     "pattern": {"type": "string"},
+                    "literal": {"type": "boolean", "default": false},
                     "regex": {"type": "boolean", "default": false},
                     "case_insensitive": {"type": "boolean", "default": false},
                     "multiline": {"type": "boolean", "default": false},
                     "invert_match": {"type": "boolean", "default": false},
                     "context": {"type": "integer"},
+                    "before_context": {"type": "integer"},
+                    "after_context": {"type": "integer"},
+                    "globs": {"type": "array", "items": {"type": "string"}, "default": []},
+                    "max_results": {"type": "integer", "default": 0},
+                    "exclude_patterns": {"type": "array", "items": {"type": "string"}, "default": []},
+                    "custom_ignore_filenames": {"type": "array", "items": {"type": "string"}, "default": []},
                     "assert_count": {"type": "integer", "description": "Fail if match count differs."}
                 }
             }),

@@ -76,6 +76,9 @@
 //! changes to visibility, parameters, return type (Rust).
 //! See `ast::symbols` docs.
 //!
+//! Decision for #821: kept library-only (specialized, currently Rust-focused). Full CLI (`ast signature`),
+//! plan op, and MCP exposure deferred unless demand arises. Tracked in #821.
+//!
 //! **Note on results**: Single-file ops return `EditResult` (with `action` and `dest_path` for cross-file).
 //! `execute_plan` (library) returns `PlanReport` (typed TxOutput) directly with `ok`, `changes`, `searches`, `reads`, `error` etc (#811).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.

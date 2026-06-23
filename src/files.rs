@@ -112,6 +112,11 @@ pub(crate) fn collect_file_paths_opts(
     if include_hidden {
         builder.hidden(false);
     }
+    // Support advanced layered ignores (e.g. .blineignore) for parity with library
+    // `collect_file_paths_with_ignores` and `api::SearchOptions` (#821).
+    for name in &global.ignore_file {
+        builder.add_custom_ignore_filename(name);
+    }
     let collected: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
     // Flush-on-drop wrapper so entries remaining in a thread-local batch
@@ -152,7 +157,19 @@ pub(crate) fn collect_file_paths_opts(
             WalkState::Continue
         })
     });
-    Ok(collected.into_inner().expect("all walkers done"))
+    let mut paths = collected.into_inner().expect("all walkers done");
+
+    // Apply runtime exclude patterns after the walker (which already respected .gitignore + custom ignore files).
+    // This matches the precedence in `collect_file_paths_with_ignores` + library search.
+    if !global.exclude.is_empty() {
+        let mut exb = GlobSetBuilder::new();
+        for pat in &global.exclude {
+            exb.add(Glob::new(pat)?);
+        }
+        let ex = exb.build()?;
+        paths.retain(|p| !ex.is_match(p));
+    }
+    Ok(paths)
 }
 
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
@@ -799,5 +816,54 @@ mod tests {
         std::fs::write(&file, &data).unwrap();
         let result = read_text_file(&file).expect("NUL past 8KiB should still read as text");
         assert_eq!(result.len(), 8194);
+    }
+
+    // ── collect_file_paths_opts with advanced ignores (for #821) ────────
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_respects_ignore_file_and_exclude() {
+        use crate::cli::global::GlobalFlags;
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create tree
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("target")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn foo() {}\n").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(root.join("target/debug"), "binary").unwrap(); // will be excluded by pattern
+        fs::write(root.join("README.md"), "# hi\n").unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\n").unwrap(); // should survive .blineignore + exclude
+        fs::write(root.join(".blineignore"), "target/\n*.md\n").unwrap();
+
+        let mut global = GlobalFlags::test_default();
+        global.cwd = Some(root.to_string_lossy().into_owned());
+        global.ignore_file = vec![".blineignore".to_string()];
+        global.exclude = vec!["*.rs".to_string()]; // further exclude rs on top
+
+        let paths =
+            collect_file_paths_opts(&[".".to_string()], &global, false, Some(root)).unwrap();
+
+        // .blineignore skips target/ and *.md; then exclude *.rs skips the rs files.
+        // Only nothing should remain? Wait, adjust: actually with exclude *.rs and ignore md/target, expect empty or adjust expectation.
+        // Simpler assertion: the ignore_file was honored (no target, no md), and additional exclude removed rs.
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.contains(&"Cargo.toml".to_string()),
+            "surviving file missing: {:?}",
+            rels
+        );
+        assert!(
+            !rels
+                .iter()
+                .any(|r| r.starts_with("target") || r.ends_with(".md") || r.ends_with(".rs")),
+            "advanced ignores not applied: {:?}",
+            rels
+        );
     }
 }
