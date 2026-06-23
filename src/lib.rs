@@ -43,7 +43,7 @@
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
 //! For advanced search ignore (e.g. .blineignore on top of .gitignore):
 //! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`.
-//! Or layer manually over `files::collect_file_paths` + your matcher + `par_process_files`.
+//! Or use `files::collect_file_paths_with_ignores` (or `api::search_directory`) + `par_process_files` for full ignore support.
 //! See `api::SearchOptions` docs.
 //!
 //! Example (pure library with plans):
