@@ -618,7 +618,7 @@ pub fn replace_text(
             original.clone(),
             original,
             false,
-            "edit",
+            "replace",
             None,
         ));
     }
@@ -630,7 +630,7 @@ pub fn replace_text(
         original,
         new_content,
         applied,
-        "tidy",
+        "replace",
         None,
     ))
 }
@@ -1135,7 +1135,7 @@ pub fn apply_patch(
         original,
         new_content,
         applied,
-        "tidy",
+        "patch",
         None,
     ))
 }
