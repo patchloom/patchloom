@@ -137,27 +137,57 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
     }
 }
 
-/// Minimal tree-sitter based helper for safe-ish function signature updates (Rust focus).
-/// Finds `fn old_name` and replaces the signature portion with `new_sig`.
-/// For full safety (generics, attrs, docs, multi-lang) use structural query/replace.
-/// This is a starter to let embedders drop line-scan heuristics.
+/// Tree-sitter based helper for function signature updates (Rust focus for now).
+/// Locates the exact `function_item` node by identifier, replaces only the signature
+/// portion (up to body or semicolon) with `new_sig`.
+/// Preserves the rest of the source exactly. This is much safer than line-scan.
+/// For other languages or full attrs/generics/docs, extend with queries.
 pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -> Option<String> {
-    // Use simple line scan + tree confirmation for stub; real impl would query "function_item" > "identifier" == old
-    if !source.contains(&format!("fn {}", old_name)) {
-        return None;
-    }
-    let lines: Vec<&str> = source.lines().collect();
-    let mut result = Vec::with_capacity(lines.len());
-    let mut did = false;
-    for line in lines {
-        if !did && line.trim_start().contains(&format!("fn {}", old_name)) {
-            result.push(new_sig);
-            did = true;
-        } else {
-            result.push(line);
+    let (tree, _) = parse_source(source, Language::Rust)?;
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+
+    // Find function_item whose identifier matches
+    fn find_fn<'a>(node: tree_sitter_lib::Node<'a>, source: &str, old_name: &str) -> Option<tree_sitter_lib::Node<'a>> {
+        if node.kind() == "function_item" {
+            if let Some(id) = child_text_by_kind(node, "identifier", source) {
+                if id == old_name {
+                    return Some(node);
+                }
+            }
         }
+        let mut c = node.walk();
+        for child in node.children(&mut c) {
+            if let Some(found) = find_fn(child, source, old_name) {
+                return Some(found);
+            }
+        }
+        None
     }
-    if did { Some(result.join("\n")) } else { None }
+
+    let fn_node = find_fn(root, source, old_name)?;
+
+    // Signature is from start of node to start of body (or end if no body, e.g. decl)
+    let sig_end = if let Some(body) = child_text_by_kind(fn_node, "body", source) {
+        // body starts after sig; find byte offset of body in source? Use node children.
+        // Simpler: find the '{' or ';' position after params/return.
+        let mut end_byte = fn_node.end_byte();
+        let mut c2 = fn_node.walk();
+        for ch in fn_node.children(&mut c2) {
+            if ch.kind() == "body" || ch.kind() == ";" {
+                end_byte = ch.start_byte();
+                break;
+            }
+        }
+        end_byte
+    } else {
+        fn_node.end_byte()
+    };
+
+    let start = fn_node.start_byte();
+    let before = &source[..start];
+    let after = &source[sig_end..];
+    Some(format!("{}{}{}", before, new_sig, after))
 }
 
 fn visit_node(

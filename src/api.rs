@@ -3017,6 +3017,19 @@ mod tests {
     }
 
     #[test]
+    fn file_append_check_reports_without_writing() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("c.txt");
+        std::fs::write(&file, "base").unwrap();
+
+        let res = file_append(&file, " +more", ApplyMode::Check, None).unwrap();
+        assert!(res.changed);
+        assert!(!res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base");  // no write
+        assert!(res.new_content.contains("+more"));
+    }
+
+    #[test]
     fn file_append_respects_guard_and_relaxed() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("g.txt");
