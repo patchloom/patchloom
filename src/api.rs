@@ -579,7 +579,13 @@ pub fn replace_text(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -603,7 +609,13 @@ pub fn md_replace_section(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Insert or update a bullet point under a markdown heading.
@@ -625,7 +637,13 @@ pub fn md_upsert_bullet(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Append a row to a markdown table under a heading.
@@ -645,7 +663,13 @@ pub fn md_table_append(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Insert content after a markdown heading.
@@ -665,7 +689,13 @@ pub fn md_insert_after_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Move a markdown section to a position relative to another heading.
@@ -711,7 +741,9 @@ pub fn md_move_section(
         ensure_contained(guard, path)?;
     }
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_source, applied, "md.move"))
+    Ok(build_edit_result(
+        &path_str, original, new_source, applied, "md.move",
+    ))
 }
 
 /// Remove duplicate headings at the same level in a markdown file.
@@ -769,7 +801,13 @@ pub fn md_insert_before_heading(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -971,7 +1009,9 @@ pub fn file_append(
         false
     };
 
-    Ok(build_edit_result(&path_str, original, combined, applied, "append"))
+    Ok(build_edit_result(
+        &path_str, original, combined, applied, "append",
+    ))
 }
 
 /// Prepend content to an existing file.
@@ -1010,7 +1050,9 @@ pub fn file_prepend(
         false
     };
 
-    Ok(build_edit_result(&path_str, original, combined, applied, "prepend"))
+    Ok(build_edit_result(
+        &path_str, original, combined, applied, "prepend",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,7 +1096,13 @@ pub fn apply_patch(
 
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 /// Apply a multi-file patch. Returns one `EditResult` per affected file.
@@ -1078,7 +1126,13 @@ pub fn apply_patch_file(
 
         let policy = WritePolicy::default();
         let applied = write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
-        results.push(build_edit_result(&pf.path, original, new_content, applied, "patch"));
+        results.push(build_edit_result(
+            &pf.path,
+            original,
+            new_content,
+            applied,
+            "patch",
+        ));
     }
     Ok(results)
 }
@@ -1108,7 +1162,13 @@ pub fn tidy(
     // the transformations above.
     let noop_policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
-    Ok(build_edit_result(&path_str, original, new_content, applied, "tidy"))
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        "tidy",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1895,6 +1955,11 @@ mod tests {
                         "mode": "literal",
                         "from": "hello",
                         "to": "goodbye"
+                    },
+                    {
+                        "op": "file.append",
+                        "path": "test.txt",
+                        "content": "\n+appended"
                     }
                 ]
             }"#;
@@ -1905,6 +1970,7 @@ mod tests {
         assert_eq!(code, crate::exit::SUCCESS);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("goodbye"));
+        assert!(on_disk.contains("+appended"));
     }
 
     #[test]
@@ -2929,6 +2995,7 @@ mod tests {
         let res = file_append(&file, " world", ApplyMode::Apply, None).unwrap();
         assert!(res.changed);
         assert!(res.applied);
+        assert_eq!(res.action, "append");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n world");
 
         // prepend
@@ -2947,6 +3014,31 @@ mod tests {
         assert!(res.changed);
         assert!(!res.applied);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "x");
+    }
+
+    #[test]
+    fn file_append_respects_guard_and_relaxed() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("g.txt");
+        std::fs::write(&file, "base").unwrap();
+
+        // strict guard rejects outside? but inside ok
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let res = file_append(&file, " +append", ApplyMode::Apply, Some(&guard)).unwrap();
+        assert!(res.applied);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base\n +append");
+
+        // relaxed yolo/temp
+        let yolo = PathGuard::builder(dir.path().to_path_buf())
+            .allow_temp_directory()
+            .build()
+            .unwrap();
+        let res2 = file_append(&file, " +yolo", ApplyMode::Apply, Some(&yolo)).unwrap();
+        assert!(res2.applied);
     }
 
     #[test]
