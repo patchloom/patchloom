@@ -190,8 +190,11 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp {
         out.push_str(
             "## MCP mode\n\n\
-             **ALWAYS use MCP tools for ALL file edits.** Use `batch_replace` or `batch_tidy` \
-             when applying the same operation to multiple files; use individual tools otherwise.\n\n",
+             **ALWAYS use MCP tools for ALL file edits.**\n\n\
+             - For any multi-op or multi-file change, **use `execute_plan`** with an inline plan (or plan_path). \
+               It provides atomic execution + rollback, exactly like the CLI `tx` command.\n\
+             - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.\n\
+             - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.\n\n",
         );
     }
 

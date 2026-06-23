@@ -14,7 +14,6 @@ use rmcp::model::{
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt, tool, tool_router};
-use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::cli::global::GlobalFlags;
@@ -30,425 +29,453 @@ fn default_strict_true() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocSetParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Selector for the value to set (e.g., `version`, `db.pool`, `items[0].name`).
-    pub selector: String,
-    /// Value to set (string, number, boolean, object, or array).
-    pub value: serde_json::Value,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
+mod params {
+    use super::*;
+    use serde::Deserialize;
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocDeleteParams {
-    /// File path.
-    pub path: String,
-    /// Selector for the value to delete.
-    pub selector: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocSetParams {
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Selector for the value to set (e.g., `version`, `db.pool`, `items[0].name`).
+        pub selector: String,
+        /// Value to set (string, number, boolean, object, or array).
+        pub value: serde_json::Value,
+        /// Roll back all writes when format/validate lifecycle steps fail.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocMergeParams {
-    /// File path.
-    pub path: String,
-    /// Object to deep-merge into the document root.
-    pub value: serde_json::Value,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocDeleteParams {
+        /// File path.
+        pub path: String,
+        /// Selector for the value to delete.
+        pub selector: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocArrayParams {
-    /// File path.
-    pub path: String,
-    /// Selector pointing to the target array.
-    pub selector: String,
-    /// Value to append or prepend.
-    pub value: serde_json::Value,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocMergeParams {
+        /// File path.
+        pub path: String,
+        /// Object to deep-merge into the document root.
+        pub value: serde_json::Value,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocEnsureParams {
-    /// File path.
-    pub path: String,
-    /// Selector for the value to ensure exists.
-    pub selector: String,
-    /// Value to set only if the selector path is missing.
-    pub value: serde_json::Value,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocArrayParams {
+        /// File path.
+        pub path: String,
+        /// Selector pointing to the target array.
+        pub selector: String,
+        /// Value to append or prepend.
+        pub value: serde_json::Value,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocUpdateParams {
-    /// File path.
-    pub path: String,
-    /// Wildcard selector for items to update (e.g., `items[*]`).
-    pub selector: String,
-    /// Value to set on each matched item.
-    pub value: serde_json::Value,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocEnsureParams {
+        /// File path.
+        pub path: String,
+        /// Selector for the value to ensure exists.
+        pub selector: String,
+        /// Value to set only if the selector path is missing.
+        pub value: serde_json::Value,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocMoveParams {
-    /// File path.
-    pub path: String,
-    /// Source selector path to move from.
-    pub from: String,
-    /// Destination selector path to move to.
-    pub to: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocUpdateParams {
+        /// File path.
+        pub path: String,
+        /// Wildcard selector for items to update (e.g., `items[*]`).
+        pub selector: String,
+        /// Value to set on each matched item.
+        pub value: serde_json::Value,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocDeleteWhereParams {
-    /// File path.
-    pub path: String,
-    /// Selector pointing to the target array.
-    pub selector: String,
-    /// Predicate for items to delete (e.g., "name=obsolete").
-    pub predicate: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocMoveParams {
+        /// File path.
+        pub path: String,
+        /// Source selector path to move from.
+        pub from: String,
+        /// Destination selector path to move to.
+        pub to: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct ReplaceParams {
-    /// File path.
-    pub path: String,
-    /// Text to find.
-    pub from: String,
-    /// Text to replace with. Mutually exclusive with insert_before/insert_after.
-    pub to: Option<String>,
-    /// Insert text before each match instead of replacing. Mutually exclusive with to/insert_after.
-    pub insert_before: Option<String>,
-    /// Insert text after each match instead of replacing. Mutually exclusive with to/insert_before.
-    pub insert_after: Option<String>,
-    /// Use regex mode for the `from` pattern.
-    #[serde(default)]
-    pub regex: bool,
-    /// Replace only the Nth match (1-based). Default: replace all.
-    pub nth: Option<usize>,
-    /// Case-insensitive matching.
-    #[serde(default)]
-    pub case_insensitive: bool,
-    /// Enable multiline matching (dot matches newlines in regex mode).
-    #[serde(default)]
-    pub multiline: bool,
-    /// Return success even if no matches found (idempotent mode).
-    #[serde(default)]
-    pub if_exists: bool,
-    /// Replace the entire line containing each match, not just the matched span.
-    /// When combined with to="" this deletes matching lines.
-    #[serde(default)]
-    pub whole_line: bool,
-    /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
-    pub range: Option<String>,
-    /// Match only at word boundaries. Prevents 'SetupFile' from matching
-    /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
-    #[serde(default)]
-    pub word_boundary: bool,
-    /// Context line(s) before the target. Enables anchor-based fallback
-    /// matching when the exact `from` text is not found.
-    pub before_context: Option<String>,
-    /// Context line(s) after the target. Enables anchor-based fallback
-    /// matching when the exact `from` text is not found.
-    pub after_context: Option<String>,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocDeleteWhereParams {
+        /// File path.
+        pub path: String,
+        /// Selector pointing to the target array.
+        pub selector: String,
+        /// Predicate for items to delete (e.g., "name=obsolete").
+        pub predicate: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocGetParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Selector for the value to read (e.g., "version", "db.pool").
-    pub selector: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct ReplaceParams {
+        /// File path.
+        pub path: String,
+        /// Text to find.
+        pub from: String,
+        /// Text to replace with. Mutually exclusive with insert_before/insert_after.
+        pub to: Option<String>,
+        /// Insert text before each match instead of replacing. Mutually exclusive with to/insert_after.
+        pub insert_before: Option<String>,
+        /// Insert text after each match instead of replacing. Mutually exclusive with to/insert_before.
+        pub insert_after: Option<String>,
+        /// Use regex mode for the `from` pattern.
+        #[serde(default)]
+        pub regex: bool,
+        /// Replace only the Nth match (1-based). Default: replace all.
+        pub nth: Option<usize>,
+        /// Case-insensitive matching.
+        #[serde(default)]
+        pub case_insensitive: bool,
+        /// Enable multiline matching (dot matches newlines in regex mode).
+        #[serde(default)]
+        pub multiline: bool,
+        /// Return success even if no matches found (idempotent mode).
+        #[serde(default)]
+        pub if_exists: bool,
+        /// Replace the entire line containing each match, not just the matched span.
+        /// When combined with to="" this deletes matching lines.
+        #[serde(default)]
+        pub whole_line: bool,
+        /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
+        pub range: Option<String>,
+        /// Match only at word boundaries. Prevents 'SetupFile' from matching
+        /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
+        #[serde(default)]
+        pub word_boundary: bool,
+        /// Context line(s) before the target. Enables anchor-based fallback
+        /// matching when the exact `from` text is not found.
+        pub before_context: Option<String>,
+        /// Context line(s) after the target. Enables anchor-based fallback
+        /// matching when the exact `from` text is not found.
+        pub after_context: Option<String>,
+        /// Roll back all writes when format/validate lifecycle steps fail.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct ReadFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Optional line range (e.g., "10:20"). Omit to read the entire file.
-    pub lines: Option<String>,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocGetParams {
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Selector for the value to read (e.g., "version", "db.pool").
+        pub selector: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdLintAgentsParams {
-    /// Markdown file path (typically AGENTS.md).
-    pub path: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct ReadFileParams {
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Optional line range (e.g., "10:20"). Omit to read the entire file.
+        pub lines: Option<String>,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdUpsertBulletParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading to find (e.g., "## Rules").
-    pub heading: String,
-    /// Bullet text to add (e.g., "- New rule"). Skipped if already present.
-    pub bullet: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdLintAgentsParams {
+        /// Markdown file path (typically AGENTS.md).
+        pub path: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdTableAppendParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading above the target table.
-    pub heading: String,
-    /// Table row to append (e.g., "| col1 | col2 |").
-    pub row: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdUpsertBulletParams {
+        /// Markdown file path.
+        pub path: String,
+        /// Heading to find (e.g., "## Rules").
+        pub heading: String,
+        /// Bullet text to add (e.g., "- New rule"). Skipped if already present.
+        pub bullet: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdReplaceSectionParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading of the section to replace.
-    pub heading: String,
-    /// New content for the section body.
-    pub content: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdTableAppendParams {
+        /// Markdown file path.
+        pub path: String,
+        /// Heading above the target table.
+        pub heading: String,
+        /// Table row to append (e.g., "| col1 | col2 |").
+        pub row: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdInsertParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading to target (e.g., "## Changelog").
-    pub heading: String,
-    /// Content to insert.
-    pub content: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdReplaceSectionParams {
+        /// Markdown file path.
+        pub path: String,
+        /// Heading of the section to replace.
+        pub heading: String,
+        /// New content for the section body.
+        pub content: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdMoveSectionParams {
-    /// Source file path containing the section to move.
-    pub path: String,
-    /// Heading of the section to move (e.g., "## FAQ").
-    pub heading: String,
-    /// Destination file path. Omit for same-file reorder.
-    #[serde(default)]
-    pub to: Option<String>,
-    /// Insert before this heading at the destination.
-    #[serde(default)]
-    pub before: Option<String>,
-    /// Insert after this heading at the destination.
-    #[serde(default)]
-    pub after: Option<String>,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdInsertParams {
+        /// Markdown file path.
+        pub path: String,
+        /// Heading to target (e.g., "## Changelog").
+        pub heading: String,
+        /// Content to insert.
+        pub content: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct TidyParams {
-    /// File path to normalize.
-    pub path: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct MdMoveSectionParams {
+        /// Source file path containing the section to move.
+        pub path: String,
+        /// Heading of the section to move (e.g., "## FAQ").
+        pub heading: String,
+        /// Destination file path. Omit for same-file reorder.
+        #[serde(default)]
+        pub to: Option<String>,
+        /// Insert before this heading at the destination.
+        #[serde(default)]
+        pub before: Option<String>,
+        /// Insert after this heading at the destination.
+        #[serde(default)]
+        pub after: Option<String>,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct FileRenameParams {
-    /// Source file path (relative to working directory).
-    pub from: String,
-    /// Destination file path (relative to working directory).
-    pub to: String,
-    /// If true, overwrite the destination if it already exists.
-    #[serde(default)]
-    pub force: bool,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct TidyParams {
+        /// File path to normalize.
+        pub path: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct AppendFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Content to append to the file.
-    pub content: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct FileRenameParams {
+        /// Source file path (relative to working directory).
+        pub from: String,
+        /// Destination file path (relative to working directory).
+        pub to: String,
+        /// If true, overwrite the destination if it already exists.
+        #[serde(default)]
+        pub force: bool,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct CreateFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Content to write to the new file.
-    pub content: String,
-    /// If true, overwrite an existing file instead of failing.
-    #[serde(default)]
-    pub force: bool,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct AppendFileParams {
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Content to append to the file.
+        pub content: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DeleteFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct CreateFileParams {
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Content to write to the new file.
+        pub content: String,
+        /// If true, overwrite an existing file instead of failing.
+        #[serde(default)]
+        pub force: bool,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct PatchParams {
-    pub diff: String,
-    #[serde(default)]
-    pub on_stale: crate::ops::patch::OnStale,
-    #[serde(default)]
-    pub allow_conflicts: bool,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DeleteFileParams {
+        /// File path (relative to working directory).
+        pub path: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct SearchParams {
-    /// Pattern to search for.
-    pub pattern: String,
-    /// Paths to search in (defaults to current directory).
-    #[serde(default)]
-    pub paths: Vec<String>,
-    /// Treat pattern as a literal string instead of regex.
-    #[serde(default)]
-    pub literal: bool,
-    /// Case-insensitive matching.
-    #[serde(default)]
-    pub case_insensitive: bool,
-    /// Lines of context around matches (shorthand for before_context + after_context).
-    pub context: Option<usize>,
-    /// Lines of context before each match.
-    pub before_context: Option<usize>,
-    /// Lines of context after each match.
-    pub after_context: Option<usize>,
-    /// Only return file paths with matches (not match details).
-    #[serde(default)]
-    pub files_with_matches: bool,
-    /// Only return match counts per file.
-    #[serde(default)]
-    pub count: bool,
-    /// Enable multiline matching (dot matches newlines in regex mode).
-    #[serde(default)]
-    pub multiline: bool,
-    /// Show lines that do NOT match the pattern.
-    #[serde(default)]
-    pub invert_match: bool,
-    /// Assert that the total match count equals N. Returns exit code 0 if exact, 2 otherwise.
-    pub assert_count: Option<usize>,
-    /// Glob include patterns (may be repeated). Supports parity with CLI --glob and library SearchOptions.
-    #[serde(default)]
-    pub globs: Vec<String>,
-    /// Exclude glob patterns (in addition to ignore files).
-    #[serde(default)]
-    pub exclude_patterns: Vec<String>,
-    /// Custom ignore filenames (e.g. .blineignore).
-    #[serde(default)]
-    pub custom_ignore_filenames: Vec<String>,
-    /// Max detailed results (0 = unlimited).
-    #[serde(default)]
-    pub max_results: usize,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct PatchParams {
+        pub diff: String,
+        #[serde(default)]
+        pub on_stale: crate::ops::patch::OnStale,
+        #[serde(default)]
+        pub allow_conflicts: bool,
+        /// Roll back all writes when format/validate lifecycle steps fail.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocQueryParams {
-    /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
-    /// "select" (filter array), or "flatten" (list all paths).
-    pub action: String,
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Selector to query. Required for has/keys/len/select; ignored for flatten.
-    pub selector: Option<String>,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct SearchParams {
+        /// Pattern to search for.
+        pub pattern: String,
+        /// Paths to search in (defaults to current directory).
+        #[serde(default)]
+        pub paths: Vec<String>,
+        /// Treat pattern as a literal string instead of regex.
+        #[serde(default)]
+        pub literal: bool,
+        /// Case-insensitive matching.
+        #[serde(default)]
+        pub case_insensitive: bool,
+        /// Lines of context around matches (shorthand for before_context + after_context).
+        pub context: Option<usize>,
+        /// Lines of context before each match.
+        pub before_context: Option<usize>,
+        /// Lines of context after each match.
+        pub after_context: Option<usize>,
+        /// Only return file paths with matches (not match details).
+        #[serde(default)]
+        pub files_with_matches: bool,
+        /// Only return match counts per file.
+        #[serde(default)]
+        pub count: bool,
+        /// Enable multiline matching (dot matches newlines in regex mode).
+        #[serde(default)]
+        pub multiline: bool,
+        /// Show lines that do NOT match the pattern.
+        #[serde(default)]
+        pub invert_match: bool,
+        /// Assert that the total match count equals N. Returns exit code 0 if exact, 2 otherwise.
+        pub assert_count: Option<usize>,
+        /// Glob include patterns (may be repeated). Supports parity with CLI --glob and library SearchOptions.
+        #[serde(default)]
+        pub globs: Vec<String>,
+        /// Exclude glob patterns (in addition to ignore files).
+        #[serde(default)]
+        pub exclude_patterns: Vec<String>,
+        /// Custom ignore filenames (e.g. .blineignore).
+        #[serde(default)]
+        pub custom_ignore_filenames: Vec<String>,
+        /// Max detailed results (0 = unlimited).
+        #[serde(default)]
+        pub max_results: usize,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocDiffParams {
-    /// First file path.
-    pub file_a: String,
-    /// Second file path.
-    pub file_b: String,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocQueryParams {
+        /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
+        /// "select" (filter array), or "flatten" (list all paths).
+        pub action: String,
+        /// File path (relative to working directory).
+        pub path: String,
+        /// Selector to query. Required for has/keys/len/select; ignored for flatten.
+        pub selector: Option<String>,
+    }
 
-// ---------------------------------------------------------------------------
-// Homogeneous batch parameter types
-// ---------------------------------------------------------------------------
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct DocDiffParams {
+        /// First file path.
+        pub file_a: String,
+        /// Second file path.
+        pub file_b: String,
+    }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct BatchReplaceParams {
-    /// File paths to apply the replacement to (relative to working directory).
-    pub files: Vec<String>,
-    /// Text to find in each file.
-    pub from: String,
-    /// Text to replace with.
-    pub to: String,
-    /// Use regex mode for the `from` pattern.
-    #[serde(default)]
-    pub regex: bool,
-    /// Case-insensitive matching.
-    #[serde(default)]
-    pub case_insensitive: bool,
-    /// Enable multiline matching (dot matches newlines in regex mode).
-    #[serde(default)]
-    pub multiline: bool,
-    /// Match only at word boundaries. Prevents 'SetupFile' from matching
-    /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
-    #[serde(default)]
-    pub word_boundary: bool,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
+    // ---------------------------------------------------------------------------
+    // Homogeneous batch parameter types
+    // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct BatchTidyParams {
-    /// File paths to normalize (relative to working directory).
-    pub files: Vec<String>,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct BatchReplaceParams {
+        /// File paths to apply the replacement to (relative to working directory).
+        pub files: Vec<String>,
+        /// Text to find in each file.
+        pub from: String,
+        /// Text to replace with.
+        pub to: String,
+        /// Use regex mode for the `from` pattern.
+        #[serde(default)]
+        pub regex: bool,
+        /// Case-insensitive matching.
+        #[serde(default)]
+        pub case_insensitive: bool,
+        /// Enable multiline matching (dot matches newlines in regex mode).
+        #[serde(default)]
+        pub multiline: bool,
+        /// Match only at word boundaries. Prevents 'SetupFile' from matching
+        /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
+        #[serde(default)]
+        pub word_boundary: bool,
+        /// Roll back all writes when format/validate lifecycle steps fail.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
+
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct BatchTidyParams {
+        /// File paths to normalize (relative to working directory).
+        pub files: Vec<String>,
+        /// Roll back all writes when format/validate lifecycle steps fail.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
+
+    /// Parameters for executing a full multi-step transaction plan.
+    /// This is the MCP equivalent of `patchloom tx`.
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct ExecutePlanParams {
+        /// Full inline plan object (preferred for agents; same schema as CLI tx plans).
+        /// Must contain at minimum "version" and "operations".
+        pub plan: Option<Plan>,
+        /// Path (relative to cwd) to a plan file (JSON, YAML, or TOML).
+        /// Used only if `plan` is not provided.
+        pub plan_path: Option<String>,
+        /// Enforce strict mode (rollback on format/validate failure). Defaults to true.
+        /// Overrides plan's strict field if provided.
+        #[serde(default = "default_strict_true")]
+        pub strict: bool,
+    }
+} // close params mod
+
+// Re-export so the rest of the file (impls, tests) can use the names without qualification.
+use params::*;
+
+use params::ExecutePlanParams;
 
 // ---------------------------------------------------------------------------
 // Resource limits
@@ -641,6 +668,20 @@ impl PatchloomService {
             let _ = writeln!(f, "{entry}");
         }
     }
+
+    /// Helper to execute one or more operations as a plan.
+    /// Reduces repetitive boilerplate across single-op and batch MCP tools.
+    fn run_ops(
+        &self,
+        ops: Vec<Operation>,
+        strict: Option<bool>,
+    ) -> Result<CallToolResult, McpError> {
+        execute_plan_validated(
+            make_plan_strict(ops, strict),
+            self.cwd(),
+            Some(&self.path_guard),
+        )
+    }
 }
 
 /// Execute a plan whose paths have already been validated by the caller.
@@ -717,17 +758,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan_strict(
-                vec![Operation::DocSet {
-                    path: p.path,
-                    selector: p.selector,
-                    value: p.value,
-                }],
-                Some(p.strict),
-            ),
-            self.cwd(),
-            Some(&self.path_guard),
+        self.run_ops(
+            vec![Operation::DocSet {
+                path: p.path,
+                selector: p.selector,
+                value: p.value,
+            }],
+            Some(p.strict),
         )
     }
 
@@ -740,13 +777,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocDelete {
+        self.run_ops(
+            vec![Operation::DocDelete {
                 path: p.path,
                 selector: p.selector,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -759,13 +795,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocMerge {
+        self.run_ops(
+            vec![Operation::DocMerge {
                 path: p.path,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -779,14 +814,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocAppend {
+        self.run_ops(
+            vec![Operation::DocAppend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -800,14 +834,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocPrepend {
+        self.run_ops(
+            vec![Operation::DocPrepend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -821,14 +854,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocEnsure {
+        self.run_ops(
+            vec![Operation::DocEnsure {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -842,14 +874,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_param_size("predicate", &p.predicate)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocDeleteWhere {
+        self.run_ops(
+            vec![Operation::DocDeleteWhere {
                 path: p.path,
                 selector: p.selector,
                 predicate: p.predicate,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -863,14 +894,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocUpdate {
+        self.run_ops(
+            vec![Operation::DocUpdate {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -884,14 +914,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("from", &p.from)?;
         validate_param_size("to", &p.to)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocMove {
+        self.run_ops(
+            vec![Operation::DocMove {
                 path: p.path,
                 from: p.from,
                 to: p.to,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1193,31 +1222,25 @@ impl PatchloomService {
         } else {
             None
         };
-        let mut tool_result = execute_plan_validated(
-            make_plan_strict(
-                vec![Operation::Replace {
-                    glob: None,
-                    path: Some(p.path),
-                    mode,
-                    from: p.from,
-                    to: p.to,
-                    nth: p.nth,
-                    insert_before: p.insert_before,
-                    insert_after: p.insert_after,
-                    case_insensitive: p.case_insensitive,
-                    multiline: p.multiline,
-                    if_exists: p.if_exists,
-                    whole_line: p.whole_line,
-                    range: p.range,
-                    word_boundary: p.word_boundary,
-                    before_context: p.before_context,
-                    after_context: p.after_context,
-                }],
-                Some(p.strict),
-            ),
-            self.cwd(),
-            Some(&self.path_guard),
-        )?;
+        let replace_op = Operation::Replace {
+            glob: None,
+            path: Some(p.path),
+            mode,
+            from: p.from,
+            to: p.to,
+            nth: p.nth,
+            insert_before: p.insert_before,
+            insert_after: p.insert_after,
+            case_insensitive: p.case_insensitive,
+            multiline: p.multiline,
+            if_exists: p.if_exists,
+            whole_line: p.whole_line,
+            range: p.range,
+            word_boundary: p.word_boundary,
+            before_context: p.before_context,
+            after_context: p.after_context,
+        };
+        let mut tool_result = self.run_ops(vec![replace_op], Some(p.strict))?;
 
         // Append validation warnings to the response.
         if !validation_warnings.is_empty() {
@@ -1244,14 +1267,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("bullet", &p.bullet)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdUpsertBullet {
+        self.run_ops(
+            vec![Operation::MdUpsertBullet {
                 path: p.path,
                 heading: p.heading,
                 bullet: p.bullet,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1264,14 +1286,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("row", &p.row)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdTableAppend {
+        self.run_ops(
+            vec![Operation::MdTableAppend {
                 path: p.path,
                 heading: p.heading,
                 row: p.row,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1284,14 +1305,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdReplaceSection {
+        self.run_ops(
+            vec![Operation::MdReplaceSection {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1304,14 +1324,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdInsertAfterHeading {
+        self.run_ops(
+            vec![Operation::MdInsertAfterHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1324,14 +1343,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdInsertBeforeHeading {
+        self.run_ops(
+            vec![Operation::MdInsertBeforeHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1396,15 +1414,14 @@ impl PatchloomService {
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::TidyFix {
+        self.run_ops(
+            vec![Operation::TidyFix {
                 path: p.path,
                 ensure_final_newline: Some(true),
                 trim_trailing_whitespace: Some(true),
                 normalize_eol: None,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1603,13 +1620,52 @@ impl PatchloomService {
             Some(&self.path_guard),
         )
     }
+
+    #[tool(
+        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Strongly recommended for any multi-file or multi-op work to prevent races and ensure atomicity/rollback. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples."
+    )]
+    async fn execute_plan(
+        &self,
+        Parameters(p): Parameters<ExecutePlanParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut plan = if let Some(inline_plan) = p.plan {
+            inline_plan
+        } else if let Some(path) = &p.plan_path {
+            self.check_path(path)?;
+            let abs = self.cwd().join(path);
+            let content = std::fs::read_to_string(&abs).map_err(|e| {
+                McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+            })?;
+            crate::plan::parse_plan_auto(&content, Some(path), None)
+                .map_err(|e| McpError::invalid_params(format!("failed to parse plan: {e}"), None))?
+        } else {
+            return Err(McpError::invalid_params(
+                "either 'plan' (inline) or 'plan_path' must be provided",
+                None,
+            ));
+        };
+
+        // Validate every path declared by operations against the PathGuard.
+        // (The plan file itself was already checked above when plan_path was used.)
+        for op in &plan.operations {
+            for declared in crate::plan::declared_paths(op) {
+                self.check_path(declared)?;
+            }
+        }
+
+        // The `strict` parameter from the MCP invocation always controls the execution
+        // (it defaults to true). This provides a simple, predictable experience for agents.
+        plan.strict = Some(p.strict);
+
+        execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))
+    }
 }
 
 impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Use these tools for ALL file operations. Use batch_replace and batch_tidy when applying the same operation to multiple files.",
+                "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) for any multi-op or multi-file work to ensure atomicity and avoid races from parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform ops across files. Per-call success does not guarantee combined success if you issue conflicting parallel writes.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1740,6 +1796,7 @@ mod tests {
             "missing batch_replace tool"
         );
         assert!(names.contains(&"batch_tidy"), "missing batch_tidy tool");
+        assert!(names.contains(&"execute_plan"), "missing execute_plan tool");
         assert!(
             names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
@@ -1753,7 +1810,7 @@ mod tests {
             "missing md_move_section tool"
         );
         assert!(names.contains(&"append_file"), "missing append_file tool");
-        assert_eq!(names.len(), 31, "expected 31 tools, got {}", names.len());
+        assert_eq!(names.len(), 32, "expected 32 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
@@ -2113,5 +2170,106 @@ mod tests {
             !log_file.exists(),
             "log file should not exist without --log"
         );
+    }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_mixed_ops_atomic() {
+        // Test the new execute_plan tool with a mixed plan (doc + replace + create).
+        // This is the core of #827: one call for atomic multi-op instead of many parallel/serial.
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Prepare initial file
+        std::fs::write(dir.path().join("package.json"), r#"{"version":"1.0.0"}"#).unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "strict": true,
+            "operations": [
+                {
+                    "op": "doc.set",
+                    "path": "package.json",
+                    "selector": "version",
+                    "value": "2.0.0"
+                },
+                {
+                    "op": "replace",
+                    "path": "package.json",
+                    "from": "2.0.0",
+                    "to": "2.1.0"
+                },
+                {
+                    "op": "file.create",
+                    "path": "CREATED.md",
+                    "content": "# Created via plan\n"
+                }
+            ]
+        });
+
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "execute_plan should succeed: {:?}",
+            result
+        );
+
+        // Verify results
+        let pkg = std::fs::read_to_string(dir.path().join("package.json")).unwrap();
+        assert!(
+            pkg.contains("2.1.0"),
+            "doc.set + replace should have updated to 2.1.0"
+        );
+
+        let created = std::fs::read_to_string(dir.path().join("CREATED.md")).unwrap();
+        assert!(created.contains("Created via plan"));
+
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_strict_rollback_on_error() {
+        // Verify that strict plan rolls back on failure (e.g. invalid op mid-plan).
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "original").unwrap();
+
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Plan that will fail on second op (bad replace or non-existing for safety, but use doc on non structured? Use a replace that requires mode or simply a bad path? Better: use a plan that succeeds first, fails second.
+        // For simplicity, use a plan with an op that causes parse/validate fail, but since plan itself is valid, use a mid failure like delete non existing in strict?
+        // Simpler: a plan that does create (ok), then a replace that is invalid (no mode).
+        // But to trigger runtime fail in tx, easier: use doc.set on a file that will cause later validate fail, but to keep simple use a non-existent for a delete in plan?
+        // Actually for this, do two creates, then a doc.set on bad structured that may not rollback file create? File creates are part of tx.
+        // Use a plan that the second op fails (e.g. move non-existing source).
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "strict": true,
+            "operations": [
+                { "op": "file.create", "path": "first.txt", "content": "one" },
+                { "op": "file.delete", "path": "does-not-exist.txt" }  // will fail
+            ]
+        });
+
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        // Should report error
+        assert!(
+            result.is_error.unwrap_or(false),
+            "plan with failing op under strict should error"
+        );
+
+        // first.txt should NOT exist (rollback)
+        assert!(
+            !dir.path().join("first.txt").exists(),
+            "strict plan should have rolled back the first create"
+        );
+
+        client.cancel().await.unwrap();
     }
 }
