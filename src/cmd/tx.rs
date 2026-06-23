@@ -1956,36 +1956,12 @@ fn commit_error(message: impl Into<String>) -> CommitError {
     }
 }
 
-thread_local! {
-    /// Per-thread test hook; never set in production.
-    static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
-        const { std::sync::atomic::AtomicBool::new(false) };
-}
-
-/// RAII guard that forces restore failure on the current thread only.
-#[doc(hidden)]
-pub struct RestoreFailGuard;
-
-impl RestoreFailGuard {
-    pub fn engage() -> Self {
-        FORCE_RESTORE_FAIL.with(|flag| flag.store(true, std::sync::atomic::Ordering::SeqCst));
-        Self
-    }
-}
-
-impl Drop for RestoreFailGuard {
-    fn drop(&mut self) {
-        FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
-    }
-}
+pub use crate::tx::RestoreFailGuard;
 
 /// Restore files from a backup session after a failed commit. Returns `true`
 /// when restore completed successfully.
 fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    if FORCE_RESTORE_FAIL.with(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
-        return false;
-    }
-    crate::backup::restore_session(cwd, timestamp).is_ok()
+    crate::tx::restore_after_failed_commit(cwd, timestamp)
 }
 
 /// Apply pending changes to disk: backup originals, write modified files,

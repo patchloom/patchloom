@@ -1986,7 +1986,7 @@ impl Drop for RestoreFailGuard {
 
 /// Restore files from a backup session after a failed commit. Returns `true`
 /// when restore completed successfully.
-fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
+pub(crate) fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
     if FORCE_RESTORE_FAIL.with(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
         return false;
     }
