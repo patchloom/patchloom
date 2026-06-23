@@ -3025,7 +3025,7 @@ mod tests {
         let res = file_append(&file, " +more", ApplyMode::Check, None).unwrap();
         assert!(res.changed);
         assert!(!res.applied);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base");  // no write
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "base"); // no write
         assert!(res.new_content.contains("+more"));
     }
 
