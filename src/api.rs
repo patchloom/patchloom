@@ -2803,7 +2803,12 @@ mod tests {
     #[cfg(any(feature = "cli", feature = "files"))]
     fn search_directory_invalid_glob_errors() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("f.txt"), "content\n").unwrap();
+        std::fs::write(
+            dir.path().join("f.txt"),
+            "content
+",
+        )
+        .unwrap();
         let opts = SearchOptions {
             globs: vec!["[unclosed".to_string()],
             ..Default::default()

@@ -1018,3 +1018,10 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Applies a unified diff inside a transaction. Supports `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing during staging.
 - **Use when:** Patch replay needs to compose with earlier in-plan edits and share the same rollback or validation behavior.
 - **Related:** top level `patch apply`, `patch merge`
+
+## Library API
+
+- **What it does:** Use patchloom as a Rust library (`default-features = false`, enable `ast`/`mcp` as needed). High level entry points in `patchloom::api` (search, replace_text, etc), plus `execute_plan`, `make_plan`, `PathGuard` for containment, and full plan types for tx. All public types are `Send + Sync`.
+- **Use when:** Embedding in agents (e.g. bline), custom tools, or tests without CLI spawn overhead. See `cargo doc --no-default-features --features ast --open`.
+- **Notable:** `search_directory(root, pattern, opts)` for parallel content search with globs/context (library equivalent of CLI search). Error paths and guards documented in api.rs.
+- **Related:** README "As a library", `src/api.rs`, `src/lib.rs` docs, examples/README.md entry for search_directory.

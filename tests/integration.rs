@@ -856,7 +856,7 @@ fn test_cwd_nonexistent_directory_fails() {
         .arg(".")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("--cwd directory does not exist"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,7 +1606,7 @@ fn test_replace_empty_from_rejected() {
         .arg(file.to_str().unwrap())
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("search pattern must not be empty"));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -1656,7 +1656,7 @@ fn test_replace_invalid_regex_fails() {
         .arg(&file)
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("regex parse error"));
 }
 
 // ---------------------------------------------------------------------------
