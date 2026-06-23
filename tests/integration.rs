@@ -3803,19 +3803,28 @@ fn test_tx_mid_commit_failure_rolls_back() {
 /// End-to-end tx path when mid-commit restore cannot complete (exit 1,
 /// `rollback_failed`). Uses [`patchloom::cmd::tx::RestoreFailGuard`] because
 /// racing filesystem permissions against restore is unreliable.
+///
+/// This test is unrelated to library embedding (#792); it exists to cover
+/// internal tx rollback error paths. The "z_blocker" / "a_good" naming
+/// ensures a successful write precedes the failing one (lexical sort),
+/// making the restore-fail case reliably hit across platforms / temp dirs.
 #[test]
 fn test_tx_rollback_failed_when_restore_incomplete() {
     let dir = TempDir::new().unwrap();
-    let good = dir.path().join("good.txt");
+    // Use names so lexical sort in changes puts the successful write first,
+    // ensuring a real on-disk change exists before the failing write attempt.
+    // This makes restore path (and rollback_failed case) reliably exercised
+    // independent of temp dir internals / macOS symlink behavior in /tmp etc.
+    let good = dir.path().join("a_good.txt");
     fs::write(&good, "original\n").unwrap();
-    let blocker = dir.path().join("blocker");
+    let blocker = dir.path().join("z_blocker");
     fs::write(&blocker, "not-a-directory").unwrap();
 
     let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
         "version": "1",
         "operations": [
-            {"op": "file.create", "path": "good.txt", "content": "changed\n", "force": true},
-            {"op": "file.create", "path": "blocker/child.txt", "content": "fail\n"}
+            {"op": "file.create", "path": "a_good.txt", "content": "changed\n", "force": true},
+            {"op": "file.create", "path": "z_blocker/child.txt", "content": "fail\n"}
         ]
     }))
     .unwrap();
@@ -19727,8 +19736,7 @@ fn test_ast_validate_ok() {
         .args(["ast", "validate", "ok.rs"])
         .assert()
         .success()
-        // validate prints nothing on success; just ensure no failure
-        ;
+        .stdout(predicates::str::is_empty());
 }
 
 #[test]
@@ -20016,7 +20024,7 @@ fn test_tx_file_append_missing_file_fails() {
         .arg("--apply")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("does not exist"));
 }
 
 #[test]

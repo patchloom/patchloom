@@ -99,6 +99,9 @@ pub struct EditResult {
     /// Action/kind of the edit (e.g. "append", "create", "replace", "rename", "doc.set").
     /// Helps consumers (like Bline) distinguish cross-file or op type without parsing path.
     pub action: &'static str,
+    /// For cross-file operations (e.g. `file_rename`, `md_move_section` with `to`),
+    /// the destination path if different from `path`.
+    pub dest_path: Option<String>,
 }
 
 /// Controls whether an operation writes to disk.
@@ -235,6 +238,7 @@ fn build_edit_result(
     new_content: String,
     applied: bool,
     action: &'static str,
+    dest_path: Option<String>,
 ) -> EditResult {
     let diff = make_diff(path_str, &original, &new_content);
     let changed = original != new_content;
@@ -246,6 +250,7 @@ fn build_edit_result(
         applied,
         changed,
         action,
+        dest_path,
     }
 }
 
@@ -294,6 +299,7 @@ fn finish_doc_edit(
         new_content,
         applied,
         "doc.set",
+        None,
     ))
 }
 
@@ -574,6 +580,7 @@ pub fn replace_text(
             original,
             false,
             "edit",
+            None,
         ));
     }
 
@@ -585,6 +592,7 @@ pub fn replace_text(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -615,6 +623,7 @@ pub fn md_replace_section(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -643,6 +652,7 @@ pub fn md_upsert_bullet(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -669,6 +679,7 @@ pub fn md_table_append(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -695,6 +706,7 @@ pub fn md_insert_after_heading(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -703,10 +715,11 @@ pub fn md_insert_after_heading(
 /// For same-file moves, pass `to` as `None`. For cross-file moves, pass the
 /// destination file path in `to`.
 ///
-/// The returned `EditResult` always describes the source `path`. When a
-/// cross-file move succeeds under Apply, the destination is mutated as a
-/// side effect (inspect disk or re-read for its content). This is
-/// pre-existing behavior (#757); tx plans report the source result for the op.
+/// The returned `EditResult` always describes the source `path`, with `dest_path`
+/// set for cross-file moves. When a cross-file move succeeds under Apply, the
+/// destination is mutated as a side effect (the result reports the dest via
+/// `dest_path`; re-read for its content if needed). See #795 for richer batch
+/// result plans.
 pub fn md_move_section(
     path: &Path,
     heading: &str,
@@ -741,8 +754,9 @@ pub fn md_move_section(
         ensure_contained(guard, path)?;
     }
     let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
+    let dest = to.map(|p| p.to_string_lossy().to_string());
     Ok(build_edit_result(
-        &path_str, original, new_source, applied, "md.move",
+        &path_str, original, new_source, applied, "md.move", dest,
     ))
 }
 
@@ -763,7 +777,7 @@ pub fn md_dedupe_headings(
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok((
-        build_edit_result(&path_str, original, new_content, applied, "md.dedupe"),
+        build_edit_result(&path_str, original, new_content, applied, "md.dedupe", None),
         removed,
     ))
 }
@@ -807,6 +821,7 @@ pub fn md_insert_before_heading(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -871,6 +886,7 @@ pub fn file_create(
         content.to_string(),
         applied,
         "create",
+        None,
     ))
 }
 
@@ -911,6 +927,7 @@ pub fn file_delete(
         String::new(),
         applied,
         "delete",
+        None,
     ))
 }
 
@@ -969,6 +986,7 @@ pub fn file_rename(
         original,
         applied,
         "rename",
+        Some(dst.to_string_lossy().to_string()),
     ))
 }
 
@@ -1010,7 +1028,7 @@ pub fn file_append(
     };
 
     Ok(build_edit_result(
-        &path_str, original, combined, applied, "append",
+        &path_str, original, combined, applied, "append", None,
     ))
 }
 
@@ -1051,7 +1069,7 @@ pub fn file_prepend(
     };
 
     Ok(build_edit_result(
-        &path_str, original, combined, applied, "prepend",
+        &path_str, original, combined, applied, "prepend", None,
     ))
 }
 
@@ -1102,6 +1120,7 @@ pub fn apply_patch(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -1132,6 +1151,7 @@ pub fn apply_patch_file(
             new_content,
             applied,
             "patch",
+            None,
         ));
     }
     Ok(results)
@@ -1168,6 +1188,7 @@ pub fn tidy(
         new_content,
         applied,
         "tidy",
+        None,
     ))
 }
 
@@ -1800,6 +1821,10 @@ mod tests {
             .unwrap();
         let result = file_rename(&src, &dst, false, ApplyMode::Apply, Some(&guard)).unwrap();
         assert!(result.applied);
+        assert_eq!(
+            result.dest_path.as_deref(),
+            Some(dst.to_string_lossy().as_ref())
+        );
         assert!(!src.exists());
         assert!(dst.exists());
         let dst_content = fs::read_to_string(&dst).unwrap();
@@ -2358,6 +2383,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.path, src.to_string_lossy());
+        assert_eq!(
+            result.dest_path.as_deref(),
+            Some(dst.to_string_lossy().as_ref())
+        );
         let src_content = fs::read_to_string(&src).unwrap();
         let dst_content = fs::read_to_string(&dst).unwrap();
         assert!(
