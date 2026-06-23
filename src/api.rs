@@ -3183,7 +3183,7 @@ mod tests {
         let res = search_file(&f, "foo", &opts).unwrap();
         assert_eq!(res.len(), 2);
         assert_eq!(res[0].column, 4); // 'f' in fn foo
-        assert!(res[0].context_after.len() > 0 || res[1].context_before.len() > 0);
+        assert!(!res[0].context_after.is_empty() || !res[1].context_before.is_empty());
 
         // context builder directly
         let lines: Vec<&str> = "a\nb\nc\n".lines().collect();
