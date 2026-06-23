@@ -998,11 +998,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
                 anyhow::bail!("file does not exist: {path}");
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-            let mut combined = existing.to_string();
-            if !combined.is_empty() && !combined.ends_with('\n') {
-                combined.push('\n');
-            }
-            combined.push_str(content);
+            let combined = crate::ops::file::append_content(existing, content);
             update_file_content(tx.pending, tx.deletions, &file_path, combined);
         }
 
@@ -1793,6 +1789,7 @@ struct TxExecResult {
     no_effective_changes: bool,
     replace_no_matches: bool,
     /// "Did you mean?" hints when a replace found zero matches.
+    #[allow(dead_code)]
     replace_hint: Option<String>,
 }
 
@@ -2183,108 +2180,9 @@ pub fn execute_plan_direct(
     cwd: &Path,
     guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<(u8, String)> {
-    crate::verbose!(
-        "tx: direct plan execution ({} ops, cwd={}, guard={})",
-        plan.operations.len(),
-        cwd.display(),
-        guard.is_some()
-    );
-
-    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
-        Ok(v) => v,
-        Err((code, json)) => return Ok((code, json)),
-    };
-
-    // PathGuard enforcement for library callers of execute_plan (addresses #755).
-    // Upfront check on declared paths using shared helper; dynamic (globs
-    // patterns, patch embedded paths) are best-effort or handled by loaders.
-    if let Some(g) = guard {
-        for op in &plan.operations {
-            for p in crate::plan::declared_paths(op) {
-                g.check_path(p)
-                    .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
-            }
-        }
-    }
-
-    // Execute operations and collect changes in memory.
-    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
-        Ok(r) => r,
-        Err(e) => {
-            return Ok((
-                exit::OPERATION_FAILED,
-                make_error_json("operation_failed", &e.to_string(), None),
-            ));
-        }
-    };
-
-    if result.replace_no_matches {
-        let hint_json = result
-            .replace_hint
-            .as_deref()
-            .map(|h| make_error_json("no_matches", h, None))
-            .unwrap_or_default();
-        return Ok((exit::NO_MATCHES, hint_json));
-    }
-
-    if result.no_effective_changes {
-        let output = build_full_tx_output("success", &mut result, &effective_cwd);
-        let json = serde_json::to_string_pretty(&output)?;
-        return Ok((exit::SUCCESS, json));
-    }
-
-    // Apply: back up originals, write files.
-    if let Err(err) = commit_changes(
-        &result.changes,
-        &result.deletions,
-        &result.existed_before,
-        &effective_cwd,
-    ) {
-        let error_kind = if err.rollback_ok {
-            "rollback"
-        } else {
-            "rollback_failed"
-        };
-        let exit_code = if err.rollback_ok {
-            exit::ROLLBACK
-        } else {
-            exit::FAILURE
-        };
-        return Ok((
-            exit_code,
-            make_error_json_with_prefix(
-                error_kind,
-                error_kind,
-                &err.message,
-                err.backup_session.as_deref(),
-            ),
-        ));
-    }
-
-    // Run format steps, then validation steps.
-    if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
-        if strict {
-            rollback_strict(
-                &result.changes,
-                &result.pending,
-                &result.deletions,
-                &result.existed_before,
-            );
-            let msg = format!("strict mode -- all changes reverted ({})", err.message);
-            return Ok((
-                exit::ROLLBACK,
-                make_error_json_with_prefix(err.kind, "rollback", &msg, None),
-            ));
-        }
-        return Ok((
-            exit::VALIDATION_FAILED,
-            make_error_json(err.kind, &err.message, None),
-        ));
-    }
-
-    let output = build_full_tx_output("success", &mut result, &effective_cwd);
-    let json = serde_json::to_string_pretty(&output)?;
-    Ok((exit::SUCCESS, json))
+    // Delegate to the extracted library tx module (enables "files" pure-library use without dup).
+    // CLI run and formatting remain in this module for command surface.
+    crate::tx::execute_plan_direct(plan, cwd, guard)
 }
 
 // ---------------------------------------------------------------------------

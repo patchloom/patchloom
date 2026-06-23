@@ -4,6 +4,8 @@ use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkBuilder;
+#[cfg(feature = "cli")]
+use ignore::WalkState;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "cli")]
 use std::sync::Mutex;

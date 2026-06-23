@@ -1003,11 +1003,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
                 anyhow::bail!("file does not exist: {path}");
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-            let mut combined = existing.to_string();
-            if !combined.is_empty() && !combined.ends_with('\n') {
-                combined.push('\n');
-            }
-            combined.push_str(content);
+            let combined = crate::ops::file::append_content(existing, content);
             update_file_content(tx.pending, tx.deletions, &file_path, combined);
         }
 
@@ -1786,6 +1782,7 @@ fn rollback_strict(
 /// Intermediate result from executing all operations in a plan and applying
 /// write policy. Contains everything needed for callers to decide on output
 /// mode, commit changes, and run lifecycle steps.
+#[allow(dead_code)]
 struct TxExecResult {
     changes: Vec<(PathBuf, String, String)>,
     deletions: HashSet<PathBuf>,

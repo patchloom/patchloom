@@ -48,11 +48,7 @@ pub(crate) fn apply_append(path: &std::path::Path, content: &str) -> anyhow::Res
     }
 
     let existing = fs::read_to_string(path)?;
-    let mut combined = existing;
-    if !combined.is_empty() && !combined.ends_with('\n') {
-        combined.push('\n');
-    }
-    combined.push_str(content);
+    let combined = crate::ops::file::append_content(&existing, content);
 
     let policy = crate::write::WritePolicy::default();
     atomic_write(path, &combined, &policy)?;
@@ -84,11 +80,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let existing = fs::read_to_string(&path)?;
-    let mut combined = existing.clone();
-    if !combined.is_empty() && !combined.ends_with('\n') {
-        combined.push('\n');
-    }
-    combined.push_str(&append_content);
+    let combined = crate::ops::file::append_content(&existing, &append_content);
 
     // --check mode
     if global.check {
