@@ -192,6 +192,99 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
     Some(format!("{}{}{}", before, new_sig, after))
 }
 
+/// Structured edits for parts of a function signature.
+#[derive(Debug, Clone, Default)]
+pub struct FunctionSigEdit {
+    /// New visibility (e.g. "pub", "pub(crate)", or "" for private).
+    pub visibility: Option<String>,
+    /// New parameter list including parens (e.g. "(x: i32, y: &str)").
+    pub parameters: Option<String>,
+    /// New return type including arrow if present (e.g. "-> String").
+    pub return_type: Option<String>,
+}
+
+/// Rewrite function signature with structured changes for visibility, parameters, return type.
+/// Preserves function name, body, and other source exactly. Uses tree-sitter for location.
+/// Supports basic Rust signatures (no generics/where for the stub; extend as needed).
+/// See #797.
+pub fn rewrite_function_signature(
+    source: &str,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+) -> Option<String> {
+    let (tree, _) = parse_source(source, Language::Rust)?;
+    let root = tree.root_node();
+
+    let fn_node = find_fn_for_rewrite(root, source, old_name)?;
+
+    // Build replacement sig from edit or keep original parts.
+    let vis = edit
+        .visibility
+        .as_deref()
+        .unwrap_or_else(|| child_text_by_kind(fn_node, "visibility", source).unwrap_or(""));
+    let params = edit
+        .parameters
+        .as_deref()
+        .unwrap_or_else(|| child_text_by_kind(fn_node, "parameters", source).unwrap_or("()"));
+    let ret = edit
+        .return_type
+        .as_deref()
+        .unwrap_or_else(|| child_text_by_kind(fn_node, "return_type", source).unwrap_or(""));
+
+    let vis_part = if vis.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", vis)
+    };
+    let ret_part = if ret.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", ret)
+    };
+    let new_sig = format!("{}fn {}{}{}", vis_part, old_name, params, ret_part);
+
+    // Use the same byte-range logic as replace to swap only the sig.
+    let sig_end = if let Some(_body) = child_text_by_kind(fn_node, "body", source) {
+        let mut end_byte = fn_node.end_byte();
+        let mut c2 = fn_node.walk();
+        for ch in fn_node.children(&mut c2) {
+            if ch.kind() == "body" || ch.kind() == ";" {
+                end_byte = ch.start_byte();
+                break;
+            }
+        }
+        end_byte
+    } else {
+        fn_node.end_byte()
+    };
+
+    let start = fn_node.start_byte();
+    let before = &source[..start];
+    let after = &source[sig_end..];
+    Some(format!("{}{}{}", before, new_sig, after))
+}
+
+// Small helper duplicated from internal for rewrite (to avoid exposing private).
+fn find_fn_for_rewrite<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    source: &str,
+    old_name: &str,
+) -> Option<tree_sitter_lib::Node<'a>> {
+    if node.kind() == "function_item"
+        && let Some(id) = child_text_by_kind(node, "identifier", source)
+        && id == old_name
+    {
+        return Some(node);
+    }
+    let mut c = node.walk();
+    for child in node.children(&mut c) {
+        if let Some(found) = find_fn_for_rewrite(child, source, old_name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn visit_node(
     cursor: &mut tree_sitter_lib::TreeCursor,
     source: &str,
@@ -658,5 +751,21 @@ impl Server {
         assert!(out.contains("pub fn new(b: u32) -> u32"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old"));
+    }
+
+    #[test]
+    fn rewrite_function_signature_structured() {
+        let src = "fn old(a: i32) -> i32 { a }\nfn other() {}";
+        let edit = FunctionSigEdit {
+            visibility: Some("pub(crate)".to_string()),
+            parameters: Some("(x: u32, y: &str)".to_string()),
+            return_type: Some("-> String".to_string()),
+        };
+        let res = rewrite_function_signature(src, "old", &edit);
+        assert!(res.is_some());
+        let out = res.unwrap();
+        assert!(out.contains("pub(crate) fn old(x: u32, y: &str) -> String"));
+        assert!(out.contains("fn other"));
+        assert!(!out.contains("fn old(a: i32)"));
     }
 }
