@@ -276,7 +276,7 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 ///
 /// When a file is first loaded from disk (Vacant entry), it is recorded in
 /// `existed_before` so the commit/rollback phase knows it was pre-existing.
-fn read_file_content<'a>(
+pub(crate) fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
     path: &Path,
@@ -327,7 +327,7 @@ fn read_and_probe(
 /// Update the current content for a file in the pending map.
 /// If the file was previously marked for deletion, unmark it (the latest
 /// intent is to write, not delete).
-fn update_file_content(
+pub(crate) fn update_file_content(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     path: &Path,
@@ -346,7 +346,7 @@ fn update_file_content(
 // ---------------------------------------------------------------------------
 
 /// Flush a single cached document back to the pending text map.
-fn flush_doc_cache_entry(
+pub(crate) fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     path: PathBuf,
@@ -365,7 +365,7 @@ fn flush_doc_cache_entry(
 
 /// Flush all cached documents back to the pending text map. Called before
 /// the write phase or when a non-doc operation needs the current text.
-fn flush_doc_cache(
+pub(crate) fn flush_doc_cache(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     doc_cache: &mut HashMap<PathBuf, CachedDoc>,
@@ -381,7 +381,7 @@ fn flush_doc_cache(
 /// Five of the six md operations follow an identical pattern: resolve path,
 /// read content, call a `(&str, &str, &str) -> Option<String>` transform,
 /// error on `None`, and update pending state. This helper captures that pattern.
-fn apply_md_heading_op(
+pub(crate) fn apply_md_heading_op(
     tx: &mut TxState<'_>,
     path: &str,
     heading: &str,
@@ -412,7 +412,7 @@ pub(crate) fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> an
 /// Callers mutate the returned `&mut Value` directly using borrowed references
 /// from the `Operation` match arm, eliminating the need to clone `String` and
 /// `Value` fields into a closure.
-fn get_doc_root<'a>(
+pub(crate) fn get_doc_root<'a>(
     pending: &mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
     doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
@@ -477,7 +477,7 @@ pub(crate) struct TxState<'a> {
 }
 
 /// Execute a replace operation within a transaction.
-fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     let Operation::Replace {
         glob,
         path,
@@ -661,7 +661,7 @@ fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<us
 }
 
 /// Execute a read operation within a transaction.
-fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+pub(crate) fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     // Ensure file is loaded into pending (mutable borrow), then release it.
     read_file_content(tx.pending, tx.existed_before, &file_path)?;
@@ -702,7 +702,7 @@ fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> 
 ///
 /// If `path` is a directory, walks it (respecting `.gitignore`) and searches
 /// each non-binary file, mirroring the standalone `search` command behavior.
-fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     let Operation::Search {
         path,
         pattern,
@@ -938,7 +938,7 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
     }
 }
 
-fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     match op {
         Operation::DocSet {
             path,
@@ -1046,7 +1046,7 @@ fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     match op {
         Operation::FileAppend { path, content } => {
             let file_path = tx.cwd.join(path);
@@ -1170,7 +1170,7 @@ fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize
     Ok(0)
 }
 
-fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     // Guard is enforced upfront in execute_plan_direct (for library plans) and via MCP pre-checks.
     // Single-op api::* uses ensure_contained inside write paths.
     // Per-op enforcement inside tx collect can be expanded later if needed.

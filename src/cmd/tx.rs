@@ -1,16 +1,31 @@
-use crate::cli::global::GlobalFlags;
+#![allow(dead_code)]
+
+use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
-use crate::plan::{self, Plan};
-use crate::tx::{CommitError, TxChange, TxExecResult, TxOutput};
-use crate::write::run_format_command;
+
+use crate::ops::replace::{
+    ReplaceModeError, validate_replace_mode,
+};
+use crate::plan::{self, Operation, Plan};
+use crate::selector;
+use crate::tx::{
+    CachedDoc, CommitError, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult,
+    TxSearchMatch, TxSearchResult, TxState,
+};
+use crate::write::{WritePolicy, run_format_command};
 
 use clap::Args;
+use globset::Glob;
+use ignore::WalkBuilder;
+use regex::RegexBuilder;
 
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
 
+#[allow(dead_code)]
 #[derive(Debug, Args)]
 #[non_exhaustive]
 #[command(after_help = "\
@@ -36,6 +51,161 @@ pub struct TxArgs {
 
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 use crate::exec;
+
+#[allow(dead_code)]
+fn validate_operation(op: &Operation) -> anyhow::Result<()> {
+    match op {
+        Operation::Replace {
+            from,
+            to,
+            insert_before,
+            insert_after,
+            nth,
+            ..
+        } => {
+            if from.is_empty() {
+                anyhow::bail!("replace operation requires a non-empty search pattern");
+            }
+            if *nth == Some(0) {
+                anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
+            }
+            match validate_replace_mode(
+                to.is_some(),
+                insert_before.is_some(),
+                insert_after.is_some(),
+            ) {
+                Ok(()) => Ok(()),
+                Err(ReplaceModeError::MissingMode) => {
+                    anyhow::bail!(
+                        "replace operation requires one of to, insert_before, or insert_after"
+                    )
+                }
+                Err(ReplaceModeError::BothInsertModes) => {
+                    anyhow::bail!("insert_before and insert_after cannot both be set")
+                }
+                Err(ReplaceModeError::ToWithInsert) => {
+                    anyhow::bail!("to cannot be combined with insert_before or insert_after")
+                }
+            }
+        }
+        // Exhaustive match ensures the compiler flags new variants that may
+        // need validation constraints.
+        Operation::DocSet { .. }
+        | Operation::DocDelete { .. }
+        | Operation::DocMerge { .. }
+        | Operation::DocAppend { .. }
+        | Operation::DocPrepend { .. }
+        | Operation::DocUpdate { .. }
+        | Operation::DocMove { .. }
+        | Operation::DocEnsure { .. }
+        | Operation::DocDeleteWhere { .. }
+        | Operation::MdReplaceSection { .. }
+        | Operation::MdInsertAfterHeading { .. }
+        | Operation::MdInsertBeforeHeading { .. }
+        | Operation::MdUpsertBullet { .. }
+        | Operation::MdTableAppend { .. }
+        | Operation::MdDedupeHeadings { .. }
+        | Operation::TidyFix { .. }
+        | Operation::FileAppend { .. }
+        | Operation::FileCreate { .. }
+        | Operation::FileDelete { .. }
+        | Operation::FileRename { .. }
+        | Operation::Read { .. }
+        | Operation::MdLintAgents { .. }
+        | Operation::PatchApply { .. } => Ok(()),
+        #[cfg(feature = "ast")]
+        Operation::AstRename { .. } | Operation::AstReplace { .. } => Ok(()),
+        Operation::MdMoveSection { before, after, .. } => {
+            if before.is_none() && after.is_none() {
+                anyhow::bail!("md.move_section requires either 'before' or 'after'");
+            }
+            if before.is_some() && after.is_some() {
+                anyhow::bail!("md.move_section: 'before' and 'after' cannot both be set");
+            }
+            Ok(())
+        }
+        Operation::Search {
+            invert_match,
+            multiline,
+            literal,
+            regex,
+            ..
+        } => {
+            if *invert_match && *multiline {
+                anyhow::bail!("search: invert_match and multiline cannot be combined");
+            }
+            if *literal && *regex {
+                anyhow::bail!("search: literal and regex cannot be combined");
+            }
+            Ok(())
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
+    for op in &plan.operations {
+        validate_operation(op)?;
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
+    selector::parse_anyhow(input)
+}
+
+
+
+
+
+
+// ---------------------------------------------------------------------------
+// Write policy
+// ---------------------------------------------------------------------------
+
+fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
+    match mode {
+        "lf" => Ok(EolMode::Lf),
+        "crlf" => Ok(EolMode::Crlf),
+        "keep" => Ok(EolMode::Keep),
+        _ => {
+            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
+        }
+    }
+}
+
+/// Build the effective write policy for a pending file.
+///
+/// Start from the CLI-derived per-file defaults, including any EditorConfig
+/// values resolved by `policy_from_flags()`, then let plan-level `write_policy`
+/// entries override only the keys they set.
+fn build_write_policy(
+    plan: &Plan,
+    global: &GlobalFlags,
+    path: &Path,
+) -> anyhow::Result<WritePolicy> {
+    let mut write_policy = crate::write::policy_from_flags(global, Some(path));
+    let Some(plan_write_policy) = &plan.write_policy else {
+        return Ok(write_policy);
+    };
+
+    if let Some(ensure_final_newline) = plan_write_policy.ensure_final_newline {
+        write_policy.ensure_final_newline = ensure_final_newline;
+    }
+    if let Some(normalize_eol) = plan_write_policy.normalize_eol.as_deref() {
+        write_policy.normalize_eol = plan_normalize_eol(normalize_eol)?;
+    }
+    if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
+        write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
+    }
+    if let Some(collapse_blanks) = plan_write_policy.collapse_blanks {
+        write_policy.collapse_blanks = collapse_blanks;
+    }
+
+    Ok(write_policy)
+}
 
 // ---------------------------------------------------------------------------
 // Diff output helper
@@ -135,6 +305,46 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
+fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
+    match backup_session {
+        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
+        None => error.to_string(),
+    }
+}
+
+fn build_error_output(
+    error_kind: &'static str,
+    legacy_error_prefix: &str,
+    error: &str,
+    backup_session: Option<&str>,
+) -> TxOutput {
+    TxOutput {
+        ok: false,
+        status: "error".to_string(),
+        files_changed: 0,
+        files_created: 0,
+        files_deleted: 0,
+        changes: Vec::new(),
+        reads: Vec::new(),
+        searches: Vec::new(),
+        lints: Vec::new(),
+        error_kind: Some(error_kind.to_string()),
+        error: Some(format!(
+            "{legacy_error_prefix}: {}",
+            format_error_with_backup_hint(error, backup_session)
+        )),
+        backup_session: backup_session.map(str::to_string),
+    }
+}
+
+fn legacy_error_prefix(error_kind: &str) -> &str {
+    if error_kind == "format_failed" {
+        "validation_failed"
+    } else {
+        error_kind
+    }
+}
+
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
@@ -143,7 +353,7 @@ fn emit_error_json_with_prefix(
     compact: bool,
 ) {
     emit_output_json(
-        &crate::tx::build_error_output(error_kind, legacy_error_prefix, error, backup_session),
+        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
         compact,
     );
 }
@@ -156,7 +366,7 @@ fn emit_error_json(
 ) {
     emit_error_json_with_prefix(
         error_kind,
-        crate::tx::legacy_error_prefix(error_kind),
+        legacy_error_prefix(error_kind),
         error,
         backup_session,
         compact,
@@ -333,11 +543,70 @@ fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleEr
         })
 }
 
+pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
+    match plan_cwd {
+        Some(plan_cwd) => {
+            let path = Path::new(plan_cwd);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                base_cwd.join(path)
+            }
+        }
+        None => base_cwd.to_path_buf(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
 pub use crate::tx::RestoreFailGuard;
+
+/// Restore files from a backup session after a failed commit. Returns `true`
+/// when restore completed successfully.
+fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
+    crate::tx::restore_after_failed_commit(cwd, timestamp)
+}
+
+/// Apply pending changes to disk: backup originals, write modified files,
+/// delete removed files, finalize backup session.
+///
+/// If any write fails, restores all already-written files from the backup
+/// session before returning [`CommitError`].
+/// Build a JSON error string without writing to stdout.
+fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
+    make_error_json_with_prefix(
+        error_kind,
+        legacy_error_prefix(error_kind),
+        error,
+        backup_session,
+    )
+}
+
+/// Build a JSON error string with an explicit legacy prefix.
+#[allow(dead_code)]
+fn make_error_json_with_prefix(
+    error_kind: &'static str,
+    legacy_error_prefix: &str,
+    error: &str,
+    backup_session: Option<&str>,
+) -> String {
+    serde_json::to_string_pretty(&build_error_output(
+        error_kind,
+        legacy_error_prefix,
+        error,
+        backup_session,
+    ))
+    .unwrap_or_default()
+}
+
+#[allow(dead_code)]
+fn config_tx_strict(cwd: &Path) -> Option<bool> {
+    crate::config::find_and_load(cwd)
+        .map(|(config, _)| config.tx.strict)
+        .unwrap_or(None)
+}
 
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {
@@ -360,7 +629,7 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
             compact,
         );
     } else {
-        let msg = crate::tx::format_error_with_backup_hint(&err.message, backup_session);
+        let msg = format_error_with_backup_hint(&err.message, backup_session);
         eprintln!("tx: {msg}");
     }
     Ok(exit_code)
@@ -649,11 +918,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
     use std::fs;
     use tempfile::TempDir;
-
-    use crate::write::WritePolicy;
 
     fn shell_true() -> &'static str {
         #[cfg(windows)]
@@ -693,6 +959,80 @@ mod tests {
 
     fn portable_path_str(p: &std::path::Path) -> String {
         p.to_str().unwrap().replace('\\', "/")
+    }
+
+    #[test]
+    fn read_file_content_populates_pending_from_disk() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("existing.txt");
+        fs::write(&path, "hello from disk\n").unwrap();
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        let content = read_file_content(&mut pending, &mut existed, &path).unwrap();
+
+        assert_eq!(content, "hello from disk\n");
+        assert_eq!(
+            pending.get(&path),
+            Some(&(
+                "hello from disk\n".to_string(),
+                "hello from disk\n".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn read_and_probe_returns_true_for_text() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("text.rs");
+        fs::write(&path, "fn main() {}\n").unwrap();
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        assert!(read_and_probe(&mut pending, &mut existed, &path).unwrap());
+        assert!(pending.contains_key(&path));
+        assert_eq!(pending[&path].1, "fn main() {}\n");
+    }
+
+    #[test]
+    fn read_and_probe_returns_false_for_binary() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("data.bin");
+        fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
+        assert!(!pending.contains_key(&path));
+    }
+
+    #[test]
+    fn read_and_probe_returns_false_for_invalid_utf8() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.txt");
+        // Bare continuation bytes: invalid UTF-8 but no NUL (passes binary check)
+        fs::write(&path, [0x80, 0x81, 0x82]).unwrap();
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        // Should skip gracefully (false) instead of erroring,
+        // matching standalone search/replace behavior.
+        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
+        assert!(!pending.contains_key(&path));
+    }
+
+    #[test]
+    fn update_file_content_inserts_missing_pending_entry() {
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let path = PathBuf::from("created.txt");
+
+        update_file_content(&mut pending, &mut deletions, &path, "brand new".to_string());
+
+        assert_eq!(
+            pending.get(&path),
+            Some(&(String::new(), "brand new".to_string()))
+        );
     }
 
     #[test]
@@ -836,17 +1176,14 @@ mod tests {
 
     #[test]
     fn legacy_error_prefix_maps_format_failed() {
-        assert_eq!(
-            crate::tx::legacy_error_prefix("format_failed"),
-            "validation_failed"
-        );
-        assert_eq!(crate::tx::legacy_error_prefix("rollback"), "rollback");
-        assert_eq!(crate::tx::legacy_error_prefix("parse_error"), "parse_error");
+        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
+        assert_eq!(legacy_error_prefix("rollback"), "rollback");
+        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
     }
 
     #[test]
     fn build_error_output_produces_expected_shape() {
-        let output = crate::tx::build_error_output("rollback", "rollback", "disk full", None);
+        let output = build_error_output("rollback", "rollback", "disk full", None);
         assert!(!output.ok);
         assert_eq!(output.status, "error".to_string());
         assert_eq!(output.error_kind, Some("rollback".to_string()));
@@ -981,7 +1318,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "replace operation requires one of to, insert_before, or insert_after"
@@ -1003,7 +1340,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "insert_before and insert_after cannot both be set"
@@ -1012,16 +1349,14 @@ mod tests {
 
     #[test]
     fn regex_insert_before_uses_match_anchor_in_replacement_text() {
-        let text =
-            crate::ops::replace::replacement_text("b+", &None, &Some("X".to_string()), &None, true);
+        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true);
 
         assert_eq!(text, "X${0}");
     }
 
     #[test]
     fn regex_insert_after_uses_match_anchor_in_replacement_text() {
-        let text =
-            crate::ops::replace::replacement_text("b+", &None, &None, &Some("X".to_string()), true);
+        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true);
 
         assert_eq!(text, "${0}X");
     }
@@ -1041,7 +1376,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
             "to cannot be combined with insert_before or insert_after"
@@ -1136,7 +1471,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string().contains("non-empty search pattern"),
             "expected 'non-empty search pattern' error, got: {}",
@@ -1159,7 +1494,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string().contains("1-based"),
             "expected '1-based' error, got: {}",
@@ -1182,7 +1517,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string()
                 .contains("invert_match and multiline cannot be combined"),
@@ -1206,7 +1541,7 @@ mod tests {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = crate::tx::validate_operation(&plan.operations[0]).unwrap_err();
+        let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
             err.to_string()
                 .contains("literal and regex cannot be combined"),
@@ -1463,7 +1798,7 @@ mod tests {
 
     #[test]
     fn plan_normalize_eol_invalid_value_returns_error() {
-        let result = crate::tx::plan_normalize_eol("bogus");
+        let result = super::plan_normalize_eol("bogus");
         assert!(result.is_err(), "invalid eol value should fail");
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -1813,7 +2148,7 @@ mod tests {
 
     #[test]
     fn path_err_formats_flat_error_with_path_prefix() {
-        let err = crate::tx::path_err("config.toml")(anyhow::anyhow!("key not found"));
+        let err = super::path_err("config.toml")(anyhow::anyhow!("key not found"));
         let msg = err.to_string();
         assert_eq!(msg, "config.toml: key not found");
     }
