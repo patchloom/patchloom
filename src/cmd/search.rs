@@ -675,6 +675,17 @@ mod tests {
     }
 
     #[test]
+    fn max_results_does_not_affect_assert_count() {
+        // Per design: assert_count uses full file_match_counts even when max_results caps detailed matches.
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.max_results = 1;
+        args.assert_count = Some(2);  // fixture has 2 "Hello" matches
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::SUCCESS, "assert should pass on full count despite max=1");
+    }
+
+    #[test]
     fn literal_match_finds_expected() {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
