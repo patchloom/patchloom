@@ -8805,7 +8805,7 @@ fn test_explain_invalid_plan_fails() {
         .arg(&plan)
         .assert()
         .failure()
-        .stderr(predicate::str::contains(""));
+        .stderr(predicate::str::contains("expected ident").or(predicate::str::contains("parse")));
 }
 
 #[test]
