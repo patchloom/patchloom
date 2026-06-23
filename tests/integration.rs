@@ -3806,16 +3806,20 @@ fn test_tx_mid_commit_failure_rolls_back() {
 #[test]
 fn test_tx_rollback_failed_when_restore_incomplete() {
     let dir = TempDir::new().unwrap();
-    let good = dir.path().join("good.txt");
+    // Use names so lexical sort in changes puts the successful write first,
+    // ensuring a real on-disk change exists before the failing write attempt.
+    // This makes restore path (and rollback_failed case) reliably exercised
+    // independent of temp dir internals / macOS symlink behavior in /tmp etc.
+    let good = dir.path().join("a_good.txt");
     fs::write(&good, "original\n").unwrap();
-    let blocker = dir.path().join("blocker");
+    let blocker = dir.path().join("z_blocker");
     fs::write(&blocker, "not-a-directory").unwrap();
 
     let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
         "version": "1",
         "operations": [
-            {"op": "file.create", "path": "good.txt", "content": "changed\n", "force": true},
-            {"op": "file.create", "path": "blocker/child.txt", "content": "fail\n"}
+            {"op": "file.create", "path": "a_good.txt", "content": "changed\n", "force": true},
+            {"op": "file.create", "path": "z_blocker/child.txt", "content": "fail\n"}
         ]
     }))
     .unwrap();
