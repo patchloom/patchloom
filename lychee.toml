@@ -26,6 +26,8 @@ exclude = [
   "img\\.shields\\.io/endpoint",
   # no-color.org is a small site that intermittently drops connections from CI runners
   "no-color\\.org",
+  # GitHub Pages docs site (patchloom.github.io) can 503 transiently during deploys or load
+  "patchloom\\.github\\.io",
 ]
 
 accept = [200, 429]
