@@ -658,9 +658,9 @@ mod tests {
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
         // detailed matches capped
         assert_eq!(results.matches.len(), 1);
-        // file_match_counts reflect the pre-limit collection (2 files had matches originally? test dir has 2 "Hello")
-        // In this fixture there are 2 matches in one file typically; accept >=1
-        assert!(!results.file_match_counts.is_empty());
+        // file_match_counts reflect the pre-limit collection (fixture has 2 "Hello" matches total)
+        let total: usize = results.file_match_counts.values().sum();
+        assert_eq!(total, 2, "counts should be full (2), not capped by max_results");
     }
 
     #[test]
