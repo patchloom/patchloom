@@ -22,7 +22,7 @@ pub fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
 
 /// Check if a string contains common regex metacharacters that suggest
 /// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
-#[allow(dead_code)]
+#[cfg(feature = "cli")]
 pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
     s.contains('\\')
         || s.contains('[')
@@ -474,12 +474,14 @@ mod tests {
     // ── has_regex_metacharacters ──────────────────────────────────────
 
     #[test]
+    #[cfg(feature = "cli")]
     fn plain_text_has_no_regex_meta() {
         assert!(!has_regex_metacharacters("hello world"));
         assert!(!has_regex_metacharacters("foo-bar_baz"));
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn regex_patterns_detected() {
         assert!(has_regex_metacharacters("fn\\s+main"));
         assert!(has_regex_metacharacters("v1\\.0"));

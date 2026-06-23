@@ -74,7 +74,7 @@ patchloom = { version = "0.5", default-features = false }
 To add AST support without CLI/MCP:
 
 ```toml
-patchloom = { version = "0.4", default-features = false, features = ["ast"] }
+patchloom = { version = "0.5", default-features = false, features = ["ast"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API

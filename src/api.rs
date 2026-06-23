@@ -2079,9 +2079,19 @@ mod tests {
             }"#;
 
         let plan = parse_plan(plan_json).unwrap();
-        let (code, _output) = execute_plan(plan, dir.path(), None).unwrap();
+        let (code, json) = execute_plan(plan, dir.path(), None).unwrap();
         // execute_plan_direct applies changes and returns SUCCESS.
         assert_eq!(code, crate::exit::SUCCESS);
+        // Verify typed PlanReport deserialization (richer result for library users).
+        let report: crate::api::PlanReport = serde_json::from_str(&json).unwrap();
+        assert!(report.ok);
+        assert!(!report.changes.is_empty()); // net file changes from the plan ops
+        assert!(
+            report
+                .changes
+                .iter()
+                .any(|c| c.action == "modified" || c.action == "created")
+        );
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("goodbye"));
         assert!(on_disk.contains("+appended"));
@@ -3143,6 +3153,22 @@ mod tests {
         let res2 = file_prepend(&file, ">> ", ApplyMode::Apply, None).unwrap();
         assert!(res2.changed);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), ">> hello\n world");
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn file_append_prepend_empty_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        std::fs::write(&file, "").unwrap();
+
+        let res = file_append(&file, "first", ApplyMode::Apply, None).unwrap();
+        assert!(res.changed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "first");
+
+        let res2 = file_prepend(&file, "zero\n", ApplyMode::Apply, None).unwrap();
+        assert!(res2.changed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "zero\nfirst");
     }
 
     #[test]

@@ -21,13 +21,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.4", default-features = false }
+//! patchloom = { version = "0.5", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.4", default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.5", default-features = false, features = ["ast"] }
 //! ```
 //!
 //! This gives you the [`api`] module (primary editing interface), [`ops`],

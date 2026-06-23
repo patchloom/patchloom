@@ -55,6 +55,7 @@ pub fn format_diff_result(result: &DiffResult) -> String {
 }
 
 /// Format a [`DiffResult`] with optional ANSI color.
+#[cfg(feature = "cli")]
 pub fn format_diff_result_colored(result: &DiffResult, color: bool) -> String {
     format_diff_result_opt(result, color)
 }
@@ -182,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn colored_diff_has_ansi_codes() {
         let diff = unified_diff("test.txt", "old\n", "new\n");
         let result = DiffResult { diffs: vec![diff] };
@@ -197,6 +199,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn colored_false_has_no_ansi_codes() {
         let diff = unified_diff("test.txt", "old\n", "new\n");
         let result = DiffResult { diffs: vec![diff] };

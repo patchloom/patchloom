@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct HeadingInfo {
@@ -425,10 +425,10 @@ pub(crate) fn has_dangerous_git_add_dot(line: &str) -> bool {
 }
 
 /// A lint issue found in a markdown file.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LintIssue {
     /// Description of the issue.
-    pub issue: &'static str,
+    pub issue: String,
     /// Line number where the issue was found (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
@@ -447,7 +447,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
         let key = (h.level, h.text.trim().to_string());
         if !seen.insert(key) {
             issues.push(LintIssue {
-                issue: "duplicate heading",
+                issue: "duplicate heading".to_string(),
                 line: Some(h.line_start + 1), // 1-based
                 heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
             });
@@ -462,7 +462,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
             || stripped.contains("git add --all")
         {
             issues.push(LintIssue {
-                issue: "dangerous command",
+                issue: "dangerous command".to_string(),
                 line: Some(idx + 1),
                 heading: None,
             });
@@ -472,7 +472,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     // 3. Missing final newline.
     if !content.is_empty() && !content.ends_with('\n') {
         issues.push(LintIssue {
-            issue: "missing final newline",
+            issue: "missing final newline".to_string(),
             line: None,
             heading: None,
         });

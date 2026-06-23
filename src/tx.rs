@@ -25,7 +25,7 @@ use clap::Args;
 use globset::Glob;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
@@ -36,22 +36,22 @@ use std::path::{Path, PathBuf};
 /// Library users can deserialize the JSON string returned by `execute_plan`
 /// into this type for typed access instead of string parsing.
 /// See #805 and the embedding docs.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxOutput {
     pub ok: bool,
-    pub status: &'static str,
+    pub status: String,
     pub files_changed: usize,
     pub files_created: usize,
     pub files_deleted: usize,
     pub changes: Vec<TxChange>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub reads: Vec<TxReadResult>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub searches: Vec<TxSearchResult>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub lints: Vec<TxLintResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_kind: Option<&'static str>,
+    pub error_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,14 +59,14 @@ pub struct TxOutput {
 }
 
 /// A single file change in a plan/tx report.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxChange {
     pub path: String,
-    pub action: &'static str,
+    pub action: String,
 }
 
 /// A search match in the tx output.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxSearchMatch {
     pub line: usize,
     pub column: usize,
@@ -78,7 +78,7 @@ pub struct TxSearchMatch {
 }
 
 /// A search result in the tx output.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxSearchResult {
     pub path: String,
     pub pattern: String,
@@ -87,7 +87,7 @@ pub struct TxSearchResult {
 }
 
 /// A file read result in the tx output.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxReadResult {
     pub path: String,
     pub content: String,
@@ -97,7 +97,7 @@ pub struct TxReadResult {
 }
 
 /// A lint result in the tx output.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TxLintResult {
     pub path: String,
     pub issue_count: usize,
@@ -1462,19 +1462,19 @@ fn build_tx_output(
         if deletions.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "deleted",
+                action: "deleted".to_string(),
             });
             deleted_count += 1;
         } else if !existed_before.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "created",
+                action: "created".to_string(),
             });
             created += 1;
         } else {
             tx_changes.push(TxChange {
                 path: path_str,
-                action: "modified",
+                action: "modified".to_string(),
             });
             modified += 1;
         }
@@ -1484,7 +1484,7 @@ fn build_tx_output(
         if !changes.iter().any(|(c, _, _)| c == path) {
             tx_changes.push(TxChange {
                 path: display_path(path),
-                action: "deleted",
+                action: "deleted".to_string(),
             });
             deleted_count += 1;
         }
@@ -1492,7 +1492,7 @@ fn build_tx_output(
 
     TxOutput {
         ok,
-        status,
+        status: status.to_string(),
         files_changed: modified,
         files_created: created,
         files_deleted: deleted_count,
@@ -1656,7 +1656,7 @@ fn run_validate_steps(
     Ok(())
 }
 
-fn rollback_strict(
+pub(crate) fn rollback_strict(
     changes: &[(PathBuf, String, String)],
     pending: &HashMap<PathBuf, (String, String)>,
     deletions: &HashSet<PathBuf>,
@@ -1692,7 +1692,6 @@ fn rollback_strict(
 /// Intermediate result from executing all operations in a plan and applying
 /// write policy. Contains everything needed for callers to decide on output
 /// mode, commit changes, and run lifecycle steps.
-#[allow(dead_code)]
 pub(crate) struct TxExecResult {
     pub(crate) changes: Vec<(PathBuf, String, String)>,
     pub(crate) deletions: HashSet<PathBuf>,
@@ -1713,7 +1712,7 @@ pub(crate) struct TxExecResult {
 ///
 /// On operation failure the error message is pre-formatted as
 /// `"operation N (label) failed: ..."` so callers can emit it directly.
-fn execute_and_collect(
+pub(crate) fn execute_and_collect(
     plan: &Plan,
     cwd: &Path,
     global: &GlobalFlags,
@@ -1908,7 +1907,7 @@ pub(crate) fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
 ///
 /// If any write fails, restores all already-written files from the backup
 /// session before returning [`CommitError`].
-fn commit_changes(
+pub(crate) fn commit_changes(
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
@@ -1999,7 +1998,7 @@ fn build_error_output(
 ) -> TxOutput {
     TxOutput {
         ok: false,
-        status: "error",
+        status: "error".to_string(),
         files_changed: 0,
         files_created: 0,
         files_deleted: 0,
@@ -2007,7 +2006,7 @@ fn build_error_output(
         reads: Vec::new(),
         searches: Vec::new(),
         lints: Vec::new(),
-        error_kind: Some(error_kind),
+        error_kind: Some(error_kind.to_string()),
         error: Some(format!(
             "{legacy_error_prefix}: {}",
             format_error_with_backup_hint(error, backup_session)
@@ -2065,7 +2064,7 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
 /// Validate a plan and resolve its effective working directory, strictness, and
 /// config-derived global flags. Returns `Err` with `(exit_code, json)` on
 /// validation failure so callers can propagate early.
-fn validate_and_prepare_plan(
+pub(crate) fn validate_and_prepare_plan(
     plan: &Plan,
     cwd: &Path,
     no_strict: bool,
