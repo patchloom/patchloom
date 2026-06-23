@@ -148,7 +148,11 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
     let mut cursor = root.walk();
 
     // Find function_item whose identifier matches
-    fn find_fn<'a>(node: tree_sitter_lib::Node<'a>, source: &str, old_name: &str) -> Option<tree_sitter_lib::Node<'a>> {
+    fn find_fn<'a>(
+        node: tree_sitter_lib::Node<'a>,
+        source: &str,
+        old_name: &str,
+    ) -> Option<tree_sitter_lib::Node<'a>> {
         if node.kind() == "function_item" {
             if let Some(id) = child_text_by_kind(node, "identifier", source) {
                 if id == old_name {
