@@ -47,6 +47,8 @@ Keep the working tree clean:
 - Common sources of "dirty" state: lychee cache, local edits during rebase/force work on release-please, Cargo.lock drift from different tool versions. Fix them explicitly rather than carrying them.
 - After a core PR merges mid-session (e.g. #753 while polish for #754 was in flight): the feature branch tip is no longer ancestor of main ("has merged PR" from pre-commit hook). Recovery: `gh pr view N --json state` (confirm merged), `git checkout -b rescue-YYYYMMDD origin/main`, cherry-pick the useful commits (or `git show <oldsha> | patch -p1`), `git add <explicit files only>`, commit -s, push, create PR. See patchloom-contrib for full "Follow-up polish after base PR" and #759.
 
+- **PR bodies must contain explicit issue links for traceability (addresses #819).** Every PR that resolves GitHub issues (including library follow-ups after a base PR has merged, Bline feedback polish, etc.) MUST list `Closes #N` or `Fixes #N` (one per line) in the PR *body/description*. GitHub only auto-closes from the PR body under squash-merge (individual commit messages are dropped). Use `Ref #N` for related but non-closing references. Never rely on commit message only. See `~/.grok/skills/owned-repo-gate/SKILL.md` (Phase 4) and `~/.grok/skills/github-interaction/SKILL.md` for the full rule and recovery. For follow-up PRs, edit the body with `gh pr edit` if the initial description was minimal. Verify with issue audit before claiming closure.
+
 See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`.
 
 ## Release PRs (release-please)
@@ -54,6 +56,7 @@ See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`
 - The open release-please PR (#724 etc.) title must be correct. Use `gh pr edit --title` when it shows the wrong version.
 - The PR *body* can be very long and may temporarily show the wrong next version header (release-please behavior). This is tracked as tech-debt #740.
 - When updating library embedding examples (in lib.rs, README, docs/), keep the version string in sync with the current Cargo.toml / .release-please-manifest.json (avoids the 0.4 vs 0.5 drift reported in #816 follow-up).
+- **Library follow-up PRs and high-level API changes must use explicit Closes links in the PR body** (see #819 and the new rule in Git hygiene above). The #811-#815 Bline library work + #817/#818 follow-ups exposed the gap where minimal PR bodies left issues open after squash-merge. Always include them for traceability.
 - Primary curation is done via `RELEASE_NOTES.md` (applied to the final GitHub Release by the host job, not the PR body).
 - See `patchloom-contrib` skill ("Curated release notes" and "Major version bumps" sections) for the full process.
 
@@ -244,6 +247,8 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 8. Run `make sync-patchloom-md && make update-readme && make check`.
 
+**PR body requirement (see #819):** When opening the PR for this work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Library follow-ups and polish PRs are the most common place this is missed. Edit via `gh pr edit` if needed before merge.
+
 ## Adding a new MCP tool
 
 MCP tools live in `src/cmd/mcp.rs` behind the `mcp` feature gate. To add a new tool:
@@ -285,6 +290,8 @@ async fn new_tool(
 5. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
 
 6. Run `make sync-patchloom-md && make update-readme && make check`.
+
+**PR body requirement (see #819):** When opening the PR for this MCP tool work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Follow-up changes after base merges commonly miss this; edit the PR body explicitly.
 
 ## Removing an MCP tool
 
