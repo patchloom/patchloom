@@ -219,12 +219,15 @@ fn make_diff(path: &str, old: &str, new: &str) -> String {
     format_diff_result(&result)
 }
 
-fn write_if_apply(
+/// Generalized helper for Apply-mode mutations that need backup + guard.
+///
+/// Used by write_if_apply and special file ops (create/delete/rename cross-file).
+fn apply_mutation(
     path: &Path,
-    new_content: &str,
     mode: ApplyMode,
-    policy: &WritePolicy,
     guard: Option<&PathGuard>,
+    prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
+    perform_mutation: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<bool> {
     if mode != ApplyMode::Apply {
         return Ok(false);
@@ -234,10 +237,26 @@ fn write_if_apply(
     // For library users, backup is best-effort.
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
     let mut backup = BackupSession::new(cwd)?;
-    backup.save_before_write(path)?;
-    atomic_write(path, new_content, policy)?;
+    prepare_backup(&mut backup)?;
+    perform_mutation()?;
     backup.finalize()?;
     Ok(true)
+}
+
+fn write_if_apply(
+    path: &Path,
+    new_content: &str,
+    mode: ApplyMode,
+    policy: &WritePolicy,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<bool> {
+    apply_mutation(
+        path,
+        mode,
+        guard,
+        |backup| backup.save_before_write(path),
+        || atomic_write(path, new_content, policy),
+    )
 }
 
 /// Private helper to centralize the guard check and eliminate duplicated
@@ -307,6 +326,7 @@ fn finish_doc_edit(
     new_value: &serde_json::Value,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    action: &'static str,
 ) -> anyhow::Result<EditResult> {
     let new_content =
         ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
@@ -317,7 +337,7 @@ fn finish_doc_edit(
         doc.original.clone(),
         new_content,
         applied,
-        "doc.set",
+        action,
         None,
     ))
 }
@@ -339,7 +359,7 @@ pub fn doc_set(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::set_at_path(&mut new_value, &segments, value)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.set")
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
@@ -355,7 +375,7 @@ pub fn doc_delete(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_at_selector(&mut new_value, &segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.delete")
 }
 
 /// Deep-merge a value into the root of a JSON, YAML, or TOML file.
@@ -370,7 +390,7 @@ pub fn doc_merge(
 
     ops::doc::deep_merge(&mut new_value, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.merge")
 }
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
@@ -421,7 +441,7 @@ pub fn doc_append(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.push(value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.append")
 }
 
 /// Prepend a value to an array at a selector path.
@@ -442,7 +462,7 @@ pub fn doc_prepend(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.insert(0, value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.prepend")
 }
 
 /// Update all values matching a selector with a new value.
@@ -462,7 +482,7 @@ pub fn doc_update(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::update_matching(&mut new_value, &segments, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.update")
 }
 
 /// Ensure a value exists at a selector path; set it only if missing.
@@ -483,7 +503,7 @@ pub fn doc_ensure(
         ops::doc::set_at_path(&mut new_value, &segments, value)?;
     }
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.ensure")
 }
 
 /// Delete array elements matching a predicate (e.g., `"name=old"`).
@@ -500,7 +520,7 @@ pub fn doc_delete_where(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_where(&mut new_value, &segments, predicate)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.delete_where")
 }
 
 /// Move a value from one selector path to another within the same file.
@@ -518,7 +538,7 @@ pub fn doc_move(
     let to_segments = selector::parse_anyhow(to_selector)?;
     ops::doc::move_at_path(&mut new_value, &from_segments, &to_segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.move")
 }
 
 // ---------------------------------------------------------------------------
@@ -641,7 +661,7 @@ pub fn md_replace_section(
         original,
         new_content,
         applied,
-        "tidy",
+        "md.replace_section",
         None,
     ))
 }
@@ -670,7 +690,7 @@ pub fn md_upsert_bullet(
         original,
         new_content,
         applied,
-        "tidy",
+        "md.upsert_bullet",
         None,
     ))
 }
@@ -697,7 +717,7 @@ pub fn md_table_append(
         original,
         new_content,
         applied,
-        "tidy",
+        "md.table_append",
         None,
     ))
 }
@@ -724,7 +744,7 @@ pub fn md_insert_after_heading(
         original,
         new_content,
         applied,
-        "tidy",
+        "md.insert_after_heading",
         None,
     ))
 }
@@ -839,7 +859,7 @@ pub fn md_insert_before_heading(
         original,
         new_content,
         applied,
-        "tidy",
+        "md.insert_before_heading",
         None,
     ))
 }
@@ -875,29 +895,28 @@ pub fn file_create(
         bail!("file already exists: {}", path.display());
     }
 
-    let applied = if mode == ApplyMode::Apply {
-        ensure_contained(guard, path)?;
-        // Ensure parent directories exist.
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let policy = WritePolicy::default();
-        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_write(path)?;
-        if force {
-            atomic_write(path, content, &policy)?;
-        } else {
-            atomic_create_new(path, content, &policy)?;
-        }
-        backup.finalize()?;
-        true
-    } else {
-        false
-    };
+    let applied = apply_mutation(
+        path,
+        mode,
+        guard,
+        |backup| {
+            // Ensure parent directories exist for create.
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            backup.save_before_write(path)
+        },
+        || {
+            let policy = WritePolicy::default();
+            if force {
+                atomic_write(path, content, &policy)
+            } else {
+                atomic_create_new(path, content, &policy)
+            }
+        },
+    )?;
 
     Ok(build_edit_result(
         &path_str,
@@ -927,18 +946,16 @@ pub fn file_delete(
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let applied = if mode == ApplyMode::Apply {
-        ensure_contained(guard, path)?;
-        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_delete(path)?;
-        std::fs::remove_file(path)
-            .with_context(|| format!("failed to delete {}", path.display()))?;
-        backup.finalize()?;
-        true
-    } else {
-        false
-    };
+    let applied = apply_mutation(
+        path,
+        mode,
+        guard,
+        |backup| backup.save_before_delete(path),
+        || {
+            std::fs::remove_file(path)
+                .with_context(|| format!("failed to delete {}", path.display()))
+        },
+    )?;
 
     Ok(build_edit_result(
         &path_str,
@@ -1033,18 +1050,8 @@ pub fn file_append(
 
     let combined = crate::ops::file::append_content(&original, content);
 
-    let applied = if mode == ApplyMode::Apply {
-        ensure_contained(guard, path)?;
-        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_write(path)?;
-        let policy = WritePolicy::default();
-        atomic_write(path, &combined, &policy)?;
-        backup.finalize()?;
-        true
-    } else {
-        false
-    };
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &combined, mode, &policy, guard)?;
 
     Ok(build_edit_result(
         &path_str, original, combined, applied, "append", None,
@@ -1074,18 +1081,8 @@ pub fn file_prepend(
 
     let combined = crate::ops::file::prepend_content(&original, content);
 
-    let applied = if mode == ApplyMode::Apply {
-        ensure_contained(guard, path)?;
-        let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_write(path)?;
-        let policy = WritePolicy::default();
-        atomic_write(path, &combined, &policy)?;
-        backup.finalize()?;
-        true
-    } else {
-        false
-    };
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &combined, mode, &policy, guard)?;
 
     Ok(build_edit_result(
         &path_str, original, combined, applied, "prepend", None,
@@ -1413,12 +1410,8 @@ pub fn search_directory(
         if root.is_file() {
             let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
             let display = root.to_path_buf();
-            // re-read for context lines (fallback is rare / no "files" feature)
-            let all_lines: Vec<&str> = std::fs::read_to_string(root)
-                .with_context(|| format!("failed to read {}", root.display()))?
-                .lines()
-                .collect();
             let c = opts.context.unwrap_or(0);
+            // read once for both content and context lines (fallback is rare / no "files" feature)
             let content = std::fs::read_to_string(root)
                 .with_context(|| format!("failed to read {}", root.display()))?;
             let all_lines: Vec<&str> = content.lines().collect();

@@ -66,114 +66,135 @@ pub fn serialize_value_preserving(
             Ok(doc.to_string())
         }
         FileFormat::Yaml => {
-            use std::str::FromStr;
-            // Use YamlFile (not Document) so file-level comments that
-            // precede the first mapping entry are preserved.
-            let file = yaml_edit::YamlFile::from_str(original_content)
-                .map_err(|e| anyhow::anyhow!("YAML re-parse for comment preservation: {e}"))?;
-            if let Some(doc) = file.document() {
-                if let Some(mapping) = doc.as_mapping() {
-                    // Only use the CST path when both old and new are
-                    // objects; a root type change (e.g. mapping -> scalar)
-                    // cannot be applied via the mapping diff.
-                    if old_value.is_object() && new_value.is_object() {
-                        // Check if there are any array-growth diffs that
-                        // the CST path will leave unhandled (it only does
-                        // same-length updates and deletion).
-                        let has_array_growth = has_array_growth_diffs(old_value, new_value);
-                        let all_cst_applied =
-                            apply_yaml_mapping_diff(&mapping, old_value, new_value)?;
-                        let result = file.to_string();
-                        // Validate the CST output is still valid YAML
-                        // that parses to a mapping AND matches the target structure.
-                        // If CST mangled nesting (e.g. new intermediates), fall back
-                        // to plain serialize for correctness (may lose some comments
-                        // on siblings, but structure is guaranteed correct).
-                        if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
-                            && reparsed.is_object()
-                            && reparsed == *new_value
-                            && !has_array_growth
-                            && all_cst_applied
-                        {
-                            return Ok(result);
-                        }
-                        // There were array-growth diffs left
-                        // unhandled by the CST or structure mismatch. Splice or fall.
-                        let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
-                        if let Some(spliced) =
-                            splice_yaml_array_diffs(&result, &reparsed, new_value)?
-                        {
-                            return Ok(spliced);
-                        }
-                    }
-                } else if let Some(seq) = doc.as_sequence()
-                    && let (Some(old_arr), Some(new_arr)) =
-                        (old_value.as_array(), new_value.as_array())
-                {
-                    let applied = if old_arr.len() == new_arr.len() {
-                        apply_yaml_sequence_diff(&seq, old_arr, new_arr)?
-                    } else if new_arr.len() < old_arr.len() {
-                        try_remove_subsequence(&seq, old_arr, new_arr)
-                    } else {
-                        false // Growth: handled by text-level splice below.
-                    };
-                    if applied {
-                        let result = file.to_string();
-                        if serde_yaml_ng::from_str::<serde_json::Value>(&result)
-                            .is_ok_and(|v| v.is_array())
-                        {
-                            return Ok(result);
-                        }
-                    }
-                    // Growth or CST validation failure: splice into
-                    // the original text to preserve comments.
-                    if new_arr.len() > old_arr.len()
-                        && let Some(spliced) =
-                            splice_yaml_root_sequence(original_content, old_arr, new_arr)?
-                    {
-                        // Validate the spliced result matches the target.
-                        if serde_yaml_ng::from_str::<serde_json::Value>(&spliced)
-                            .is_ok_and(|v| v == *new_value)
-                        {
-                            return Ok(spliced);
-                        }
-                        // Splice produced incorrect YAML; fall through
-                        // to serialize_value.
-                    }
-                }
+            if let Some(result) = try_preserve_yaml(original_content, old_value, new_value)? {
+                return Ok(result);
             }
-            // Fall back to non-preserving serialization so mutations
-            // are not lost. Prefix leading comments from the original to
-            // avoid dropping file headers / section docs on complex cases
-            // (e.g. add-inside-existing-nested-object).
+            // Fall back to non-preserving (with hoisted comments).
             if old_value == new_value {
                 Ok(original_content.to_string())
             } else {
                 let body = serialize_value(new_value, format)?;
-                // Hoist all comment lines (and blanks) from original so that
-                // file and section comments are not lost on fallback paths.
-                let comments: String = original_content
-                    .lines()
-                    .filter(|l| {
-                        let t = l.trim_start();
-                        t.is_empty() || t.starts_with('#')
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if !comments.trim().is_empty() {
-                    let sep = if comments.ends_with('\n') || body.starts_with('\n') {
-                        ""
-                    } else {
-                        "\n"
-                    };
-                    Ok(format!("{}{}{}", comments, sep, body))
-                } else {
-                    Ok(body)
-                }
+                Ok(hoist_comments(original_content, &body))
             }
         }
         // JSON has no comments.
         _ => serialize_value(new_value, format),
+    }
+}
+
+/// Attempt CST-preserving update for YAML. Returns Some(result) on success,
+/// None if a text-level fallback (or plain serialize) is required.
+fn try_preserve_yaml(
+    original_content: &str,
+    old_value: &serde_json::Value,
+    new_value: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    use std::str::FromStr;
+
+    let file = yaml_edit::YamlFile::from_str(original_content)
+        .map_err(|e| anyhow::anyhow!("YAML re-parse for comment preservation: {e}"))?;
+
+    if let Some(doc) = file.document() {
+        if let Some(mapping) = doc.as_mapping() {
+            if old_value.is_object() && new_value.is_object() {
+                return try_preserve_yaml_object(&file, &mapping, old_value, new_value);
+            }
+        } else if let Some(seq) = doc.as_sequence()
+            && let (Some(old_arr), Some(new_arr)) = (old_value.as_array(), new_value.as_array())
+        {
+            return try_preserve_yaml_array(
+                &file,
+                &seq,
+                original_content,
+                old_arr,
+                new_arr,
+                new_value,
+            );
+        }
+    }
+    Ok(None)
+}
+
+fn try_preserve_yaml_object(
+    file: &yaml_edit::YamlFile,
+    mapping: &yaml_edit::Mapping,
+    old_value: &serde_json::Value,
+    new_value: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    let has_array_growth = has_array_growth_diffs(old_value, new_value);
+    let all_cst_applied = apply_yaml_mapping_diff(mapping, old_value, new_value)?;
+    let result = file.to_string();
+
+    if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
+        && reparsed.is_object()
+        && reparsed == *new_value
+        && !has_array_growth
+        && all_cst_applied
+    {
+        return Ok(Some(result));
+    }
+
+    // Array growth or structure mismatch: try splice.
+    let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
+    if let Some(spliced) = splice_yaml_array_diffs(&result, &reparsed, new_value)? {
+        return Ok(Some(spliced));
+    }
+    Ok(None)
+}
+
+fn try_preserve_yaml_array(
+    file: &yaml_edit::YamlFile,
+    seq: &yaml_edit::Sequence,
+    original_content: &str,
+    old_arr: &[serde_json::Value],
+    new_arr: &[serde_json::Value],
+    new_value: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    let applied = if old_arr.len() == new_arr.len() {
+        apply_yaml_sequence_diff(seq, old_arr, new_arr)?
+    } else if new_arr.len() < old_arr.len() {
+        try_remove_subsequence(seq, old_arr, new_arr)
+    } else {
+        false
+    };
+    if applied {
+        let result = file.to_string();
+        if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v.is_array()) {
+            return Ok(Some(result));
+        }
+    }
+
+    // Growth or failure: text splice.
+    if new_arr.len() > old_arr.len()
+        && let Some(spliced) = splice_yaml_root_sequence(original_content, old_arr, new_arr)?
+        && serde_yaml_ng::from_str::<serde_json::Value>(&spliced).is_ok_and(|v| v == *new_value)
+    {
+        return Ok(Some(spliced));
+    }
+    Ok(None)
+}
+
+/// Hoist leading comment lines (and blanks) from the original document
+/// onto a freshly serialized body. Used in fallback paths so that
+/// file-level and section comments are not lost.
+fn hoist_comments(original: &str, body: &str) -> String {
+    let comments: String = original
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start();
+            t.is_empty() || t.starts_with('#')
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !comments.trim().is_empty() {
+        let sep = if comments.ends_with('\n') || body.starts_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
+        format!("{}{}{}", comments, sep, body)
+    } else {
+        body.to_string()
     }
 }
 
@@ -1049,6 +1070,12 @@ pub fn navigate_mut<'a>(
     Ok(current)
 }
 
+/// Returns the parent path and the final segment (for use by set/delete/move).
+fn split_last(segments: &[selector::Segment]) -> (&[selector::Segment], &selector::Segment) {
+    let (parent, last) = segments.split_at(segments.len() - 1);
+    (parent, &last[0])
+}
+
 /// Set a value at the location described by `segments`.  Navigates to the
 /// parent (creating intermediate keys when needed) and inserts the value at
 /// the final Key or Index segment.
@@ -1057,10 +1084,10 @@ pub fn set_at_path(
     segments: &[selector::Segment],
     value: serde_json::Value,
 ) -> anyhow::Result<()> {
-    let last = segments
-        .last()
-        .ok_or_else(|| anyhow::anyhow!("empty selector"))?;
-    let parent_path = &segments[..segments.len() - 1];
+    if segments.is_empty() {
+        anyhow::bail!("empty selector");
+    }
+    let (parent_path, last) = split_last(segments);
     let parent = navigate_mut(root, parent_path, true)?;
 
     match last {
@@ -1091,10 +1118,10 @@ pub fn delete_at_selector(
     root: &mut serde_json::Value,
     segments: &[selector::Segment],
 ) -> anyhow::Result<bool> {
-    let Some(last) = segments.last() else {
+    if segments.is_empty() {
         return Ok(false);
-    };
-    let parent_path = &segments[..segments.len() - 1];
+    }
+    let (parent_path, last) = split_last(segments);
     let parent = match navigate_mut(root, parent_path, false) {
         Ok(p) => p,
         Err(_) => return Ok(false),
@@ -1158,10 +1185,10 @@ pub fn move_at_path(
 ) -> anyhow::Result<()> {
     // Remove value at source path.
     let removed = {
-        let last = from_segments
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("empty from selector"))?;
-        let parent_path = &from_segments[..from_segments.len() - 1];
+        if from_segments.is_empty() {
+            anyhow::bail!("empty from selector");
+        }
+        let (parent_path, last) = split_last(from_segments);
         let parent = navigate_mut(root, parent_path, false)?;
         match last {
             selector::Segment::Key(k) => parent
@@ -1183,10 +1210,7 @@ pub fn move_at_path(
     };
 
     // Insert at destination path.
-    let last = to_segments
-        .last()
-        .ok_or_else(|| anyhow::anyhow!("empty to selector"))?;
-    let parent_path = &to_segments[..to_segments.len() - 1];
+    let (parent_path, last) = split_last(to_segments);
     let parent = navigate_mut(root, parent_path, true)?;
     match last {
         selector::Segment::Key(k) => {
