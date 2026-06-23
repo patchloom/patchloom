@@ -44,10 +44,11 @@
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
-//! For advanced search ignore (e.g. .blineignore on top of .gitignore):
-//! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`.
-//! Or use `files::collect_file_paths_with_ignores` (or `api::search_directory`) + `par_process_files` for full ignore support.
-//! See `api::SearchOptions` docs.
+//! For advanced search ignore (e.g. .blineignore on top of .gitignore) + custom walkers:
+//! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`/`search_file`,
+//! or collect paths with `files::collect_file_paths_with_ignores` (or your own `WalkBuilder`) then
+//! pair with the low-level `api::search_one_file` inside `par_process_files` + `format_search_results` / `build_context_lines`.
+//! See `api::search_one_file` (and its docs for custom `WalkBuilder` use), `api::SearchOptions`, and `files` module.
 //!
 //! Example (pure library with plans):
 //! ```rust,ignore
