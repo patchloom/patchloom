@@ -26,7 +26,11 @@ Use patchloom when:
 
 ## MCP mode
 
-**ALWAYS use MCP tools for ALL file edits.** Use `batch_replace` or `batch_tidy` when applying the same operation to multiple files; use individual tools otherwise.
+**ALWAYS use MCP tools for ALL file edits.**
+
+- For any multi-op or multi-file change, **use `execute_plan`** with an inline plan (or plan_path). It provides atomic execution + rollback, exactly like the CLI `tx` command.
+- Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.
+- Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.
 
 ## Batching (the main speed win)
 
