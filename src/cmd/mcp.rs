@@ -659,6 +659,20 @@ impl PatchloomService {
             let _ = writeln!(f, "{entry}");
         }
     }
+
+    /// Helper to execute a single operation plan.
+    /// Reduces repetitive boilerplate across the many single-op MCP tools.
+    fn run_single_op(
+        &self,
+        op: Operation,
+        strict: Option<bool>,
+    ) -> Result<CallToolResult, McpError> {
+        execute_plan_validated(
+            make_plan_strict(vec![op], strict),
+            self.cwd(),
+            Some(&self.path_guard),
+        )
+    }
 }
 
 /// Execute a plan whose paths have already been validated by the caller.
@@ -735,17 +749,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan_strict(
-                vec![Operation::DocSet {
-                    path: p.path,
-                    selector: p.selector,
-                    value: p.value,
-                }],
-                Some(p.strict),
-            ),
-            self.cwd(),
-            Some(&self.path_guard),
+        self.run_single_op(
+            Operation::DocSet {
+                path: p.path,
+                selector: p.selector,
+                value: p.value,
+            },
+            Some(p.strict),
         )
     }
 
@@ -758,13 +768,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocDelete {
+        self.run_single_op(
+            Operation::DocDelete {
                 path: p.path,
                 selector: p.selector,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -777,13 +786,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocMerge {
+        self.run_single_op(
+            Operation::DocMerge {
                 path: p.path,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -797,14 +805,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocAppend {
+        self.run_single_op(
+            Operation::DocAppend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -818,14 +825,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocPrepend {
+        self.run_single_op(
+            Operation::DocPrepend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -839,14 +845,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocEnsure {
+        self.run_single_op(
+            Operation::DocEnsure {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -860,14 +865,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_param_size("predicate", &p.predicate)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocDeleteWhere {
+        self.run_single_op(
+            Operation::DocDeleteWhere {
                 path: p.path,
                 selector: p.selector,
                 predicate: p.predicate,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -881,14 +885,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocUpdate {
+        self.run_single_op(
+            Operation::DocUpdate {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -902,14 +905,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("from", &p.from)?;
         validate_param_size("to", &p.to)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::DocMove {
+        self.run_single_op(
+            Operation::DocMove {
                 path: p.path,
                 from: p.from,
                 to: p.to,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1211,31 +1213,25 @@ impl PatchloomService {
         } else {
             None
         };
-        let mut tool_result = execute_plan_validated(
-            make_plan_strict(
-                vec![Operation::Replace {
-                    glob: None,
-                    path: Some(p.path),
-                    mode,
-                    from: p.from,
-                    to: p.to,
-                    nth: p.nth,
-                    insert_before: p.insert_before,
-                    insert_after: p.insert_after,
-                    case_insensitive: p.case_insensitive,
-                    multiline: p.multiline,
-                    if_exists: p.if_exists,
-                    whole_line: p.whole_line,
-                    range: p.range,
-                    word_boundary: p.word_boundary,
-                    before_context: p.before_context,
-                    after_context: p.after_context,
-                }],
-                Some(p.strict),
-            ),
-            self.cwd(),
-            Some(&self.path_guard),
-        )?;
+        let replace_op = Operation::Replace {
+            glob: None,
+            path: Some(p.path),
+            mode,
+            from: p.from,
+            to: p.to,
+            nth: p.nth,
+            insert_before: p.insert_before,
+            insert_after: p.insert_after,
+            case_insensitive: p.case_insensitive,
+            multiline: p.multiline,
+            if_exists: p.if_exists,
+            whole_line: p.whole_line,
+            range: p.range,
+            word_boundary: p.word_boundary,
+            before_context: p.before_context,
+            after_context: p.after_context,
+        };
+        let mut tool_result = self.run_single_op(replace_op, Some(p.strict))?;
 
         // Append validation warnings to the response.
         if !validation_warnings.is_empty() {
@@ -1262,14 +1258,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("bullet", &p.bullet)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdUpsertBullet {
+        self.run_single_op(
+            Operation::MdUpsertBullet {
                 path: p.path,
                 heading: p.heading,
                 bullet: p.bullet,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1282,14 +1277,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("row", &p.row)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdTableAppend {
+        self.run_single_op(
+            Operation::MdTableAppend {
                 path: p.path,
                 heading: p.heading,
                 row: p.row,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1302,14 +1296,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdReplaceSection {
+        self.run_single_op(
+            Operation::MdReplaceSection {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1322,14 +1315,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdInsertAfterHeading {
+        self.run_single_op(
+            Operation::MdInsertAfterHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1342,14 +1334,13 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::MdInsertBeforeHeading {
+        self.run_single_op(
+            Operation::MdInsertBeforeHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1414,15 +1405,14 @@ impl PatchloomService {
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::TidyFix {
+        self.run_single_op(
+            Operation::TidyFix {
                 path: p.path,
                 ensure_final_newline: Some(true),
                 trim_trailing_whitespace: Some(true),
                 normalize_eol: None,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            },
+            None,
         )
     }
 
@@ -1646,15 +1636,16 @@ impl PatchloomService {
             ));
         };
 
-        // Validate every path declared by operations (PathGuard)
+        // Validate every path declared by operations against the PathGuard.
+        // (The plan file itself was already checked above when plan_path was used.)
         for op in &plan.operations {
             for declared in crate::plan::declared_paths(op) {
                 self.check_path(declared)?;
             }
         }
 
-        // Apply strict override from param if caller specified it explicitly in a way that differs,
-        // but since default is true, and param defaults to true, set it.
+        // The `strict` parameter from the MCP invocation always controls the execution
+        // (it defaults to true). This provides a simple, predictable experience for agents.
         plan.strict = Some(p.strict);
 
         execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))

@@ -352,8 +352,8 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
 
 /// A validation step to run after applying operations.
 #[derive(Debug, Deserialize, Serialize)]
-#[non_exhaustive]
 #[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct ValidationStep {
     pub cmd: String,
     pub required: Option<bool>,
