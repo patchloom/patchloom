@@ -2819,7 +2819,10 @@ mod tests {
         let err = search_directory(dir.path(), "content", &opts).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("glob") || msg.contains("pattern") || msg.contains("parse") || msg.contains("invalid"),
+            msg.contains("glob")
+                || msg.contains("pattern")
+                || msg.contains("parse")
+                || msg.contains("invalid"),
             "unexpected glob error message: {}",
             msg
         );
