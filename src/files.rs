@@ -4,7 +4,7 @@ use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::{WalkBuilder, WalkState};
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 use std::path::Path;
 #[cfg(any(feature = "cli", feature = "files"))]
 use std::path::PathBuf;
