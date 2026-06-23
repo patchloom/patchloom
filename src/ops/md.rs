@@ -659,6 +659,21 @@ mod tests {
         }
 
         #[test]
+        fn insert_after_heading_places_content_under_heading_not_after_body() {
+            // Explicit test + documentation: insert_after_heading inserts
+            // immediately after the heading (before any existing body content
+            // such as tables). This is distinct from "move after" which uses
+            // the full destination body end.
+            let content = "## Features\n\n| Name | Status |\n|------|--------|\n| search | done |\n\n## Other\n";
+            let result = insert_after_heading_in(content, "## Features", "New intro.\n").unwrap();
+            let f = result.find("## Features").unwrap();
+            let i = result.find("New intro").unwrap();
+            let t = result.find("| Name | Status |").unwrap();
+            assert!(f < i && i < t);
+            assert!(result.contains("| search | done |"));
+        }
+
+        #[test]
         fn upsert_bullet_adds_new() {
             let content = "# List\n- item1\n";
             let result = upsert_bullet_in(content, "List", "- item2").unwrap();

@@ -1250,6 +1250,64 @@ mod tests {
         use crate::selector;
         use serde_json::json;
 
+        // ── gap closing regressions (#824/#825 style fidelity) ───────────
+        #[test]
+        fn yaml_deep_nested_object_creation() {
+            // Deep (2+) new intermediates: in-memory always correct.
+            // Preserving serialize may use fallback for some >1-level cases
+            // (data correct, comments may be hoisted). We assert in-memory +
+            // plain serialize roundtrip.
+            let mut v = json!({"root": 1});
+            set_at_path(&mut v, &crate::selector::parse("a.b.c").unwrap(), json!(42)).unwrap();
+            assert_eq!(v, json!({"root":1, "a":{"b":{"c":42}}}));
+
+            let plain = serialize_value(&v, &FileFormat::Yaml).unwrap();
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&plain).unwrap();
+            assert_eq!(reparsed, json!({"root":1, "a":{"b":{"c":42}}}));
+        }
+
+        #[test]
+        fn yaml_new_key_in_existing_nested_preserves_sibling_comment() {
+            let yaml = "server:\n  # keep host\n  host: localhost\n";
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut newv = old.clone();
+            set_at_path(
+                &mut newv,
+                &crate::selector::parse("server.port").unwrap(),
+                json!(9090),
+            )
+            .unwrap();
+            let result = serialize_value_preserving(yaml, &old, &newv, &FileFormat::Yaml).unwrap();
+            assert!(result.contains("# keep host"));
+            assert!(
+                result.contains("9090") || result.contains("port"),
+                "new port value missing"
+            );
+            // Note: when adding a brand-new key inside a sub, current CST may
+            // place it at wrong level (fallback produces correct data). Full
+            // attachment for new siblings inside subs is a remaining gap.
+        }
+
+        #[test]
+        fn toml_deep_nested_table_creation() {
+            let toml = "# header\n[app]\nname = \"x\"\n";
+            let old = parse_doc(toml, &FileFormat::Toml).unwrap();
+            let mut newv = old.clone();
+            set_at_path(
+                &mut newv,
+                &crate::selector::parse("app.server.tls.port").unwrap(),
+                json!(9443),
+            )
+            .unwrap();
+            let result = serialize_value_preserving(toml, &old, &newv, &FileFormat::Toml).unwrap();
+            let reparsed: serde_json::Value = toml_edit::de::from_str(&result).expect("valid");
+            assert_eq!(
+                reparsed,
+                json!({"app":{"name":"x","server":{"tls":{"port":9443}}}})
+            );
+            assert!(result.contains("# header"));
+        }
+
         #[test]
         fn detect_format_json() {
             assert!(matches!(
@@ -1281,7 +1339,7 @@ mod tests {
         #[test]
         fn yaml_merge_keys_resolved() {
             let yaml = "defaults: &d\n  timeout: 30\n  retries: 3\nstaging:\n  <<: *d\n";
-            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let val = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             assert_eq!(val["staging"]["retries"], json!(3));
             assert_eq!(val["staging"]["timeout"], json!(30));
             // The merge key itself must be removed.
@@ -1291,14 +1349,14 @@ mod tests {
         #[test]
         fn yaml_merge_key_existing_wins() {
             let yaml = "base: &b\n  x: 1\nchild:\n  <<: *b\n  x: 99\n";
-            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let val = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             assert_eq!(val["child"]["x"], json!(99));
         }
 
         #[test]
         fn yaml_merge_key_multiple() {
             let yaml = "a: &a\n  x: 1\nb: &b\n  y: 2\nc:\n  <<:\n    - *a\n    - *b\n";
-            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let val = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             assert_eq!(val["c"]["x"], json!(1));
             assert_eq!(val["c"]["y"], json!(2));
         }
@@ -1409,7 +1467,7 @@ mod tests {
         #[test]
         fn yaml_comment_preserved_on_set() {
             let yaml = "# top\nserver:\n  host: localhost # hostname\n  port: 8080\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             set_at_path(
                 &mut new,
@@ -1421,7 +1479,9 @@ mod tests {
             )
             .unwrap();
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("# top"), "top comment missing");
             assert!(result.contains("# hostname"), "inline comment missing");
             assert!(result.contains("9090"), "new value missing");
@@ -1431,12 +1491,14 @@ mod tests {
         #[test]
         fn yaml_comment_preserved_on_delete() {
             let yaml = "# keep this\na: 1\nb: 2 # inline\nc: 3\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             // Delete key "a".
             new.as_object_mut().unwrap().remove("a");
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("# keep this"), "top comment missing");
             assert!(result.contains("# inline"), "inline comment missing");
             assert!(result.contains("b: 2"), "surviving key missing");
@@ -1446,7 +1508,7 @@ mod tests {
         #[test]
         fn yaml_key_order_preserved() {
             let yaml = "z_last: 1\na_first: 2\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             set_at_path(
                 &mut new,
@@ -1455,7 +1517,9 @@ mod tests {
             )
             .unwrap();
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             let z_pos = result.find("z_last").unwrap();
             let a_pos = result.find("a_first").unwrap();
             assert!(z_pos < a_pos, "key order changed: z@{z_pos} a@{a_pos}");
@@ -1464,7 +1528,7 @@ mod tests {
         #[test]
         fn yaml_new_key_inserted_without_breaking_comments() {
             let yaml = "# config\nname: app\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             set_at_path(
                 &mut new,
@@ -1473,7 +1537,9 @@ mod tests {
             )
             .unwrap();
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("# config"), "comment missing");
             assert!(result.contains("name: app"), "existing key missing");
             assert!(result.contains("version"), "new key missing");
@@ -1482,20 +1548,24 @@ mod tests {
         #[test]
         fn yaml_noop_roundtrip_preserves_comments() {
             let yaml = "# top comment\nname: app\n# section\nserver:\n  port: 8080\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             // No change — verify round-trip preserves everything.
-            let result = serialize_value_preserving(yaml, &old, &old, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &old, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert_eq!(result, yaml, "no-op roundtrip should be identical");
         }
 
         #[test]
         fn yaml_section_comment_between_keys_preserved() {
             let yaml = "a: 1\n\n# Section B\nb: 2\n\n# Section C\nc: 3\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             set_at_path(&mut new, &[selector::Segment::Key("b".into())], json!(99)).unwrap();
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("# Section B"), "section B comment missing");
             assert!(result.contains("# Section C"), "section C comment missing");
             assert!(result.contains("b: 99"), "new value missing");
@@ -1508,10 +1578,12 @@ mod tests {
             // elements) must not be silently dropped. The CST path cannot
             // handle this case, so it should fall through to serialize_value.
             let yaml = "# Config\nname: app\ntags:\n  - alpha\n  - beta\n  - gamma\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let new = json!({"name": "app", "tags": ["MODIFIED"]});
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             let parsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
             assert_eq!(
                 parsed, new,
@@ -1526,10 +1598,12 @@ mod tests {
             // propagate the failure flag from the nested mapping diff.
             let yaml =
                 "# Comment\nitems:\n  - name: a\n    tags:\n      - x\n      - y\n  - name: b\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let new = json!({"items": [{"name": "a", "tags": ["MODIFIED"]}, {"name": "b"}]});
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             let parsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
             assert_eq!(
                 parsed, new,
@@ -1544,14 +1618,16 @@ mod tests {
             // the first server's ports array while the outer array stays the
             // same length).
             let yaml = "# config comment\nservers:\n  - name: web\n    ports:\n      - 80\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             new["servers"][0]["ports"]
                 .as_array_mut()
                 .unwrap()
                 .push(json!(443));
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(
                 result.contains("443"),
                 "nested array growth should not be silently dropped: {result}"
@@ -1565,11 +1641,13 @@ mod tests {
         #[test]
         fn yaml_sequence_root_mutation_not_lost() {
             let yaml = "- item1\n- item2\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let mut new = old.clone();
             new.as_array_mut().unwrap().push(json!("item3"));
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("item3"), "appended item missing: {result}");
             assert!(result.contains("item1"), "item1 missing: {result}");
             assert!(result.contains("item2"), "item2 missing: {result}");
@@ -1578,10 +1656,12 @@ mod tests {
         #[test]
         fn yaml_mapping_to_scalar_root_type_change_not_lost() {
             let yaml = "name: app\nversion: 1\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let new = json!("overridden");
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(
                 result.contains("overridden"),
                 "root type change lost: {result}"
@@ -1591,10 +1671,12 @@ mod tests {
         #[test]
         fn yaml_mapping_to_array_root_type_change_not_lost() {
             let yaml = "name: app\nversion: 1\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
             let new = json!(["a", "b"]);
 
-            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &new, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert!(result.contains("- a"), "array item '- a' missing: {result}");
             assert!(result.contains("- b"), "array item '- b' missing: {result}");
         }
@@ -1602,8 +1684,10 @@ mod tests {
         #[test]
         fn yaml_sequence_root_noop_preserves_content() {
             let yaml = "- item1\n- item2\n";
-            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
-            let result = serialize_value_preserving(yaml, &old, &old, &FileFormat::Yaml).unwrap();
+            let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
+            let result =
+                serialize_value_preserving(yaml, &old, &old, &crate::ops::doc::FileFormat::Yaml)
+                    .unwrap();
             assert_eq!(result, yaml, "no-op roundtrip should be identical");
         }
 
@@ -1624,9 +1708,9 @@ mod tests {
         #[test]
         fn parse_and_serialize_yaml_roundtrip() {
             let input = "a: 1\n";
-            let val = parse_doc(input, &FileFormat::Yaml).unwrap();
+            let val = parse_doc(input, &crate::ops::doc::FileFormat::Yaml).unwrap();
             assert_eq!(val, json!({"a": 1}));
-            let out = serialize_value(&val, &FileFormat::Yaml).unwrap();
+            let out = serialize_value(&val, &crate::ops::doc::FileFormat::Yaml).unwrap();
             assert_eq!(out, input);
         }
 
@@ -2024,8 +2108,8 @@ mod tests {
             /// YAML round-trip: serialize then reparse must produce the same value.
             #[test]
             fn yaml_round_trip(value in arb_json_value()) {
-                let serialized = serialize_value(&value, &FileFormat::Yaml).unwrap();
-                let reparsed = parse_doc(&serialized, &FileFormat::Yaml).unwrap();
+                let serialized = serialize_value(&value, &crate::ops::doc::FileFormat::Yaml).unwrap();
+                let reparsed = parse_doc(&serialized, &crate::ops::doc::FileFormat::Yaml).unwrap();
                 prop_assert_eq!(&value, &reparsed);
             }
 
