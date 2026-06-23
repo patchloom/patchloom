@@ -145,7 +145,6 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
 pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -> Option<String> {
     let (tree, _) = parse_source(source, Language::Rust)?;
     let root = tree.root_node();
-    let mut cursor = root.walk();
 
     // Find function_item whose identifier matches
     fn find_fn<'a>(
@@ -171,7 +170,7 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
     let fn_node = find_fn(root, source, old_name)?;
 
     // Signature is from start of node to start of body (or end if no body, e.g. decl)
-    let sig_end = if let Some(body) = child_text_by_kind(fn_node, "body", source) {
+    let sig_end = if let Some(_body) = child_text_by_kind(fn_node, "body", source) {
         // body starts after sig; find byte offset of body in source? Use node children.
         // Simpler: find the '{' or ';' position after params/return.
         let mut end_byte = fn_node.end_byte();
