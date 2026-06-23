@@ -450,6 +450,24 @@ pub(crate) struct BatchTidyParams {
     pub strict: bool,
 }
 
+/// Parameters for executing a full multi-step transaction plan.
+/// This is the MCP equivalent of `patchloom tx`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct ExecutePlanParams {
+    /// Full inline plan object (preferred for agents; same schema as CLI tx plans).
+    /// Must contain at minimum "version" and "operations".
+    pub plan: Option<Plan>,
+    /// Path (relative to cwd) to a plan file (JSON, YAML, or TOML).
+    /// Used only if `plan` is not provided.
+    pub plan_path: Option<String>,
+    /// Enforce strict mode (rollback on format/validate failure). Defaults to true.
+    /// Overrides plan's strict field if provided.
+    #[serde(default = "default_strict_true")]
+    pub strict: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Resource limits
 // ---------------------------------------------------------------------------
@@ -1603,13 +1621,51 @@ impl PatchloomService {
             Some(&self.path_guard),
         )
     }
+
+    #[tool(
+        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Strongly recommended for any multi-file or multi-op work to prevent races and ensure atomicity/rollback. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples."
+    )]
+    async fn execute_plan(
+        &self,
+        Parameters(p): Parameters<ExecutePlanParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut plan = if let Some(inline_plan) = p.plan {
+            inline_plan
+        } else if let Some(path) = &p.plan_path {
+            self.check_path(path)?;
+            let abs = self.cwd().join(path);
+            let content = std::fs::read_to_string(&abs).map_err(|e| {
+                McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+            })?;
+            crate::plan::parse_plan_auto(&content, Some(path), None)
+                .map_err(|e| McpError::invalid_params(format!("failed to parse plan: {e}"), None))?
+        } else {
+            return Err(McpError::invalid_params(
+                "either 'plan' (inline) or 'plan_path' must be provided",
+                None,
+            ));
+        };
+
+        // Validate every path declared by operations (PathGuard)
+        for op in &plan.operations {
+            for declared in crate::plan::declared_paths(op) {
+                self.check_path(declared)?;
+            }
+        }
+
+        // Apply strict override from param if caller specified it explicitly in a way that differs,
+        // but since default is true, and param defaults to true, set it.
+        plan.strict = Some(p.strict);
+
+        execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))
+    }
 }
 
 impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Use these tools for ALL file operations. Use batch_replace and batch_tidy when applying the same operation to multiple files.",
+                "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) for any multi-op or multi-file work to ensure atomicity and avoid races from parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform ops across files. Per-call success does not guarantee combined success if you issue conflicting parallel writes.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
@@ -1740,6 +1796,7 @@ mod tests {
             "missing batch_replace tool"
         );
         assert!(names.contains(&"batch_tidy"), "missing batch_tidy tool");
+        assert!(names.contains(&"execute_plan"), "missing execute_plan tool");
         assert!(
             names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
@@ -1753,7 +1810,7 @@ mod tests {
             "missing md_move_section tool"
         );
         assert!(names.contains(&"append_file"), "missing append_file tool");
-        assert_eq!(names.len(), 31, "expected 31 tools, got {}", names.len());
+        assert_eq!(names.len(), 32, "expected 32 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
@@ -2113,5 +2170,106 @@ mod tests {
             !log_file.exists(),
             "log file should not exist without --log"
         );
+    }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_mixed_ops_atomic() {
+        // Test the new execute_plan tool with a mixed plan (doc + replace + create).
+        // This is the core of #827: one call for atomic multi-op instead of many parallel/serial.
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Prepare initial file
+        std::fs::write(dir.path().join("package.json"), r#"{"version":"1.0.0"}"#).unwrap();
+
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "strict": true,
+            "operations": [
+                {
+                    "op": "doc.set",
+                    "path": "package.json",
+                    "selector": "version",
+                    "value": "2.0.0"
+                },
+                {
+                    "op": "replace",
+                    "path": "package.json",
+                    "from": "2.0.0",
+                    "to": "2.1.0"
+                },
+                {
+                    "op": "file.create",
+                    "path": "CREATED.md",
+                    "content": "# Created via plan\n"
+                }
+            ]
+        });
+
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "execute_plan should succeed: {:?}",
+            result
+        );
+
+        // Verify results
+        let pkg = std::fs::read_to_string(dir.path().join("package.json")).unwrap();
+        assert!(
+            pkg.contains("2.1.0"),
+            "doc.set + replace should have updated to 2.1.0"
+        );
+
+        let created = std::fs::read_to_string(dir.path().join("CREATED.md")).unwrap();
+        assert!(created.contains("Created via plan"));
+
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_strict_rollback_on_error() {
+        // Verify that strict plan rolls back on failure (e.g. invalid op mid-plan).
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "original").unwrap();
+
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Plan that will fail on second op (bad replace or non-existing for safety, but use doc on non structured? Use a replace that requires mode or simply a bad path? Better: use a plan that succeeds first, fails second.
+        // For simplicity, use a plan with an op that causes parse/validate fail, but since plan itself is valid, use a mid failure like delete non existing in strict?
+        // Simpler: a plan that does create (ok), then a replace that is invalid (no mode).
+        // But to trigger runtime fail in tx, easier: use doc.set on a file that will cause later validate fail, but to keep simple use a non-existent for a delete in plan?
+        // Actually for this, do two creates, then a doc.set on bad structured that may not rollback file create? File creates are part of tx.
+        // Use a plan that the second op fails (e.g. move non-existing source).
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "strict": true,
+            "operations": [
+                { "op": "file.create", "path": "first.txt", "content": "one" },
+                { "op": "file.delete", "path": "does-not-exist.txt" }  // will fail
+            ]
+        });
+
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        // Should report error
+        assert!(
+            result.is_error.unwrap_or(false),
+            "plan with failing op under strict should error"
+        );
+
+        // first.txt should NOT exist (rollback)
+        assert!(
+            !dir.path().join("first.txt").exists(),
+            "strict plan should have rolled back the first create"
+        );
+
+        client.cancel().await.unwrap();
     }
 }

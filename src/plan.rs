@@ -26,6 +26,7 @@ pub fn effective_strict(
 
 /// A transaction plan containing multiple operations to execute atomically.
 #[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct Plan {
     /// Schema version string. Validated against the supported version.
@@ -42,6 +43,7 @@ pub struct Plan {
 
 /// A format step to run after applying operations but before validation.
 #[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct FormatStep {
     pub cmd: String,
@@ -51,6 +53,7 @@ pub struct FormatStep {
 
 /// Write policy settings specified in the plan.
 #[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct PlanWritePolicy {
     pub ensure_final_newline: Option<bool>,
@@ -350,6 +353,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
 /// A validation step to run after applying operations.
 #[derive(Debug, Deserialize, Serialize)]
 #[non_exhaustive]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub struct ValidationStep {
     pub cmd: String,
     pub required: Option<bool>,

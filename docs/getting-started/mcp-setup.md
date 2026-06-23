@@ -107,6 +107,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `apply_patch` | Apply a unified diff |
 | `batch_replace` | Replace the same text across multiple files atomically |
 | `batch_tidy` | Fix whitespace in multiple files atomically |
+| `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits; equivalent to CLI `tx`). Supports inline plan or plan_path. |
 
 ## How MCP mode differs from CLI mode
 
@@ -117,6 +118,37 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | Path security | No restriction | Paths must stay within working directory |
 | Error format | stderr text | MCP error response with structured content |
 | Discovery | Agent reads AGENTS.md | Agent discovers tools via MCP protocol |
+
+## Multi-step plans and concurrency guidance (important for agents)
+
+For any work involving more than one edit (especially on the same file or related files), **prefer the `execute_plan` tool** over issuing many individual tools:
+
+- One `execute_plan` call = atomic execution of a mixed plan (doc.set + md.replace_section + create + replace + ...).
+- Plans support `strict: true` (default) for full rollback on format/validate failures.
+- Plans can include `write_policy`, `format` steps, `validate` steps — same as CLI `tx`.
+
+Example inline plan (JSON):
+
+```json
+{
+  "version": "1",
+  "strict": true,
+  "operations": [
+    { "op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0" },
+    { "op": "md.replace_section", "path": "AGENTS.md", "heading": "## Commands", "content": "Run make check.\n" },
+    { "op": "file.create", "path": "REPORT.md", "content": "# Summary\n" }
+  ]
+}
+```
+
+**Critical rules for agents (to avoid lost updates and races):**
+
+- Do **not** issue concurrent write tools against the same path(s) unless using `execute_plan`.
+- Serialize writes per path. Parallelize only across completely disjoint paths.
+- Per-call "ok" does **not** mean the combined result is coherent if you interleave writers yourself.
+- Use one `execute_plan` for any logical multi-edit task.
+
+These semantics are also documented in the tool instructions returned by the MCP server and in `patchloom agent-rules --mode mcp`.
 
 ## Debugging and logging
 
