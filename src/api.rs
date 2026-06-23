@@ -1261,6 +1261,49 @@ pub fn search(
     Ok(matches)
 }
 
+/// Search a single file with full `SearchOptions` support (context, regex, literal, etc).
+///
+/// Returns rich `SearchResult` entries (with column + context when requested).
+/// This is the recommended per-file primitive for library/agent hosts (#812).
+pub fn search_file(
+    path: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+) -> anyhow::Result<Vec<SearchResult>> {
+    let basic = search(path, pattern, opts.regex, opts.case_insensitive)?;
+    if basic.is_empty() {
+        return Ok(vec![]);
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let all_lines: Vec<&str> = content.lines().collect();
+    let c = opts.context.unwrap_or(0);
+    let display = path.to_path_buf();
+    let results = basic
+        .into_iter()
+        .map(|m| {
+            let i = m.line_number - 1;
+            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+            // column computation mirrors the dir impl
+            let column = if opts.regex || opts.case_insensitive {
+                // best effort; for literal we used basic search
+                m.line.find(pattern).map_or(1, |p| p + 1)
+            } else {
+                m.line.find(pattern).map_or(1, |p| p + 1)
+            };
+            SearchResult {
+                path: display.clone(),
+                line_number: m.line_number,
+                line: m.line,
+                column,
+                context_before,
+                context_after,
+            }
+        })
+        .collect();
+    Ok(results)
+}
+
 /// Options for full directory search (for library consumers).
 ///
 /// Supports customization for advanced ignore behavior (e.g. blineignore)
@@ -1300,8 +1343,10 @@ pub struct SearchResult {
     pub context_after: Vec<String>,
 }
 
-/// Helper to build context slices for a match line. DRY for search impls.
-fn build_context_lines(
+/// Helper to build context slices for a match line. DRY for search impls (library + CLI).
+///
+/// Exposed for downstreams that want consistent context extraction (#815).
+pub fn build_context_lines(
     all_lines: &[&str],
     match_idx: usize,
     ctx: usize,
@@ -1352,28 +1397,13 @@ pub fn search_directory(
         let glob_matcher = build_glob_matcher(&opts.globs)?;
         let glob_roots = vec![root.to_path_buf()];
 
-        // Use WalkBuilder directly so we can inject custom ignore files (e.g. .blineignore)
-        // and exclude patterns. This is the thin adapter surface for library consumers.
-        let mut builder = ignore::WalkBuilder::new(root);
-        for name in &opts.custom_ignore_filenames {
-            builder.add_custom_ignore_filename(name);
-        }
-        let mut file_paths: Vec<PathBuf> = builder
-            .build()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-            .map(|e| e.into_path())
-            .collect();
-
-        // Apply additional exclude patterns (gitignore-style globs)
-        if !opts.exclude_patterns.is_empty() {
-            let mut exb = globset::GlobSetBuilder::new();
-            for pat in &opts.exclude_patterns {
-                exb.add(globset::Glob::new(pat)?);
-            }
-            let ex = exb.build()?;
-            file_paths.retain(|p| !ex.is_match(p));
-        }
+        // Delegate to shared helper for identical multi-source ignore precedence (#813).
+        let file_paths = crate::files::collect_file_paths_with_ignores(
+            root,
+            &opts.custom_ignore_filenames,
+            &opts.exclude_patterns,
+            false, // search typically does not traverse hidden unless requested via other means
+        )?;
 
         let limit = if opts.max_results > 0 {
             opts.max_results
@@ -1428,7 +1458,9 @@ pub fn search_directory(
                 .collect();
             Ok(results)
         } else {
-            bail!("directory search requires the 'files' feature to be enabled");
+            bail!(
+                "search_directory requires the 'files' feature to be enabled (for pure-library recursive search with ignores/parallelism)"
+            );
         }
     }
 }
@@ -1492,6 +1524,44 @@ fn search_one_file_for_api(
     results
 }
 
+/// Format `SearchResult`s for display (human text or JSON).
+///
+/// Library / agent hosts can use this for consistent output with CLI search (#812).
+pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    if as_json {
+        let payload: Vec<_> = results
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "path": r.path,
+                    "line": r.line_number,
+                    "text": r.line,
+                    "column": r.column,
+                    "context_before": r.context_before,
+                    "context_after": r.context_after,
+                })
+            })
+            .collect();
+        if let Ok(s) = serde_json::to_string_pretty(&payload) {
+            out = s;
+            out.push('\n');
+        }
+    } else {
+        for r in results {
+            let _ = writeln!(out, "{}:{}: {}", r.path.display(), r.line_number, r.line);
+            for ctx in &r.context_before {
+                let _ = writeln!(out, "  {}", ctx);
+            }
+            for ctx in &r.context_after {
+                let _ = writeln!(out, "  {}", ctx);
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Read operations
 // ---------------------------------------------------------------------------
@@ -1544,8 +1614,9 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// internal report struct):
 ///
 /// ```ignore
-/// let (code, json) = execute_plan(plan, cwd, guard)?;
-/// let report: PlanReport = serde_json::from_str(&json)?;
+/// let report: PlanReport = execute_plan(plan, cwd, guard)?;
+/// assert!(report.ok);
+/// // report.changes, report.searches etc are typed
 /// ```
 ///
 /// The optional `guard` is threaded through to all operations for
@@ -1556,11 +1627,12 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// Available with the `files` feature (for pure library use without the
 /// CLI) or the `cli` feature.
 #[cfg(any(feature = "cli", feature = "files"))]
+#[allow(clippy::result_large_err)]
 pub fn execute_plan(
     plan: crate::plan::Plan,
     cwd: &Path,
     guard: Option<&PathGuard>,
-) -> anyhow::Result<(u8, String)> {
+) -> anyhow::Result<PlanReport> {
     crate::tx::execute_plan_direct(plan, cwd, guard)
 }
 
@@ -2079,11 +2151,10 @@ mod tests {
             }"#;
 
         let plan = parse_plan(plan_json).unwrap();
-        let (code, json) = execute_plan(plan, dir.path(), None).unwrap();
-        // execute_plan_direct applies changes and returns SUCCESS.
-        assert_eq!(code, crate::exit::SUCCESS);
-        // Verify typed PlanReport deserialization (richer result for library users).
-        let report: crate::api::PlanReport = serde_json::from_str(&json).unwrap();
+        let report: crate::api::PlanReport = execute_plan(plan, dir.path(), None).unwrap();
+        // execute_plan now returns typed PlanReport directly for library users (#811).
+        assert!(report.ok);
+        assert_eq!(report.status, "success");
         assert!(report.ok);
         assert!(!report.changes.is_empty()); // net file changes from the plan ops
         assert!(
@@ -2126,8 +2197,8 @@ mod tests {
         );
 
         let plan = parse_plan(&plan_json).unwrap();
-        let (code, _output) = execute_plan(plan, dir.path(), Some(&guard)).unwrap();
-        assert_eq!(code, crate::exit::SUCCESS);
+        let report = execute_plan(plan, dir.path(), Some(&guard)).unwrap();
+        assert!(report.ok);
         let on_disk = fs::read_to_string(&file).unwrap();
         assert!(on_disk.contains("new"));
     }

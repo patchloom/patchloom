@@ -2024,6 +2024,7 @@ fn legacy_error_prefix(error_kind: &str) -> &str {
 }
 
 /// Build a JSON error string without writing to stdout.
+#[allow(dead_code)]
 fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
     make_error_json_with_prefix(
         error_kind,
@@ -2034,6 +2035,7 @@ fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
+#[allow(dead_code)]
 fn make_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &str,
@@ -2055,35 +2057,32 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
         .unwrap_or(None)
 }
 
-/// Execute a parsed [`Plan`] directly and return the exit code and JSON
-/// result string. Does **not** write to stdout or stderr.
+/// Execute a parsed [`Plan`] directly and return the structured `TxOutput` (PlanReport).
+/// Does **not** write to stdout or stderr.
 ///
-/// This is the in-process equivalent of spawning
-/// `patchloom --json tx <plan-file> --apply` and capturing its output.
-/// The MCP server and library API call this to avoid subprocess overhead.
-/// Validate a plan and resolve its effective working directory, strictness, and
-/// config-derived global flags. Returns `Err` with `(exit_code, json)` on
-/// validation failure so callers can propagate early.
+/// This is the in-process equivalent used by the library API (`api::execute_plan`)
+/// and (via serialization) by the CLI tx command and MCP.
+/// Library users get a typed `PlanReport` directly (addresses #811).
+#[allow(clippy::result_large_err)]
 pub(crate) fn validate_and_prepare_plan(
     plan: &Plan,
     cwd: &Path,
     no_strict: bool,
-) -> Result<(PathBuf, bool, GlobalFlags), (u8, String)> {
+) -> Result<(PathBuf, bool, GlobalFlags), TxOutput> {
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
             "unsupported plan version '{}' (this build supports version {})",
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
-        return Err((
-            exit::PARSE_ERROR,
-            make_error_json("parse_error", &msg, None),
-        ));
+        return Err(build_error_output("parse_error", "parse_error", &msg, None));
     }
     if let Err(e) = validate_plan_operations(plan) {
-        return Err((
-            exit::PARSE_ERROR,
-            make_error_json("parse_error", &e.to_string(), None),
+        return Err(build_error_output(
+            "parse_error",
+            "parse_error",
+            &e.to_string(),
+            None,
         ));
     }
 
@@ -2102,11 +2101,12 @@ pub(crate) fn validate_and_prepare_plan(
     Ok((effective_cwd, strict, global))
 }
 
+#[allow(clippy::result_large_err)]
 pub fn execute_plan_direct(
     plan: Plan,
     cwd: &Path,
     guard: Option<&crate::containment::PathGuard>,
-) -> anyhow::Result<(u8, String)> {
+) -> anyhow::Result<TxOutput> {
     crate::verbose!(
         "tx: direct plan execution ({} ops, cwd={}, guard={})",
         plan.operations.len(),
@@ -2116,7 +2116,7 @@ pub fn execute_plan_direct(
 
     let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
         Ok(v) => v,
-        Err((code, json)) => return Ok((code, json)),
+        Err(output) => return Ok(output),
     };
 
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
@@ -2135,26 +2135,28 @@ pub fn execute_plan_direct(
     let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
-            return Ok((
-                exit::OPERATION_FAILED,
-                make_error_json("operation_failed", &e.to_string(), None),
+            return Ok(build_error_output(
+                "operation_failed",
+                "operation_failed",
+                &e.to_string(),
+                None,
             ));
         }
     };
 
     if result.replace_no_matches {
-        let hint_json = result
-            .replace_hint
-            .as_deref()
-            .map(|h| make_error_json("no_matches", h, None))
-            .unwrap_or_default();
-        return Ok((exit::NO_MATCHES, hint_json));
+        let output = build_error_output(
+            "no_matches",
+            "no_matches",
+            result.replace_hint.as_deref().unwrap_or(""),
+            None,
+        );
+        return Ok(output);
     }
 
     if result.no_effective_changes {
         let output = build_full_tx_output("success", &mut result, &effective_cwd);
-        let json = serde_json::to_string_pretty(&output)?;
-        return Ok((exit::SUCCESS, json));
+        return Ok(output);
     }
 
     // Apply: back up originals, write files.
@@ -2169,20 +2171,13 @@ pub fn execute_plan_direct(
         } else {
             "rollback_failed"
         };
-        let exit_code = if err.rollback_ok {
-            exit::ROLLBACK
-        } else {
-            exit::FAILURE
-        };
-        return Ok((
-            exit_code,
-            make_error_json_with_prefix(
-                error_kind,
-                error_kind,
-                &err.message,
-                err.backup_session.as_deref(),
-            ),
-        ));
+        let output = build_error_output(
+            error_kind,
+            error_kind,
+            &err.message,
+            err.backup_session.as_deref(),
+        );
+        return Ok(output);
     }
 
     // Run format steps, then validation steps.
@@ -2195,20 +2190,34 @@ pub fn execute_plan_direct(
                 &result.existed_before,
             );
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
-            return Ok((
-                exit::ROLLBACK,
-                make_error_json_with_prefix(err.kind, "rollback", &msg, None),
-            ));
+            return Ok(build_error_output(err.kind, "rollback", &msg, None));
         }
-        return Ok((
-            exit::VALIDATION_FAILED,
-            make_error_json(err.kind, &err.message, None),
-        ));
+        return Ok(build_error_output(err.kind, err.kind, &err.message, None));
     }
 
     let output = build_full_tx_output("success", &mut result, &effective_cwd);
-    let json = serde_json::to_string_pretty(&output)?;
-    Ok((exit::SUCCESS, json))
+    Ok(output)
+}
+
+/// Map a `TxOutput` (PlanReport) to the traditional exit code for CLI/MCP compat.
+pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
+    if report.ok {
+        if report.status == "no_matches" {
+            exit::NO_MATCHES
+        } else {
+            exit::SUCCESS
+        }
+    } else {
+        match report.error_kind.as_deref() {
+            Some("no_matches") => exit::NO_MATCHES,
+            Some("parse_error") => exit::PARSE_ERROR,
+            Some("rollback") => exit::ROLLBACK,
+            Some("rollback_failed") => exit::FAILURE, // preserve historical CLI exit for this case
+            Some("validation_failed") | Some("format_failed") => exit::VALIDATION_FAILED,
+            Some("operation_failed") => exit::OPERATION_FAILED,
+            _ => exit::FAILURE,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

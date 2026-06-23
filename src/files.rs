@@ -401,6 +401,43 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
     Ok(paths)
 }
 
+/// Collect files while respecting .gitignore + custom ignore files (e.g. .blineignore)
+/// + additional exclude globs.
+///
+/// This is the reusable primitive for library consumers
+/// who want the same precedence as `api::search_directory` (#813).
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn collect_file_paths_with_ignores(
+    root: &Path,
+    custom_ignore_filenames: &[String],
+    exclude_patterns: &[String],
+    include_hidden: bool,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let mut builder = WalkBuilder::new(root);
+    if include_hidden {
+        builder.hidden(false);
+    }
+    for name in custom_ignore_filenames {
+        builder.add_custom_ignore_filename(name);
+    }
+    let mut paths: Vec<PathBuf> = builder
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
+        .map(|e| e.into_path())
+        .collect();
+
+    if !exclude_patterns.is_empty() {
+        let mut exb = globset::GlobSetBuilder::new();
+        for pat in exclude_patterns {
+            exb.add(globset::Glob::new(pat)?);
+        }
+        let ex = exb.build()?;
+        paths.retain(|p| !ex.is_match(p));
+    }
+    Ok(paths)
+}
+
 /// Process file paths using adaptive parallelism via `std::thread::scope`.
 ///
 /// Files are split into chunks (one per available core). The calling thread

@@ -1746,7 +1746,11 @@ pub fn execute_plan_direct(
 ) -> anyhow::Result<(u8, String)> {
     // Delegate to the extracted library tx module (enables "files" pure-library use without dup).
     // CLI run and formatting remain in this module for command surface.
-    crate::tx::execute_plan_direct(plan, cwd, guard)
+    // For CLI we serialize the rich report (library users get the typed PlanReport directly via api).
+    let report = crate::tx::execute_plan_direct(plan, cwd, guard)?;
+    let code = crate::tx::exit_code_from_tx_output(&report);
+    let json = serde_json::to_string_pretty(&report)?;
+    Ok((code, json))
 }
 
 // ---------------------------------------------------------------------------
@@ -1798,9 +1802,19 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, strict, _resolved_global) =
         match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
             Ok(v) => v,
-            Err((code, msg)) => {
+            Err(output) => {
+                let code = if output.error_kind.as_deref() == Some("parse_error") {
+                    exit::PARSE_ERROR
+                } else {
+                    exit::FAILURE
+                };
+                let msg = output
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "plan validation failed".to_string());
+                let bs = output.backup_session.clone();
                 if structured {
-                    emit_error_json("parse_error", &msg, None, compact);
+                    emit_error_json("parse_error", &msg, bs.as_deref(), compact);
                 } else {
                     eprintln!("tx: {msg}");
                 }
