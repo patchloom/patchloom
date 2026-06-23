@@ -1,20 +1,14 @@
-use crate::cli::global::{EolMode, GlobalFlags};
+use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 
 use crate::ops::replace::{ReplaceModeError, validate_replace_mode};
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
-use crate::tx::{
-    CachedDoc, CommitError, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult,
-    TxSearchMatch, TxSearchResult, TxState,
-};
-use crate::write::{WritePolicy, run_format_command};
+use crate::tx::{CommitError, TxChange, TxExecResult, TxOutput};
+use crate::write::run_format_command;
 
 use clap::Args;
-use globset::Glob;
-use ignore::WalkBuilder;
-use regex::RegexBuilder;
 
 use std::collections::HashSet;
 
@@ -150,28 +144,6 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
     selector::parse_anyhow(input)
 }
-
-// ---------------------------------------------------------------------------
-// Write policy
-// ---------------------------------------------------------------------------
-
-fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
-    match mode {
-        "lf" => Ok(EolMode::Lf),
-        "crlf" => Ok(EolMode::Crlf),
-        "keep" => Ok(EolMode::Keep),
-        _ => {
-            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
-        }
-    }
-}
-
-/// Build the effective write policy for a pending file.
-///
-/// Start from the CLI-derived per-file defaults, including any EditorConfig
-/// values resolved by `policy_from_flags()`, then let plan-level `write_policy`
-/// entries override only the keys they set.
-
 
 // ---------------------------------------------------------------------------
 // Diff output helper
@@ -828,7 +800,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::replace::replacement_text;
+    use crate::write::WritePolicy;
+    use std::collections::{HashMap, HashSet};
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn shell_true() -> &'static str {
@@ -1634,7 +1610,7 @@ mod tests {
 
     #[test]
     fn plan_normalize_eol_invalid_value_returns_error() {
-        let result = super::plan_normalize_eol("bogus");
+        let result = crate::tx::plan_normalize_eol("bogus");
         assert!(result.is_err(), "invalid eol value should fail");
         let msg = result.unwrap_err().to_string();
         assert!(
@@ -1984,7 +1960,7 @@ mod tests {
 
     #[test]
     fn path_err_formats_flat_error_with_path_prefix() {
-        let err = super::path_err("config.toml")(anyhow::anyhow!("key not found"));
+        let err = crate::tx::path_err("config.toml")(anyhow::anyhow!("key not found"));
         let msg = err.to_string();
         assert_eq!(msg, "config.toml: key not found");
     }
