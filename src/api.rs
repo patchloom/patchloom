@@ -3207,10 +3207,12 @@ mod tests {
         fs::write(dir.path().join("skip.txt"), "skip\n").unwrap();
         fs::write(dir.path().join(".myignore"), "skip.txt\n").unwrap();
 
+        let custom_ignores = vec![".myignore".to_string()];
+        let exclude_patterns = vec!["*skip*".to_string()];
         let paths = crate::files::collect_file_paths_with_ignores(
             dir.path(),
-            &vec![".myignore".to_string()],
-            &vec!["*skip*".to_string()],
+            &custom_ignores,
+            &exclude_patterns,
             false,
         )
         .unwrap();
