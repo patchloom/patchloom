@@ -370,6 +370,18 @@ pub(crate) struct SearchParams {
     pub invert_match: bool,
     /// Assert that the total match count equals N. Returns exit code 0 if exact, 2 otherwise.
     pub assert_count: Option<usize>,
+    /// Glob include patterns (may be repeated). Supports parity with CLI --glob and library SearchOptions.
+    #[serde(default)]
+    pub globs: Vec<String>,
+    /// Exclude glob patterns (in addition to ignore files).
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+    /// Custom ignore filenames (e.g. .blineignore).
+    #[serde(default)]
+    pub custom_ignore_filenames: Vec<String>,
+    /// Max detailed results (0 = unlimited).
+    #[serde(default)]
+    pub max_results: usize,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -973,7 +985,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true}"
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
     )]
     async fn search_files(
         &self,
@@ -1013,11 +1025,14 @@ impl PatchloomService {
             multiline: p.multiline,
             case_insensitive: p.case_insensitive,
             assert_count: p.assert_count,
-            max_results: 0,
+            max_results: p.max_results,
         };
-        let global = GlobalFlags {
+        let mut global = GlobalFlags {
             json: true,
             cwd: Some(self.cwd().to_string_lossy().into_owned()),
+            glob: p.globs,
+            exclude: p.exclude_patterns,
+            ignore_file: p.custom_ignore_filenames,
             ..GlobalFlags::default()
         };
         let results = crate::cmd::search::collect_matches(&search_args, &global)
@@ -1687,7 +1702,7 @@ mod tests {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Returns matches with line numbers and context. Options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true}"
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
             ),
             "search_files description drifted"
         );
@@ -1735,6 +1750,23 @@ mod tests {
         assert!(names.contains(&"append_file"), "missing append_file tool");
         assert_eq!(names.len(), 31, "expected 31 tools, got {}", names.len());
         client.cancel().await.unwrap();
+    }
+
+    #[test]
+    fn mcp_search_params_accept_new_bline_ignore_fields() {
+        // Ensures schemars/serde accept the new fields added for #821 parity.
+        let json = r#"{
+            "pattern": "TODO",
+            "paths": ["src/"],
+            "globs": ["*.rs"],
+            "exclude_patterns": ["target/**"],
+            "custom_ignore_filenames": [".blineignore"],
+            "max_results": 10,
+            "literal": true
+        }"#;
+        let p: SearchParams = serde_json::from_str(json).expect("SearchParams deserial with new ignore/max fields");
+        assert_eq!(p.globs.len(), 1);
+        assert_eq!(p.max_results, 10);
     }
 
     #[tokio::test]
