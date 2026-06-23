@@ -62,8 +62,8 @@
 //! // Or via plan for atomic multi-op
 //! let plan_json = r#"{"version":1,"ops":[{"op":"file.append","path":"log.txt","content":"more\n"}]}"#;
 //! let plan = parse_plan(plan_json)?;
-//! let (code, json) = execute_plan(plan, Path::new("."), Some(&guard))?;
-//! assert_eq!(code, 0);
+//! let report = execute_plan(plan, Path::new("."), Some(&guard))?;
+//! assert!(report.ok);
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
@@ -73,9 +73,8 @@
 //! See `ast::symbols` docs.
 //!
 //! **Note on results**: Single-file ops return `EditResult` (with `action` and `dest_path` for cross-file).
-//! `execute_plan` returns the exit code + JSON (rich report with changes/reads/searches/errors).
-//! For typed results, deserialize the JSON or use the internal structures under `files`.
-//! See api::EditResult and the plan execution docs.
+//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) directly with `ok`, `changes`, `searches`, `reads`, `error` etc (#811).
+//! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
 //! ```rust,no_run
@@ -167,6 +166,7 @@ pub mod write;
 // Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
 pub use api::{
     ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
+    build_context_lines, format_search_results, search_file,
 };
 pub use plan::Plan;
 
