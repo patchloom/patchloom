@@ -31,9 +31,6 @@ use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
-const _LIBRARY_TX_DEAD_CODE_ALLOW: () = ();
-
 /// JSON output for the tx command.
 #[derive(Serialize)]
 struct TxOutput {
@@ -1571,6 +1568,7 @@ fn legacy_error_prefix(error_kind: &str) -> &str {
     }
 }
 
+#[allow(dead_code)]
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
@@ -1584,6 +1582,7 @@ fn emit_error_json_with_prefix(
     );
 }
 
+#[allow(dead_code)]
 fn emit_error_json(
     error_kind: &'static str,
     error: &str,
@@ -1616,6 +1615,7 @@ fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
@@ -2106,6 +2106,7 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
         .unwrap_or(None)
 }
 
+#[allow(dead_code)]
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {
         "rollback"
