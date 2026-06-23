@@ -153,12 +153,11 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
         source: &str,
         old_name: &str,
     ) -> Option<tree_sitter_lib::Node<'a>> {
-        if node.kind() == "function_item" {
-            if let Some(id) = child_text_by_kind(node, "identifier", source) {
-                if id == old_name {
-                    return Some(node);
-                }
-            }
+        if node.kind() == "function_item"
+            && let Some(id) = child_text_by_kind(node, "identifier", source)
+            && id == old_name
+        {
+            return Some(node);
         }
         let mut c = node.walk();
         for child in node.children(&mut c) {
