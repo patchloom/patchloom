@@ -31,73 +31,77 @@ use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
 
-/// JSON output for the tx command.
-#[derive(Serialize)]
-pub(crate) struct TxOutput {
-    pub(crate) ok: bool,
-    pub(crate) status: &'static str,
-    pub(crate) files_changed: usize,
-    pub(crate) files_created: usize,
-    pub(crate) files_deleted: usize,
-    pub(crate) changes: Vec<TxChange>,
+/// Structured report from `execute_plan` (and the `tx` command).
+///
+/// Library users can deserialize the JSON string returned by `execute_plan`
+/// into this type for typed access instead of string parsing.
+/// See #805 and the embedding docs.
+#[derive(Serialize, Debug, Clone)]
+pub struct TxOutput {
+    pub ok: bool,
+    pub status: &'static str,
+    pub files_changed: usize,
+    pub files_created: usize,
+    pub files_deleted: usize,
+    pub changes: Vec<TxChange>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) reads: Vec<TxReadResult>,
+    pub reads: Vec<TxReadResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) searches: Vec<TxSearchResult>,
+    pub searches: Vec<TxSearchResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) lints: Vec<TxLintResult>,
+    pub lints: Vec<TxLintResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) error_kind: Option<&'static str>,
+    pub error_kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) error: Option<String>,
+    pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) backup_session: Option<String>,
+    pub backup_session: Option<String>,
 }
 
-/// A single file change in the tx output.
-#[derive(Serialize)]
-pub(crate) struct TxChange {
-    pub(crate) path: String,
-    pub(crate) action: &'static str,
+/// A single file change in a plan/tx report.
+#[derive(Serialize, Debug, Clone)]
+pub struct TxChange {
+    pub path: String,
+    pub action: &'static str,
 }
 
 /// A search match in the tx output.
-#[derive(Serialize)]
-pub(crate) struct TxSearchMatch {
-    pub(crate) line: usize,
-    pub(crate) column: usize,
-    pub(crate) text: String,
+#[derive(Serialize, Debug, Clone)]
+pub struct TxSearchMatch {
+    pub line: usize,
+    pub column: usize,
+    pub text: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) context_before: Vec<String>,
+    pub context_before: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) context_after: Vec<String>,
+    pub context_after: Vec<String>,
 }
 
 /// A search result in the tx output.
-#[derive(Serialize)]
-pub(crate) struct TxSearchResult {
-    pub(crate) path: String,
-    pub(crate) pattern: String,
-    pub(crate) match_count: usize,
-    pub(crate) matches: Vec<TxSearchMatch>,
+#[derive(Serialize, Debug, Clone)]
+pub struct TxSearchResult {
+    pub path: String,
+    pub pattern: String,
+    pub match_count: usize,
+    pub matches: Vec<TxSearchMatch>,
 }
 
 /// A file read result in the tx output.
-#[derive(Serialize)]
-pub(crate) struct TxReadResult {
-    pub(crate) path: String,
-    pub(crate) content: String,
-    pub(crate) start_line: usize,
-    pub(crate) end_line: usize,
-    pub(crate) total_lines: usize,
+#[derive(Serialize, Debug, Clone)]
+pub struct TxReadResult {
+    pub path: String,
+    pub content: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub total_lines: usize,
 }
 
 /// A lint result in the tx output.
-#[derive(Serialize)]
-pub(crate) struct TxLintResult {
-    pub(crate) path: String,
-    pub(crate) issue_count: usize,
-    pub(crate) issues: Vec<crate::ops::md::LintIssue>,
+#[derive(Serialize, Debug, Clone)]
+pub struct TxLintResult {
+    pub path: String,
+    pub issue_count: usize,
+    pub issues: Vec<crate::ops::md::LintIssue>,
 }
 
 #[cfg(feature = "cli")]

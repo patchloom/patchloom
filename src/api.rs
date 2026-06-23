@@ -88,6 +88,11 @@ use crate::ops;
 use crate::selector;
 use crate::write::{WritePolicy, atomic_create_new, atomic_write};
 
+#[cfg(any(feature = "cli", feature = "files"))]
+pub use crate::tx::{
+    TxChange, TxLintResult, TxOutput as PlanReport, TxReadResult, TxSearchMatch, TxSearchResult,
+};
+
 /// The result of an editing operation.
 #[derive(Debug, Clone)]
 pub struct EditResult {
@@ -1534,6 +1539,14 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 ///
 /// All operations succeed or all are rolled back. Returns the exit code
 /// and a JSON string with the operation results.
+///
+/// For typed access, deserialize the JSON into `PlanReport` (re-export of the
+/// internal report struct):
+///
+/// ```ignore
+/// let (code, json) = execute_plan(plan, cwd, guard)?;
+/// let report: PlanReport = serde_json::from_str(&json)?;
+/// ```
 ///
 /// The optional `guard` is threaded through to all operations for
 /// PathGuard enforcement (see module docs for PathGuard usage). Pass

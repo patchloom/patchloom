@@ -21,13 +21,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.3", default-features = false }
+//! patchloom = { version = "0.4", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.3", default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.4", default-features = false, features = ["ast"] }
 //! ```
 //!
 //! This gives you the [`api`] module (primary editing interface), [`ops`],
@@ -41,8 +41,10 @@
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
-//! For advanced filters (e.g. .blineignore on top of .gitignore), layer your own
-//! filter over files::collect_file_paths + search, or use the walker directly.
+//! For advanced search ignore (e.g. .blineignore on top of .gitignore):
+//! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`.
+//! Or layer manually over `files::collect_file_paths` + your matcher + `par_process_files`.
+//! See `api::SearchOptions` docs.
 //!
 //! Example (pure library with plans):
 //! ```rust,ignore
@@ -64,6 +66,16 @@
 //! assert_eq!(code, 0);
 //! # Ok::<(), anyhow::Error>(())
 //! ```
+//!
+//! For AST signature edits (replacing line-scan heuristics):
+//! Use `ast::symbols::rewrite_function_signature` with `FunctionSigEdit` for structured
+//! changes to visibility, parameters, return type (Rust).
+//! See `ast::symbols` docs.
+//!
+//! **Note on results**: Single-file ops return `EditResult` (with `action` and `dest_path` for cross-file).
+//! `execute_plan` returns the exit code + JSON (rich report with changes/reads/searches/errors).
+//! For typed results, deserialize the JSON or use the internal structures under `files`.
+//! See api::EditResult and the plan execution docs.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
 //! ```rust,no_run

@@ -425,7 +425,7 @@ pub(crate) fn has_dangerous_git_add_dot(line: &str) -> bool {
 }
 
 /// A lint issue found in a markdown file.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LintIssue {
     /// Description of the issue.
     pub issue: &'static str,
