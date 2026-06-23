@@ -3,11 +3,8 @@ use crate::cli::global::GlobalFlags;
 #[cfg(any(feature = "cli", feature = "files"))]
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
-use ignore::{WalkBuilder, WalkState};
-#[cfg(any(feature = "cli", feature = "files"))]
-use std::path::Path;
-#[cfg(any(feature = "cli", feature = "files"))]
-use std::path::PathBuf;
+use ignore::WalkBuilder;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "cli")]
 use std::sync::Mutex;
 
@@ -23,6 +20,7 @@ pub fn relative_display<'a>(path: &'a Path, base: &Path) -> &'a Path {
 
 /// Check if a string contains common regex metacharacters that suggest
 /// the user intended a regex pattern but forgot `--regex` (or used `--literal`).
+#[allow(dead_code)]
 pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
     s.contains('\\')
         || s.contains('[')

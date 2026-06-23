@@ -173,6 +173,7 @@ pub fn is_verbose() -> bool {
 }
 
 /// Enable verbose mode globally. Called once at startup.
+#[allow(dead_code)]
 fn enable_verbose() {
     VERBOSE.store(true, std::sync::atomic::Ordering::Relaxed);
 }

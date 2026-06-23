@@ -1,14 +1,17 @@
 /// Exit codes for patchloom.
 pub const SUCCESS: u8 = 0;
 pub const FAILURE: u8 = 1;
+#[allow(dead_code)]
 pub const CHANGES_DETECTED: u8 = 2;
 pub const NO_MATCHES: u8 = 3;
 pub const PARSE_ERROR: u8 = 4;
 /// Tx operation staging failure (`error_kind`: `operation_failed`).
 pub const OPERATION_FAILED: u8 = 9;
+#[allow(dead_code)]
 pub const AMBIGUOUS: u8 = 5;
 pub const VALIDATION_FAILED: u8 = 6;
 pub const ROLLBACK: u8 = 7;
+#[allow(dead_code)]
 pub const CONFLICTS: u8 = 8;
 
 #[cfg(test)]
