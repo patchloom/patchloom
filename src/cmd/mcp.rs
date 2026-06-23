@@ -749,10 +749,6 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
     exit_code_to_result(code, &output, "No results.")
 }
 
-fn make_plan(operations: Vec<Operation>) -> Plan {
-    make_plan_strict(operations, None)
-}
-
 fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
     Plan {
         version: crate::plan::SCHEMA_VERSION.to_string(),
@@ -1157,13 +1153,12 @@ impl PatchloomService {
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        execute_plan_validated(
-            make_plan(vec![Operation::Read {
+        self.run_ops(
+            vec![Operation::Read {
                 path: p.path,
                 lines: p.lines,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1395,16 +1390,15 @@ impl PatchloomService {
                 None,
             ));
         }
-        execute_plan_validated(
-            make_plan(vec![Operation::MdMoveSection {
+        self.run_ops(
+            vec![Operation::MdMoveSection {
                 path: p.path,
                 heading: p.heading,
                 to: p.to,
                 before: p.before,
                 after: p.after,
-            }]),
-            self.cwd(),
-            Some(&self.path_guard),
+            }],
+            None,
         )
     }
 
@@ -1539,18 +1533,12 @@ impl PatchloomService {
             self.check_path(&pf.path)?;
         }
 
-        execute_plan_validated(
-            make_plan_strict(
-                vec![Operation::PatchApply {
-                    diff: p.diff,
-                    on_stale: p.on_stale,
-                    allow_conflicts: p.allow_conflicts,
-                }],
-                Some(p.strict),
-            ),
-            self.cwd(),
-            Some(&self.path_guard),
-        )
+        let op = Operation::PatchApply {
+            diff: p.diff,
+            on_stale: p.on_stale,
+            allow_conflicts: p.allow_conflicts,
+        };
+        self.run_ops(vec![op], Some(p.strict))
     }
 
     #[tool(
@@ -1599,11 +1587,7 @@ impl PatchloomService {
                 after_context: None,
             })
             .collect();
-        execute_plan_validated(
-            make_plan_strict(ops, Some(p.strict)),
-            self.cwd(),
-            Some(&self.path_guard),
-        )
+        self.run_ops(ops, Some(p.strict))
     }
 
     #[tool(
@@ -1633,11 +1617,7 @@ impl PatchloomService {
                 normalize_eol: None,
             })
             .collect();
-        execute_plan_validated(
-            make_plan_strict(ops, Some(p.strict)),
-            self.cwd(),
-            Some(&self.path_guard),
-        )
+        self.run_ops(ops, Some(p.strict))
     }
 
     #[tool(
