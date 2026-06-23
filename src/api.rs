@@ -1914,6 +1914,30 @@ mod tests {
     }
 
     #[test]
+    fn file_append_with_guard_and_preview() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("log.txt");
+        fs::write(&file, "start\n").unwrap();
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+
+        // Preview
+        let result = file_append(&file, "more\n", ApplyMode::Preview, Some(&guard)).unwrap();
+        assert!(result.changed);
+        assert!(!result.applied);
+        assert!(result.diff.contains("+more"));
+
+        // Apply
+        let result = file_append(&file, "more\n", ApplyMode::Apply, Some(&guard)).unwrap();
+        assert!(result.applied);
+        assert_eq!(fs::read_to_string(&file).unwrap(), "start\nmore\n");
+    }
+
+    #[test]
     fn yaml_doc_set_preserves_comments() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("config.yaml");
