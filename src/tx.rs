@@ -167,7 +167,7 @@ fn op_label(op: &Operation) -> &'static str {
     }
 }
 
-fn validate_operation(op: &Operation) -> anyhow::Result<()> {
+pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
             from,
@@ -256,7 +256,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     }
 }
 
-fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
+pub(crate) fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     for op in &plan.operations {
         validate_operation(op)?;
     }
@@ -401,7 +401,7 @@ fn apply_md_heading_op(
 ///
 /// This replaces 27 identical `.map_err(path_err(path))` calls
 /// throughout `execute_operation` and `get_doc_root`.
-fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> anyhow::Error + '_ {
+pub(crate) fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> anyhow::Error + '_ {
     move |e| anyhow::anyhow!("{path}: {e}")
 }
 
@@ -1445,7 +1445,7 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 // Write policy
 // ---------------------------------------------------------------------------
 
-fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
+pub(crate) fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
     match mode {
         "lf" => Ok(EolMode::Lf),
         "crlf" => Ok(EolMode::Crlf),
