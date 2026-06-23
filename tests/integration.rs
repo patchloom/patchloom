@@ -3803,6 +3803,11 @@ fn test_tx_mid_commit_failure_rolls_back() {
 /// End-to-end tx path when mid-commit restore cannot complete (exit 1,
 /// `rollback_failed`). Uses [`patchloom::cmd::tx::RestoreFailGuard`] because
 /// racing filesystem permissions against restore is unreliable.
+///
+/// This test is unrelated to library embedding (#792); it exists to cover
+/// internal tx rollback error paths. The "z_blocker" / "a_good" naming
+/// ensures a successful write precedes the failing one (lexical sort),
+/// making the restore-fail case reliably hit across platforms / temp dirs.
 #[test]
 fn test_tx_rollback_failed_when_restore_incomplete() {
     let dir = TempDir::new().unwrap();
