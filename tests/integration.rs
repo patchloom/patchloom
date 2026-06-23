@@ -19727,8 +19727,7 @@ fn test_ast_validate_ok() {
         .args(["ast", "validate", "ok.rs"])
         .assert()
         .success()
-        // validate prints nothing on success; just ensure no failure
-        ;
+        .stdout(predicates::str::is_empty());
 }
 
 #[test]
