@@ -1270,38 +1270,9 @@ pub fn search_file(
     pattern: &str,
     opts: &SearchOptions,
 ) -> anyhow::Result<Vec<SearchResult>> {
-    let basic = search(path, pattern, opts.regex, opts.case_insensitive)?;
-    if basic.is_empty() {
-        return Ok(vec![]);
-    }
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let all_lines: Vec<&str> = content.lines().collect();
-    let c = opts.context.unwrap_or(0);
-    let display = path.to_path_buf();
-    let results = basic
-        .into_iter()
-        .map(|m| {
-            let i = m.line_number - 1;
-            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
-            // column computation mirrors the dir impl
-            let column = if opts.regex || opts.case_insensitive {
-                // best effort; for literal we used basic search
-                m.line.find(pattern).map_or(1, |p| p + 1)
-            } else {
-                m.line.find(pattern).map_or(1, |p| p + 1)
-            };
-            SearchResult {
-                path: display.clone(),
-                line_number: m.line_number,
-                line: m.line,
-                column,
-                context_before,
-                context_after,
-            }
-        })
-        .collect();
-    Ok(results)
+    // Delegate to search_directory (handles file root case + full rich logic with correct column/context).
+    // This ensures parity and reuses the complete one-file impl (#812/#815).
+    search_directory(path, pattern, opts)
 }
 
 /// Options for full directory search (for library consumers).
@@ -1608,10 +1579,10 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// Execute a transaction plan atomically.
 ///
 /// All operations succeed or all are rolled back. Returns the exit code
-/// and a JSON string with the operation results.
+/// (For library users this returns `PlanReport` directly; CLI/MCP retain
+/// the (code, JSON) form for compatibility.)
 ///
-/// For typed access, deserialize the JSON into `PlanReport` (re-export of the
-/// internal report struct):
+/// See `PlanReport` fields and embedding docs for typed usage:
 ///
 /// ```ignore
 /// let report: PlanReport = execute_plan(plan, cwd, guard)?;
@@ -3195,6 +3166,56 @@ mod tests {
         // Only the keep file should match; excludes + custom ignore filtered the rest.
         assert_eq!(results.len(), 1);
         assert!(results[0].line.contains("keep"));
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn search_file_and_format_and_context_builder_direct() {
+        // Direct exercise of new public surface (#812 #815).
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("x.rs");
+        fs::write(&f, "fn foo() {}\nlet y = foo();\n").unwrap();
+
+        let opts = SearchOptions {
+            context: Some(1),
+            ..Default::default()
+        };
+        let res = search_file(&f, "foo", &opts).unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].column, 4); // 'f' in fn foo
+        assert!(res[0].context_after.len() > 0 || res[1].context_before.len() > 0);
+
+        // context builder directly
+        let lines: Vec<&str> = "a\nb\nc\n".lines().collect();
+        let (b, a) = build_context_lines(&lines, 1, 1);
+        assert_eq!(b, vec!["a".to_string()]);
+        assert_eq!(a, vec!["c".to_string()]);
+
+        // formatter (human + json)
+        let txt = format_search_results(&res, false);
+        assert!(txt.contains("foo") || txt.contains("x.rs") || !txt.trim().is_empty());
+        let js = format_search_results(&res, true);
+        assert!(js.contains("\"column\"") || js.contains("column"));
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn collect_with_ignores_direct() {
+        // Direct test of #813 helper.
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("keep.txt"), "keep\n").unwrap();
+        fs::write(dir.path().join("skip.txt"), "skip\n").unwrap();
+        fs::write(dir.path().join(".myignore"), "skip.txt\n").unwrap();
+
+        let paths = crate::files::collect_file_paths_with_ignores(
+            dir.path(),
+            &vec![".myignore".to_string()],
+            &vec!["*skip*".to_string()],
+            false,
+        )
+        .unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths[0].ends_with("keep.txt"));
     }
 
     #[test]
