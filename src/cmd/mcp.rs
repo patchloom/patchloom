@@ -1007,6 +1007,11 @@ impl PatchloomService {
         for path in &p.paths {
             self.check_path(path)?;
         }
+        // Validate custom ignore filenames too (new in #821 for layered ignores).
+        // Treat them as paths relative to cwd for containment (even if just names like ".blineignore").
+        for f in &p.custom_ignore_filenames {
+            self.check_path(f)?;
+        }
         let search_args = crate::cmd::search::SearchArgs {
             pattern: p.pattern,
             paths: if p.paths.is_empty() {
