@@ -855,7 +855,8 @@ fn test_cwd_nonexistent_directory_fails() {
         .arg("hello")
         .arg(".")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +879,7 @@ fn test_search_assert_count_exact_match() {
         .arg("foo")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -912,7 +913,7 @@ fn test_search_assert_count_zero() {
         .arg("zzz")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -1082,7 +1083,7 @@ fn test_search_multiline_files_with_matches_and_assert_count_counts_all_matches(
         .arg("foo")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1164,7 +1165,7 @@ fn test_patch_apply_dry_run_does_not_modify_file() {
         .arg("apply")
         .arg(&patch_file)
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -1195,7 +1196,7 @@ fn test_patch_apply_with_apply_flag_writes_file() {
         .arg(&patch_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "line1\nnew line\nline3\n");
@@ -1217,7 +1218,7 @@ fn test_replace_if_exists_no_match_exit_0() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1240,7 +1241,7 @@ fn test_quiet_suppresses_replace_output() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1267,7 +1268,7 @@ fn test_quiet_suppresses_create_output() {
         .arg("hello")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1295,7 +1296,7 @@ fn test_create_apply_creates_backup_session() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     // A backup session directory should exist.
     let backup_dir = dir.path().join(".patchloom/backups");
@@ -1323,7 +1324,7 @@ fn test_create_apply_undo_removes_created_file() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(dir.path().join("undoable.txt").exists());
 
@@ -1332,7 +1333,7 @@ fn test_create_apply_undo_removes_created_file() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         !dir.path().join("undoable.txt").exists(),
@@ -1357,7 +1358,7 @@ fn test_create_force_apply_undo_restores_overwritten() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "replaced\n");
 
@@ -1366,7 +1367,7 @@ fn test_create_force_apply_undo_restores_overwritten() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -1388,7 +1389,7 @@ fn test_quiet_suppresses_search_output() {
         .arg("hello")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1604,7 +1605,8 @@ fn test_replace_empty_from_rejected() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -1653,7 +1655,8 @@ fn test_replace_invalid_regex_fails() {
         .arg("x")
         .arg(&file)
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -1677,7 +1680,7 @@ fn test_replace_multiline_regex() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -1710,7 +1713,7 @@ fn test_replace_whole_line_deletes_matching_lines() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -1736,7 +1739,7 @@ fn test_replace_whole_line_with_range() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nccc\nbbb\neee\n");
 }
@@ -1759,7 +1762,7 @@ fn test_replace_collapse_blanks_after_whole_line_delete() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "keep\n\nalso keep\n");
 }
@@ -1780,7 +1783,8 @@ fn test_replace_range_requires_whole_line() {
         .arg("hi")
         .arg(file.to_str().unwrap())
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -1811,7 +1815,7 @@ fn test_tx_replace_whole_line_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -1984,7 +1988,7 @@ fn test_doc_set_apply() {
         .arg("\"2.0\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -2035,7 +2039,7 @@ fn test_doc_set_preserves_key_order() {
         .arg("99")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     // The written file must keep keys in the original insertion order,
     // not sorted alphabetically. If serde_json's preserve_order feature
@@ -2069,7 +2073,7 @@ fn test_doc_set_toml_preserves_comments() {
         .arg("9090")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     // Comments must survive.
@@ -2112,7 +2116,7 @@ fn test_doc_merge_toml_preserves_comments() {
         .arg(r#"{"logging": "debug"}"#)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -2145,7 +2149,7 @@ fn test_doc_delete_toml_preserves_comments() {
         .arg("version")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -2183,7 +2187,7 @@ fn test_doc_set_yaml_preserves_comments() {
         .arg("9090")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     // Output must be syntactically valid YAML.
@@ -2234,7 +2238,7 @@ fn test_doc_merge_yaml_preserves_comments() {
         .arg(r#"{"logging": "debug"}"#)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2274,7 +2278,7 @@ fn test_doc_delete_yaml_preserves_comments() {
         .arg("version")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2328,7 +2332,7 @@ fn test_tx_yaml_doc_set_preserves_comments() {
         .arg(&plan)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2364,7 +2368,7 @@ fn test_doc_append_yaml_sequence_root() {
         .arg("item3")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2393,7 +2397,7 @@ fn test_doc_set_yaml_sequence_root_preserves_comments() {
         .arg("updated")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2432,7 +2436,7 @@ fn test_doc_delete_where_yaml_sequence_root_preserves_comments() {
         .arg("name=remove")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2464,7 +2468,7 @@ fn test_doc_prepend_yaml_produces_valid_output() {
         .arg("\"first\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let parsed: serde_json::Value =
@@ -2493,7 +2497,7 @@ fn test_doc_update_yaml_preserves_comments() {
         .arg("done")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2528,7 +2532,7 @@ fn test_doc_ensure_yaml_preserves_comments() {
         .arg("8080")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2567,7 +2571,7 @@ fn test_doc_move_yaml_preserves_comments() {
         .arg("new_name")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2613,7 +2617,7 @@ fn test_doc_prepend_yaml_preserves_comments() {
         .arg("first")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2660,7 +2664,7 @@ fn test_doc_delete_where_yaml_preserves_comments() {
         .arg("name=remove")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2702,7 +2706,7 @@ fn test_doc_append_yaml_preserves_comments() {
         .arg("last")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2736,7 +2740,7 @@ fn test_doc_prepend_yaml_sequence_root_preserves_comments() {
         .arg("item0")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
@@ -2768,7 +2772,7 @@ fn test_doc_delete_where() {
         .arg("name=remove")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -2802,7 +2806,7 @@ fn test_md_replace_section() {
         .arg("new content")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -2886,7 +2890,7 @@ fn test_md_table_append() {
         .arg("| new | row |")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -2916,7 +2920,7 @@ fn test_md_insert_after_heading() {
         .arg("Inserted line")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -2946,7 +2950,7 @@ fn test_md_upsert_bullet_adds_new() {
         .arg("new rule")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("new rule"), "new bullet should be added");
@@ -2974,7 +2978,7 @@ fn test_md_upsert_bullet_skips_duplicate() {
         .arg("existing rule")
         .arg("--check")
         .assert()
-        .success(); // no changes -> exit 0
+        .code(0); // no changes -> exit 0
 }
 
 // ---------------------------------------------------------------------------
@@ -3010,7 +3014,7 @@ fn test_tidy_fix_apply() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -3407,7 +3411,7 @@ fn test_status_clean_repo() {
         .arg(dir.path().to_str().unwrap())
         .arg("status")
         .assert()
-        .success(); // exit 0 = no changes
+        .code(0); // exit 0 = no changes
 }
 
 #[test]
@@ -3596,7 +3600,7 @@ fn test_create_new_file() {
         .arg("hello")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "hello");
@@ -3665,7 +3669,7 @@ fn test_tx_multi_op_plan() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
     assert_eq!(txt_content, "hi world\n", "replace should swap hello->hi");
@@ -3879,7 +3883,7 @@ fn test_tx_success_applies_all() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -3978,7 +3982,7 @@ fn test_doc_set_yaml_apply() {
         .arg("\"new\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("new"), "YAML should contain updated value");
@@ -4024,7 +4028,7 @@ fn test_doc_set_toml_apply() {
         .arg("\"new\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("new"), "TOML should contain updated value");
@@ -4062,7 +4066,7 @@ fn test_doc_append_to_array() {
         .arg(r#""c""#)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -4314,7 +4318,7 @@ fn test_tidy_check_exits_0_when_clean() {
         .arg("check")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -4384,7 +4388,7 @@ fn test_patch_check_exits_0_when_clean() {
         .arg("check")
         .arg(&patch_file)
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -4591,7 +4595,7 @@ fn test_patch_merge_allow_conflicts_writes_markers() {
         .arg("--apply")
         .arg("--allow-conflicts")
         .assert()
-        .success();
+        .code(0);
     let content = fs::read_to_string(&file).unwrap();
     assert!(
         content.contains("<<<<<<< patchloom (ours)"),
@@ -4960,7 +4964,7 @@ fn test_rename_moves_file() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be removed");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
@@ -5005,7 +5009,8 @@ fn test_rename_refuses_overwrite_without_force() {
         .arg(&dst)
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 
     // Both files should remain untouched.
     assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
@@ -5049,7 +5054,7 @@ fn test_rename_different_path_string_is_noop() {
         .arg("--apply")
         .arg("--force")
         .assert()
-        .success();
+        .code(0);
 
     assert!(file.exists(), "file must not be deleted");
     assert_eq!(fs::read_to_string(&file).unwrap(), "content\n");
@@ -5073,7 +5078,7 @@ fn test_rename_force_overwrites() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists());
     assert_eq!(fs::read_to_string(&dst).unwrap(), "new content\n");
@@ -5095,7 +5100,7 @@ fn test_rename_apply_undo_restores_original_paths() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be removed after rename");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "content\n");
@@ -5105,7 +5110,7 @@ fn test_rename_apply_undo_restores_original_paths() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&src).unwrap(), "content\n");
     assert!(
@@ -5132,7 +5137,7 @@ fn test_rename_force_apply_undo_restores_overwritten_destination() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be removed after rename");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "source content\n");
@@ -5142,7 +5147,7 @@ fn test_rename_force_apply_undo_restores_overwritten_destination() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&src).unwrap(), "source content\n");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "destination content\n");
@@ -5159,7 +5164,8 @@ fn test_rename_missing_source_fails() {
         .arg(dir.path().join("dst.txt"))
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -5293,7 +5299,7 @@ fn test_rename_binary_file() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists());
     assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
@@ -5484,7 +5490,7 @@ fn test_rename_binary_file_diff_mode() {
         .arg(&src)
         .arg(dir.path().join("moved.bin"))
         .assert()
-        .success();
+        .code(0);
 
     // Source should still exist (no --apply).
     assert!(src.exists());
@@ -5507,7 +5513,7 @@ fn test_rename_with_write_policy() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists());
     assert_eq!(fs::read_to_string(&dst).unwrap(), "no newline at end\n");
@@ -5577,7 +5583,7 @@ fn test_rename_creates_parent_dirs() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists());
     assert_eq!(fs::read_to_string(&dst).unwrap(), "data\n");
@@ -5647,7 +5653,7 @@ fn test_json_output() {
         .arg(dir.path())
         .arg("--json")
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -5775,7 +5781,7 @@ fn test_parse_subcommand_search() {
         .unwrap()
         .args(["search", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5784,7 +5790,7 @@ fn test_parse_subcommand_replace() {
         .unwrap()
         .args(["replace", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5793,7 +5799,7 @@ fn test_parse_subcommand_patch() {
         .unwrap()
         .args(["patch", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5802,7 +5808,7 @@ fn test_parse_subcommand_md() {
         .unwrap()
         .args(["md", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5811,7 +5817,7 @@ fn test_parse_subcommand_doc() {
         .unwrap()
         .args(["doc", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5820,7 +5826,7 @@ fn test_parse_subcommand_tidy() {
         .unwrap()
         .args(["tidy", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5829,7 +5835,7 @@ fn test_parse_subcommand_create() {
         .unwrap()
         .args(["create", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5838,7 +5844,7 @@ fn test_parse_subcommand_tx() {
         .unwrap()
         .args(["tx", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5847,7 +5853,7 @@ fn test_parse_subcommand_init() {
         .unwrap()
         .args(["init", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5856,7 +5862,7 @@ fn test_parse_global_flag_json() {
         .unwrap()
         .args(["--json", "search", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5865,7 +5871,7 @@ fn test_parse_write_flag_ensure_final_newline() {
         .unwrap()
         .args(["tidy", "--ensure-final-newline", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5874,7 +5880,7 @@ fn test_parse_write_flag_normalize_eol() {
         .unwrap()
         .args(["replace", "--normalize-eol", "lf", "--help"])
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -5919,7 +5925,8 @@ fn test_parse_unknown_subcommand_fails() {
         .unwrap()
         .arg("nonexistent-command")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -5940,7 +5947,7 @@ fn test_doc_delete_removes_key() {
         .arg("remove_me")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -5963,7 +5970,7 @@ fn test_doc_merge_combines_objects() {
         .arg(r#"{"b":2}"#)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -5986,7 +5993,7 @@ fn test_doc_prepend_inserts_at_front() {
         .arg("1")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -6033,7 +6040,7 @@ fn test_doc_ensure_creates_missing_key() {
         .arg("2")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -6056,7 +6063,7 @@ fn test_doc_ensure_noop_when_exists() {
         .arg("1")
         .arg("--check")
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -6074,7 +6081,7 @@ fn test_doc_move_renames_key() {
         .arg("new_key")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -6097,7 +6104,7 @@ fn test_doc_update_matching_nodes() {
         .arg("\"x\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -6123,7 +6130,7 @@ fn test_md_dedupe_headings_removes_duplicate() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let count = content.matches("## Dup").count();
@@ -6211,7 +6218,7 @@ fn test_md_lint_agents_clean_file_exits_0() {
         .arg("lint-agents")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -6251,7 +6258,7 @@ fn test_md_lint_agents_skips_fenced_code_blocks() {
         .arg("lint-agents")
         .arg(&file)
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -6348,7 +6355,7 @@ fn test_md_move_section_equivalent_path_reorder() {
         .arg("B")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let a_pos = content.find("# A").unwrap();
@@ -6416,7 +6423,7 @@ fn test_md_move_section_cross_file() {
         .arg("End")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let src_content = fs::read_to_string(&src).unwrap();
     assert!(
@@ -6564,7 +6571,7 @@ fn test_jsonl_output_produces_valid_json_lines() {
         .arg("hello")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -6922,7 +6929,7 @@ fn test_create_force_overwrites_existing() {
         .arg("--force")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "overwritten");
@@ -6994,7 +7001,7 @@ fn test_tx_file_create_and_delete() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         !dir.path().join("new.txt").exists(),
@@ -7023,7 +7030,7 @@ fn test_tx_check_create_then_delete_is_noop() {
         .arg(&plan_file)
         .arg("--check")
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         !dir.path().join("new.txt").exists(),
@@ -7115,7 +7122,7 @@ fn test_tx_file_delete_existing() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!file.exists(), "file should be deleted");
 }
@@ -7144,7 +7151,7 @@ fn test_tx_cli_ensure_final_newline_flag() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -7184,7 +7191,7 @@ fn test_tx_plan_write_policy_overrides_cli_flag() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -7223,7 +7230,7 @@ fn test_tx_write_policy_ensure_final_newline() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -7266,7 +7273,7 @@ fn test_tx_write_policy_collapse_blanks() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "keep\n\nalso keep\n");
 }
@@ -7284,7 +7291,8 @@ fn test_doc_get_nonexistent_file_fails() {
         .arg("/nonexistent/file_xyz.json")
         .arg("key")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -7300,7 +7308,8 @@ fn test_doc_get_unsupported_extension_fails() {
         .arg(&file)
         .arg("key")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -7357,7 +7366,8 @@ fn test_patch_malformed_file_fails() {
         .arg("apply")
         .arg(&patch_file)
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -7378,7 +7388,7 @@ fn test_jsonl_files_with_matches_emits_per_file() {
         .arg("hello")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -7412,7 +7422,7 @@ fn test_jsonl_count_emits_per_file() {
         .arg("hello")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -7438,7 +7448,7 @@ fn test_json_count_produces_valid_envelope() {
         .arg("hello")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     let output = result.get_output();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -7505,7 +7515,7 @@ fn test_tx_doc_delete_in_plan() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -7548,7 +7558,8 @@ fn test_doc_move_missing_source_fails() {
         .arg("target")
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -7566,7 +7577,7 @@ fn test_doc_merge_nested_objects() {
         .arg(r#"{"x":{"nested":"new"}}"#)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -7594,7 +7605,7 @@ fn test_doc_ensure_noop_when_value_differs() {
         .arg("99")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -7656,7 +7667,7 @@ fn test_tx_file_delete_empty_file() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!file.exists(), "empty file should be deleted");
 }
@@ -7714,7 +7725,7 @@ fn test_tx_file_rename_moves_file() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be deleted after rename");
     assert_eq!(
@@ -7784,7 +7795,7 @@ fn test_tx_file_rename_force_overwrites() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!dir.path().join("old.txt").exists());
     assert_eq!(
@@ -7904,7 +7915,7 @@ fn test_tx_file_rename_same_path_is_noop() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(dir.path().join("same.txt")).unwrap(),
@@ -7934,7 +7945,7 @@ fn test_tx_file_rename_different_path_string_is_noop() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         dir.path().join("same.txt").exists(),
@@ -7959,7 +7970,7 @@ fn test_batch_file_rename() {
         .arg("--apply")
         .write_stdin("file.rename old.txt new.txt\n")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!dir.path().join("old.txt").exists());
     assert_eq!(
@@ -7995,7 +8006,7 @@ fn test_tx_optional_validation_failure_ignored() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -8236,7 +8247,7 @@ fn test_tx_glob_replace_only_matches_pattern() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         fs::read_to_string(dir.path().join("a.txt"))
@@ -8278,7 +8289,7 @@ fn test_tx_glob_replace_matches_file_created_earlier_in_transaction() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(dir.path().join("new.txt")).unwrap(),
@@ -8310,7 +8321,7 @@ fn test_tx_glob_replace_matches_nested_relative_pattern() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(dir.path().join("sub/keep.txt")).unwrap(),
@@ -8395,7 +8406,7 @@ fn test_tx_md_replace_section_in_plan() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("v2.0 release"), "new section content");
@@ -8424,7 +8435,7 @@ fn test_replace_normalize_eol_lf() {
         .arg(&file)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -8451,7 +8462,7 @@ fn test_create_trim_trailing_whitespace() {
         .arg("--trim-trailing-whitespace")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -8474,7 +8485,7 @@ fn test_create_ensure_final_newline() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -8498,7 +8509,7 @@ fn test_create_normalize_eol_lf() {
         .arg("lf")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -8527,7 +8538,7 @@ fn test_replace_directory_modifies_all_matching_files() {
         .arg(dir.path())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         fs::read_to_string(dir.path().join("a.txt"))
@@ -8596,7 +8607,7 @@ fn test_project_config_sets_write_policy_defaults() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -8634,7 +8645,7 @@ fn test_project_config_collapse_blanks() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -8793,7 +8804,8 @@ fn test_explain_invalid_plan_fails() {
         .args(["explain"])
         .arg(&plan)
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -8845,7 +8857,7 @@ fn test_undo_restores_replaced_file() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world\n");
 
@@ -8855,7 +8867,7 @@ fn test_undo_restores_replaced_file() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello world\n");
 }
@@ -8873,7 +8885,7 @@ fn test_undo_list_shows_sessions() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     // List should show the session.
     Command::cargo_bin("patchloom")
@@ -8900,7 +8912,7 @@ fn test_undo_dry_run_by_default() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     // Undo without --apply should show what would change but not restore.
     Command::cargo_bin("patchloom")
@@ -8929,7 +8941,7 @@ fn test_undo_dry_run_quiet_suppresses_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -8959,7 +8971,7 @@ fn test_undo_list_json_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -8983,7 +8995,7 @@ fn test_undo_list_jsonl_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -9020,7 +9032,7 @@ fn test_undo_dry_run_json_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -9053,7 +9065,7 @@ fn test_undo_dry_run_jsonl_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -9085,7 +9097,7 @@ fn test_undo_list_quiet_suppresses_output() {
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
-        .success();
+        .code(0);
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -9128,7 +9140,7 @@ fn test_undo_tx_restores_multi_file() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&f1).unwrap(), "omega\n");
     assert_eq!(fs::read_to_string(&f2).unwrap(), "gamma\n");
@@ -9139,7 +9151,7 @@ fn test_undo_tx_restores_multi_file() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&f1).unwrap(), "alpha\n");
     assert_eq!(fs::read_to_string(&f2).unwrap(), "beta\n");
@@ -9197,7 +9209,7 @@ fn test_editorconfig_final_newline() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -9228,7 +9240,7 @@ fn test_replace_nth_replaces_only_nth_occurrence() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "foo bar REPLACED baz foo\n");
@@ -9313,7 +9325,7 @@ fn test_replace_insert_before() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -9336,7 +9348,7 @@ fn test_replace_insert_after() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -9360,7 +9372,7 @@ fn test_replace_insert_before_with_regex() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nXbbb\nccc\n");
 }
@@ -9381,7 +9393,7 @@ fn test_replace_insert_after_with_regex() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nbbbX\nccc\n");
 }
@@ -9403,7 +9415,7 @@ fn test_replace_insert_before_nth() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "x a x [a x\n");
 }
@@ -9425,7 +9437,7 @@ fn test_replace_insert_after_nth() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "x a x a] x\n");
 }
@@ -9447,7 +9459,8 @@ fn test_replace_insert_before_and_to_conflict() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -9477,7 +9490,7 @@ fn test_tx_replace_insert_before_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -9510,7 +9523,7 @@ fn test_tx_replace_insert_before_with_regex_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nXbbb\nccc\n");
 }
@@ -9540,7 +9553,7 @@ fn test_tx_replace_insert_after_with_regex_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nbbbX\nccc\n");
 }
@@ -9625,7 +9638,7 @@ fn test_replace_case_insensitive() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "HI HI HI\n");
@@ -9668,7 +9681,7 @@ fn test_delete_removes_file() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!file.exists());
 }
@@ -9856,7 +9869,8 @@ fn test_delete_nonexistent_file_fails() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -9880,7 +9894,7 @@ fn test_md_insert_before_heading() {
         .arg("Inserted before B.")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("Inserted before B.\n\n## Section B"));
@@ -9908,7 +9922,7 @@ fn test_tx_file_create_new_file_writes_content() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -9970,7 +9984,7 @@ fn test_tx_file_create_force_overwrites() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "overwritten\n");
 }
@@ -10031,7 +10045,7 @@ fn test_tx_format_step_runs_between_write_and_validate() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
     assert!(marker.exists(), "format step should have created marker");
@@ -10061,7 +10075,7 @@ fn test_tx_doc_prepend_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["items"][0], 0);
@@ -10125,7 +10139,7 @@ fn test_tx_doc_set_selector_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["nested"]["name"], "new");
@@ -10153,7 +10167,7 @@ fn test_tx_doc_ensure_selector_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["version"], "1.0");
@@ -10182,7 +10196,7 @@ fn test_tx_doc_ensure_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["version"], "1.0");
@@ -10213,7 +10227,7 @@ fn test_tx_doc_move_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["new_key"], "value");
@@ -10248,7 +10262,7 @@ fn test_tx_doc_delete_where_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     let items = v["items"].as_array().unwrap();
@@ -10285,7 +10299,7 @@ fn test_tx_doc_update_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     let items = v["items"].as_array().unwrap();
@@ -10316,7 +10330,7 @@ fn test_tx_md_insert_before_heading_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("Inserted before.\n\n## Section"));
@@ -10346,7 +10360,7 @@ fn test_tx_md_upsert_bullet_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("- existing rule"));
@@ -10381,7 +10395,7 @@ fn test_tx_md_table_append_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("| test | run tests |"));
@@ -10413,7 +10427,7 @@ fn test_tx_md_dedupe_headings_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     // Only one "## Dupe" heading should remain.
@@ -10444,7 +10458,7 @@ fn test_tx_md_move_section_equivalent_path_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let a_pos = content.find("# A").unwrap();
@@ -10479,7 +10493,7 @@ fn test_tx_md_move_section_explicit_to_equivalent_path_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     let a_pos = content.find("# A").unwrap();
@@ -10521,7 +10535,7 @@ fn test_tx_md_move_section_cross_file_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let src_content = fs::read_to_string(&src).unwrap();
     assert!(
@@ -10672,7 +10686,7 @@ fn test_tx_md_insert_after_heading_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result = fs::read_to_string(&file).unwrap();
     assert!(result.contains("Inserted line\nExisting content"));
@@ -10760,7 +10774,7 @@ fn test_tx_tidy_fix_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result = fs::read_to_string(&file).unwrap();
     assert_eq!(result, "line1\nline2\n");
@@ -10790,7 +10804,7 @@ fn test_tx_tidy_fix_trim_trailing_whitespace() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result = fs::read_to_string(&file).unwrap();
     assert_eq!(result, "hello\nworld\n");
@@ -10820,7 +10834,7 @@ fn test_tx_tidy_fix_normalize_eol() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result = fs::read_to_string(&file).unwrap();
     assert_eq!(result, "line1\nline2\n");
@@ -10850,7 +10864,7 @@ fn test_tx_doc_append_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
@@ -10880,7 +10894,7 @@ fn test_tx_doc_merge_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
@@ -10915,7 +10929,7 @@ fn test_tx_replace_case_insensitive_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "HI HI HI\n");
 }
@@ -10946,7 +10960,7 @@ fn test_tx_replace_multiline_regex_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "REPLACED\nend\n");
 }
@@ -10976,7 +10990,7 @@ fn test_tx_replace_nth_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa bbb ZZZ ccc aaa\n");
 }
@@ -11093,7 +11107,7 @@ fn test_tx_replace_if_exists_no_match_succeeds() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo bar\n");
 }
@@ -11123,7 +11137,7 @@ fn test_tx_replace_if_exists_still_replaces_when_found() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "baz bar\n");
 }
@@ -11162,7 +11176,7 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let config_value: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&config).unwrap()).unwrap();
@@ -11197,7 +11211,7 @@ fn test_tx_patch_apply_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -11241,7 +11255,7 @@ fn test_tx_patch_apply_uses_pending_file_state() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -11275,7 +11289,7 @@ fn test_tx_patch_apply_on_stale_merge() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
@@ -11340,7 +11354,7 @@ fn test_tx_patch_apply_merge_conflict_with_allow_conflicts() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -13027,7 +13041,7 @@ fn test_tx_respect_editorconfig_flag() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read(&file).unwrap();
     assert!(
@@ -13064,7 +13078,7 @@ fn test_tx_write_policy_ensure_final_newline_on_file_create() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "no trailing newline\n");
 }
@@ -13088,7 +13102,7 @@ fn test_tx_yaml_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "new value\n");
 }
@@ -13112,7 +13126,7 @@ fn test_tx_toml_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world\n");
 }
@@ -13137,7 +13151,7 @@ fn test_tx_yaml_plan_from_stdin() {
         .arg("--apply")
         .write_stdin(yaml_plan)
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
 }
@@ -13179,7 +13193,7 @@ fn test_tx_plan_from_stdin() {
         .arg("--apply")
         .write_stdin(serde_json::to_string(&plan).unwrap())
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "world\n");
 }
@@ -13208,7 +13222,7 @@ fn test_tx_create_after_delete_unmarks_deletion() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     // File should exist with the new content, not deleted.
     assert!(
@@ -13243,7 +13257,7 @@ fn test_tx_file_rename_after_delete_succeeds() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be gone after rename");
     assert_eq!(fs::read_to_string(&dst).unwrap(), "source\n");
@@ -13284,7 +13298,7 @@ fn test_tx_format_and_validate_success_path() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
     assert!(
@@ -13311,7 +13325,7 @@ fn test_replace_nth_regex_replaces_only_nth() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "v1.0 and vX.Y and v3.0\n");
@@ -13343,7 +13357,7 @@ fn test_tx_replace_nth_regex_with_capture_groups_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "version = \"1.2.3\"\nversion = \"4.5.99\"\n");
@@ -13566,7 +13580,7 @@ fn test_tx_multi_op_batch_all_new_ops() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     // Verify replace --nth 1.
     assert_eq!(fs::read_to_string(&txt).unwrap(), "XXX bar foo baz\n");
@@ -13616,7 +13630,7 @@ fn test_tx_create_then_replace_on_equivalent_path() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(fs::read_to_string(&new_file).unwrap(), "hello patchloom\n");
 }
@@ -13648,7 +13662,7 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let result = fs::read_to_string(&file).unwrap();
     // All three mutations applied correctly.
@@ -13690,7 +13704,7 @@ fn test_tx_doc_set_then_replace_on_equivalent_path_flushes_cache() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["name"], "new", "doc.set mutation lost after cache flush");
@@ -13840,7 +13854,7 @@ fn test_smoke_example_01_basic_replace_plan() {
         .arg(example_plan_path("01-basic-replace.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let readme = fs::read_to_string(dir.path().join("README.md")).unwrap();
     assert!(readme.contains("v2.0.0"));
@@ -13857,7 +13871,7 @@ fn test_smoke_example_02_multi_file_batch_plan() {
         .arg(example_plan_path("02-multi-file-batch.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let cargo_toml = fs::read_to_string(dir.path().join("Cargo.toml")).unwrap();
     assert!(cargo_toml.contains("version = \"0.2.0\""));
@@ -13883,7 +13897,7 @@ fn test_smoke_example_03_markdown_editing_plan() {
         .arg(example_plan_path("03-markdown-editing.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap();
     assert!(changelog.contains("- Added new feature"));
@@ -13919,7 +13933,7 @@ fn test_smoke_example_04_doc_mutations_plan() {
         .arg(example_plan_path("04-doc-mutations.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
@@ -13952,7 +13966,7 @@ fn test_smoke_example_05_strict_mode_plan() {
         .arg(example_plan_path("05-strict-mode.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let new_module = fs::read_to_string(dir.path().join("src/new_module.rs")).unwrap();
     assert!(new_module.contains("pub fn hello() -> &'static str"));
@@ -14006,7 +14020,7 @@ fn test_smoke_example_06_batch_version_bump() {
         .arg(example_plan_path("06-batch-version-bump.txt"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let pkg = fs::read_to_string(dir.path().join("package.json")).unwrap();
     assert!(pkg.contains("2.0.0"), "package.json not updated: {pkg}");
@@ -14066,7 +14080,7 @@ fn test_smoke_example_07_yaml_plan() {
         .arg(example_plan_path("07-yaml-plan.yaml"))
         .arg("--diff")
         .assert()
-        .success();
+        .code(0);
 
     // --apply: skip format/validate (prettier/yamllint may not exist).
     // Instead verify the plan parses and operations apply.
@@ -14125,7 +14139,7 @@ fn test_smoke_example_09_patch_apply() {
         .arg(example_plan_path("09-patch-apply.json"))
         .arg("--diff")
         .assert()
-        .success();
+        .code(0);
 }
 
 #[test]
@@ -14151,7 +14165,7 @@ fn test_smoke_example_10_inspect_and_edit() {
         .arg(example_plan_path("10-inspect-and-edit.json"))
         .arg("--diff")
         .assert()
-        .success();
+        .code(0);
 
     // --apply: verify writes landed.
     patchloom_in(dir.path())
@@ -14159,7 +14173,7 @@ fn test_smoke_example_10_inspect_and_edit() {
         .arg(example_plan_path("10-inspect-and-edit.json"))
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let config = fs::read_to_string(dir.path().join("config.json")).unwrap();
     assert!(
@@ -14219,7 +14233,7 @@ fn test_batch_diff_mode_does_not_write() {
         .arg("batch")
         .arg(&ops)
         .assert()
-        .success();
+        .code(0);
 
     // File must be unchanged in default (diff) mode.
     let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();
@@ -14242,7 +14256,7 @@ fn test_batch_apply_modifies_files() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();
     assert!(
@@ -14392,7 +14406,7 @@ fn test_batch_from_stdin() {
         .arg("--apply")
         .write_stdin("doc.set data.json name \"new\"\n")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
     assert!(
@@ -14488,7 +14502,7 @@ fn test_batch_empty_quoted_string_sets_empty_value() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
     assert!(
@@ -14535,7 +14549,7 @@ fn test_md_insert_before_heading_honors_cwd() {
         .arg("Inserted before B.")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(content.contains("Inserted before B.\n\n## Section B"));
@@ -14555,7 +14569,7 @@ fn test_tx_honors_cwd_for_relative_plan_path() {
         .arg("plan.toml")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(dir.path().join("out.txt")).unwrap(),
@@ -14580,7 +14594,7 @@ fn test_tx_relative_plan_cwd_resolves_from_invocation_root() {
         .arg("plan.toml")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     assert_eq!(
         fs::read_to_string(nested.join("out.txt")).unwrap(),
@@ -14940,7 +14954,7 @@ fn test_smoke_quickstart_command_flow() {
         .arg("src/")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
     assert!(
         fs::read_to_string(&lib_path)
             .unwrap()
@@ -14969,7 +14983,7 @@ fn test_smoke_quickstart_command_flow() {
         .arg("\"2.0.0\"")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let package: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
@@ -15030,7 +15044,7 @@ fn test_smoke_quickstart_command_flow() {
         .arg("undo")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let package_after_undo: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())
@@ -15514,7 +15528,7 @@ fn test_smoke_readme_command_examples() {
         .arg("src/")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
     let rename_module = fs::read_to_string(dir.path().join("src/rename.rs")).unwrap();
     assert!(rename_module.contains("new_name"));
     assert!(!rename_module.contains("old_name"));
@@ -15537,7 +15551,7 @@ fn test_smoke_readme_command_examples() {
         .arg(merge_value)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("config.json")).unwrap()).unwrap();
     assert_eq!(config["settings"]["debug"], true);
@@ -15559,7 +15573,7 @@ fn test_smoke_readme_command_examples() {
         .arg("--ensure-final-newline")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
     assert!(fs::read(&tidy_target).unwrap().ends_with(b"\n"));
 }
 
@@ -15996,7 +16010,7 @@ fn test_replace_skips_binary_files() {
         .arg(dir.path().to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let text_content = fs::read_to_string(&text_file).unwrap();
     assert_eq!(text_content, "new value\n");
@@ -16065,7 +16079,7 @@ fn test_tidy_skips_binary_files() {
         .arg("--trim-trailing-whitespace")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let text_content = fs::read_to_string(&text_file).unwrap();
     assert_eq!(text_content, "hello\n");
@@ -16197,7 +16211,8 @@ fn test_completions_invalid_shell_fails() {
         .unwrap()
         .args(["completions", "nonexistent"])
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -18169,7 +18184,7 @@ fn test_replace_apply_creates_backup_session() {
         .arg(dir.path())
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     // A backup session directory should exist under .patchloom/backups/.
     let backup_dir = dir.path().join(".patchloom/backups");
@@ -18220,7 +18235,7 @@ fn test_replace_apply_prunes_old_backup_sessions() {
         .arg(dir.path())
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     let backup_dir = dir.path().join(".patchloom/backups");
     let sessions: Vec<_> = fs::read_dir(&backup_dir)
@@ -18259,7 +18274,7 @@ fn test_replace_apply_keeps_recent_backup_sessions() {
         .arg(dir.path())
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     // Small delay to ensure different timestamps.
     std::thread::sleep(std::time::Duration::from_millis(10));
@@ -18276,7 +18291,7 @@ fn test_replace_apply_keeps_recent_backup_sessions() {
         .arg(dir.path())
         .arg(file.to_str().unwrap())
         .assert()
-        .success();
+        .code(0);
 
     let backup_dir = dir.path().join(".patchloom/backups");
     let sessions: Vec<_> = fs::read_dir(&backup_dir)
@@ -18307,7 +18322,7 @@ fn test_delete_apply_creates_backup_session() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!file.exists(), "file should be deleted");
 
@@ -18341,7 +18356,7 @@ fn test_delete_apply_undo_restores_file() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!file.exists());
 
@@ -18351,7 +18366,7 @@ fn test_delete_apply_undo_restores_file() {
         .args(["undo", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(file.exists(), "undo should restore the deleted file");
     assert_eq!(fs::read_to_string(&file).unwrap(), "precious data\n");
@@ -18372,7 +18387,7 @@ fn test_rename_apply_creates_backup_session() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success();
+        .code(0);
 
     assert!(!src.exists(), "source should be gone");
     assert!(dir.path().join("new.txt").exists(), "dest should exist");
@@ -18553,7 +18568,7 @@ fn test_schema_json_output() {
         .unwrap()
         .args(["schema", "--format", "json"])
         .assert()
-        .success();
+        .code(0);
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
@@ -18621,7 +18636,7 @@ fn test_schema_prompt_output() {
         .unwrap()
         .args(["schema", "--format", "prompt"])
         .assert()
-        .success();
+        .code(0);
 
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     assert!(stdout.contains("# Patchloom Operations"));
@@ -18635,13 +18650,13 @@ fn test_schema_tier_filtering() {
         .unwrap()
         .args(["schema", "--format", "json", "--tier", "weak"])
         .assert()
-        .success();
+        .code(0);
 
     let strong_output = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["schema", "--format", "json", "--tier", "strong"])
         .assert()
-        .success();
+        .code(0);
 
     let weak_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(weak_output.get_output().stdout.clone()).unwrap())
@@ -18683,7 +18698,7 @@ fn test_schema_examples_flag() {
         .unwrap()
         .args(["schema", "--format", "json"])
         .assert()
-        .success();
+        .code(0);
 
     let without_json: serde_json::Value = serde_json::from_str(
         &String::from_utf8(without_output.get_output().stdout.clone()).unwrap(),
@@ -18705,7 +18720,7 @@ fn test_schema_examples_flag() {
         .unwrap()
         .args(["schema", "--format", "json", "--examples"])
         .assert()
-        .success();
+        .code(0);
 
     let with_json: serde_json::Value =
         serde_json::from_str(&String::from_utf8(with_output.get_output().stdout.clone()).unwrap())
@@ -18737,7 +18752,8 @@ fn test_schema_invalid_tier_fails() {
         .unwrap()
         .args(["schema", "--tier", "invalid"])
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -18927,7 +18943,7 @@ fn test_replace_follows_symlink_within_cwd() {
         .arg("--apply")
         .arg(&link)
         .assert()
-        .success();
+        .code(0);
 
     // atomic_write replaces the symlink with a regular file (rename semantics).
     // Reading the link path should show the replacement.
@@ -19224,7 +19240,7 @@ fn test_editorconfig_trim_trailing_whitespace() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -19253,7 +19269,7 @@ fn test_editorconfig_end_of_line_crlf() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let bytes = fs::read(&file).unwrap();
     let content = String::from_utf8_lossy(&bytes);
@@ -19289,7 +19305,7 @@ fn test_editorconfig_replace_apply_respects_final_newline() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19322,7 +19338,7 @@ fn test_editorconfig_per_extension_override() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let md_content = fs::read_to_string(&md_file).unwrap();
     assert!(
@@ -19341,7 +19357,7 @@ fn test_editorconfig_per_extension_override() {
         .arg("--respect-editorconfig")
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
     assert!(
@@ -19484,7 +19500,7 @@ fn test_ast_replace_apply_dispatch() {
             "ast", "replace", "test.rs", "greet", "--from", "hello", "--to", "world", "--apply",
         ])
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19521,7 +19537,7 @@ fn test_tx_ast_rename_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19563,7 +19579,7 @@ fn test_tx_ast_replace_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19591,7 +19607,7 @@ fn test_batch_ast_rename() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19619,7 +19635,7 @@ fn test_batch_ast_replace() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -19886,7 +19902,7 @@ fn test_tx_replace_word_boundary_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
@@ -19906,7 +19922,7 @@ fn test_append_cli_apply() {
     patchloom_in(dir.path())
         .args(["append", "log.txt", "--content", "line two\n", "--apply"])
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "line one\nline two\n");
@@ -19934,7 +19950,8 @@ fn test_append_cli_missing_file_fails() {
     patchloom_in(dir.path())
         .args(["append", "nope.txt", "--content", "data\n", "--apply"])
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -19972,7 +19989,7 @@ fn test_tx_file_append_in_plan() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, "alpha\nbeta\n");
@@ -19998,7 +20015,8 @@ fn test_tx_file_append_missing_file_fails() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure();
+        .failure()
+        .stderr(predicate::str::contains(""));
 }
 
 #[test]
@@ -20015,7 +20033,7 @@ fn test_batch_file_append() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .success();
+        .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -20063,7 +20081,7 @@ fn test_replace_format_flag_runs_after_apply() {
             &shell_touch(&marker),
         ])
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         marker.exists(),
@@ -20089,7 +20107,7 @@ fn test_replace_format_flag_skipped_in_diff_mode() {
             &shell_touch(&marker),
         ])
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         !marker.exists(),
@@ -20115,7 +20133,7 @@ fn test_append_format_flag_runs_after_apply() {
             &shell_touch(&marker),
         ])
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         marker.exists(),
@@ -20139,7 +20157,7 @@ fn test_create_format_flag_runs_after_apply() {
             &shell_touch(&marker),
         ])
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         marker.exists(),
@@ -20193,7 +20211,7 @@ fn test_tx_format_flag_runs_after_apply() {
             &shell_touch(&marker),
         ])
         .assert()
-        .success();
+        .code(0);
 
     assert!(
         marker.exists(),
