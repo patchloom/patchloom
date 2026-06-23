@@ -778,7 +778,13 @@ fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()>
     };
 
     let glob_matcher = crate::files::build_glob_matcher(globs)?;
-    let glob_roots = vec![if resolved.is_dir() { resolved.clone() } else { resolved.clone() }];
+    // glob_roots used for relative glob matching; use the search root (dir or parent of file)
+    let glob_root = if resolved.is_dir() {
+        resolved.clone()
+    } else {
+        resolved.parent().unwrap_or(&resolved).to_path_buf()
+    };
+    let glob_roots = vec![glob_root];
 
     let file_paths: Vec<PathBuf> = if let Some(m) = &glob_matcher {
         candidate_paths

@@ -498,7 +498,7 @@ mod tests {
             {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 35);
+        assert_eq!(plan.operations.len(), 36);
     }
 
     #[test]

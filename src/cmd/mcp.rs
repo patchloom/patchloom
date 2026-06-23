@@ -1027,7 +1027,7 @@ impl PatchloomService {
             assert_count: p.assert_count,
             max_results: p.max_results,
         };
-        let mut global = GlobalFlags {
+        let global = GlobalFlags {
             json: true,
             cwd: Some(self.cwd().to_string_lossy().into_owned()),
             glob: p.globs,
@@ -1764,7 +1764,8 @@ mod tests {
             "max_results": 10,
             "literal": true
         }"#;
-        let p: SearchParams = serde_json::from_str(json).expect("SearchParams deserial with new ignore/max fields");
+        let p: SearchParams =
+            serde_json::from_str(json).expect("SearchParams deserial with new ignore/max fields");
         assert_eq!(p.globs.len(), 1);
         assert_eq!(p.max_results, 10);
     }

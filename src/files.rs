@@ -843,13 +843,27 @@ mod tests {
         global.ignore_file = vec![".blineignore".to_string()];
         global.exclude = vec!["*.rs".to_string()]; // further exclude rs on top
 
-        let paths = collect_file_paths_opts(&[".".to_string()], &global, false, Some(root)).unwrap();
+        let paths =
+            collect_file_paths_opts(&[".".to_string()], &global, false, Some(root)).unwrap();
 
         // .blineignore skips target/ and *.md; then exclude *.rs skips the rs files.
         // Only nothing should remain? Wait, adjust: actually with exclude *.rs and ignore md/target, expect empty or adjust expectation.
         // Simpler assertion: the ignore_file was honored (no target, no md), and additional exclude removed rs.
-        let rels: Vec<_> = paths.iter().map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string()).collect();
-        assert!(rels.contains(&"Cargo.toml".to_string()), "surviving file missing: {:?}", rels);
-        assert!(!rels.iter().any(|r| r.starts_with("target") || r.ends_with(".md") || r.ends_with(".rs")), "advanced ignores not applied: {:?}", rels);
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.contains(&"Cargo.toml".to_string()),
+            "surviving file missing: {:?}",
+            rels
+        );
+        assert!(
+            !rels
+                .iter()
+                .any(|r| r.starts_with("target") || r.ends_with(".md") || r.ends_with(".rs")),
+            "advanced ignores not applied: {:?}",
+            rels
+        );
     }
 }

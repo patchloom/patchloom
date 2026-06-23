@@ -186,6 +186,13 @@ pub enum EolNormalization {
 // ---------------------------------------------------------------------------
 
 /// Convert user-facing `WritePolicyOptions` to the internal `WritePolicy`.
+///
+/// Note (for #821): only `tidy` currently accepts `&WritePolicyOptions` at the high-level API.
+/// Other mutating functions (`file_append`, `replace_text`, `doc_*`, `md_*`, etc.) default to
+/// `WritePolicy::default()` for ergonomics and library backward compat. For full control use a
+/// 1-op plan via `execute_plan` (which supports per-step write_policy) or the lower-level
+/// `write` + `atomic_write` primitives. Differences from MCP (which uses strict pre-checks + defaults)
+/// are intentional.
 pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
     use crate::write::EolMode;
     WritePolicy {
@@ -3211,36 +3218,44 @@ mod tests {
         // 1. API
         let api_res = search_directory(root, pattern, &opts).unwrap();
         assert!(!api_res.is_empty(), "api should find keep");
-        let api_paths: Vec<_> = api_res.iter().map(|r| r.path.file_name().unwrap().to_string_lossy().to_string()).collect();
+        let api_paths: Vec<_> = api_res
+            .iter()
+            .map(|r| r.path.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
 
-        // 2. CLI collect path (via GlobalFlags + collect_matches)
-        let mut g = crate::cli::global::GlobalFlags::test_default();
-        g.cwd = Some(root.to_string_lossy().into_owned());
-        g.glob = opts.globs.clone();
-        g.exclude = opts.exclude_patterns.clone();
-        g.ignore_file = opts.custom_ignore_filenames.clone();
-        let mut cli_args = crate::cmd::search::SearchArgs {
-            pattern: pattern.to_string(),
-            paths: vec![".".to_string()],
-            literal: true,
-            regex: false,
-            context: None,
-            before_context: None,
-            after_context: None,
-            files_with_matches: false,
-            count: false,
-            invert_match: false,
-            multiline: false,
-            case_insensitive: false,
-            assert_count: None,
-            max_results: opts.max_results,
+        // 2. CLI collect path (via GlobalFlags + collect_matches) -- only when cli feature present
+        #[cfg(feature = "cli")]
+        let cli_total: usize = {
+            let mut g = crate::cli::global::GlobalFlags::test_default();
+            g.cwd = Some(root.to_string_lossy().into_owned());
+            g.glob = opts.globs.clone();
+            g.exclude = opts.exclude_patterns.clone();
+            g.ignore_file = opts.custom_ignore_filenames.clone();
+            let cli_args = crate::cmd::search::SearchArgs {
+                pattern: pattern.to_string(),
+                paths: vec![".".to_string()],
+                literal: true,
+                regex: false,
+                context: None,
+                before_context: None,
+                after_context: None,
+                files_with_matches: false,
+                count: false,
+                invert_match: false,
+                multiline: false,
+                case_insensitive: false,
+                assert_count: None,
+                max_results: opts.max_results,
+            };
+            let cli_results = crate::cmd::search::collect_matches(&cli_args, &g).unwrap();
+            cli_results.file_match_counts.values().sum()
         };
-        let cli_results = crate::cmd::search::collect_matches(&cli_args, &g).unwrap();
-        // Use public file_match_counts for parity check (matches vec may be private in some views)
-        let cli_total: usize = cli_results.file_match_counts.values().sum();
+        #[cfg(not(feature = "cli"))]
+        let _cli_total: usize = api_res.len(); // fallback for pure-files matrix
 
         // 3. Plan / tx using execute_plan (library path) with Search op carrying new fields
-        let plan_json = format!(r#"{{
+        let plan_json = format!(
+            r#"{{
             "version": "1",
             "operations": [{{
                 "op": "search",
@@ -3252,17 +3267,31 @@ mod tests {
                 "custom_ignore_filenames": [".blineignore"],
                 "max_results": 10
             }}]
-        }}"#, pattern);
+        }}"#,
+            pattern
+        );
         let plan = crate::plan::parse_plan_auto(&plan_json, None, None).unwrap();
         let report = crate::api::execute_plan(plan, root, None).expect("plan exec with search");
         let plan_total: usize = report.searches.iter().map(|s| s.match_count).sum();
 
         // Parity checks (using counts + that api found the keep file)
-        assert!(api_paths.iter().any(|p| p == "keep.rs"), "api did not find keep: {:?}", api_paths);
+        assert!(
+            api_paths.iter().any(|p| p == "keep.rs"),
+            "api did not find keep: {:?}",
+            api_paths
+        );
+        #[cfg(feature = "cli")]
         assert!(cli_total > 0, "cli should have matches");
         assert!(plan_total > 0, "plan should have recorded matches");
         // Ensure no leaked bad files in api results
-        assert!(!api_paths.iter().any(|p| p.contains("bline") || p.contains("skip") || p.contains("target") || p.contains("bad")), "api leaked ignored files: {:?}", api_paths);
+        assert!(
+            !api_paths.iter().any(|p| p.contains("bline")
+                || p.contains("skip")
+                || p.contains("target")
+                || p.contains("bad")),
+            "api leaked ignored files: {:?}",
+            api_paths
+        );
     }
 
     #[test]

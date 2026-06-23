@@ -207,6 +207,9 @@ pub struct FunctionSigEdit {
 /// Preserves function name, body, and other source exactly. Uses tree-sitter for location.
 /// Supports basic Rust signatures (no generics/where for the stub; extend as needed).
 /// See #797.
+///
+/// Per #821: this remains a library-only helper for now (no CLI `ast signature`, no plan op, no MCP tool).
+/// Record of decision lives in #821 and src/lib.rs embedding docs.
 pub fn rewrite_function_signature(
     source: &str,
     old_name: &str,
