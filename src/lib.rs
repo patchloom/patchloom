@@ -86,6 +86,10 @@
 //! The `files` module (pure helpers like `is_binary`, `read_text_file`, and scanning tools when "files" feature enabled) is always available.
 //! The `cli` and `cmd` modules require the `cli` feature.
 //!
+//! For pure library use with plans and execution (post #792), prefer
+//! `features = ["ast", "files"]` (or "files"). `execute_plan` is available
+//! under `any(feature = "cli", "files")` and delegates to the `tx` module.
+//!
 //! ## Migration for high-level api::* signature changes (PathGuard, #758)
 //!
 //! The addition of the trailing `guard: Option<&PathGuard>` parameter to all mutating
