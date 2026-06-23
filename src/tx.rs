@@ -2036,14 +2036,14 @@ pub(crate) fn commit_changes(
     Ok(())
 }
 
-fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
+pub(crate) fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
     match backup_session {
         Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
         None => error.to_string(),
     }
 }
 
-fn build_error_output(
+pub(crate) fn build_error_output(
     error_kind: &'static str,
     legacy_error_prefix: &str,
     error: &str,
@@ -2068,7 +2068,7 @@ fn build_error_output(
     }
 }
 
-fn legacy_error_prefix(error_kind: &str) -> &str {
+pub(crate) fn legacy_error_prefix(error_kind: &str) -> &str {
     if error_kind == "format_failed" {
         "validation_failed"
     } else {

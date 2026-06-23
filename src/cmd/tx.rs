@@ -135,46 +135,6 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
-fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
-    match backup_session {
-        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
-        None => error.to_string(),
-    }
-}
-
-fn build_error_output(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> TxOutput {
-    TxOutput {
-        ok: false,
-        status: "error".to_string(),
-        files_changed: 0,
-        files_created: 0,
-        files_deleted: 0,
-        changes: Vec::new(),
-        reads: Vec::new(),
-        searches: Vec::new(),
-        lints: Vec::new(),
-        error_kind: Some(error_kind.to_string()),
-        error: Some(format!(
-            "{legacy_error_prefix}: {}",
-            format_error_with_backup_hint(error, backup_session)
-        )),
-        backup_session: backup_session.map(str::to_string),
-    }
-}
-
-fn legacy_error_prefix(error_kind: &str) -> &str {
-    if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    }
-}
-
 fn emit_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &'static str,
@@ -183,7 +143,7 @@ fn emit_error_json_with_prefix(
     compact: bool,
 ) {
     emit_output_json(
-        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
+        &crate::tx::build_error_output(error_kind, legacy_error_prefix, error, backup_session),
         compact,
     );
 }
@@ -196,7 +156,7 @@ fn emit_error_json(
 ) {
     emit_error_json_with_prefix(
         error_kind,
-        legacy_error_prefix(error_kind),
+        crate::tx::legacy_error_prefix(error_kind),
         error,
         backup_session,
         compact,
@@ -400,7 +360,7 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
             compact,
         );
     } else {
-        let msg = format_error_with_backup_hint(&err.message, backup_session);
+        let msg = crate::tx::format_error_with_backup_hint(&err.message, backup_session);
         eprintln!("tx: {msg}");
     }
     Ok(exit_code)
@@ -876,14 +836,17 @@ mod tests {
 
     #[test]
     fn legacy_error_prefix_maps_format_failed() {
-        assert_eq!(legacy_error_prefix("format_failed"), "validation_failed");
-        assert_eq!(legacy_error_prefix("rollback"), "rollback");
-        assert_eq!(legacy_error_prefix("parse_error"), "parse_error");
+        assert_eq!(
+            crate::tx::legacy_error_prefix("format_failed"),
+            "validation_failed"
+        );
+        assert_eq!(crate::tx::legacy_error_prefix("rollback"), "rollback");
+        assert_eq!(crate::tx::legacy_error_prefix("parse_error"), "parse_error");
     }
 
     #[test]
     fn build_error_output_produces_expected_shape() {
-        let output = build_error_output("rollback", "rollback", "disk full", None);
+        let output = crate::tx::build_error_output("rollback", "rollback", "disk full", None);
         assert!(!output.ok);
         assert_eq!(output.status, "error".to_string());
         assert_eq!(output.error_kind, Some("rollback".to_string()));

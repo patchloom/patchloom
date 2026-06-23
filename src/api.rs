@@ -307,6 +307,7 @@ fn finish_doc_edit(
     new_value: &serde_json::Value,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    action: &'static str,
 ) -> anyhow::Result<EditResult> {
     let new_content =
         ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
@@ -317,7 +318,7 @@ fn finish_doc_edit(
         doc.original.clone(),
         new_content,
         applied,
-        "doc.set",
+        action,
         None,
     ))
 }
@@ -339,7 +340,7 @@ pub fn doc_set(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::set_at_path(&mut new_value, &segments, value)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.set")
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
@@ -355,7 +356,7 @@ pub fn doc_delete(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_at_selector(&mut new_value, &segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.delete")
 }
 
 /// Deep-merge a value into the root of a JSON, YAML, or TOML file.
@@ -370,7 +371,7 @@ pub fn doc_merge(
 
     ops::doc::deep_merge(&mut new_value, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.merge")
 }
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
@@ -421,7 +422,7 @@ pub fn doc_append(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.push(value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.append")
 }
 
 /// Prepend a value to an array at a selector path.
@@ -442,7 +443,7 @@ pub fn doc_prepend(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
     arr.insert(0, value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.prepend")
 }
 
 /// Update all values matching a selector with a new value.
@@ -462,7 +463,7 @@ pub fn doc_update(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::update_matching(&mut new_value, &segments, &value);
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.update")
 }
 
 /// Ensure a value exists at a selector path; set it only if missing.
@@ -483,7 +484,7 @@ pub fn doc_ensure(
         ops::doc::set_at_path(&mut new_value, &segments, value)?;
     }
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.ensure")
 }
 
 /// Delete array elements matching a predicate (e.g., `"name=old"`).
@@ -500,7 +501,7 @@ pub fn doc_delete_where(
     let segments = selector::parse_anyhow(selector)?;
     ops::doc::delete_where(&mut new_value, &segments, predicate)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.delete_where")
 }
 
 /// Move a value from one selector path to another within the same file.
@@ -518,7 +519,7 @@ pub fn doc_move(
     let to_segments = selector::parse_anyhow(to_selector)?;
     ops::doc::move_at_path(&mut new_value, &from_segments, &to_segments)?;
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard)
+    finish_doc_edit(path, &doc, &new_value, mode, guard, "doc.move")
 }
 
 // ---------------------------------------------------------------------------
