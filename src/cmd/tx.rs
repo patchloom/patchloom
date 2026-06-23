@@ -1,12 +1,8 @@
-#![allow(dead_code)]
-
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 
-use crate::ops::replace::{
-    ReplaceModeError, validate_replace_mode,
-};
+use crate::ops::replace::{ReplaceModeError, validate_replace_mode};
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::tx::{
@@ -20,8 +16,7 @@ use globset::Glob;
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use std::path::{Path, PathBuf};
 
@@ -156,11 +151,6 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
     selector::parse_anyhow(input)
 }
 
-
-
-
-
-
 // ---------------------------------------------------------------------------
 // Write policy
 // ---------------------------------------------------------------------------
@@ -181,31 +171,7 @@ fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
 /// Start from the CLI-derived per-file defaults, including any EditorConfig
 /// values resolved by `policy_from_flags()`, then let plan-level `write_policy`
 /// entries override only the keys they set.
-fn build_write_policy(
-    plan: &Plan,
-    global: &GlobalFlags,
-    path: &Path,
-) -> anyhow::Result<WritePolicy> {
-    let mut write_policy = crate::write::policy_from_flags(global, Some(path));
-    let Some(plan_write_policy) = &plan.write_policy else {
-        return Ok(write_policy);
-    };
 
-    if let Some(ensure_final_newline) = plan_write_policy.ensure_final_newline {
-        write_policy.ensure_final_newline = ensure_final_newline;
-    }
-    if let Some(normalize_eol) = plan_write_policy.normalize_eol.as_deref() {
-        write_policy.normalize_eol = plan_normalize_eol(normalize_eol)?;
-    }
-    if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
-        write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
-    }
-    if let Some(collapse_blanks) = plan_write_policy.collapse_blanks {
-        write_policy.collapse_blanks = collapse_blanks;
-    }
-
-    Ok(write_policy)
-}
 
 // ---------------------------------------------------------------------------
 // Diff output helper
@@ -543,63 +509,7 @@ fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleEr
         })
 }
 
-pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
-    match plan_cwd {
-        Some(plan_cwd) => {
-            let path = Path::new(plan_cwd);
-            if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                base_cwd.join(path)
-            }
-        }
-        None => base_cwd.to_path_buf(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Direct execution (MCP / in-process callers)
-// ---------------------------------------------------------------------------
-
 pub use crate::tx::RestoreFailGuard;
-
-/// Restore files from a backup session after a failed commit. Returns `true`
-/// when restore completed successfully.
-fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    crate::tx::restore_after_failed_commit(cwd, timestamp)
-}
-
-/// Apply pending changes to disk: backup originals, write modified files,
-/// delete removed files, finalize backup session.
-///
-/// If any write fails, restores all already-written files from the backup
-/// session before returning [`CommitError`].
-/// Build a JSON error string without writing to stdout.
-fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
-    make_error_json_with_prefix(
-        error_kind,
-        legacy_error_prefix(error_kind),
-        error,
-        backup_session,
-    )
-}
-
-/// Build a JSON error string with an explicit legacy prefix.
-#[allow(dead_code)]
-fn make_error_json_with_prefix(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> String {
-    serde_json::to_string_pretty(&build_error_output(
-        error_kind,
-        legacy_error_prefix,
-        error,
-        backup_session,
-    ))
-    .unwrap_or_default()
-}
 
 #[allow(dead_code)]
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
@@ -959,80 +869,6 @@ mod tests {
 
     fn portable_path_str(p: &std::path::Path) -> String {
         p.to_str().unwrap().replace('\\', "/")
-    }
-
-    #[test]
-    fn read_file_content_populates_pending_from_disk() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("existing.txt");
-        fs::write(&path, "hello from disk\n").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        let content = read_file_content(&mut pending, &mut existed, &path).unwrap();
-
-        assert_eq!(content, "hello from disk\n");
-        assert_eq!(
-            pending.get(&path),
-            Some(&(
-                "hello from disk\n".to_string(),
-                "hello from disk\n".to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn read_and_probe_returns_true_for_text() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("text.rs");
-        fs::write(&path, "fn main() {}\n").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        assert!(read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(pending.contains_key(&path));
-        assert_eq!(pending[&path].1, "fn main() {}\n");
-    }
-
-    #[test]
-    fn read_and_probe_returns_false_for_binary() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("data.bin");
-        fs::write(&path, b"ELF\x00\x01\x02\x03").unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(!pending.contains_key(&path));
-    }
-
-    #[test]
-    fn read_and_probe_returns_false_for_invalid_utf8() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("bad.txt");
-        // Bare continuation bytes: invalid UTF-8 but no NUL (passes binary check)
-        fs::write(&path, [0x80, 0x81, 0x82]).unwrap();
-        let mut pending = HashMap::new();
-        let mut existed = HashSet::new();
-
-        // Should skip gracefully (false) instead of erroring,
-        // matching standalone search/replace behavior.
-        assert!(!read_and_probe(&mut pending, &mut existed, &path).unwrap());
-        assert!(!pending.contains_key(&path));
-    }
-
-    #[test]
-    fn update_file_content_inserts_missing_pending_entry() {
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let path = PathBuf::from("created.txt");
-
-        update_file_content(&mut pending, &mut deletions, &path, "brand new".to_string());
-
-        assert_eq!(
-            pending.get(&path),
-            Some(&(String::new(), "brand new".to_string()))
-        );
     }
 
     #[test]

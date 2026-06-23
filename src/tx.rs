@@ -661,7 +661,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
 }
 
 /// Execute a read operation within a transaction.
-pub(crate) fn execute_read_op(path: &str, lines: &Option<String>, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+pub(crate) fn execute_read_op(
+    path: &str,
+    lines: &Option<String>,
+    tx: &mut TxState<'_>,
+) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     // Ensure file is loaded into pending (mutable borrow), then release it.
     read_file_content(tx.pending, tx.existed_before, &file_path)?;
