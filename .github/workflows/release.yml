@@ -130,23 +130,11 @@ jobs:
           git commit -s -m "chore: sync PATCHLOOM.md with version bump"
           git push
 
-      - name: Keep release PR body reasonable (tech-debt #740)
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number // empty')
-          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
-            echo "No PR number available"
-            exit 0
-          fi
-
-          CURRENT_BODY=$(gh pr view "$PR_NUMBER" --json body -q .body || echo "")
-          if echo "$CURRENT_BODY" | grep -qE '## \[[0-9]+\.[0-9]+\.[0-9]+\]'; then
-            echo "Setting short curated body on release PR #$PR_NUMBER"
-            gh pr edit "$PR_NUMBER" --body $':robot: Release PR\n\nSee [RELEASE_NOTES.md](https://github.com/patchloom/patchloom/blob/main/RELEASE_NOTES.md) for the curated highlights of this release.\n\nThe detailed changelog will be part of the published GitHub Release.' || echo "Failed to edit PR body (non-fatal)"
-          else
-            echo "PR body looks reasonable, leaving as-is"
-          fi
+      # NOTE: Do NOT edit the release-please PR body. release-please
+      # parses its own PR body on merge to detect the release. Replacing
+      # the body causes "Pull request body did not match" and the release
+      # tag is never created. This step was removed after it broke the
+      # v0.5.0 release (run 28121302481). See tech-debt #740.
 
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
@@ -457,6 +445,7 @@ jobs:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
       - name: Clean up release notes file
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.cleanup-token.outputs.token }}
           TAG: ${{ needs.plan.outputs.tag }}
