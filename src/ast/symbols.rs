@@ -749,8 +749,7 @@ impl Server {
     fn replace_function_signature_basic() {
         let src = "fn old(a: i32) -> i32 { a }\nfn other() {}";
         let res = replace_function_signature(src, "old", "pub fn new(b: u32) -> u32");
-        assert!(res.is_some());
-        let out = res.unwrap();
+        let out = res.expect("replace_function_signature should succeed for matching name");
         assert!(out.contains("pub fn new(b: u32) -> u32"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old"));
@@ -765,8 +764,7 @@ impl Server {
             return_type: Some("-> String".to_string()),
         };
         let res = rewrite_function_signature(src, "old", &edit);
-        assert!(res.is_some());
-        let out = res.unwrap();
+        let out = res.expect("rewrite_function_signature should succeed for matching name");
         assert!(out.contains("pub(crate) fn old(x: u32, y: &str) -> String"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old(a: i32)"));

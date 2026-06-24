@@ -324,12 +324,12 @@ impl GlobalFlags {
     }
 
     /// Test helper with cwd set (simulates --cwd for cmd unit tests).
+    /// Builds on with_cwd and forces color=Never for test determinism.
+    #[allow(clippy::field_reassign_with_default)]
     pub fn test_with_cwd(dir: &std::path::Path) -> Self {
-        GlobalFlags {
-            cwd: Some(dir.to_string_lossy().into_owned()),
-            color: ColorMode::Never,
-            ..GlobalFlags::default()
-        }
+        let mut g = Self::with_cwd(dir);
+        g.color = ColorMode::Never;
+        g
     }
 
     /// Test helper with apply=true (for write cmd tests that want mutation).
@@ -357,6 +357,15 @@ impl GlobalFlags {
         GlobalFlags {
             cwd: Some(cwd.as_ref().to_string_lossy().into_owned()),
             json: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create GlobalFlags with cwd and jsonl=true (for line-delimited JSON in MCP/tx tests).
+    pub fn with_cwd_and_jsonl(cwd: impl AsRef<std::path::Path>) -> Self {
+        GlobalFlags {
+            cwd: Some(cwd.as_ref().to_string_lossy().into_owned()),
+            jsonl: true,
             ..Default::default()
         }
     }

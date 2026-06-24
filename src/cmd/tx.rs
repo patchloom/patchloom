@@ -2944,18 +2944,12 @@ mod tests {
             session: None,
             apply: false,
         };
-        let mut global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
         // Also test JSONL mode.
-        global.json = false;
-        global.jsonl = true;
+        let global = GlobalFlags::with_cwd_and_jsonl(dir.path());
         let args2 = crate::cmd::undo::UndoArgs {
             list: true,
             session: None,
@@ -2982,12 +2976,7 @@ mod tests {
             session: Some(ts),
             apply: false,
         };
-        let global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }

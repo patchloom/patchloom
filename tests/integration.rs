@@ -16493,6 +16493,20 @@ async fn call_tool_text(
     (is_error, text)
 }
 
+/// Helper to call an MCP tool and parse the response text as JSON Value.
+/// This enables honest structured assertions for tools like git_status
+/// (instead of fragile substring `contains` on the whole pretty-printed output).
+async fn call_tool_value(
+    client: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    tool: impl Into<String>,
+    args: serde_json::Value,
+) -> (bool, serde_json::Value) {
+    let (is_error, text) = call_tool_text(client, tool, args).await;
+    let val =
+        serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw_text": text }));
+    (is_error, val)
+}
+
 #[tokio::test]
 async fn test_mcp_doc_set_round_trip() {
     if !has_mcp_support() {
@@ -17602,12 +17616,64 @@ async fn test_mcp_status_round_trip() {
     // Modify the tracked file to create a diff.
     fs::write(dir.path().join("tracked.txt"), "modified\n").unwrap();
 
+    // New untracked file -> created category in status.
+    fs::write(dir.path().join("created.txt"), "new content\n").unwrap();
+
+    // Tracked then deleted -> deleted category.
+    fs::write(dir.path().join("to-be-deleted.txt"), "will be gone\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "to-be-deleted.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "add for delete"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::remove_file(dir.path().join("to-be-deleted.txt")).unwrap();
+
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
-    assert!(!is_error, "status should succeed: {text}");
+    let (is_error, status) = call_tool_value(&client, "git_status", serde_json::json!({})).await;
+    assert!(!is_error, "status should succeed: {status}");
+    let modified: Vec<String> = status
+        .get("modified")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let created: Vec<String> = status
+        .get("created")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let deleted: Vec<String> = status
+        .get("deleted")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
     assert!(
-        text.contains("tracked.txt"),
-        "status should show modified file: {text}"
+        modified.iter().any(|f| f.contains("tracked.txt")),
+        "status should show modified file: {status}"
+    );
+    assert!(
+        created.iter().any(|f| f.contains("created.txt")),
+        "status should show created file: {status}"
+    );
+    assert!(
+        deleted.iter().any(|f| f.contains("to-be-deleted.txt")),
+        "status should show deleted file: {status}"
     );
     client.cancel().await.unwrap();
 }
