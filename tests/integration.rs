@@ -20793,6 +20793,31 @@ fn test_mcp_http_tls_key_requires_tls_cert() {
         .stderr(predicates::str::contains("--tls-cert"));
 }
 
+/// Verify that invalid TLS cert content produces a clear error.
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_invalid_tls_cert_fails_with_error() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad-cert.pem"), "not a certificate\n").unwrap();
+    fs::write(dir.path().join("bad-key.pem"), "not a key\n").unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "mcp-server",
+            "--http",
+            "--tls-cert",
+            dir.path().join("bad-cert.pem").to_str().unwrap(),
+            "--tls-key",
+            dir.path().join("bad-key.pem").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("TLS"));
+}
+
 /// Verify that search_files works over HTTPS (TLS) transport with --port 0.
 /// This exercises the TLS server setup (axum_server::bind_rustls) and the
 /// ephemeral port banner fix (#867).
