@@ -4,7 +4,6 @@ use crate::exit;
 
 use crate::ops::replace::{ReplaceModeError, validate_replace_mode};
 use crate::plan::{self, Operation, Plan};
-use crate::selector;
 use crate::tx::{CommitError, TxChange, TxExecResult, TxOutput};
 use crate::write::run_format_command;
 
@@ -138,11 +137,6 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-#[allow(dead_code)]
-fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
-    selector::parse_anyhow(input)
 }
 
 // ---------------------------------------------------------------------------
