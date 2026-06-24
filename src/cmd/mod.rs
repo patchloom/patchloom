@@ -67,13 +67,38 @@ pub enum Command {
     AgentRules(AgentRulesArgs),
     /// Set up patchloom in the current project.
     Init(init::InitArgs),
-    /// Start an MCP (Model Context Protocol) server on stdio.
+    /// Start an MCP (Model Context Protocol) server (stdio by default, Streamable HTTP with --http).
     #[cfg(feature = "mcp")]
     McpServer {
         /// Log every tool call to a JSONL file (tool name, duration, status).
         /// Also settable via PATCHLOOM_MCP_LOG env var; the flag takes precedence.
         #[arg(long)]
         log: Option<String>,
+
+        /// Use Streamable HTTP transport instead of stdio.
+        #[cfg(feature = "mcp-http")]
+        #[arg(long)]
+        http: bool,
+
+        /// Bind address (requires --http).
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, default_value = "127.0.0.1", requires = "http")]
+        host: String,
+
+        /// Bind port (requires --http).
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, default_value_t = 8080, requires = "http")]
+        port: u16,
+
+        /// TLS certificate PEM file; enables HTTPS (requires --http and --tls-key).
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, requires_all = ["http", "tls_key"])]
+        tls_cert: Option<std::path::PathBuf>,
+
+        /// TLS private key PEM file (requires --http and --tls-cert).
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, requires_all = ["http", "tls_cert"])]
+        tls_key: Option<std::path::PathBuf>,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     Completions {
@@ -487,8 +512,31 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
     // Write commands call load_project_config after merge_write.
     match cli.command {
         #[cfg(feature = "mcp")]
-        Command::McpServer { log } => {
+        Command::McpServer {
+            log,
+            #[cfg(feature = "mcp-http")]
+            http,
+            #[cfg(feature = "mcp-http")]
+            host,
+            #[cfg(feature = "mcp-http")]
+            port,
+            #[cfg(feature = "mcp-http")]
+            tls_cert,
+            #[cfg(feature = "mcp-http")]
+            tls_key,
+        } => {
             load_project_config(&mut global);
+            #[cfg(feature = "mcp-http")]
+            if http {
+                return mcp::run_mcp_http_server(
+                    &global,
+                    log,
+                    &host,
+                    port,
+                    tls_cert.as_deref(),
+                    tls_key.as_deref(),
+                );
+            }
             mcp::run_mcp_server(&global, log)
         }
         Command::Schema(args) => schema::run(args, &global),

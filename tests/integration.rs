@@ -16465,6 +16465,18 @@ fn has_mcp_support() -> bool {
         .is_ok()
 }
 
+#[cfg(feature = "mcp-http")]
+fn has_mcp_http_support() -> bool {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("mcp-server")
+        .arg("--help")
+        .ok()
+        .expect("mcp-server --help failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout.contains("--http")
+}
+
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     use rmcp::ServiceExt;
@@ -20582,4 +20594,138 @@ fn test_tx_format_flag_runs_after_apply() {
         "--format command should have run after tx --apply"
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+}
+
+// ── MCP HTTP transport tests ────────────────────────────────────────
+
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_search_files_round_trip() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
+
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args(["mcp-server", "--http", "--port", "0"])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn mcp-server --http");
+
+    // Read stderr to discover the actual bound port
+    let stderr = child.stderr.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stderr);
+    let mut line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line)
+        .await
+        .expect("failed to read server banner");
+
+    // Parse "MCP HTTP server listening on http://127.0.0.1:PORT/mcp"
+    let url = line.trim().rsplit("on ").next().expect("no URL in banner");
+    assert!(
+        url.starts_with("http://"),
+        "expected http:// URL in banner: {line}"
+    );
+
+    // Connect an MCP client over Streamable HTTP
+    use rmcp::ServiceExt;
+    let transport = rmcp::transport::StreamableHttpClientTransport::from_uri(url);
+    let client: rmcp::service::RunningService<rmcp::RoleClient, ()> =
+        ().serve(transport).await.expect("HTTP client connect");
+
+    // List tools
+    let tools = client.peer().list_all_tools().await.unwrap();
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+    assert!(
+        names.contains(&"search_files"),
+        "search_files tool should be listed over HTTP"
+    );
+
+    // Call search_files
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({"pattern": "hello", "paths": ["."]}))
+                .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await.unwrap();
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "search_files should succeed"
+    );
+    let text = result
+        .content
+        .first()
+        .and_then(|c| match &c.raw {
+            rmcp::model::RawContent::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert!(
+        text.contains("hello world"),
+        "search result should contain match: {text}"
+    );
+
+    client.cancel().await.unwrap();
+    child.kill().await.ok();
+}
+
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_port_requires_http_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["mcp-server", "--port", "3000"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--http"));
+}
+
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_host_requires_http_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["mcp-server", "--host", "0.0.0.0"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--http"));
+}
+
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_tls_cert_requires_tls_key() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["mcp-server", "--http", "--tls-cert", "cert.pem"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--tls-key"));
+}
+
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_tls_key_requires_tls_cert() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["mcp-server", "--http", "--tls-key", "key.pem"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--tls-cert"));
 }

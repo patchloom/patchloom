@@ -1746,6 +1746,95 @@ impl ServerHandler for PatchloomService {
     }
 }
 
+/// Run the MCP server over Streamable HTTP (optionally with TLS).
+#[cfg(feature = "mcp-http")]
+pub(crate) fn run_mcp_http_server(
+    global: &GlobalFlags,
+    log: Option<String>,
+    host: &str,
+    port: u16,
+    tls_cert: Option<&std::path::Path>,
+    tls_key: Option<&std::path::Path>,
+) -> anyhow::Result<u8> {
+    use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+    use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
+    use tokio_util::sync::CancellationToken;
+
+    let cwd = global.resolve_cwd()?;
+    let ct = CancellationToken::new();
+
+    let mut config =
+        StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token());
+
+    // When binding to non-loopback, allow any Host header
+    if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+        config = config.disable_allowed_hosts();
+    }
+
+    let log_clone = log;
+    let service = StreamableHttpService::new(
+        move || {
+            PatchloomService::new(cwd.clone(), log_clone.clone())
+                .map_err(|e| std::io::Error::other(e.to_string()))
+        },
+        std::sync::Arc::new(LocalSessionManager::default()),
+        config,
+    );
+
+    let app = axum::Router::new().nest_service("/mcp", service);
+    let addr: std::net::SocketAddr = format!("{host}:{port}")
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid bind address: {e}"))?;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        if let (Some(cert), Some(key)) = (tls_cert, tls_key) {
+            let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key)
+                .await
+                .map_err(|e| anyhow::anyhow!("TLS config error: {e}"))?;
+
+            let handle = axum_server::Handle::new();
+            let h = handle.clone();
+            let ct2 = ct.clone();
+            tokio::spawn(async move {
+                tokio::signal::ctrl_c().await.ok();
+                ct2.cancel();
+                h.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
+            });
+
+            eprintln!("MCP HTTPS server listening on https://{addr}/mcp");
+
+            axum_server::bind_rustls(addr, tls_config)
+                .handle(handle)
+                .serve(app.into_make_service())
+                .await
+                .map_err(|e| anyhow::anyhow!("HTTPS server error: {e}"))?;
+        } else {
+            let ct2 = ct.clone();
+            tokio::spawn(async move {
+                tokio::signal::ctrl_c().await.ok();
+                ct2.cancel();
+            });
+
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to bind {addr}: {e}"))?;
+            eprintln!(
+                "MCP HTTP server listening on http://{}/mcp",
+                listener.local_addr()?
+            );
+
+            axum::serve(listener, app)
+                .with_graceful_shutdown(ct.cancelled_owned())
+                .await
+                .map_err(|e| anyhow::anyhow!("HTTP server error: {e}"))?;
+        }
+        Ok::<(), anyhow::Error>(())
+    })?;
+
+    Ok(crate::exit::SUCCESS)
+}
+
 /// Run the MCP server on stdio.
 pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;

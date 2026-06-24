@@ -28,7 +28,7 @@ exclude = [
 ]
 
 [features]
-default = ["cli", "mcp", "ast"]
+default = ["cli", "mcp", "mcp-http", "ast"]
 # CLI (clap parser + all commands). Enabled by default; disable for pure-library use
 # to avoid pulling clap and related dependencies.
 cli = ["files", "dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs"]
@@ -36,6 +36,16 @@ cli = ["files", "dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs"]
 files = ["dep:ignore", "dep:globset"]
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
 mcp = ["rmcp", "tokio", "schemars"]
+# Streamable HTTP transport for MCP server (adds axum, axum-server, tokio-util).
+mcp-http = [
+    "mcp",
+    "rmcp/transport-streamable-http-server",
+    "dep:axum",
+    "dep:axum-server",
+    "dep:tokio-util",
+    "tokio/net",
+    "tokio/signal",
+]
 # AST-aware operations using tree-sitter grammars (20 languages).
 ast = [
     "dep:tree-sitter-lib",
@@ -62,7 +72,7 @@ ast = [
     "dep:tree-sitter-php",
 ]
 # Full: everything. Equivalent to default today.
-full = ["cli", "mcp", "ast", "files"]
+full = ["cli", "mcp", "mcp-http", "ast", "files"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
@@ -84,6 +94,9 @@ ec4rs = { version = "1", optional = true }
 clap_complete = { version = "4", optional = true }
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
+axum = { version = "0.8", features = ["http1", "tokio"], default-features = false, optional = true }
+axum-server = { version = "0.7", features = ["tls-rustls"], default-features = false, optional = true }
+tokio-util = { version = "0.7", optional = true }
 schemars = { version = "1", optional = true }
 tree-sitter-lib = { package = "tree-sitter", version = "0.26", optional = true }
 tree-sitter-language = { version = "0.1", optional = true }
@@ -116,7 +129,7 @@ assert_cmd = "2"
 expectrl = "0.7"
 predicates = "3"
 proptest = "1"
-rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process"] }
+rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1", features = ["full"] }
 
 [[bin]]
