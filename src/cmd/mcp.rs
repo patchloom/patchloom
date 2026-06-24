@@ -766,45 +766,54 @@ fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
     }
 }
 
+// Declarative macro for single-op MCP tools (addresses #838).
+// Generates the full #[tool] async fn.
+// pre is an optional closure |p: &Params| { validates... } to avoid hygiene issues with self/p.
+macro_rules! mcp_op {
+    ($name:ident, $desc:literal, $Params:ty, $op:expr, $strict:expr $(, pre: |$pp:ident| { $($pre:tt)* } )? ) => {
+        #[tool(description = $desc)]
+        async fn $name(
+            &self,
+            Parameters(p): Parameters<$Params>,
+        ) -> Result<CallToolResult, McpError> {
+            self.check_path(&p.path)?;
+            $( let $pp = &p; $( $pre )* )?
+            self.run_one_op($op, $strict)
+        }
+    };
+}
+
 #[tool_router]
 impl PatchloomService {
-    #[tool(
-        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}"
-    )]
-    async fn doc_set(
-        &self,
-        Parameters(p): Parameters<DocSetParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocSet {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            Some(p.strict),
-        )
-    }
+    mcp_op!(
+        doc_set,
+        "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
+        DocSetParams,
+        Operation::DocSet {
+            path: p.path.clone(),
+            selector: p.selector.clone(),
+            value: p.value.clone(),
+        },
+        Some(p.strict),
+        pre: |p| {
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+        }
+    );
 
-    #[tool(
-        description = "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}"
-    )]
-    async fn doc_delete(
-        &self,
-        Parameters(p): Parameters<DocDeleteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        self.run_one_op(
-            Operation::DocDelete {
-                path: p.path,
-                selector: p.selector,
-            },
-            None,
-        )
-    }
+    mcp_op!(
+        doc_delete,
+        "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}",
+        DocDeleteParams,
+        Operation::DocDelete {
+            path: p.path.clone(),
+            selector: p.selector.clone(),
+        },
+        None,
+        pre: |p| {
+            validate_param_size("selector", &p.selector)?;
+        }
+    );
 
     #[tool(
         description = "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}}}"

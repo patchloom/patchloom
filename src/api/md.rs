@@ -6,9 +6,12 @@ use anyhow::Context;
 
 use crate::containment::PathGuard;
 use crate::ops;
-use crate::write::WritePolicy;
+use crate::write::{WritePolicy, atomic_write};
 
-use super::{ApplyMode, EditResult, build_edit_result, ensure_contained, write_if_apply};
+use super::{
+    ApplyMode, EditResult, apply_cross_file_mutation, build_edit_result, ensure_contained,
+    write_if_apply,
+};
 
 /// Replace the body of a markdown section identified by heading.
 pub fn md_replace_section(
@@ -160,10 +163,15 @@ pub fn md_move_section(
         }
         let _ = write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
-    if mode == ApplyMode::Apply {
-        ensure_contained(guard, path)?;
-    }
-    let applied = write_if_apply(path, &new_source, mode, &policy, guard)?;
+    // Use generalized cross helper for source (centralized per #839).
+    let applied = apply_cross_file_mutation(
+        path,
+        None,
+        mode,
+        guard,
+        |backup| backup.save_before_write(path),
+        || atomic_write(path, &new_source, &policy),
+    )?;
     let dest = to.map(|p| p.to_string_lossy().to_string());
     Ok(build_edit_result(
         &path_str, original, new_source, applied, "md.move", dest,

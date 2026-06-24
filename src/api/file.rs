@@ -4,12 +4,12 @@ use std::path::Path;
 
 use anyhow::{Context, bail};
 
-use crate::backup::BackupSession;
 use crate::containment::PathGuard;
 use crate::write::{WritePolicy, atomic_create_new, atomic_write};
 
 use super::{
-    ApplyMode, EditResult, apply_mutation, build_edit_result, ensure_contained, write_if_apply,
+    ApplyMode, EditResult, apply_cross_file_mutation, apply_mutation, build_edit_result,
+    write_if_apply,
 };
 
 /// Create a new file with the given content.
@@ -137,28 +137,29 @@ pub fn file_rename(
     let original = std::fs::read_to_string(src)
         .with_context(|| format!("failed to read {}", src.display()))?;
 
-    let applied = if mode == ApplyMode::Apply {
-        ensure_contained(guard, src)?;
-        ensure_contained(guard, dst)?;
-        let cwd = src.parent().unwrap_or_else(|| Path::new("."));
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_write(src)?;
-        if dst.exists() && force {
-            backup.save_before_write(dst)?;
-        }
-        // Ensure parent directory of destination exists.
-        if let Some(parent) = dst.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::rename(src, dst)
-            .with_context(|| format!("failed to rename {} -> {}", src.display(), dst.display()))?;
-        backup.finalize()?;
-        true
-    } else {
-        false
-    };
+    let applied = apply_cross_file_mutation(
+        src,
+        Some(dst),
+        mode,
+        guard,
+        |backup| {
+            backup.save_before_write(src)?;
+            if dst.exists() && force {
+                backup.save_before_write(dst)?;
+            }
+            // Ensure parent directory of destination exists.
+            if let Some(parent) = dst.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            Ok(())
+        },
+        || {
+            std::fs::rename(src, dst)
+                .with_context(|| format!("failed to rename {} -> {}", src.display(), dst.display()))
+        },
+    )?;
 
     Ok(build_edit_result(
         &src_str,
