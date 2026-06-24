@@ -29,6 +29,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.5.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.5.0...patchloom-v0.5.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* make release notes cleanup non-fatal (continue-on-error) ([#874](https://github.com/patchloom/patchloom/issues/874)) ([a18d65e](https://github.com/patchloom/patchloom/commit/a18d65e25c833c1339db4bc1e71be380626bdac4))
+* remove release PR body editor that broke v0.5.0 release ([#873](https://github.com/patchloom/patchloom/issues/873)) ([6749e89](https://github.com/patchloom/patchloom/commit/6749e8904fd708afd97d0972f8b7567ba08317e4))
+
 ## [0.5.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.4.0...patchloom-v0.5.0) (2026-06-24)
 
 
