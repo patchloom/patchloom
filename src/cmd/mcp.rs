@@ -1324,12 +1324,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdReplaceSection {
+        self.run_one_op(
+            Operation::MdReplaceSection {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
@@ -1343,12 +1343,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdInsertAfterHeading {
+        self.run_one_op(
+            Operation::MdInsertAfterHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
@@ -1362,12 +1362,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdInsertBeforeHeading {
+        self.run_one_op(
+            Operation::MdInsertBeforeHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
