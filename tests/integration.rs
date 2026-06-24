@@ -17602,12 +17602,37 @@ async fn test_mcp_status_round_trip() {
     // Modify the tracked file to create a diff.
     fs::write(dir.path().join("tracked.txt"), "modified\n").unwrap();
 
+    // New untracked file -> created category in status.
+    fs::write(dir.path().join("created.txt"), "new content\n").unwrap();
+
+    // Tracked then deleted -> deleted category.
+    fs::write(dir.path().join("to-be-deleted.txt"), "will be gone\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "to-be-deleted.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "add for delete"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::remove_file(dir.path().join("to-be-deleted.txt")).unwrap();
+
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
     assert!(!is_error, "status should succeed: {text}");
     assert!(
         text.contains("tracked.txt"),
         "status should show modified file: {text}"
+    );
+    assert!(
+        text.contains("created.txt"),
+        "status should show created file: {text}"
+    );
+    assert!(
+        text.contains("to-be-deleted.txt"),
+        "status should show deleted file: {text}"
     );
     client.cancel().await.unwrap();
 }
