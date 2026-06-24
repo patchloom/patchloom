@@ -2115,10 +2115,7 @@ pub(crate) fn validate_and_prepare_plan(
     let config_strict = config_tx_strict(&effective_cwd);
     let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
 
-    let mut global = GlobalFlags {
-        cwd: Some(effective_cwd.to_string_lossy().into_owned()),
-        ..GlobalFlags::default()
-    };
+    let mut global = GlobalFlags::with_cwd(&effective_cwd);
     if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
         crate::config::apply_config(&mut global, &config);
     }

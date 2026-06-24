@@ -1264,14 +1264,10 @@ impl PatchloomService {
             assert_count: p.assert_count,
             max_results: p.max_results,
         };
-        let global = GlobalFlags {
-            json: true,
-            cwd: Some(self.cwd().to_string_lossy().into_owned()),
-            glob: p.globs,
-            exclude: p.exclude_patterns,
-            ignore_file: p.custom_ignore_filenames,
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::with_cwd_and_json(self.cwd());
+        global.glob = p.globs;
+        global.exclude = p.exclude_patterns;
+        global.ignore_file = p.custom_ignore_filenames;
         let results = crate::cmd::search::collect_matches(&search_args, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
 
@@ -1322,10 +1318,7 @@ impl PatchloomService {
         &self,
         #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
-        let global = GlobalFlags {
-            cwd: Some(self.cwd().to_string_lossy().into_owned()),
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::with_cwd(self.cwd());
         let status = crate::cmd::status::collect_status(&[], &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         let json = serde_json::to_string_pretty(&status)

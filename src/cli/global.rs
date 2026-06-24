@@ -340,22 +340,41 @@ impl GlobalFlags {
     }
 }
 
+/// Non-test helpers for common construction patterns (reduces boilerplate
+/// in MCP, tx, and test code after centralization).
+impl GlobalFlags {
+    /// Create GlobalFlags with a specific cwd (used by MCP tools and tx paths
+    /// to simulate the working directory).
+    pub fn with_cwd(cwd: impl AsRef<std::path::Path>) -> Self {
+        GlobalFlags {
+            cwd: Some(cwd.as_ref().to_string_lossy().into_owned()),
+            ..Default::default()
+        }
+    }
+
+    /// Create GlobalFlags with cwd and json=true (common for MCP read tools).
+    pub fn with_cwd_and_json(cwd: impl AsRef<std::path::Path>) -> Self {
+        GlobalFlags {
+            cwd: Some(cwd.as_ref().to_string_lossy().into_owned()),
+            json: true,
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn should_apply_returns_true_when_apply_set() {
-        let g = GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        };
+        let g = GlobalFlags::test_apply();
         assert!(g.should_apply());
     }
 
     #[test]
     fn should_apply_returns_false_by_default() {
-        let g = GlobalFlags::default();
+        let g = GlobalFlags::test_default();
         assert!(!g.should_apply());
     }
 
