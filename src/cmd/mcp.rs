@@ -854,12 +854,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocPrepend {
+        self.run_one_op(
+            Operation::DocPrepend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -914,12 +914,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocUpdate {
+        self.run_one_op(
+            Operation::DocUpdate {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
