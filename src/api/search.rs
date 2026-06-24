@@ -1,0 +1,346 @@
+/*! Search operations for the public library API. */
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, bail};
+
+use crate::ops;
+
+// ---------------------------------------------------------------------------
+// Search operations
+// ---------------------------------------------------------------------------
+
+/// A single search match.
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    /// 1-based line number.
+    pub line_number: usize,
+    /// The matched line content.
+    pub line: String,
+}
+
+/// Search for a pattern in a file, returning all matching lines.
+///
+/// This is a read-only operation. For richer results with column/context use
+/// `search_file` (the one taking SearchOptions) or the low-level `search_one_file`.
+pub fn search(
+    path: &Path,
+    pattern: &str,
+    regex: bool,
+    case_insensitive: bool,
+) -> anyhow::Result<Vec<SearchMatch>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    if pattern.is_empty() {
+        bail!("search pattern must not be empty");
+    }
+
+    let compiled_re = if regex || case_insensitive {
+        Some(ops::replace::compile_replace_regex(
+            pattern,
+            regex,
+            case_insensitive,
+            false,
+            false,
+        )?)
+    } else {
+        None
+    };
+
+    let mut matches = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let matched = match &compiled_re {
+            Some(Some(re)) => re.is_match(line),
+            _ => line.contains(pattern),
+        };
+        if matched {
+            matches.push(SearchMatch {
+                line_number: i + 1,
+                line: line.to_string(),
+            });
+        }
+    }
+    Ok(matches)
+}
+
+/// Search a single file with full `SearchOptions` support (context, regex, literal, etc).
+///
+/// Returns rich `SearchResult` entries (with column + context when requested).
+/// This is the recommended per-file primitive for library/agent hosts (#812).
+/// For callers that do their own walking (custom ignores, limits, etc.) see
+/// [`search_one_file`].
+pub fn search_file(
+    path: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+) -> anyhow::Result<Vec<SearchResult>> {
+    // Delegate to search_directory (handles file root case + full rich logic with correct column/context).
+    // This ensures parity and reuses the complete one-file impl (#812/#815).
+    search_directory(path, pattern, opts)
+}
+
+/// Options for full directory search (for library consumers).
+///
+/// Supports customization for advanced ignore behavior (e.g. blineignore)
+/// via `exclude_patterns` and `custom_ignore_filenames`. The underlying
+/// `ignore::WalkBuilder` is used when the "files" feature is enabled, so
+/// standard .gitignore is respected by default.
+#[derive(Debug, Clone, Default)]
+pub struct SearchOptions {
+    /// Treat pattern as literal string (not regex).
+    pub literal: bool,
+    /// Treat as regex (default false, use with literal=false).
+    pub regex: bool,
+    /// Case insensitive match.
+    pub case_insensitive: bool,
+    /// Context lines around matches.
+    pub context: Option<usize>,
+    /// Glob patterns to include (e.g. "*.rs").
+    pub globs: Vec<String>,
+    /// Max number of results (0 for unlimited).
+    pub max_results: usize,
+    /// Additional gitignore-style patterns to *exclude* (e.g. from a .blineignore).
+    /// These are applied in addition to any .gitignore respected by the walker.
+    pub exclude_patterns: Vec<String>,
+    /// Custom ignore filenames to respect in addition to .gitignore / .ignore
+    /// (e.g. `vec![".blineignore".to_string()]`).
+    pub custom_ignore_filenames: Vec<String>,
+}
+
+/// Result of a search match with optional context.
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub path: PathBuf,
+    pub line_number: usize,
+    pub line: String,
+    pub column: usize,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}
+
+/// Helper to build context slices for a match line. DRY for search impls (library + CLI).
+///
+/// Exposed for downstreams that want consistent context extraction (#815).
+pub fn build_context_lines(
+    all_lines: &[&str],
+    match_idx: usize,
+    ctx: usize,
+) -> (Vec<String>, Vec<String>) {
+    if ctx == 0 {
+        return (vec![], vec![]);
+    }
+    let before_start = match_idx.saturating_sub(ctx);
+    let after_end = (match_idx + 1 + ctx).min(all_lines.len());
+    let before = all_lines[before_start..match_idx]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let after = all_lines[match_idx + 1..after_end]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    (before, after)
+}
+
+/// Search a directory (or file) recursively for pattern.
+/// Respects globs and custom ignores (via `SearchOptions`) if "files" feature enabled.
+/// Uses parallel processing when available.
+/// This provides the full power of the CLI search for library use (see #773, #796).
+/// See `SearchOptions` for `exclude_patterns` and `custom_ignore_filenames` (blineignore etc.).
+///
+/// For callers that already have a list of files (custom walker), see [`search_one_file`].
+///
+/// Example for custom ignore (bline style):
+/// ```ignore
+/// let opts = SearchOptions {
+///     custom_ignore_filenames: vec![".blineignore".into()],
+///     exclude_patterns: vec!["*.tmp".into()],
+///     ..Default::default()
+/// };
+/// let hits = search_directory(Path::new("."), "TODO", &opts)?;
+/// ```
+pub fn search_directory(
+    root: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+) -> anyhow::Result<Vec<SearchResult>> {
+    if pattern.is_empty() {
+        bail!("search pattern must not be empty");
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    {
+        use crate::files::{build_glob_matcher, par_process_files};
+        let glob_matcher = build_glob_matcher(&opts.globs)?;
+        let glob_roots = vec![root.to_path_buf()];
+
+        // Delegate to shared helper for identical multi-source ignore precedence (#813).
+        let file_paths = crate::files::collect_file_paths_with_ignores(
+            root,
+            &opts.custom_ignore_filenames,
+            &opts.exclude_patterns,
+            false, // search typically does not traverse hidden unless requested via other means
+        )?;
+
+        let limit = if opts.max_results > 0 {
+            opts.max_results
+        } else {
+            usize::MAX
+        };
+
+        let file_result_groups: Vec<Vec<SearchResult>> =
+            par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                let v = search_one_file(path, pattern, opts, root);
+                if v.is_empty() { None } else { Some(v) }
+            });
+
+        let mut res: Vec<SearchResult> = file_result_groups.into_iter().flatten().collect();
+        if limit < usize::MAX {
+            res.truncate(limit);
+        }
+        Ok(res)
+    }
+
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    {
+        // fallback to single file search (multi-match supported via basic search)
+        if root.is_file() {
+            let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
+            let display = root.to_path_buf();
+            let c = opts.context.unwrap_or(0);
+            // read once for both content and context lines (fallback is rare / no "files" feature)
+            let content = std::fs::read_to_string(root)
+                .with_context(|| format!("failed to read {}", root.display()))?;
+            let all_lines: Vec<&str> = content.lines().collect();
+            let results: Vec<SearchResult> = basic
+                .into_iter()
+                .map(|m| {
+                    let i = m.line_number - 1;
+                    let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+                    // column not tracked in basic fallback search (always 1; full impl behind "files" feature)
+                    let column = 1;
+                    SearchResult {
+                        path: display.clone(),
+                        line_number: m.line_number,
+                        line: m.line,
+                        column,
+                        context_before,
+                        context_after,
+                    }
+                })
+                .collect();
+            Ok(results)
+        } else {
+            bail!(
+                "search_directory requires the 'files' feature to be enabled (for pure-library recursive search with ignores/parallelism)"
+            );
+        }
+    }
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+/// Low-level single-file matcher for callers that already selected the files.
+///
+/// Returns rich [`SearchResult`]s (including `column` and context when requested
+/// via [`SearchOptions`]). Intended for advanced library users (e.g. custom
+/// `WalkBuilder` with extra ignores, size caps, depth limits, custom truncation)
+/// who then want to apply patchloom's matching logic.
+///
+/// Prefer [`search_file`] for simple per-file use and [`search_directory`] for
+/// full directory walking with built-in ignore support.
+pub fn search_one_file(
+    path: &Path,
+    pattern: &str,
+    opts: &SearchOptions,
+    root: &Path,
+) -> Vec<SearchResult> {
+    let content = match crate::files::read_text_file(path) {
+        Some(c) => c,
+        None => return vec![],
+    };
+    let display = crate::files::relative_display(path, root);
+    let pat = if opts.literal {
+        regex::escape(pattern)
+    } else {
+        pattern.to_string()
+    };
+    let re = if opts.regex || opts.case_insensitive {
+        regex::RegexBuilder::new(&pat)
+            .case_insensitive(opts.case_insensitive)
+            .build()
+            .ok()
+    } else {
+        None
+    };
+
+    let mut results = Vec::new();
+    for (i, line) in content.lines().enumerate() {
+        let matched = if let Some(re) = &re {
+            re.is_match(line)
+        } else {
+            line.contains(pattern)
+        };
+        if matched {
+            let all_lines: Vec<&str> = content.lines().collect();
+            let c = opts.context.unwrap_or(0);
+            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+            let column = if opts.regex || opts.case_insensitive {
+                if let Some(re) = &re {
+                    re.find(line).map_or(1, |m| m.start() + 1)
+                } else {
+                    1
+                }
+            } else {
+                line.find(pattern).map_or(1, |p| p + 1)
+            };
+            results.push(SearchResult {
+                path: display.to_path_buf(),
+                line_number: i + 1,
+                line: line.to_string(),
+                column,
+                context_before,
+                context_after,
+            });
+        }
+    }
+    results
+}
+
+/// Format `SearchResult`s for display (human text or JSON).
+///
+/// Library / agent hosts can use this for consistent output with CLI search (#812).
+pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    if as_json {
+        let payload: Vec<_> = results
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "path": r.path,
+                    "line": r.line_number,
+                    "text": r.line,
+                    "column": r.column,
+                    "context_before": r.context_before,
+                    "context_after": r.context_after,
+                })
+            })
+            .collect();
+        if let Ok(s) = serde_json::to_string_pretty(&payload) {
+            out = s;
+            out.push('\n');
+        }
+    } else {
+        for r in results {
+            let _ = writeln!(out, "{}:{}: {}", r.path.display(), r.line_number, r.line);
+            for ctx in &r.context_before {
+                let _ = writeln!(out, "  {}", ctx);
+            }
+            for ctx in &r.context_after {
+                let _ = writeln!(out, "  {}", ctx);
+            }
+        }
+    }
+    out
+}
