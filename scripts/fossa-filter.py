@@ -18,6 +18,18 @@ Documented false positives
    Pure UEFI type definitions (data structures, no executable code).
    Pulled in transitively via std on some targets; not linked into the
    user binary in any meaningful way.
+
+3. ring  openssl-ssleay
+   ring is ISC-licensed. The OpenSSL-SSLeay marker comes from historical
+   OpenSSL-derived assembly code that ring inherited. The SSLeay license
+   is permissive (BSD-style) and compatible with MIT/Apache-2.0 projects.
+   Pulled in transitively via rustls for TLS support.
+
+4. aws-lc-sys  GPL-1.0-only / GPL-1.0-or-later
+   aws-lc-sys wraps AWS-LC which is Apache-2.0 + ISC licensed. FOSSA
+   flags GPL because the source tarball includes GPL-licensed test vectors
+   from OpenSSL. These test files are not compiled into the binary.
+   Pulled in transitively via rustls/aws-lc-rs for TLS support.
 """
 
 import json
@@ -50,6 +62,14 @@ def is_false_positive(pkg: str, license_id: str, issue_type: str = "") -> bool:
 
     # r-efi: pure type definitions, transitively pulled by std
     if pkg == "r-efi" and license_id in ("LGPL-2.1-or-later", "LGPL-2.1+"):
+        return True
+
+    # ring: ISC-licensed; SSLeay marker from historical OpenSSL assembly
+    if pkg == "ring" and "ssleay" in license_id.lower():
+        return True
+
+    # aws-lc-sys: Apache-2.0/ISC; GPL flags from test vectors in source tarball
+    if pkg == "aws-lc-sys" and license_id.startswith("GPL-"):
         return True
 
     return False

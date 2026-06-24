@@ -235,6 +235,67 @@ The MCP server enforces path containment: all file paths must resolve within the
 
 Each individual tool validates every path before execution.
 
+## Streamable HTTP transport
+
+By default, the MCP server uses stdio transport (ideal for local IDE/agent integration). With `--http`, the server switches to Streamable HTTP transport, allowing remote MCP clients to connect over the network.
+
+### Basic HTTP
+
+```bash
+# Default: listen on 127.0.0.1:8080
+patchloom mcp-server --http
+
+# Custom port
+patchloom mcp-server --http --port 3000
+
+# Listen on all interfaces
+patchloom mcp-server --http --host 0.0.0.0
+```
+
+The MCP endpoint is served at `/mcp` (e.g., `http://127.0.0.1:8080/mcp`).
+
+### HTTPS with native TLS
+
+```bash
+patchloom mcp-server --http --host 0.0.0.0 --port 443 \
+  --tls-cert cert.pem --tls-key key.pem
+```
+
+Both `--tls-cert` and `--tls-key` must be provided together. The server uses rustls (no OpenSSL dependency).
+
+### HTTP transport flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--http` | off | Use Streamable HTTP transport instead of stdio |
+| `--host` | `127.0.0.1` | Bind address (requires `--http`) |
+| `--port` | `8080` | Bind port (requires `--http`). Use `0` for an OS-assigned ephemeral port (printed in the startup banner) |
+| `--tls-cert` | none | TLS certificate PEM file; enables HTTPS (requires `--http` and `--tls-key`) |
+| `--tls-key` | none | TLS private key PEM file (requires `--http` and `--tls-cert`) |
+
+### Connecting a remote MCP client
+
+Use any MCP client that supports Streamable HTTP transport. Example with the `rmcp` Rust client:
+
+```rust
+use rmcp::transport::StreamableHttpClientTransport;
+
+let transport = StreamableHttpClientTransport::from_uri("http://localhost:8080/mcp");
+let client = ().serve(transport).await?;
+```
+
+### Logging with HTTP transport
+
+The `--log` flag works identically with HTTP transport:
+
+```bash
+patchloom mcp-server --http --log /tmp/mcp.log
+```
+
+### Graceful shutdown
+
+The HTTP server shuts down gracefully on Ctrl+C (SIGINT): active SSE streams are terminated, in-flight requests complete, and the server exits cleanly.
+
 ## Example tool call
 
 An MCP-capable agent sends:
