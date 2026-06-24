@@ -797,11 +797,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
-        self.run_ops(
-            vec![Operation::DocDelete {
+        self.run_one_op(
+            Operation::DocDelete {
                 path: p.path,
                 selector: p.selector,
-            }],
+            },
             None,
         )
     }
@@ -815,11 +815,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocMerge {
+        self.run_one_op(
+            Operation::DocMerge {
                 path: p.path,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -834,12 +834,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocAppend {
+        self.run_one_op(
+            Operation::DocAppend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
