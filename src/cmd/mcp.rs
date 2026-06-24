@@ -934,12 +934,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("from", &p.from)?;
         validate_param_size("to", &p.to)?;
-        self.run_ops(
-            vec![Operation::DocMove {
+        self.run_one_op(
+            Operation::DocMove {
                 path: p.path,
                 from: p.from,
                 to: p.to,
-            }],
+            },
             None,
         )
     }
@@ -1158,11 +1158,11 @@ impl PatchloomService {
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        self.run_ops(
-            vec![Operation::Read {
+        self.run_one_op(
+            Operation::Read {
                 path: p.path,
                 lines: p.lines,
-            }],
+            },
             None,
         )
     }
@@ -1543,7 +1543,7 @@ impl PatchloomService {
             on_stale: p.on_stale,
             allow_conflicts: p.allow_conflicts,
         };
-        self.run_ops(vec![op], Some(p.strict))
+        self.run_one_op(op, Some(p.strict))
     }
 
     #[tool(
