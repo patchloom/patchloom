@@ -160,7 +160,7 @@ fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
     selector::parse_anyhow(input)
 }
@@ -173,7 +173,7 @@ fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
 ///
 /// When a file is first loaded from disk (Vacant entry), it is recorded in
 /// `existed_before` so the commit/rollback phase knows it was pre-existing.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn read_file_content<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
@@ -244,7 +244,7 @@ fn update_file_content(
 // ---------------------------------------------------------------------------
 
 /// Flush a single cached document back to the pending text map.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
@@ -1647,7 +1647,7 @@ fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option
 }
 
 /// Build a JSON error string with an explicit legacy prefix.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn make_error_json_with_prefix(
     error_kind: &'static str,
     legacy_error_prefix: &str,
@@ -1663,7 +1663,7 @@ fn make_error_json_with_prefix(
     .unwrap_or_default()
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
     crate::config::find_and_load(cwd)
         .map(|(config, _)| config.tx.strict)

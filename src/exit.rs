@@ -1,24 +1,24 @@
 /// Exit codes for patchloom.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const SUCCESS: u8 = 0;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const FAILURE: u8 = 1;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const CHANGES_DETECTED: u8 = 2;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const NO_MATCHES: u8 = 3;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const PARSE_ERROR: u8 = 4;
 /// Tx operation staging failure (`error_kind`: `operation_failed`).
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const OPERATION_FAILED: u8 = 9;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const AMBIGUOUS: u8 = 5;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const VALIDATION_FAILED: u8 = 6;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const ROLLBACK: u8 = 7;
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const CONFLICTS: u8 = 8;
 
 #[cfg(test)]

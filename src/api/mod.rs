@@ -63,7 +63,7 @@
 //!
 //! - Every public write API and plan `Operation` (file.create/delete/rename/append, doc.set/merge/append/..., md.*, patch, replace, tidy writes, etc.) goes through `ensure_contained` (Apply only) + `BackupSession` + `atomic_*` + `WritePolicy`.
 //! - Upfront declared paths checked for `execute_plan` under guard.
-//! - No gaps found on review (greps for ensure/Backup/atomic in api.rs + tx.rs + spot in ops).
+//! - No gaps found on review (greps for ensure/Backup/atomic in api/ + tx.rs + spot in ops).
 //! - Regression: the `write_if_apply` + `ensure_contained` helpers + upfront in execute_plan + existing guard tests under ["files"] matrix.
 //!
 //! # Thread safety
