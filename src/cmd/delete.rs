@@ -31,19 +31,6 @@ fn delete_with_backup(path: &std::path::Path, cwd: &std::path::Path) -> anyhow::
     Ok(())
 }
 
-/// Delete a file with backup, without writing to stdout.
-/// Used by the MCP server for direct in-process deletes.
-#[cfg(feature = "mcp")]
-pub(crate) fn apply_delete(path: &std::path::Path, cwd: &std::path::Path) -> anyhow::Result<()> {
-    if !path.exists() {
-        anyhow::bail!("file not found: {}", path.display());
-    }
-    if !path.is_file() {
-        anyhow::bail!("target is not a file: {}", path.display());
-    }
-    delete_with_backup(path, cwd)
-}
-
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let path = cwd.join(&args.file);

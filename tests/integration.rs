@@ -16886,6 +16886,9 @@ async fn test_mcp_file_rename_round_trip() {
     )
     .await;
     assert!(!is_error, "rename should succeed: {val}");
+    assert_eq!(val["ok"], true, "rename ok field: {val}");
+    assert_eq!(val["files_created"], 1, "rename files_created: {val}");
+    assert_eq!(val["files_deleted"], 1, "rename files_deleted: {val}");
     assert!(
         !dir.path().join("old_name.txt").exists(),
         "old file should not exist"
@@ -16916,11 +16919,8 @@ async fn test_mcp_create_round_trip() {
     )
     .await;
     assert!(!is_error, "create should succeed: {val}");
-    let msg = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(
-        msg.contains("Created") && msg.contains("new_file.txt"),
-        "create response should confirm file creation: {val}"
-    );
+    assert_eq!(val["ok"], true, "create ok field: {val}");
+    assert_eq!(val["files_created"], 1, "create files_created: {val}");
     assert!(
         dir.path().join("new_file.txt").exists(),
         "file should exist after create"
@@ -16975,11 +16975,8 @@ async fn test_mcp_delete_round_trip() {
     )
     .await;
     assert!(!is_error, "delete should succeed: {val}");
-    let msg = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(
-        msg.contains("Deleted") && msg.contains("doomed.txt"),
-        "delete response should confirm file deletion: {val}"
-    );
+    assert_eq!(val["ok"], true, "delete ok field: {val}");
+    assert_eq!(val["files_deleted"], 1, "delete files_deleted: {val}");
     assert!(
         !dir.path().join("doomed.txt").exists(),
         "file should not exist after delete"
@@ -18326,6 +18323,8 @@ async fn test_mcp_append_file_round_trip() {
     )
     .await;
     assert!(!is_error, "append_file should succeed: {val}");
+    assert_eq!(val["ok"], true, "append ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "append files_changed: {val}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "line one\nline two\n",
