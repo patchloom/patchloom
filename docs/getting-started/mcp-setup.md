@@ -102,6 +102,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `md_lint` | Lint an AGENTS.md file for common issues |
 | `fix_whitespace` | Fix whitespace and line endings in a text file. Binary and invalid UTF-8 files are skipped |
 | `create_file` | Create a new file with content |
+| `append_file` | Append content to an existing file |
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
 | `apply_patch` | Apply a unified diff |
