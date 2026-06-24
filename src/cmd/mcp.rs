@@ -1802,7 +1802,14 @@ pub(crate) fn run_mcp_http_server(
                 h.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
             });
 
-            eprintln!("MCP HTTPS server listening on https://{addr}/mcp");
+            // Print the banner once the server is actually bound so that
+            // --port 0 shows the real ephemeral port (fixes #867).
+            let h_addr = handle.clone();
+            tokio::spawn(async move {
+                if let Some(real_addr) = h_addr.listening().await {
+                    eprintln!("MCP HTTPS server listening on https://{real_addr}/mcp");
+                }
+            });
 
             axum_server::bind_rustls(addr, tls_config)
                 .handle(handle)
