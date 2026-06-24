@@ -38,6 +38,9 @@ struct AppendOutput {
 
 /// Append content to a file, without writing to stdout.
 /// Used by the MCP server for direct in-process file appending.
+///
+/// Now creates a BackupSession (parent dir as root) for undo safety and
+/// crash consistency, matching other MCP write shims and the library API.
 #[cfg(feature = "mcp")]
 pub(crate) fn apply_append(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
     if !path.exists() {
@@ -51,7 +54,11 @@ pub(crate) fn apply_append(path: &std::path::Path, content: &str) -> anyhow::Res
     let combined = crate::ops::file::append_content(&existing, content);
 
     let policy = crate::write::WritePolicy::default();
+    let cwd = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut backup = BackupSession::new(cwd)?;
+    backup.save_before_write(path)?;
     atomic_write(path, &combined, &policy)?;
+    backup.finalize()?;
     Ok(())
 }
 
