@@ -266,6 +266,33 @@ fn apply_mutation(
     Ok(true)
 }
 
+/// Generalized cross-file mutation helper (for rename and md cross-file moves).
+///
+/// Handles guard checks and backup for src (and optional dst).
+/// Used to centralize the cross-file logic per code review #839.
+fn apply_cross_file_mutation(
+    src: &Path,
+    dst: Option<&Path>,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
+    perform_mutation: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<bool> {
+    if mode != ApplyMode::Apply {
+        return Ok(false);
+    }
+    ensure_contained(guard, src)?;
+    if let Some(d) = dst {
+        ensure_contained(guard, d)?;
+    }
+    let cwd = src.parent().unwrap_or_else(|| Path::new("."));
+    let mut backup = BackupSession::new(cwd)?;
+    prepare_backup(&mut backup)?;
+    perform_mutation()?;
+    backup.finalize()?;
+    Ok(true)
+}
+
 fn write_if_apply(
     path: &Path,
     new_content: &str,

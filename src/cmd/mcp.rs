@@ -36,6 +36,7 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
+    #[allow(dead_code)]
     pub(crate) struct DocSetParams {
         /// File path (relative to working directory).
         pub path: String,
@@ -51,6 +52,7 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
+    #[allow(dead_code)]
     pub(crate) struct DocDeleteParams {
         /// File path.
         pub path: String,
@@ -764,6 +766,25 @@ fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
         format: None,
         validate: None,
     }
+}
+
+// Declarative macro for single-op MCP tools (addresses #838).
+// Generates the full #[tool] async fn.
+// pre is an optional closure |p: &Params| { validates... } to avoid hygiene issues with self/p.
+#[allow(unused_macros)]
+macro_rules! mcp_op {
+    ($name:ident, $desc:literal, $Params:ty, $op:expr, $strict:expr $(, pre: |$pp:ident| { $($pre:tt)* } )? ) => {
+        #[tool(description = $desc)]
+        #[allow(dead_code)]
+        async fn $name(
+            &self,
+            Parameters(p): Parameters<$Params>,
+        ) -> Result<CallToolResult, McpError> {
+            self.check_path(&p.path)?;
+            $( let $pp = &p; $( $pre )* )?
+            self.run_one_op($op, $strict)
+        }
+    };
 }
 
 #[tool_router]
