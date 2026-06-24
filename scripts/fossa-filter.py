@@ -30,6 +30,14 @@ Documented false positives
    flags GPL because the source tarball includes GPL-licensed test vectors
    from OpenSSL. These test files are not compiled into the binary.
    Pulled in transitively via rustls/aws-lc-rs for TLS support.
+
+5. security-framework  APSL-2.0
+   security-framework is MIT/Apache-2.0 licensed Rust bindings to Apple's
+   Security.framework. FOSSA flags APSL-2.0 because the underlying macOS
+   system library is Apple-licensed, but the crate itself does not bundle
+   Apple code; it links to the system library at runtime. This is standard
+   for any Rust crate using native macOS APIs. Pulled in transitively via
+   rustls-platform-verifier for TLS certificate verification.
 """
 
 import json
@@ -70,6 +78,10 @@ def is_false_positive(pkg: str, license_id: str, issue_type: str = "") -> bool:
 
     # aws-lc-sys: Apache-2.0/ISC; GPL flags from test vectors in source tarball
     if pkg == "aws-lc-sys" and license_id.startswith("GPL-"):
+        return True
+
+    # security-framework: MIT/Apache-2.0 bindings; APSL-2.0 is the system library
+    if pkg == "security-framework" and license_id == "APSL-2.0":
         return True
 
     return False
