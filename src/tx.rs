@@ -2072,42 +2072,6 @@ pub(crate) fn build_error_output(
     }
 }
 
-pub(crate) fn legacy_error_prefix(error_kind: &str) -> &str {
-    if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    }
-}
-
-/// Build a JSON error string without writing to stdout.
-#[allow(dead_code)]
-fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
-    make_error_json_with_prefix(
-        error_kind,
-        legacy_error_prefix(error_kind),
-        error,
-        backup_session,
-    )
-}
-
-/// Build a JSON error string with an explicit legacy prefix.
-#[allow(dead_code)]
-fn make_error_json_with_prefix(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> String {
-    serde_json::to_string_pretty(&build_error_output(
-        error_kind,
-        legacy_error_prefix,
-        error,
-        backup_session,
-    ))
-    .unwrap_or_default()
-}
-
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
     crate::config::find_and_load(cwd)
         .map(|(config, _)| config.tx.strict)
