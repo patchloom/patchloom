@@ -683,6 +683,11 @@ impl PatchloomService {
         )
     }
 
+    /// Helper for single-op case to reduce vec! boilerplate in handlers.
+    fn run_one_op(&self, op: Operation, strict: Option<bool>) -> Result<CallToolResult, McpError> {
+        self.run_ops(vec![op], strict)
+    }
+
     /// Validate paths for a single operation (including embedded paths for PatchApply).
     fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
         for declared in crate::plan::declared_paths(op) {
@@ -773,12 +778,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocSet {
+        self.run_one_op(
+            Operation::DocSet {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             Some(p.strict),
         )
     }
@@ -792,11 +797,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
-        self.run_ops(
-            vec![Operation::DocDelete {
+        self.run_one_op(
+            Operation::DocDelete {
                 path: p.path,
                 selector: p.selector,
-            }],
+            },
             None,
         )
     }
@@ -810,11 +815,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocMerge {
+        self.run_one_op(
+            Operation::DocMerge {
                 path: p.path,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -829,12 +834,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocAppend {
+        self.run_one_op(
+            Operation::DocAppend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -849,12 +854,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocPrepend {
+        self.run_one_op(
+            Operation::DocPrepend {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -869,12 +874,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocEnsure {
+        self.run_one_op(
+            Operation::DocEnsure {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -889,12 +894,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_param_size("predicate", &p.predicate)?;
-        self.run_ops(
-            vec![Operation::DocDeleteWhere {
+        self.run_one_op(
+            Operation::DocDeleteWhere {
                 path: p.path,
                 selector: p.selector,
                 predicate: p.predicate,
-            }],
+            },
             None,
         )
     }
@@ -909,12 +914,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocUpdate {
+        self.run_one_op(
+            Operation::DocUpdate {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             None,
         )
     }
@@ -929,12 +934,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("from", &p.from)?;
         validate_param_size("to", &p.to)?;
-        self.run_ops(
-            vec![Operation::DocMove {
+        self.run_one_op(
+            Operation::DocMove {
                 path: p.path,
                 from: p.from,
                 to: p.to,
-            }],
+            },
             None,
         )
     }
@@ -1153,11 +1158,11 @@ impl PatchloomService {
         Parameters(p): Parameters<ReadFileParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
-        self.run_ops(
-            vec![Operation::Read {
+        self.run_one_op(
+            Operation::Read {
                 path: p.path,
                 lines: p.lines,
-            }],
+            },
             None,
         )
     }
@@ -1281,12 +1286,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("bullet", &p.bullet)?;
-        self.run_ops(
-            vec![Operation::MdUpsertBullet {
+        self.run_one_op(
+            Operation::MdUpsertBullet {
                 path: p.path,
                 heading: p.heading,
                 bullet: p.bullet,
-            }],
+            },
             None,
         )
     }
@@ -1300,12 +1305,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("row", &p.row)?;
-        self.run_ops(
-            vec![Operation::MdTableAppend {
+        self.run_one_op(
+            Operation::MdTableAppend {
                 path: p.path,
                 heading: p.heading,
                 row: p.row,
-            }],
+            },
             None,
         )
     }
@@ -1319,12 +1324,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdReplaceSection {
+        self.run_one_op(
+            Operation::MdReplaceSection {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
@@ -1338,12 +1343,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdInsertAfterHeading {
+        self.run_one_op(
+            Operation::MdInsertAfterHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
@@ -1357,12 +1362,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_content_size("content", &p.content)?;
-        self.run_ops(
-            vec![Operation::MdInsertBeforeHeading {
+        self.run_one_op(
+            Operation::MdInsertBeforeHeading {
                 path: p.path,
                 heading: p.heading,
                 content: p.content,
-            }],
+            },
             None,
         )
     }
@@ -1538,7 +1543,7 @@ impl PatchloomService {
             on_stale: p.on_stale,
             allow_conflicts: p.allow_conflicts,
         };
-        self.run_ops(vec![op], Some(p.strict))
+        self.run_one_op(op, Some(p.strict))
     }
 
     #[tool(
