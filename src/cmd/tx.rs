@@ -34,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 
 use std::path::{Path, PathBuf};
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 #[derive(Debug, Args)]
 #[non_exhaustive]
 #[command(after_help = "\
@@ -61,7 +61,7 @@ pub struct TxArgs {
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 use crate::exec;
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
@@ -151,7 +151,7 @@ fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     }
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     for op in &plan.operations {
         validate_operation(op)?;
