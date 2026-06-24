@@ -18339,6 +18339,80 @@ mod ast_tests {
             .failure()
             .stderr(predicates::str::contains("INVALID (Rust)"));
     }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn test_ast_list_jsonl_outputs_compact_lines() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("lib.rs");
+        fs::write(&f, "pub fn foo() {}\nstruct Bar;\n").unwrap();
+        let out = patchloom_in(dir.path())
+            .args(["ast", "list", "lib.rs", "--jsonl"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(
+            lines.len() >= 2,
+            "expected at least 2 JSONL lines for 2 symbols"
+        );
+        for line in &lines {
+            let v: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("line is not valid JSON: {e}: {line}"));
+            assert!(v.is_object(), "each JSONL line should be an object");
+            // Compact: no pretty-printing (no leading whitespace on first char).
+            assert!(
+                !line.starts_with(' '),
+                "JSONL should be compact, not pretty"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn test_ast_validate_jsonl_output() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("ok.rs");
+        fs::write(&f, "fn main() {}\n").unwrap();
+        let out = patchloom_in(dir.path())
+            .args(["ast", "validate", "ok.rs", "--jsonl"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(v["valid"], serde_json::json!(true));
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn test_ast_search_jsonl_output() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("lib.rs");
+        fs::write(&f, "fn alpha() {}\nfn beta() {}\n").unwrap();
+        let out = patchloom_in(dir.path())
+            .args(["ast", "search", "(function_item) @fn", "lib.rs", "--jsonl"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(
+            lines.len() >= 2,
+            "should have at least 2 JSONL lines for 2 matches"
+        );
+        for line in &lines {
+            let _: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("not valid JSON: {e}: {line}"));
+        }
+    }
 }
 
 mod mcp_tests {
