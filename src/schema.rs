@@ -98,8 +98,14 @@ pub struct OperationSchema {
 
 /// Return the complete registry of all patchloom operations with schemas.
 pub fn operation_schemas() -> Vec<OperationSchema> {
+    let mut ops = weak_tier_schemas();
+    ops.append(&mut medium_tier_schemas());
+    ops.append(&mut strong_tier_schemas());
+    ops
+}
+
+fn weak_tier_schemas() -> Vec<OperationSchema> {
     vec![
-        // --- Weak tier: simple, hard-to-misuse operations ---
         OperationSchema {
             name: "replace".into(),
             description: "Replace text in a file using literal string matching.".into(),
@@ -122,12 +128,10 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Replace a function name".into(),
-                    args: serde_json::json!({"op": "replace", "path": "src/main.rs", "from": "old_name", "to": "new_name"}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Replace a function name".into(),
+                args: serde_json::json!({"op": "replace", "path": "src/main.rs", "from": "old_name", "to": "new_name"}),
+            }],
         },
         OperationSchema {
             name: "file.append".into(),
@@ -141,12 +145,10 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Append a test function to a test file".into(),
-                    args: serde_json::json!({"op": "file.append", "path": "tests/test.rs", "content": "#[test]\nfn new_test() {}\n"}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Append a test function to a test file".into(),
+                args: serde_json::json!({"op": "file.append", "path": "tests/test.rs", "content": "#[test]\nfn new_test() {}\n"}),
+            }],
         },
         OperationSchema {
             name: "file.create".into(),
@@ -161,12 +163,10 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Create a new config file".into(),
-                    args: serde_json::json!({"op": "file.create", "path": "config.json", "content": "{\"version\": \"1.0\"}"}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Create a new config file".into(),
+                args: serde_json::json!({"op": "file.create", "path": "config.json", "content": "{\"version\": \"1.0\"}"}),
+            }],
         },
         OperationSchema {
             name: "file.delete".into(),
@@ -179,12 +179,10 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Delete a temporary file".into(),
-                    args: serde_json::json!({"op": "file.delete", "path": "tmp/scratch.txt"}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Delete a temporary file".into(),
+                args: serde_json::json!({"op": "file.delete", "path": "tmp/scratch.txt"}),
+            }],
         },
         OperationSchema {
             name: "file.rename".into(),
@@ -199,12 +197,10 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Rename a file".into(),
-                    args: serde_json::json!({"op": "file.rename", "from": "old.txt", "to": "new.txt"}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Rename a file".into(),
+                args: serde_json::json!({"op": "file.rename", "from": "old.txt", "to": "new.txt"}),
+            }],
         },
         OperationSchema {
             name: "tidy.fix".into(),
@@ -220,14 +216,16 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
                 }
             }),
             min_tier: Tier::Weak,
-            examples: vec![
-                OperationExample {
-                    description: "Fix whitespace in a file".into(),
-                    args: serde_json::json!({"op": "tidy.fix", "path": "src/main.rs", "ensure_final_newline": true, "trim_trailing_whitespace": true}),
-                },
-            ],
+            examples: vec![OperationExample {
+                description: "Fix whitespace in a file".into(),
+                args: serde_json::json!({"op": "tidy.fix", "path": "src/main.rs", "ensure_final_newline": true, "trim_trailing_whitespace": true}),
+            }],
         },
-        // --- Medium tier: structured operations requiring selector/heading knowledge ---
+    ]
+}
+
+fn medium_tier_schemas() -> Vec<OperationSchema> {
+    vec![
         OperationSchema {
             name: "doc.set".into(),
             description: "Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.".into(),
@@ -477,7 +475,11 @@ pub fn operation_schemas() -> Vec<OperationSchema> {
             min_tier: Tier::Medium,
             examples: vec![],
         },
-        // --- Strong tier: complex operations requiring orchestration knowledge ---
+    ]
+}
+
+fn strong_tier_schemas() -> Vec<OperationSchema> {
+    vec![
         OperationSchema {
             name: "doc.prepend".into(),
             description: "Prepend a value to the beginning of an array at a selector path.".into(),

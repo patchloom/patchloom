@@ -2,7 +2,10 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::plan::{self, Plan};
-use crate::tx::{CommitError, TxExecResult, TxOutput, build_full_tx_output, run_lifecycle};
+use crate::tx::{
+    CommitError, TxExecResult, TxOutput, build_error_output, build_full_tx_output,
+    format_error_with_backup_hint, run_lifecycle,
+};
 use crate::write::run_format_command;
 
 use clap::Args;
@@ -45,38 +48,6 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     };
     if let Ok(json) = result {
         println!("{json}");
-    }
-}
-
-fn format_error_with_backup_hint(error: &str, backup_session: Option<&str>) -> String {
-    match backup_session {
-        Some(ts) => format!("{error} (backup session {ts}; run `patchloom undo` to restore)"),
-        None => error.to_string(),
-    }
-}
-
-fn build_error_output(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> TxOutput {
-    TxOutput {
-        ok: false,
-        status: "error".to_string(),
-        files_changed: 0,
-        files_created: 0,
-        files_deleted: 0,
-        changes: Vec::new(),
-        reads: Vec::new(),
-        searches: Vec::new(),
-        lints: Vec::new(),
-        error_kind: Some(error_kind.to_string()),
-        error: Some(format!(
-            "{legacy_error_prefix}: {}",
-            format_error_with_backup_hint(error, backup_session)
-        )),
-        backup_session: backup_session.map(str::to_string),
     }
 }
 

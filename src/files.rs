@@ -63,7 +63,6 @@ pub(crate) fn is_binary_file(path: &Path) -> bool {
 /// paths are joined with it before walking.  Tidy commands set
 /// `include_hidden = true` so dotfiles are checked.
 #[cfg(feature = "cli")]
-#[cfg(feature = "cli")]
 pub(crate) fn collect_file_paths_opts(
     paths: &[String],
     global: &GlobalFlags,
@@ -397,17 +396,7 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
 /// Simple file collection for library use (sequential for simplicity; full parallel in par_process_files).
 #[cfg(any(feature = "cli", feature = "files"))]
 pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<Vec<PathBuf>> {
-    let mut paths = vec![];
-    let mut builder = WalkBuilder::new(root);
-    if include_hidden {
-        builder.hidden(false);
-    }
-    for entry in builder.build().filter_map(Result::ok) {
-        if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            paths.push(entry.into_path());
-        }
-    }
-    Ok(paths)
+    collect_file_paths_with_ignores(root, &[], &[], include_hidden)
 }
 
 /// Apply exclude glob patterns to a list of paths (post-filter).

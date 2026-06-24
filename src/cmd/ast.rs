@@ -92,7 +92,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !filtered.is_empty() {
             any_output = true;
             if global.json || global.jsonl {
-                print_symbols_json(&args.path, &filtered, global.jsonl);
+                print_symbols_json(&args.path, &filtered, global)?;
             } else if args.compact {
                 print_symbols_compact(&args.path, &filtered);
             } else {
@@ -112,7 +112,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let display_path = path.strip_prefix(&cwd).unwrap_or(path);
             let display = display_path.display().to_string();
             if global.json || global.jsonl {
-                print_symbols_json(&display, &filtered, global.jsonl);
+                print_symbols_json(&display, &filtered, global)?;
             } else if args.compact {
                 print_symbols_compact(&display, &filtered);
             } else {
@@ -177,11 +177,7 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "signature": sym.signature,
             "content": content,
         });
-        if global.jsonl {
-            println!("{}", serde_json::to_string(&obj)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(&obj)?);
-        }
+        global.emit_json(&obj)?;
     } else {
         for (i, line) in lines[start..end].iter().enumerate() {
             let line_num = start + i + 1;
@@ -215,6 +211,52 @@ pub struct RenameArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
+/// Apply, check, or preview a single file mutation.
+fn apply_or_preview(
+    path: &std::path::Path,
+    original: &str,
+    new_content: &str,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    status_msg: &str,
+) -> anyhow::Result<()> {
+    let display_path = path.strip_prefix(cwd).unwrap_or(path);
+    if global.apply {
+        let mut backup = BackupSession::new(cwd)?;
+        backup.save_before_write(path)?;
+        crate::write::atomic_write(path, new_content, &Default::default())?;
+        backup.finalize()?;
+        if !global.quiet {
+            eprintln!("{}: {status_msg}", display_path.display());
+        }
+    } else if global.check {
+        if !global.quiet {
+            eprintln!("{}: {status_msg} (check mode)", display_path.display());
+        }
+    } else {
+        let diff =
+            crate::diff::unified_diff(&display_path.display().to_string(), original, new_content);
+        if diff.has_changes {
+            print!("{}", diff.hunks);
+        }
+    }
+    Ok(())
+}
+
+fn resolve_target_paths(
+    target: &std::path::Path,
+    path_arg: &str,
+    global: &GlobalFlags,
+) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    if target.is_file() {
+        Ok(vec![target.to_path_buf()])
+    } else if target.is_dir() {
+        collect_source_files(target, global)
+    } else {
+        anyhow::bail!("path not found: {}", path_arg)
+    }
+}
+
 fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
@@ -223,13 +265,7 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut total_replacements = 0usize;
     let mut files_changed = 0usize;
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     for path in &paths {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
@@ -268,41 +304,8 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         total_replacements += count;
         files_changed += 1;
-        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-
-        if global.apply {
-            let mut backup = BackupSession::new(&cwd)?;
-            backup.save_before_write(path)?;
-            crate::write::atomic_write(path, &new_content, &Default::default())?;
-            backup.finalize()?;
-            if !global.quiet {
-                eprintln!(
-                    "{}: {} replacement{}",
-                    display_path.display(),
-                    count,
-                    if count == 1 { "" } else { "s" }
-                );
-            }
-        } else if global.check {
-            if !global.quiet {
-                eprintln!(
-                    "{}: {} replacement{} (check mode)",
-                    display_path.display(),
-                    count,
-                    if count == 1 { "" } else { "s" }
-                );
-            }
-        } else {
-            // Default dry-run: show diff
-            let diff = crate::diff::unified_diff(
-                &display_path.display().to_string(),
-                &source,
-                &new_content,
-            );
-            if diff.has_changes {
-                print!("{}", diff.hunks);
-            }
-        }
+        let msg = format!("{} replacement{}", count, if count == 1 { "" } else { "s" });
+        apply_or_preview(path, &source, &new_content, global, &cwd, &msg)?;
     }
 
     if global.json || global.jsonl {
@@ -311,7 +314,7 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "files_changed": files_changed,
             "replacements": total_replacements,
         });
-        println!("{}", serde_json::to_string_pretty(&obj)?);
+        global.emit_json(&obj)?;
     }
 
     if total_replacements == 0 {
@@ -347,13 +350,7 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
 
     let mut all_valid = true;
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     for path in &paths {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
@@ -370,11 +367,7 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
                 "language": result.language,
                 "errors": result.errors,
             });
-            if global.jsonl {
-                println!("{}", serde_json::to_string(&obj)?);
-            } else {
-                println!("{}", serde_json::to_string_pretty(&obj)?);
-            }
+            global.emit_json(&obj)?;
         } else if !result.valid {
             all_valid = false;
             eprintln!("{}: INVALID ({})", display_path.display(), result.language);
@@ -425,13 +418,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let mut total_matches = 0usize;
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     for path in &paths {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
@@ -461,11 +448,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     "text": m.text,
                     "captures": m.captures,
                 });
-                if global.jsonl {
-                    println!("{}", serde_json::to_string(&obj)?);
-                } else {
-                    println!("{}", serde_json::to_string_pretty(&obj)?);
-                }
+                global.emit_json(&obj)?;
             } else {
                 println!(
                     "{}:{}:{}: {}",
@@ -514,13 +497,7 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     let mut all_refs = Vec::new();
 
@@ -545,11 +522,7 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "references": all_refs,
             "count": all_refs.len(),
         });
-        if global.jsonl {
-            println!("{}", serde_json::to_string(&obj)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(&obj)?);
-        }
+        global.emit_json(&obj)?;
     } else {
         for r in &all_refs {
             let kind_label = match r.kind {
@@ -586,13 +559,7 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     let mut any_output = false;
 
@@ -632,11 +599,7 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         "line": imp.line,
                         "raw": imp.raw,
                     });
-                    if global.jsonl {
-                        println!("{}", serde_json::to_string(&obj)?);
-                    } else {
-                        println!("{}", serde_json::to_string_pretty(&obj)?);
-                    }
+                    global.emit_json(&obj)?;
                 }
             } else {
                 for imp in &matching {
@@ -659,11 +622,7 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     "file": display,
                     "imports": imports,
                 });
-                if global.jsonl {
-                    println!("{}", serde_json::to_string(&obj)?);
-                } else {
-                    println!("{}", serde_json::to_string_pretty(&obj)?);
-                }
+                global.emit_json(&obj)?;
             } else {
                 println!("{display}");
                 println!("  imports:");
@@ -733,14 +692,12 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::NO_MATCHES);
     }
 
-    if global.json || global.jsonl {
-        if global.jsonl {
-            for entry in &entries {
-                println!("{}", serde_json::to_string(entry)?);
-            }
-        } else {
-            println!("{}", serde_json::to_string_pretty(&entries)?);
+    if global.jsonl {
+        for entry in &entries {
+            global.emit_json(entry)?;
         }
+    } else if global.json {
+        global.emit_json(&entries)?;
     } else {
         print!("{}", crate::ast::map::render_tree(&entries));
     }
@@ -811,42 +768,15 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::NO_MATCHES);
     }
 
-    let display_path = target.strip_prefix(&cwd).unwrap_or(&target);
-
+    let msg = format!(
+        "{} replacement{} in symbol '{}'",
+        result.replacements,
+        if result.replacements == 1 { "" } else { "s" },
+        args.symbol,
+    );
+    apply_or_preview(&target, &source, &result.content, global, &cwd, &msg)?;
     if global.apply {
-        let mut backup = BackupSession::new(&cwd)?;
-        backup.save_before_write(&target)?;
-        crate::write::atomic_write(&target, &result.content, &Default::default())?;
-        backup.finalize()?;
         crate::write::run_format_command(global, &cwd)?;
-        if !global.quiet {
-            eprintln!(
-                "{}: {} replacement{} in symbol '{}'",
-                display_path.display(),
-                result.replacements,
-                if result.replacements == 1 { "" } else { "s" },
-                args.symbol,
-            );
-        }
-    } else if global.check {
-        if !global.quiet {
-            eprintln!(
-                "{}: {} replacement{} in symbol '{}' (check mode)",
-                display_path.display(),
-                result.replacements,
-                if result.replacements == 1 { "" } else { "s" },
-                args.symbol,
-            );
-        }
-    } else {
-        let diff = crate::diff::unified_diff(
-            &display_path.display().to_string(),
-            &source,
-            &result.content,
-        );
-        if diff.has_changes {
-            print!("{}", diff.hunks);
-        }
     }
 
     if global.json || global.jsonl {
@@ -857,7 +787,7 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "start_line": result.start_line,
             "end_line": result.end_line,
         });
-        println!("{}", serde_json::to_string_pretty(&obj)?);
+        global.emit_json(&obj)?;
     }
 
     if global.check {
@@ -892,13 +822,7 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
 
-    let paths = if target.is_file() {
-        vec![target.clone()]
-    } else if target.is_dir() {
-        collect_source_files(&target, global)?
-    } else {
-        anyhow::bail!("path not found: {}", args.path);
-    };
+    let paths = resolve_target_paths(&target, &args.path, global)?;
 
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
@@ -924,11 +848,7 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "impact": nodes,
             "direct_count": nodes.len(),
         });
-        if global.jsonl {
-            println!("{}", serde_json::to_string(&obj)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(&obj)?);
-        }
+        global.emit_json(&obj)?;
     } else {
         print!(
             "{}",
@@ -993,11 +913,7 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "to": args.to.as_deref().unwrap_or("working tree"),
             "changes": changes,
         });
-        if global.jsonl {
-            println!("{}", serde_json::to_string(&obj)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(&obj)?);
-        }
+        global.emit_json(&obj)?;
     } else {
         print!("{}", crate::ast::diff::render_changes(&args.path, &changes));
     }
@@ -1119,15 +1035,16 @@ fn print_symbol_compact(sym: &SymbolDef, indent: usize) {
     }
 }
 
-fn print_symbols_json(path: &str, symbols: &[&SymbolDef], jsonl: bool) {
+fn print_symbols_json(
+    path: &str,
+    symbols: &[&SymbolDef],
+    global: &GlobalFlags,
+) -> anyhow::Result<()> {
     for sym in symbols {
         let obj = symbol_to_json(sym, path);
-        if jsonl {
-            println!("{}", serde_json::to_string(&obj).unwrap_or_default());
-        } else {
-            println!("{}", serde_json::to_string_pretty(&obj).unwrap_or_default());
-        }
+        global.emit_json(&obj)?;
     }
+    Ok(())
 }
 
 fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {

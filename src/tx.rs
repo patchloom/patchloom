@@ -1618,44 +1618,51 @@ fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
     }
 }
 
-pub(crate) fn run_format_steps(
-    steps: &[plan::FormatStep],
+/// Shared runner for format and validation lifecycle steps.
+///
+/// `label` is used in error messages (e.g. "format step" or "required validation").
+/// `error_label` is the shorter variant for the error branch (e.g. "format step" or "validation").
+/// `kind` is the `LifecycleError::kind` string.
+/// `fail_on_error` controls whether non-required failures are fatal.
+fn run_lifecycle_steps(
+    steps: impl Iterator<Item = (String, Option<u64>, bool)>,
     base_cwd: &Path,
     cwd: &Path,
+    label: &str,
+    error_label: &str,
+    kind: &'static str,
 ) -> Result<(), LifecycleError> {
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
-    for (index, step) in steps.iter().enumerate() {
-        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
+    for (index, (cmd, timeout, required)) in steps.enumerate() {
+        let timeout_secs = timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
+        let result = exec::run_with_timeout(&cmd, timeout_secs, cwd);
         match result {
             Ok(exec::ShellResult {
                 status,
                 stderr_head,
             }) if !status.success() => {
                 let header = format!(
-                    "format step failed (step {}, {}, cwd: {})",
+                    "{label} failed (step {}, {}, cwd: {})",
                     index + 1,
                     describe_exit_status(status),
                     lifecycle_cwd
                 );
                 let msg = lifecycle_failure_msg(&header, &stderr_head);
                 eprintln!("tx: {msg}");
-                return Err(LifecycleError {
-                    message: msg,
-                    kind: "format_failed",
-                });
+                if required {
+                    return Err(LifecycleError { message: msg, kind });
+                }
             }
             Err(e) => {
                 let msg = format!(
-                    "format step error (step {}, cwd: {}): {e}",
+                    "{error_label} error (step {}, cwd: {}): {e}",
                     index + 1,
                     lifecycle_cwd
                 );
                 eprintln!("tx: {msg}");
-                return Err(LifecycleError {
-                    message: msg,
-                    kind: "format_failed",
-                });
+                if required {
+                    return Err(LifecycleError { message: msg, kind });
+                }
             }
             _ => {}
         }
@@ -1663,58 +1670,36 @@ pub(crate) fn run_format_steps(
     Ok(())
 }
 
+pub(crate) fn run_format_steps(
+    steps: &[plan::FormatStep],
+    base_cwd: &Path,
+    cwd: &Path,
+) -> Result<(), LifecycleError> {
+    run_lifecycle_steps(
+        steps.iter().map(|s| (s.cmd.clone(), s.timeout, true)),
+        base_cwd,
+        cwd,
+        "format step",
+        "format step",
+        "format_failed",
+    )
+}
+
 pub(crate) fn run_validate_steps(
     steps: &[plan::ValidationStep],
     base_cwd: &Path,
     cwd: &Path,
 ) -> Result<(), LifecycleError> {
-    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
-    for (index, step) in steps.iter().enumerate() {
-        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
-        match result {
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) if status.success() => {
-                let _ = stderr_head; // Discard stderr on success.
-            }
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) => {
-                let header = format!(
-                    "required validation failed (step {}, {}, cwd: {})",
-                    index + 1,
-                    describe_exit_status(status),
-                    lifecycle_cwd
-                );
-                let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
-                if step.required.unwrap_or(false) {
-                    return Err(LifecycleError {
-                        message: msg,
-                        kind: "validation_failed",
-                    });
-                }
-            }
-            Err(e) => {
-                let msg = format!(
-                    "validation error (step {}, cwd: {}): {e}",
-                    index + 1,
-                    lifecycle_cwd
-                );
-                eprintln!("tx: {msg}");
-                if step.required.unwrap_or(false) {
-                    return Err(LifecycleError {
-                        message: msg,
-                        kind: "validation_failed",
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
+    run_lifecycle_steps(
+        steps
+            .iter()
+            .map(|s| (s.cmd.clone(), s.timeout, s.required.unwrap_or(false))),
+        base_cwd,
+        cwd,
+        "required validation",
+        "validation",
+        "validation_failed",
+    )
 }
 
 pub(crate) fn rollback_strict(
