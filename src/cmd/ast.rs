@@ -1088,4 +1088,120 @@ mod tests {
         assert_eq!(lang_from_str("py"), Language::Python);
         assert_eq!(lang_from_str("go"), Language::Go);
     }
+
+    // -----------------------------------------------------------------------
+    // resolve_target_paths
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_target_paths_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("hello.rs");
+        std::fs::write(&f, "fn main() {}\n").unwrap();
+        let global = GlobalFlags::default();
+        let result = resolve_target_paths(&f, "hello.rs", &global).unwrap();
+        assert_eq!(result, vec![f]);
+    }
+
+    #[test]
+    fn resolve_target_paths_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("lib.rs");
+        std::fs::write(&f, "fn foo() {}\n").unwrap();
+        // Also create a non-source file that should be skipped.
+        std::fs::write(dir.path().join("notes.txt"), "not source").unwrap();
+        let global = GlobalFlags::default();
+        let result = resolve_target_paths(dir.path(), ".", &global).unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].ends_with("lib.rs"));
+    }
+
+    #[test]
+    fn resolve_target_paths_nonexistent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("no_such_file.rs");
+        let global = GlobalFlags::default();
+        let err = resolve_target_paths(&missing, "no_such_file.rs", &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("path not found") && msg.contains("no_such_file.rs"),
+            "error should mention path not found and the argument: {msg}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // apply_or_preview
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn apply_or_preview_diff_with_changes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("a.rs");
+        let original = "fn old() {}\n";
+        let new_content = "fn new() {}\n";
+        std::fs::write(&f, original).unwrap();
+
+        // Default GlobalFlags: apply=false, check=false => diff mode.
+        let global = GlobalFlags::default();
+
+        // Capture stdout via a helper: apply_or_preview prints to stdout.
+        // We verify it does not error and produces output.
+        let result = apply_or_preview(&f, original, new_content, &global, dir.path(), "renamed");
+        assert!(result.is_ok());
+        // We cannot capture print! output in a unit test, but we verify
+        // the function succeeds and the diff path is exercised.
+    }
+
+    #[test]
+    fn apply_or_preview_diff_no_changes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("b.rs");
+        let content = "fn same() {}\n";
+        std::fs::write(&f, content).unwrap();
+
+        let global = GlobalFlags::default();
+        let result = apply_or_preview(&f, content, content, &global, dir.path(), "no-op");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn apply_or_preview_check_mode() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("c.rs");
+        let content = "fn check() {}\n";
+        std::fs::write(&f, content).unwrap();
+
+        let global = GlobalFlags {
+            check: true,
+            ..GlobalFlags::default()
+        };
+        let result = apply_or_preview(
+            &f,
+            content,
+            "fn changed() {}\n",
+            &global,
+            dir.path(),
+            "tested",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn apply_or_preview_apply_mode() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("d.rs");
+        let original = "fn before() {}\n";
+        let new_content = "fn after() {}\n";
+        std::fs::write(&f, original).unwrap();
+
+        let global = GlobalFlags {
+            apply: true,
+            ..GlobalFlags::default()
+        };
+        let result = apply_or_preview(&f, original, new_content, &global, dir.path(), "applied");
+        assert!(result.is_ok());
+        // Verify the file was actually written.
+        let on_disk = std::fs::read_to_string(&f).unwrap();
+        assert_eq!(on_disk, new_content);
+    }
 }
