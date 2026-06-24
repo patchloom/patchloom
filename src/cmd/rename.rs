@@ -203,44 +203,6 @@ fn rename_with_backup(
     Ok(())
 }
 
-/// Perform a rename with backup, without writing to stdout.
-/// Used by the MCP server for direct in-process renames.
-#[cfg(feature = "mcp")]
-pub(crate) fn apply_rename(
-    from: &std::path::Path,
-    to: &std::path::Path,
-    force: bool,
-    cwd: &std::path::Path,
-) -> anyhow::Result<()> {
-    if validate_rename_paths(
-        from,
-        to,
-        force,
-        &from.display().to_string(),
-        &to.display().to_string(),
-    )? == RenameValidation::NoOp
-    {
-        return Ok(());
-    }
-
-    let mut backup = crate::backup::BackupSession::new(cwd)?;
-    backup.save_before_delete(from)?;
-    backup.save_before_write(to)?;
-
-    // Create parent directories if needed.
-    if let Some(parent) = to.parent()
-        && !parent.as_os_str().is_empty()
-        && !parent.exists()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
-    // Binary-safe rename via fs::rename (with cross-device fallback).
-    rename_or_copy(from, to)?;
-    backup.finalize()?;
-    Ok(())
-}
-
 /// Perform the actual file rename: create parent dirs, move or transform the
 /// content, and remove the source.
 fn do_rename(
@@ -517,19 +479,6 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert!(file.exists(), "file must not be deleted");
-        assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
-    }
-
-    #[cfg(feature = "mcp")]
-    #[test]
-    fn apply_rename_same_path_is_noop_without_force() {
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("same.txt");
-        fs::write(&file, "hello\n").unwrap();
-
-        apply_rename(&file, &file, false, dir.path()).unwrap();
-
-        assert!(file.exists(), "file should still exist");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
     }
 

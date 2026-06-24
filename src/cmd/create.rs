@@ -65,43 +65,6 @@ fn create_with_backup(
     Ok(())
 }
 
-/// Create a file, without writing to stdout.
-/// Used by the MCP server for direct in-process file creation.
-///
-/// Now creates a BackupSession (using the file's parent as root, like the
-/// library api layer) so that `patchloom undo` works and crashes are safe.
-/// Mirrors the logic in create_with_backup but accepts only the path (MCP
-/// callers already resolved abs path after their check_path).
-#[cfg(feature = "mcp")]
-pub(crate) fn apply_create(
-    path: &std::path::Path,
-    content: &str,
-    force: bool,
-) -> anyhow::Result<()> {
-    if path.exists() && !path.is_file() {
-        bail!("target is not a file: {}", path.display());
-    }
-
-    // Ensure parent directories exist.
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
-    let policy = crate::write::WritePolicy::default();
-    let cwd = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let mut backup = BackupSession::new(cwd)?;
-    backup.save_before_write(path)?;
-    if force {
-        atomic_write(path, content, &policy)?;
-    } else {
-        atomic_create_new(path, content, &policy)?;
-    }
-    backup.finalize()?;
-    Ok(())
-}
-
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 

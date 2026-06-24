@@ -1158,16 +1158,14 @@ impl PatchloomService {
         |self_, p| {
             self_.check_path(&p.from)?;
             self_.check_path(&p.to)?;
-
-            let src = self_.cwd().join(&p.from);
-            let dst = self_.cwd().join(&p.to);
-            match crate::cmd::rename::apply_rename(&src, &dst, p.force, self_.cwd()) {
-                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Renamed {} -> {}",
-                    p.from, p.to
-                ))])),
-                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-            }
+            self_.run_one_op(
+                Operation::FileRename {
+                    from: p.from,
+                    to: p.to,
+                    force: p.force,
+                },
+                None,
+            )
         }
     );
 
@@ -1178,15 +1176,13 @@ impl PatchloomService {
         |self_, p| {
             self_.check_path(&p.path)?;
             validate_content_size("content", &p.content)?;
-
-            let abs = self_.cwd().join(&p.path);
-            match crate::cmd::append::apply_append(&abs, &p.content) {
-                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Appended to {}",
-                    p.path
-                ))])),
-                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-            }
+            self_.run_one_op(
+                Operation::FileAppend {
+                    path: p.path,
+                    content: p.content,
+                },
+                None,
+            )
         }
     );
 
@@ -1197,15 +1193,14 @@ impl PatchloomService {
         |self_, p| {
             self_.check_path(&p.path)?;
             validate_content_size("content", &p.content)?;
-
-            let abs = self_.cwd().join(&p.path);
-            match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
-                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Created {}",
-                    p.path
-                ))])),
-                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-            }
+            self_.run_one_op(
+                Operation::FileCreate {
+                    path: p.path,
+                    content: p.content,
+                    force: Some(p.force),
+                },
+                None,
+            )
         }
     );
 
@@ -1215,15 +1210,7 @@ impl PatchloomService {
         DeleteFileParams,
         |self_, p| {
             self_.check_path(&p.path)?;
-
-            let abs = self_.cwd().join(&p.path);
-            match crate::cmd::delete::apply_delete(&abs, self_.cwd()) {
-                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Deleted {}",
-                    p.path
-                ))])),
-                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-            }
+            self_.run_one_op(Operation::FileDelete { path: p.path }, None)
         }
     );
 }
