@@ -36,7 +36,7 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
-    #[allow(dead_code)]
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub(crate) struct DocSetParams {
         /// File path (relative to working directory).
         pub path: String,
@@ -52,7 +52,7 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
-    #[allow(dead_code)]
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub(crate) struct DocDeleteParams {
         /// File path.
         pub path: String,
@@ -755,6 +755,15 @@ fn execute_plan_validated(
     exit_code_to_result(code, &json, "Operation completed successfully.")
 }
 
+/// Helper to turn direct apply_* results (for file create/delete/rename/append) into MCP result.
+/// Reduces repetition of the Ok(success text) / Err(e:#) pattern.
+fn mcp_apply_result(success: String, res: anyhow::Result<()>) -> Result<CallToolResult, McpError> {
+    match res {
+        Ok(()) => Ok(CallToolResult::success(vec![Content::text(success)])),
+        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+    }
+}
+
 /// Convert an exit code + output string into a `CallToolResult`.
 fn exit_code_to_result(
     code: u8,
@@ -1320,7 +1329,7 @@ impl PatchloomService {
     )]
     async fn git_status(
         &self,
-        #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
+        Parameters(_): Parameters<serde_json::Value>,
     ) -> Result<CallToolResult, McpError> {
         let global = GlobalFlags {
             cwd: Some(self.cwd().to_string_lossy().into_owned()),
@@ -1507,13 +1516,10 @@ impl PatchloomService {
 
         let src = self.cwd().join(&p.from);
         let dst = self.cwd().join(&p.to);
-        match crate::cmd::rename::apply_rename(&src, &dst, p.force, self.cwd()) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Renamed {} -> {}",
-                p.from, p.to
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
+        mcp_apply_result(
+            format!("Renamed {} -> {}", p.from, p.to),
+            crate::cmd::rename::apply_rename(&src, &dst, p.force, self.cwd()),
+        )
     }
 
     #[tool(
@@ -1527,13 +1533,10 @@ impl PatchloomService {
         validate_content_size("content", &p.content)?;
 
         let abs = self.cwd().join(&p.path);
-        match crate::cmd::append::apply_append(&abs, &p.content) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Appended to {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
+        mcp_apply_result(
+            format!("Appended to {}", p.path),
+            crate::cmd::append::apply_append(&abs, &p.content),
+        )
     }
 
     #[tool(
@@ -1547,13 +1550,10 @@ impl PatchloomService {
         validate_content_size("content", &p.content)?;
 
         let abs = self.cwd().join(&p.path);
-        match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Created {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
+        mcp_apply_result(
+            format!("Created {}", p.path),
+            crate::cmd::create::apply_create(&abs, &p.content, p.force),
+        )
     }
 
     #[tool(
@@ -1566,13 +1566,10 @@ impl PatchloomService {
         self.check_path(&p.path)?;
 
         let abs = self.cwd().join(&p.path);
-        match crate::cmd::delete::apply_delete(&abs, self.cwd()) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Deleted {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
+        mcp_apply_result(
+            format!("Deleted {}", p.path),
+            crate::cmd::delete::apply_delete(&abs, self.cwd()),
+        )
     }
 
     #[tool(

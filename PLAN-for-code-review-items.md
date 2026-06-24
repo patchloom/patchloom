@@ -40,12 +40,12 @@ Created from the strict code-review feedback.
 - Update docs in api and lib.
 
 ### Phase 3: MCP repetition
-- Introduce a declarative macro `mcp_tool!` or `register_mcp_tools!` in cmd/mcp.rs.
-- Table of (name, description, ParamsType, op_constructor, extra_validates, strict).
-- Generate the #[tool] async fn that does check, validate, run_ops.
-- Preserve all 32 tool schemas and names.
-- Update the expected tools test.
-- Remove boilerplate from handlers.
+- Introduce a declarative macro `mcp_tool!` or `register_mcp_tools!` in cmd/mcp.rs. (done)
+- Converted doc_* family, read_file, fix_whitespace, and additional md_* (upsert, table, replace_section, inserts) to use mcp_tool! with manual route wiring for rmcp.
+- Added op! helper macro in batch parser for repetition reduction.
+- Preserve all 32 tool schemas and names. (verified)
+- Update the expected tools test. (passes)
+- Remove boilerplate from handlers. (substantial reduction)
 
 ### Phase 4: tx/cmd split polish
 - Identify duplicated fns in cmd/tx.rs (build_*, emit_*, run_lifecycle, describe_*, validate_* that are not CLI specific).
@@ -55,20 +55,19 @@ Created from the strict code-review feedback.
 - Ensure CLI specific (colored output, confirm, args) stay in cmd/tx.
 
 ### Phase 5: dead_code / feature hygiene
-- Global grep for #[allow(dead_code)] and broad allows.
-- Replace with #[cfg_attr(not(feature = "cli"), allow(dead_code))] on specific items.
-- Or move code behind cfg(feature = "cli").
-- Run make test-library-hygiene and the matrix after changes.
-- Aim for 0 broad allows in main paths.
-- Use the existing target.
+- Global grep for #[allow(dead_code)] and broad allows. (done)
+- Changed top #![allow(dead_code)] in cmd/tx.rs to cfg_attr.
+- Refactored policy_from_flags in write.rs to eliminate fn-level broad allow(unused_mut etc).
+- Used cfg_attr on specific reexports and params.
+- Targeted allows kept only where required by hygiene build.
+- Run make test-library-hygiene (passes).
+- Reduced broad allows in main paths. (progress)
 
 ### Phase 6: Code judo audit
-- Grep for repeated if/ match on ApplyMode, Operation variants, preview/apply.
-- Look for opportunities to collapse using Plan for single ops where possible, or a dispatcher.
-- Examples: make preview/apply more uniform in helpers.
-- Use more of the Operation model for single file ops.
-- Remove unnecessary branches.
-- Implement 2-3 high value simplifications.
+- Grep for repeated if/match on ApplyMode, Operation variants, preview/apply. (audited)
+- Added mcp_apply_result helper in mcp.rs collapsing 4 nearly-identical apply result constructions for file ops (move/append/create/delete).
+- This + prior centralization (run_one_op, op! macro in batch) reduces branches/dupe.
+- More opportunities remain (e.g. GlobalFlags construction patterns). (partial, 1-2 wins landed)
 
 ## Execution Rules
 - After each logical change or phase: cargo check, make check-fast + hygiene matrix.

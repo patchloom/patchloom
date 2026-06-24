@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![cfg_attr(not(feature = "cli"), allow(dead_code))]
 
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
@@ -59,6 +59,7 @@ pub struct TxArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
+#[allow(dead_code)]
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 
 #[cfg_attr(not(feature = "cli"), allow(dead_code))]
@@ -1384,73 +1385,10 @@ fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Shared execution core (core impls now in src/tx.rs as pub(crate) for reuse)
-// ---------------------------------------------------------------------------
-
-pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
-    match plan_cwd {
-        Some(plan_cwd) => {
-            let path = Path::new(plan_cwd);
-            if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                base_cwd.join(path)
-            }
-        }
-        None => base_cwd.to_path_buf(),
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
 pub use crate::tx::RestoreFailGuard;
-
-/// Restore files from a backup session after a failed commit. Returns `true`
-/// when restore completed successfully.
-fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    crate::tx::restore_after_failed_commit(cwd, timestamp)
-}
-
-/// Apply pending changes to disk: backup originals, write modified files,
-/// delete removed files, finalize backup session.
-///
-/// If any write fails, restores all already-written files from the backup
-/// session before returning [`CommitError`].
-/// Build a JSON error string without writing to stdout.
-fn make_error_json(error_kind: &'static str, error: &str, backup_session: Option<&str>) -> String {
-    make_error_json_with_prefix(
-        error_kind,
-        legacy_error_prefix(error_kind),
-        error,
-        backup_session,
-    )
-}
-
-/// Build a JSON error string with an explicit legacy prefix.
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
-fn make_error_json_with_prefix(
-    error_kind: &'static str,
-    legacy_error_prefix: &str,
-    error: &str,
-    backup_session: Option<&str>,
-) -> String {
-    serde_json::to_string_pretty(&build_error_output(
-        error_kind,
-        legacy_error_prefix,
-        error,
-        backup_session,
-    ))
-    .unwrap_or_default()
-}
-
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
-fn config_tx_strict(cwd: &Path) -> Option<bool> {
-    crate::config::find_and_load(cwd)
-        .map(|(config, _)| config.tx.strict)
-        .unwrap_or(None)
-}
 
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {
