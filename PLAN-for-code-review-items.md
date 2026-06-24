@@ -65,9 +65,11 @@ Created from the strict code-review feedback.
 
 ### Phase 6: Code judo audit
 - Grep for repeated if/match on ApplyMode, Operation variants, preview/apply. (audited)
-- Added mcp_apply_result helper in mcp.rs collapsing 4 nearly-identical apply result constructions for file ops (move/append/create/delete).
-- This + prior centralization (run_one_op, op! macro in batch) reduces branches/dupe.
-- More opportunities remain (e.g. GlobalFlags construction patterns). (partial, 1-2 wins landed)
+- Added mcp_apply_result helper in mcp.rs collapsing 4 nearly-identical apply result constructions for file ops.
+- Added GlobalFlags::with_cwd / with_cwd_and_json + test helpers to eliminate repeated construction boilerplate (tx, mcp, files, cli tests).
+- Reduced dupe in GlobalFlags patterns as explicitly noted in PLAN.
+- This + prior centralization (run_one_op, op! in batch, mcp_tool!) deletes complexity.
+- Phase 6 complete.
 
 ## Execution Rules
 - After each logical change or phase: cargo check, make check-fast + hygiene matrix.

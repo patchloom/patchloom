@@ -639,7 +639,12 @@ impl PatchloomService {
             .with_route((
                 Self::md_insert_before_heading_tool_attr(),
                 Self::md_insert_before_heading,
-            ));
+            ))
+            .with_route((Self::git_status_tool_attr(), Self::git_status))
+            .with_route((Self::move_file_tool_attr(), Self::move_file))
+            .with_route((Self::append_file_tool_attr(), Self::append_file))
+            .with_route((Self::create_file_tool_attr(), Self::create_file))
+            .with_route((Self::delete_file_tool_attr(), Self::delete_file));
 
         Ok(Self {
             tool_router,
@@ -1123,6 +1128,96 @@ impl PatchloomService {
             )
         }
     );
+
+    mcp_tool!(
+        git_status,
+        "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required.",
+        serde_json::Value,
+        |self_, _p| {
+            let global = GlobalFlags::with_cwd(self_.cwd());
+            let status = crate::cmd::status::collect_status(&[], &global)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let json = serde_json::to_string_pretty(&status)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![Content::text(json)]))
+        }
+    );
+
+    mcp_tool!(
+        move_file,
+        "Rename (move) a file. Handles binary files. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}",
+        FileRenameParams,
+        |self_, p| {
+            self_.check_path(&p.from)?;
+            self_.check_path(&p.to)?;
+
+            let src = self_.cwd().join(&p.from);
+            let dst = self_.cwd().join(&p.to);
+            match crate::cmd::rename::apply_rename(&src, &dst, p.force, self_.cwd()) {
+                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Renamed {} -> {}",
+                    p.from, p.to
+                ))])),
+                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+            }
+        }
+    );
+
+    mcp_tool!(
+        append_file,
+        "Append content to the end of an existing file. Inserts a newline separator if the file does not end with one. Fails if the file does not exist. Example: {\"path\": \"tests.rs\", \"content\": \"#[test]\\nfn new() {}\"}",
+        AppendFileParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_content_size("content", &p.content)?;
+
+            let abs = self_.cwd().join(&p.path);
+            match crate::cmd::append::apply_append(&abs, &p.content) {
+                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Appended to {}",
+                    p.path
+                ))])),
+                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+            }
+        }
+    );
+
+    mcp_tool!(
+        create_file,
+        "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"hello.txt\", \"content\": \"Hello, World!\"}",
+        CreateFileParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_content_size("content", &p.content)?;
+
+            let abs = self_.cwd().join(&p.path);
+            match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
+                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Created {}",
+                    p.path
+                ))])),
+                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+            }
+        }
+    );
+
+    mcp_tool!(
+        delete_file,
+        "Delete a file. Fails if the file does not exist. Example: {\"path\": \"temp.txt\"}",
+        DeleteFileParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+
+            let abs = self_.cwd().join(&p.path);
+            match crate::cmd::delete::apply_delete(&abs, self_.cwd()) {
+                Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Deleted {}",
+                    p.path
+                ))])),
+                Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
+            }
+        }
+    );
 }
 
 #[tool_router]
@@ -1312,21 +1407,6 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
-    )]
-    async fn git_status(
-        &self,
-        #[allow(unused_variables)] Parameters(p): Parameters<serde_json::Value>,
-    ) -> Result<CallToolResult, McpError> {
-        let global = GlobalFlags::with_cwd(self.cwd());
-        let status = crate::cmd::status::collect_status(&[], &global)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        let json = serde_json::to_string_pretty(&status)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
-    #[tool(
         description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with to=\"\" to delete lines). Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
     )]
     async fn replace_text(
@@ -1486,86 +1566,6 @@ impl PatchloomService {
         let json = serde_json::to_string_pretty(&issues)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
-    #[tool(
-        description = "Rename (move) a file. Handles binary files. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}"
-    )]
-    async fn move_file(
-        &self,
-        Parameters(p): Parameters<FileRenameParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.from)?;
-        self.check_path(&p.to)?;
-
-        let src = self.cwd().join(&p.from);
-        let dst = self.cwd().join(&p.to);
-        match crate::cmd::rename::apply_rename(&src, &dst, p.force, self.cwd()) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Renamed {} -> {}",
-                p.from, p.to
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
-    }
-
-    #[tool(
-        description = "Append content to the end of an existing file. Inserts a newline separator if the file does not end with one. Fails if the file does not exist. Example: {\"path\": \"tests.rs\", \"content\": \"#[test]\\nfn new() {}\"}"
-    )]
-    async fn append_file(
-        &self,
-        Parameters(p): Parameters<AppendFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-
-        let abs = self.cwd().join(&p.path);
-        match crate::cmd::append::apply_append(&abs, &p.content) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Appended to {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
-    }
-
-    #[tool(
-        description = "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"hello.txt\", \"content\": \"Hello, World!\"}"
-    )]
-    async fn create_file(
-        &self,
-        Parameters(p): Parameters<CreateFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-
-        let abs = self.cwd().join(&p.path);
-        match crate::cmd::create::apply_create(&abs, &p.content, p.force) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Created {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
-    }
-
-    #[tool(
-        description = "Delete a file. Fails if the file does not exist. Example: {\"path\": \"temp.txt\"}"
-    )]
-    async fn delete_file(
-        &self,
-        Parameters(p): Parameters<DeleteFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-
-        let abs = self.cwd().join(&p.path);
-        match crate::cmd::delete::apply_delete(&abs, self.cwd()) {
-            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Deleted {}",
-                p.path
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("{e:#}"))])),
-        }
     }
 
     #[tool(
