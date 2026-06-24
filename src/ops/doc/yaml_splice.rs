@@ -401,3 +401,208 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
         || s.contains(" #")
         || s.contains('\n')
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // find_yaml_key_line
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_yaml_key_line_single_key() {
+        let yaml = "name: foo\nversion: 1\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_yaml_key_line(&lines, &["version".into()]), Some(1));
+    }
+
+    #[test]
+    fn find_yaml_key_line_nested_path() {
+        let yaml = "top:\n  mid:\n    deep: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(
+            find_yaml_key_line(&lines, &["top".into(), "mid".into(), "deep".into()]),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn find_yaml_key_line_missing_key() {
+        let yaml = "name: foo\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_yaml_key_line(&lines, &["missing".into()]), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // find_first_block_entry
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_first_block_entry_simple() {
+        let yaml = "items:\n  - one\n  - two\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_first_block_entry(&lines, 1);
+        assert_eq!(result, Some((1, "  ".to_string())));
+    }
+
+    #[test]
+    fn find_first_block_entry_with_comment() {
+        let yaml = "items:\n  # a comment\n  - one\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_first_block_entry(&lines, 1);
+        assert_eq!(result, Some((2, "  ".to_string())));
+    }
+
+    #[test]
+    fn find_first_block_entry_no_entries() {
+        let yaml = "items: []\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_first_block_entry(&lines, 1), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // find_block_entries_end
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn find_block_entries_end_simple() {
+        let yaml = "items:\n  - one\n  - two\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 3);
+    }
+
+    #[test]
+    fn find_block_entries_end_multiline_values() {
+        let yaml = "items:\n  - name: a\n    value: 1\n  - name: b\n    value: 2\nnext: x\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 5);
+    }
+
+    #[test]
+    fn find_block_entries_end_trims_trailing_blanks() {
+        let yaml = "items:\n  - one\n  - two\n\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        // Should NOT include the blank line between array and next key.
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 3);
+    }
+
+    // -----------------------------------------------------------------------
+    // serialize_block_entries
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn serialize_scalars() {
+        let entries = vec![
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(42),
+            serde_json::json!("hello"),
+        ];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        assert!(result.contains("  - null\n"));
+        assert!(result.contains("  - true\n"));
+        assert!(result.contains("  - 42\n"));
+        assert!(result.contains("  - hello\n"));
+    }
+
+    #[test]
+    fn serialize_string_needing_quoting() {
+        let entries = vec![serde_json::json!("true"), serde_json::json!("")];
+        let result = serialize_block_entries(&entries, "").unwrap();
+        assert!(result.contains("- 'true'\n"));
+        assert!(result.contains("- ''\n"));
+    }
+
+    #[test]
+    fn serialize_object_entry() {
+        let entries = vec![serde_json::json!({"name": "a", "value": 1})];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        // First line should be "  - ..." and continuation "    ..."
+        let first_line = result.lines().next().unwrap();
+        assert!(first_line.starts_with("  - "));
+    }
+
+    // -----------------------------------------------------------------------
+    // has_array_growth_diffs
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn has_array_growth_no_change() {
+        let v = serde_json::json!({"a": [1, 2]});
+        assert!(!has_array_growth_diffs(&v, &v));
+    }
+
+    #[test]
+    fn has_array_growth_detects_growth() {
+        let old = serde_json::json!({"a": [1]});
+        let new = serde_json::json!({"a": [1, 2]});
+        assert!(has_array_growth_diffs(&old, &new));
+    }
+
+    #[test]
+    fn has_array_growth_detects_nested_growth() {
+        let old = serde_json::json!({"a": {"b": [1]}});
+        let new = serde_json::json!({"a": {"b": [1, 2]}});
+        assert!(has_array_growth_diffs(&old, &new));
+    }
+
+    #[test]
+    fn has_array_growth_shrink_is_not_growth() {
+        let old = serde_json::json!({"a": [1, 2, 3]});
+        let new = serde_json::json!({"a": [1]});
+        assert!(!has_array_growth_diffs(&old, &new));
+    }
+
+    // -----------------------------------------------------------------------
+    // needs_yaml_quoting
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn needs_quoting_booleans_and_null() {
+        assert!(needs_yaml_quoting("true"));
+        assert!(needs_yaml_quoting("True"));
+        assert!(needs_yaml_quoting("yes"));
+        assert!(needs_yaml_quoting("null"));
+        assert!(needs_yaml_quoting("~"));
+    }
+
+    #[test]
+    fn needs_quoting_numbers() {
+        assert!(needs_yaml_quoting("42"));
+        assert!(needs_yaml_quoting("3.14"));
+    }
+
+    #[test]
+    fn needs_quoting_special_chars() {
+        assert!(needs_yaml_quoting("# comment"));
+        assert!(needs_yaml_quoting("a: b"));
+        assert!(needs_yaml_quoting(""));
+    }
+
+    #[test]
+    fn plain_strings_need_no_quoting() {
+        assert!(!needs_yaml_quoting("hello"));
+        assert!(!needs_yaml_quoting("foo-bar_baz"));
+    }
+
+    // -----------------------------------------------------------------------
+    // splice_yaml_root_sequence
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn splice_root_sequence_replaces_entries() {
+        let yaml = "- one\n- two\n";
+        let cur = vec![serde_json::json!("one"), serde_json::json!("two")];
+        let tgt = vec![
+            serde_json::json!("one"),
+            serde_json::json!("two"),
+            serde_json::json!("three"),
+        ];
+        let result = splice_yaml_root_sequence(yaml, &cur, &tgt)
+            .unwrap()
+            .expect("should produce a spliced result");
+        assert!(result.contains("- three\n"));
+        assert!(result.contains("- one\n"));
+    }
+}
