@@ -2944,12 +2944,7 @@ mod tests {
             session: None,
             apply: false,
         };
-        let mut global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
+        let mut global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
 
@@ -2982,12 +2977,7 @@ mod tests {
             session: Some(ts),
             apply: false,
         };
-        let global = GlobalFlags {
-            json: true,
-            quiet: false,
-            cwd: Some(dir.path().to_string_lossy().to_string()),
-            ..GlobalFlags::default()
-        };
+        let global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
     }
