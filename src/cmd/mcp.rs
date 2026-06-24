@@ -1286,12 +1286,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("bullet", &p.bullet)?;
-        self.run_ops(
-            vec![Operation::MdUpsertBullet {
+        self.run_one_op(
+            Operation::MdUpsertBullet {
                 path: p.path,
                 heading: p.heading,
                 bullet: p.bullet,
-            }],
+            },
             None,
         )
     }
@@ -1305,12 +1305,12 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
         validate_param_size("row", &p.row)?;
-        self.run_ops(
-            vec![Operation::MdTableAppend {
+        self.run_one_op(
+            Operation::MdTableAppend {
                 path: p.path,
                 heading: p.heading,
                 row: p.row,
-            }],
+            },
             None,
         )
     }
