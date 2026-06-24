@@ -18413,6 +18413,64 @@ mod ast_tests {
                 .unwrap_or_else(|e| panic!("not valid JSON: {e}: {line}"));
         }
     }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn test_ast_map_jsonl_per_entry_output() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("map.rs");
+        fs::write(&f, "fn caller() { helper(); }\nfn helper() {}\n").unwrap();
+
+        // JSONL mode: one compact JSON object per line.
+        let jsonl_out = patchloom_in(dir.path())
+            .args(["ast", "map", ".", "--jsonl"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let jsonl_text = String::from_utf8(jsonl_out).unwrap();
+        let jsonl_lines: Vec<&str> = jsonl_text.lines().collect();
+        assert!(
+            jsonl_lines.len() >= 2,
+            "expected at least 2 JSONL lines for 2 map entries, got {}",
+            jsonl_lines.len()
+        );
+        for line in &jsonl_lines {
+            let v: serde_json::Value = serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("JSONL line is not valid JSON: {e}: {line}"));
+            assert!(
+                v.is_object(),
+                "each JSONL line should be an object, not an array"
+            );
+            assert!(
+                !line.starts_with(' '),
+                "JSONL should be compact, not pretty-printed"
+            );
+        }
+
+        // JSON mode: single array containing all entries.
+        let json_out = patchloom_in(dir.path())
+            .args(["ast", "map", ".", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let json_text = String::from_utf8(json_out).unwrap();
+        let json_val: serde_json::Value = serde_json::from_str(&json_text)
+            .unwrap_or_else(|e| panic!("JSON output is not valid: {e}"));
+        let json_arr = json_val.as_array().expect("--json should emit an array");
+
+        // Line count in JSONL must equal array length in JSON.
+        assert_eq!(
+            jsonl_lines.len(),
+            json_arr.len(),
+            "JSONL line count ({}) should equal JSON array length ({})",
+            jsonl_lines.len(),
+            json_arr.len()
+        );
+    }
 }
 
 mod mcp_tests {
