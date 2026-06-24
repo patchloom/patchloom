@@ -20674,6 +20674,69 @@ async fn test_mcp_http_search_files_round_trip() {
     child.kill().await.ok();
 }
 
+/// Verify that a write operation (replace_text) works over HTTP transport.
+/// The read-only round-trip test above covers search_files; this test
+/// ensures mutations also work end-to-end over Streamable HTTP.
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_replace_text_round_trip() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old_value\n").unwrap();
+
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args(["mcp-server", "--http", "--port", "0"])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn mcp-server --http");
+
+    let stderr = child.stderr.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stderr);
+    let mut line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line)
+        .await
+        .expect("failed to read server banner");
+
+    let url = line.trim().rsplit("on ").next().expect("no URL in banner");
+
+    use rmcp::ServiceExt;
+    let transport = rmcp::transport::StreamableHttpClientTransport::from_uri(url);
+    let client: rmcp::service::RunningService<rmcp::RoleClient, ()> =
+        ().serve(transport).await.expect("HTTP client connect");
+
+    // Call replace_text to mutate a file
+    let params = rmcp::model::CallToolRequestParams::new("replace_text".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "target.txt",
+                "from": "old_value",
+                "to": "new_value"
+            }))
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await.unwrap();
+    assert!(
+        !result.is_error.unwrap_or(false),
+        "replace_text should succeed over HTTP"
+    );
+
+    // Verify the file was actually mutated on disk
+    let content = fs::read_to_string(dir.path().join("target.txt")).unwrap();
+    assert_eq!(
+        content, "new_value\n",
+        "file should be mutated by HTTP tool call"
+    );
+
+    client.cancel().await.unwrap();
+    child.kill().await.ok();
+}
+
 #[cfg(feature = "mcp-http")]
 #[test]
 fn test_mcp_http_port_requires_http_flag() {
