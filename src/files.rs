@@ -648,7 +648,7 @@ mod tests {
     #[test]
     #[cfg(feature = "cli")]
     fn collect_glob_roots_normalizes_current_directory_segments() {
-        let global = GlobalFlags::default();
+        let global = GlobalFlags::test_default();
         let roots =
             collect_glob_roots_from_global(&[], &global, Some(Path::new("/tmp/project"))).unwrap();
 
