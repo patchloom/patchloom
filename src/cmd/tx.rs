@@ -19,9 +19,10 @@ use crate::ops::replace::{
 use crate::plan::{self, Operation, Plan};
 use crate::selector;
 use crate::tx::{
-    CachedDoc, CommitError, TxChange, TxExecResult, TxLintResult, TxOutput, TxReadResult,
-    TxSearchMatch, TxSearchResult, TxState,
+    CachedDoc, CommitError, TxLintResult, TxOutput, TxReadResult, TxSearchMatch, TxSearchResult,
+    TxState,
 };
+use crate::tx::{build_full_tx_output, run_lifecycle};
 use crate::write::{WritePolicy, run_format_command};
 
 use clap::Args;
@@ -59,7 +60,6 @@ pub struct TxArgs {
 }
 
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
-use crate::exec;
 
 #[cfg_attr(not(feature = "cli"), allow(dead_code))]
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
@@ -1273,89 +1273,6 @@ fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usi
 // Diff output helper
 // ---------------------------------------------------------------------------
 
-fn build_tx_output(
-    status: &'static str,
-    ok: bool,
-    changes: &[(PathBuf, String, String)],
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
-    cwd: &Path,
-) -> TxOutput {
-    let mut tx_changes = Vec::new();
-    let mut created = 0usize;
-    let mut deleted_count = 0usize;
-    let mut modified = 0usize;
-
-    let display_path = |p: &Path| -> String {
-        crate::files::relative_display(p, cwd)
-            .to_string_lossy()
-            .into_owned()
-    };
-
-    for (path, _original, _) in changes {
-        let path_str = display_path(path);
-        if deletions.contains(path) {
-            tx_changes.push(TxChange {
-                path: path_str,
-                action: "deleted".to_string(),
-            });
-            deleted_count += 1;
-        } else if !existed_before.contains(path) {
-            tx_changes.push(TxChange {
-                path: path_str,
-                action: "created".to_string(),
-            });
-            created += 1;
-        } else {
-            tx_changes.push(TxChange {
-                path: path_str,
-                action: "modified".to_string(),
-            });
-            modified += 1;
-        }
-    }
-    // Deletions not captured in changes (empty files).
-    for path in deletions {
-        if !changes.iter().any(|(c, _, _)| c == path) {
-            tx_changes.push(TxChange {
-                path: display_path(path),
-                action: "deleted".to_string(),
-            });
-            deleted_count += 1;
-        }
-    }
-
-    TxOutput {
-        ok,
-        status: status.to_string(),
-        files_changed: modified,
-        files_created: created,
-        files_deleted: deleted_count,
-        changes: tx_changes,
-        reads: Vec::new(),
-        searches: Vec::new(),
-        lints: Vec::new(),
-        error_kind: None,
-        error: None,
-        backup_session: None,
-    }
-}
-
-fn build_full_tx_output(status: &'static str, result: &mut TxExecResult, cwd: &Path) -> TxOutput {
-    let mut output = build_tx_output(
-        status,
-        true,
-        &result.changes,
-        &result.deletions,
-        &result.existed_before,
-        cwd,
-    );
-    output.reads = std::mem::take(&mut result.tx_reads);
-    output.searches = std::mem::take(&mut result.tx_searches);
-    output.lints = std::mem::take(&mut result.tx_lints);
-    output
-}
-
 fn emit_output_json(output: &TxOutput, compact: bool) {
     let result = if compact {
         serde_json::to_string(output)
@@ -1435,23 +1352,6 @@ fn emit_error_json(
     );
 }
 
-fn describe_exit_status(status: std::process::ExitStatus) -> String {
-    match status.code() {
-        Some(code) => format!("exit code {code}"),
-        None => "terminated by signal".to_string(),
-    }
-}
-
-fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
-    if cwd == base_cwd {
-        ".".to_string()
-    } else {
-        crate::files::relative_display(cwd, base_cwd)
-            .display()
-            .to_string()
-    }
-}
-
 fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     let diffs: Vec<_> = changes
         .iter()
@@ -1483,127 +1383,9 @@ fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
     }
 }
 
-fn run_format_steps(
-    steps: &[plan::FormatStep],
-    base_cwd: &Path,
-    cwd: &Path,
-) -> Result<(), LifecycleError> {
-    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
-    for (index, step) in steps.iter().enumerate() {
-        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
-        match result {
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) if !status.success() => {
-                let header = format!(
-                    "format step failed (step {}, {}, cwd: {})",
-                    index + 1,
-                    describe_exit_status(status),
-                    lifecycle_cwd
-                );
-                let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
-                return Err(LifecycleError {
-                    message: msg,
-                    kind: "format_failed",
-                });
-            }
-            Err(e) => {
-                let msg = format!(
-                    "format step error (step {}, cwd: {}): {e}",
-                    index + 1,
-                    lifecycle_cwd
-                );
-                eprintln!("tx: {msg}");
-                return Err(LifecycleError {
-                    message: msg,
-                    kind: "format_failed",
-                });
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn run_validate_steps(
-    steps: &[plan::ValidationStep],
-    base_cwd: &Path,
-    cwd: &Path,
-) -> Result<(), LifecycleError> {
-    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
-    for (index, step) in steps.iter().enumerate() {
-        let timeout_secs = step.timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = exec::run_with_timeout(&step.cmd, timeout_secs, cwd);
-        match result {
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) if status.success() => {
-                let _ = stderr_head; // Discard stderr on success.
-            }
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) => {
-                let header = format!(
-                    "required validation failed (step {}, {}, cwd: {})",
-                    index + 1,
-                    describe_exit_status(status),
-                    lifecycle_cwd
-                );
-                let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
-                if step.required.unwrap_or(false) {
-                    return Err(LifecycleError {
-                        message: msg,
-                        kind: "validation_failed",
-                    });
-                }
-            }
-            Err(e) => {
-                let msg = format!(
-                    "validation error (step {}, cwd: {}): {e}",
-                    index + 1,
-                    lifecycle_cwd
-                );
-                eprintln!("tx: {msg}");
-                if step.required.unwrap_or(false) {
-                    return Err(LifecycleError {
-                        message: msg,
-                        kind: "validation_failed",
-                    });
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
-// Shared execution core
+// Shared execution core (core impls now in src/tx.rs as pub(crate) for reuse)
 // ---------------------------------------------------------------------------
-
-/// Execute all plan operations in memory, apply write policy, and return
-/// the collected results without touching the filesystem.
-///
-/// On operation failure the error message is pre-formatted as
-/// `"operation N (label) failed: ..."` so callers can emit it directly.
-/// Run format and validation lifecycle steps. Returns `None` on success.
-fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
-    plan.format
-        .as_deref()
-        .map(|steps| run_format_steps(steps, base_cwd, cwd))
-        .unwrap_or(Ok(()))
-        .err()
-        .or_else(|| {
-            plan.validate
-                .as_deref()
-                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd).err())
-        })
-}
 
 pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
     match plan_cwd {

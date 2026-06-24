@@ -1495,7 +1495,7 @@ fn build_write_policy(
 // Diff output helper
 // ---------------------------------------------------------------------------
 
-fn build_tx_output(
+pub(crate) fn build_tx_output(
     status: &'static str,
     ok: bool,
     changes: &[(PathBuf, String, String)],
@@ -1563,7 +1563,11 @@ fn build_tx_output(
     }
 }
 
-fn build_full_tx_output(status: &'static str, result: &mut TxExecResult, cwd: &Path) -> TxOutput {
+pub(crate) fn build_full_tx_output(
+    status: &'static str,
+    result: &mut TxExecResult,
+    cwd: &Path,
+) -> TxOutput {
     let mut output = build_tx_output(
         status,
         true,
@@ -1578,14 +1582,14 @@ fn build_full_tx_output(status: &'static str, result: &mut TxExecResult, cwd: &P
     output
 }
 
-fn describe_exit_status(status: std::process::ExitStatus) -> String {
+pub(crate) fn describe_exit_status(status: std::process::ExitStatus) -> String {
     match status.code() {
         Some(code) => format!("exit code {code}"),
         None => "terminated by signal".to_string(),
     }
 }
 
-fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
+pub(crate) fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
     if cwd == base_cwd {
         ".".to_string()
     } else {
@@ -1599,9 +1603,9 @@ fn describe_lifecycle_cwd(base_cwd: &Path, cwd: &Path) -> String {
 // Lifecycle helpers (extracted from run() for testability)
 // ---------------------------------------------------------------------------
 
-struct LifecycleError {
-    message: String,
-    kind: &'static str,
+pub(crate) struct LifecycleError {
+    pub(crate) message: String,
+    pub(crate) kind: &'static str,
 }
 
 /// Format a lifecycle step failure message, appending stderr output if available.
@@ -1614,7 +1618,7 @@ fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
     }
 }
 
-fn run_format_steps(
+pub(crate) fn run_format_steps(
     steps: &[plan::FormatStep],
     base_cwd: &Path,
     cwd: &Path,
@@ -1659,7 +1663,7 @@ fn run_format_steps(
     Ok(())
 }
 
-fn run_validate_steps(
+pub(crate) fn run_validate_steps(
     steps: &[plan::ValidationStep],
     base_cwd: &Path,
     cwd: &Path,
@@ -1872,7 +1876,7 @@ pub(crate) fn execute_and_collect(
 }
 
 /// Run format and validation lifecycle steps. Returns `None` on success.
-fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
+pub(crate) fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
     plan.format
         .as_deref()
         .map(|steps| run_format_steps(steps, base_cwd, cwd))
