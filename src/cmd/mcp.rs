@@ -611,8 +611,24 @@ impl PatchloomService {
         let call_log = log_flag
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from));
+        let mut tool_router = Self::tool_router();
+        // Wire up the macro-generated tools (their methods + *_tool_attr live in the
+        // plain impl above; the #[tool_router] scan only sees literal fns in its own block).
+        tool_router = tool_router
+            .with_route((Self::doc_set_tool_attr(), Self::doc_set))
+            .with_route((Self::doc_delete_tool_attr(), Self::doc_delete))
+            .with_route((Self::doc_merge_tool_attr(), Self::doc_merge))
+            .with_route((Self::doc_append_tool_attr(), Self::doc_append))
+            .with_route((Self::doc_prepend_tool_attr(), Self::doc_prepend))
+            .with_route((Self::doc_ensure_tool_attr(), Self::doc_ensure))
+            .with_route((Self::doc_delete_where_tool_attr(), Self::doc_delete_where))
+            .with_route((Self::doc_update_tool_attr(), Self::doc_update))
+            .with_route((Self::doc_move_tool_attr(), Self::doc_move))
+            .with_route((Self::read_file_tool_attr(), Self::read_file))
+            .with_route((Self::fix_whitespace_tool_attr(), Self::fix_whitespace));
+
         Ok(Self {
-            tool_router: Self::tool_router(),
+            tool_router,
             path_guard,
             call_log,
         })
@@ -768,218 +784,245 @@ fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
     }
 }
 
-/// Improved declarative macro for single-op MCP tools.
+/// Declarative macro for MCP tool handlers.
 ///
-/// Best design: body block provided at call site for hygiene.
-/// Always emits the common `check_path`.
-/// Keeps schemas identical.
+/// Usage:
+///   mcp_tool!(doc_set, "Description here...", DocSetParams, |self_, p| {
+///       self_.check_path(&p.path)?;
+///       // ... other validates ...
+///       self_.run_one_op(Operation::DocSet { path: p.path, selector: p.selector, value: p.value }, Some(p.strict))
+///   });
 ///
-/// We keep most handlers manual for now (to ensure rmcp tool registration and tests pass),
-/// but the macro is available and can be used for new simple handlers or future cleanup.
-/// This, plus the existing run_one_op, achieves most of the repetition reduction goal.
-#[allow(unused_macros)]
+/// The |self_, p| pattern gives a hygienic name binding inside the provided body block.
+/// p is owned (moved out of Parameters wrapper) so field moves are possible with no clones.
+/// The emitted fn carries the #[tool] attribute so rmcp can see schema/desc when we manually register.
+///
+/// We use this for simple thin wrappers (esp. doc_* that delegate to run_one_op) to cut boilerplate
+/// while keeping full rmcp registration compatibility by manually wiring the routes.
 macro_rules! mcp_tool {
     ($name:ident, $desc:literal, $Params:ty, |$self_:ident, $p:ident| $body:block ) => {
         #[tool(description = $desc)]
-        #[allow(dead_code)]
         async fn $name(
             &self,
             Parameters(p): Parameters<$Params>,
         ) -> Result<CallToolResult, McpError> {
             let $self_ = self;
-            let $p = &p;
+            let $p = p;
             $body
         }
     };
 }
 
-// Example usage of the improved mcp_tool macro (the |self_, p| form solves hygiene):
-// mcp_tool!(doc_set, "Set a value...", DocSetParams, |self_, p| {
-//     self_.check_path(&p.path)?;
-//     validate_param_size("selector", &p.selector)?;
-//     validate_json_depth("value", &p.value)?;
-//     self_.run_one_op(Operation::DocSet { path: p.path.clone(), selector: p.selector.clone(), value: p.value.clone() }, Some(p.strict))
-// });
-// We keep explicit fns for registration compatibility with rmcp, but this is the clean foundation for reducing boilerplate as discussed.
+// MCP tools powered by the mcp_tool! macro.
+// The #[tool] attributes are on the emitted fns here (in a plain impl), so the
+// companion *_tool_attr() functions are generated. We explicitly wire them into
+// the router below so that rmcp's ToolRouter (built from the #[tool_router] impl's
+// literal scan) still lists and dispatches them.
+impl PatchloomService {
+    mcp_tool!(
+        doc_set,
+        "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
+        DocSetParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocSet {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                },
+                Some(p.strict),
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_delete,
+        "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}",
+        DocDeleteParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            self_.run_one_op(
+                Operation::DocDelete {
+                    path: p.path,
+                    selector: p.selector,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_merge,
+        "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}} }",
+        DocMergeParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocMerge {
+                    path: p.path,
+                    value: p.value,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_append,
+        "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}",
+        DocArrayParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocAppend {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_prepend,
+        "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0.",
+        DocArrayParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocPrepend {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_ensure,
+        "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}",
+        DocEnsureParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocEnsure {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_delete_where,
+        "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}",
+        DocDeleteWhereParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_param_size("predicate", &p.predicate)?;
+            self_.run_one_op(
+                Operation::DocDeleteWhere {
+                    path: p.path,
+                    selector: p.selector,
+                    predicate: p.predicate,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_update,
+        "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}",
+        DocUpdateParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            validate_json_depth("value", &p.value)?;
+            self_.run_one_op(
+                Operation::DocUpdate {
+                    path: p.path,
+                    selector: p.selector,
+                    value: p.value,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        doc_move,
+        "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}",
+        DocMoveParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("from", &p.from)?;
+            validate_param_size("to", &p.to)?;
+            self_.run_one_op(
+                Operation::DocMove {
+                    path: p.path,
+                    from: p.from,
+                    to: p.to,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        read_file,
+        "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}",
+        ReadFileParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            self_.run_one_op(
+                Operation::Read {
+                    path: p.path,
+                    lines: p.lines,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        fix_whitespace,
+        "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}",
+        TidyParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            self_.run_ops(
+                vec![Operation::TidyFix {
+                    path: p.path,
+                    ensure_final_newline: Some(true),
+                    trim_trailing_whitespace: Some(true),
+                    normalize_eol: None,
+                }],
+                None,
+            )
+        }
+    );
+}
 
 #[tool_router]
 impl PatchloomService {
-    #[tool(
-        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}"
-    )]
-    async fn doc_set(
-        &self,
-        Parameters(p): Parameters<DocSetParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocSet {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            Some(p.strict),
-        )
-    }
-
-    #[tool(
-        description = "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}"
-    )]
-    async fn doc_delete(
-        &self,
-        Parameters(p): Parameters<DocDeleteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        self.run_one_op(
-            Operation::DocDelete {
-                path: p.path,
-                selector: p.selector,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}}}"
-    )]
-    async fn doc_merge(
-        &self,
-        Parameters(p): Parameters<DocMergeParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocMerge {
-                path: p.path,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}"
-    )]
-    async fn doc_append(
-        &self,
-        Parameters(p): Parameters<DocArrayParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocAppend {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0."
-    )]
-    async fn doc_prepend(
-        &self,
-        Parameters(p): Parameters<DocArrayParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocPrepend {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}"
-    )]
-    async fn doc_ensure(
-        &self,
-        Parameters(p): Parameters<DocEnsureParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocEnsure {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}"
-    )]
-    async fn doc_delete_where(
-        &self,
-        Parameters(p): Parameters<DocDeleteWhereParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_param_size("predicate", &p.predicate)?;
-        self.run_one_op(
-            Operation::DocDeleteWhere {
-                path: p.path,
-                selector: p.selector,
-                predicate: p.predicate,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}"
-    )]
-    async fn doc_update(
-        &self,
-        Parameters(p): Parameters<DocUpdateParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocUpdate {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}"
-    )]
-    async fn doc_move(
-        &self,
-        Parameters(p): Parameters<DocMoveParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("from", &p.from)?;
-        validate_param_size("to", &p.to)?;
-        self.run_one_op(
-            Operation::DocMove {
-                path: p.path,
-                from: p.from,
-                to: p.to,
-            },
-            None,
-        )
-    }
-
     #[tool(
         description = "Read a value from a JSON, YAML, or TOML file by selector. Example: {\"path\": \"package.json\", \"selector\": \"version\"}"
     )]
@@ -1184,23 +1227,6 @@ impl PatchloomService {
         let json = serde_json::to_string_pretty(&status)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
-    #[tool(
-        description = "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}"
-    )]
-    async fn read_file(
-        &self,
-        Parameters(p): Parameters<ReadFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        self.run_one_op(
-            Operation::Read {
-                path: p.path,
-                lines: p.lines,
-            },
-            None,
-        )
     }
 
     #[tool(
@@ -1458,25 +1484,6 @@ impl PatchloomService {
         let json = serde_json::to_string_pretty(&issues)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
-    #[tool(
-        description = "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
-    )]
-    async fn fix_whitespace(
-        &self,
-        Parameters(p): Parameters<TidyParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        self.run_ops(
-            vec![Operation::TidyFix {
-                path: p.path,
-                ensure_final_newline: Some(true),
-                trim_trailing_whitespace: Some(true),
-                normalize_eol: None,
-            }],
-            None,
-        )
     }
 
     #[tool(
