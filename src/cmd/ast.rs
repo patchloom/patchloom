@@ -2,6 +2,7 @@
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef, SymbolKind};
+use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::{Args, Subcommand};
@@ -270,7 +271,10 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let display_path = path.strip_prefix(&cwd).unwrap_or(path);
 
         if global.apply {
+            let mut backup = BackupSession::new(&cwd)?;
+            backup.save_before_write(path)?;
             crate::write::atomic_write(path, &new_content, &Default::default())?;
+            backup.finalize()?;
             if !global.quiet {
                 eprintln!(
                     "{}: {} replacement{}",
@@ -810,7 +814,10 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let display_path = target.strip_prefix(&cwd).unwrap_or(&target);
 
     if global.apply {
+        let mut backup = BackupSession::new(&cwd)?;
+        backup.save_before_write(&target)?;
         crate::write::atomic_write(&target, &result.content, &Default::default())?;
+        backup.finalize()?;
         crate::write::run_format_command(global, &cwd)?;
         if !global.quiet {
             eprintln!(
