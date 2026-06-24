@@ -17131,10 +17131,14 @@ async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() 
         "conflicting merge without allow_conflicts should fail: {val}"
     );
     assert_eq!(val["ok"], false, "patch conflict ok should be false: {val}");
-    let raw_text = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
+    let response_str = val.to_string();
     assert!(
-        !raw_text.contains("<<<<<<<"),
-        "conflict markers must not be written: {val}"
+        response_str.contains("conflict"),
+        "response should mention conflict: {val}"
+    );
+    assert!(
+        !response_str.contains("<<<<<<<"),
+        "conflict markers must not appear in response: {val}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
@@ -17850,12 +17854,14 @@ async fn test_mcp_git_status_errors_without_git_repo() {
     let dir = TempDir::new().unwrap(); // no git init - expect error from collect_status
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, val) = call_tool_value(&client, "git_status", serde_json::json!({})).await;
-    assert!(is_error, "git_status should error outside git repo: {val}");
-    let err_text = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
+    let (is_error, err_text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
+    assert!(
+        is_error,
+        "git_status should error outside git repo: {err_text}"
+    );
     assert!(
         err_text.contains("git") || err_text.contains("repository") || err_text.contains("failed"),
-        "error should mention git/repo: {val}"
+        "error should mention git/repo: {err_text}"
     );
     client.cancel().await.unwrap();
 }
