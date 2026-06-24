@@ -1906,7 +1906,7 @@ fn test_doc_has_existing_key() {
         .arg("name")
         .assert()
         .success()
-        .stdout(predicate::str::contains("true"));
+        .stdout(predicate::str::starts_with("true"));
 }
 
 #[test]
@@ -3250,8 +3250,8 @@ fn test_read_multiple_files_json() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(json.is_array());
     assert_eq!(json.as_array().unwrap().len(), 2);
-    assert!(json[0]["content"].as_str().unwrap().contains("one"));
-    assert!(json[1]["content"].as_str().unwrap().contains("two"));
+    assert_eq!(json[0]["content"], "one\n", "first file content");
+    assert_eq!(json[1]["content"], "two\n", "second file content");
 }
 
 #[test]
@@ -4028,10 +4028,13 @@ fn test_doc_set_yaml_apply() {
         .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
-    assert!(content.contains("new"), "YAML should contain updated value");
     assert!(
-        !content.contains("old"),
-        "YAML should not contain old value"
+        content.contains("name: new") || content.contains("name: \"new\""),
+        "YAML should contain updated name value: {content}"
+    );
+    assert!(
+        !content.contains("name: old"),
+        "YAML should not contain old name value: {content}"
     );
 }
 
@@ -4074,7 +4077,10 @@ fn test_doc_set_toml_apply() {
         .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
-    assert!(content.contains("new"), "TOML should contain updated value");
+    assert!(
+        content.contains("name = \"new\""),
+        "TOML should contain updated name value: {content}"
+    );
 }
 
 #[test]
@@ -5791,7 +5797,7 @@ fn test_help_flag() {
         .stdout(
             predicate::str::contains("search")
                 .and(predicate::str::contains("replace"))
-                .and(predicate::str::contains("doc")),
+                .and(predicate::str::contains("doc ").or(predicate::str::contains("doc\n"))),
         );
 }
 
@@ -8052,8 +8058,8 @@ fn test_tx_optional_validation_failure_ignored() {
         .code(0);
 
     let content = fs::read_to_string(&file).unwrap();
-    assert!(
-        content.contains("new"),
+    assert_eq!(
+        content, "new\n",
         "file should be modified despite optional validation failure"
     );
 }
@@ -8292,21 +8298,20 @@ fn test_tx_glob_replace_only_matches_pattern() {
         .assert()
         .code(0);
 
-    assert!(
-        fs::read_to_string(dir.path().join("a.txt"))
-            .unwrap()
-            .contains("bye")
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "bye\n",
+        "a.txt should be updated by glob replace"
     );
-    assert!(
-        fs::read_to_string(dir.path().join("b.txt"))
-            .unwrap()
-            .contains("bye")
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "bye\n",
+        "b.txt should be updated by glob replace"
     );
-    assert!(
-        fs::read_to_string(dir.path().join("skip.rs"))
-            .unwrap()
-            .contains("hello"),
-        ".rs file should not be modified"
+    assert_eq!(
+        fs::read_to_string(dir.path().join("skip.rs")).unwrap(),
+        "hello\n",
+        ".rs file should not be modified by *.txt glob"
     );
 }
 
@@ -8583,15 +8588,15 @@ fn test_replace_directory_modifies_all_matching_files() {
         .assert()
         .code(0);
 
-    assert!(
-        fs::read_to_string(dir.path().join("a.txt"))
-            .unwrap()
-            .contains("bye")
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "bye world\n",
+        "a.txt should have hello replaced with bye"
     );
-    assert!(
-        fs::read_to_string(dir.path().join("b.txt"))
-            .unwrap()
-            .contains("bye")
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "bye again\n",
+        "b.txt should have hello replaced with bye"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("c.txt")).unwrap(),
@@ -14454,9 +14459,10 @@ fn test_batch_from_stdin() {
         .code(0);
 
     let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
-    assert!(
-        content.contains("new"),
-        "stdin batch should update file: {content}"
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["name"], "new",
+        "stdin batch should update name field: {content}"
     );
 }
 
@@ -16282,8 +16288,8 @@ fn test_doc_delete_check_exits_2() {
 
     // File should be unchanged in --check mode.
     let content = fs::read_to_string(&file).unwrap();
-    assert!(
-        content.contains("key"),
+    assert_eq!(
+        content, r#"{"key":"value","other":"keep"}"#,
         "file should be unchanged in --check mode"
     );
 }
@@ -16527,13 +16533,15 @@ async fn test_mcp_doc_set_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
         serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
     )
     .await;
-    assert!(!is_error, "doc_set should succeed");
+    assert!(!is_error, "doc_set should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_set ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_set files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -16554,13 +16562,15 @@ async fn test_mcp_replace_round_trip() {
     fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({"path": "hello.txt", "from": "world", "to": "patchloom"}),
     )
     .await;
-    assert!(!is_error, "replace should succeed");
+    assert!(!is_error, "replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "replace ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "replace files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("hello.txt")).unwrap();
     assert_eq!(content, "hello patchloom\n");
@@ -16604,13 +16614,16 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     let dir = TempDir::new().unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
         serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
     )
     .await;
-    assert!(is_error, "doc_set on nonexistent file should return error");
+    assert!(
+        is_error,
+        "doc_set on nonexistent file should return error: {val}"
+    );
     client.cancel().await.unwrap();
 }
 
@@ -16866,13 +16879,13 @@ async fn test_mcp_file_rename_round_trip() {
     fs::write(dir.path().join("old_name.txt"), "content\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "move_file",
         serde_json::json!({"from": "old_name.txt", "to": "new_name.txt"}),
     )
     .await;
-    assert!(!is_error, "rename should succeed: {text}");
+    assert!(!is_error, "rename should succeed: {val}");
     assert!(
         !dir.path().join("old_name.txt").exists(),
         "old file should not exist"
@@ -16896,13 +16909,18 @@ async fn test_mcp_create_round_trip() {
     let dir = TempDir::new().unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "create_file",
         serde_json::json!({"path": "new_file.txt", "content": "hello world\n"}),
     )
     .await;
-    assert!(!is_error, "create should succeed: {text}");
+    assert!(!is_error, "create should succeed: {val}");
+    let msg = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        msg.contains("Created") && msg.contains("new_file.txt"),
+        "create response should confirm file creation: {val}"
+    );
     assert!(
         dir.path().join("new_file.txt").exists(),
         "file should exist after create"
@@ -16923,7 +16941,7 @@ async fn test_mcp_create_existing_fails_without_force() {
     fs::write(dir.path().join("existing.txt"), "original\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "create_file",
         serde_json::json!({"path": "existing.txt", "content": "new content\n"}),
@@ -16931,7 +16949,7 @@ async fn test_mcp_create_existing_fails_without_force() {
     .await;
     assert!(
         is_error,
-        "create should fail for existing file without force"
+        "create should fail for existing file without force: {val}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
@@ -16950,13 +16968,18 @@ async fn test_mcp_delete_round_trip() {
     fs::write(dir.path().join("doomed.txt"), "bye\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "delete_file",
         serde_json::json!({"path": "doomed.txt"}),
     )
     .await;
-    assert!(!is_error, "delete should succeed: {text}");
+    assert!(!is_error, "delete should succeed: {val}");
+    let msg = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        msg.contains("Deleted") && msg.contains("doomed.txt"),
+        "delete response should confirm file deletion: {val}"
+    );
     assert!(
         !dir.path().join("doomed.txt").exists(),
         "file should not exist after delete"
@@ -16975,9 +16998,10 @@ async fn test_mcp_patch_round_trip() {
     let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1 +1 @@\n-old line\n+new line\n";
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) =
-        call_tool_text(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
-    assert!(!is_error, "patch should succeed: {text}");
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "patch should succeed: {val}");
+    assert_eq!(val["ok"], true, "patch ok field: {val}");
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "new line\n"
@@ -17001,13 +17025,14 @@ async fn test_mcp_apply_patch_on_stale_merge() {
     let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "apply_patch",
         serde_json::json!({"diff": diff, "on_stale": "merge"}),
     )
     .await;
-    assert!(!is_error, "patch merge should succeed: {text}");
+    assert!(!is_error, "patch merge should succeed: {val}");
+    assert_eq!(val["ok"], true, "patch merge ok field: {val}");
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
         "line1\nnew line\nline3\nextra\n"
@@ -17031,7 +17056,7 @@ async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() 
     let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "apply_patch",
         serde_json::json!({"diff": diff, "on_stale": "merge"}),
@@ -17039,11 +17064,13 @@ async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() 
     .await;
     assert!(
         is_error,
-        "conflicting merge without allow_conflicts should fail: {text}"
+        "conflicting merge without allow_conflicts should fail: {val}"
     );
+    assert_eq!(val["ok"], false, "patch conflict ok should be false: {val}");
+    let raw_text = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
     assert!(
-        !text.contains("<<<<<<<"),
-        "conflict markers must not be written: {text}"
+        !raw_text.contains("<<<<<<<"),
+        "conflict markers must not be written: {val}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("target.txt")).unwrap(),
@@ -17068,7 +17095,7 @@ async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
     let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "apply_patch",
         serde_json::json!({"diff": diff, "on_stale": "merge", "allow_conflicts": true}),
@@ -17076,8 +17103,9 @@ async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
     .await;
     assert!(
         !is_error,
-        "patch merge with allow_conflicts should succeed: {text}"
+        "patch merge with allow_conflicts should succeed: {val}"
     );
+    assert_eq!(val["ok"], true, "patch allow_conflicts ok field: {val}");
     let content = fs::read_to_string(dir.path().join("target.txt")).unwrap();
     assert!(
         content.contains("<<<<<<< patchloom (ours)"),
@@ -17104,7 +17132,7 @@ async fn test_mcp_md_insert_after_heading_round_trip() {
     fs::write(dir.path().join("doc.md"), "# Title\n\nExisting body.\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_insert_after_heading",
         serde_json::json!({
@@ -17114,7 +17142,12 @@ async fn test_mcp_md_insert_after_heading_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md insert_after_heading should succeed: {text}");
+    assert!(!is_error, "md insert_after_heading should succeed: {val}");
+    assert_eq!(val["ok"], true, "md insert_after_heading ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md insert_after_heading files_changed: {val}"
+    );
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(
         content.contains("Inserted line."),
@@ -17142,7 +17175,7 @@ async fn test_mcp_md_insert_before_heading_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_insert_before_heading",
         serde_json::json!({
@@ -17152,7 +17185,12 @@ async fn test_mcp_md_insert_before_heading_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md insert_before_heading should succeed: {text}");
+    assert!(!is_error, "md insert_before_heading should succeed: {val}");
+    assert_eq!(val["ok"], true, "md insert_before_heading ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md insert_before_heading files_changed: {val}"
+    );
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(
         content.contains("Preface text."),
@@ -17178,13 +17216,15 @@ async fn test_mcp_tidy_round_trip() {
     fs::write(dir.path().join("messy.txt"), "hello   \nworld").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "fix_whitespace",
         serde_json::json!({"path": "messy.txt"}),
     )
     .await;
-    assert!(!is_error, "tidy should succeed: {text}");
+    assert!(!is_error, "tidy should succeed: {val}");
+    assert_eq!(val["ok"], true, "tidy ok: {val}");
+    assert_eq!(val["files_changed"], 1, "tidy files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("messy.txt")).unwrap();
     assert!(content.ends_with('\n'), "tidy should ensure final newline");
@@ -17204,7 +17244,7 @@ async fn test_mcp_md_upsert_bullet_round_trip() {
     fs::write(dir.path().join("doc.md"), "# Rules\n\n- Existing rule\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_upsert_bullet",
         serde_json::json!({
@@ -17214,7 +17254,12 @@ async fn test_mcp_md_upsert_bullet_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_upsert_bullet should succeed: {text}");
+    assert!(!is_error, "md_upsert_bullet should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_upsert_bullet ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_upsert_bullet files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(
@@ -17241,13 +17286,15 @@ async fn test_mcp_doc_merge_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_merge",
         serde_json::json!({"path": "config.json", "value": {"debug": true}}),
     )
     .await;
-    assert!(!is_error, "doc_merge should succeed: {text}");
+    assert!(!is_error, "doc_merge should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_merge ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_merge files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17272,13 +17319,15 @@ async fn test_mcp_doc_delete_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_delete",
         serde_json::json!({"path": "config.json", "selector": "debug"}),
     )
     .await;
-    assert!(!is_error, "doc_delete should succeed: {text}");
+    assert!(!is_error, "doc_delete should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_delete ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_delete files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17296,13 +17345,15 @@ async fn test_mcp_doc_append_round_trip() {
     fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_append",
         serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
     )
     .await;
-    assert!(!is_error, "doc_append should succeed: {text}");
+    assert!(!is_error, "doc_append should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_append ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_append files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17320,13 +17371,15 @@ async fn test_mcp_doc_prepend_round_trip() {
     fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_prepend",
         serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
     )
     .await;
-    assert!(!is_error, "doc_prepend should succeed: {text}");
+    assert!(!is_error, "doc_prepend should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_prepend ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_prepend files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17345,13 +17398,15 @@ async fn test_mcp_doc_ensure_round_trip() {
 
     let client = spawn_mcp_client(dir.path()).await;
     // Ensure a missing key.
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_ensure",
         serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
     )
     .await;
-    assert!(!is_error, "doc_ensure should succeed: {text}");
+    assert!(!is_error, "doc_ensure should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_ensure ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_ensure files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17373,13 +17428,15 @@ async fn test_mcp_doc_update_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_update",
         serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
     )
     .await;
-    assert!(!is_error, "doc_update should succeed: {text}");
+    assert!(!is_error, "doc_update should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_update ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_update files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17397,13 +17454,15 @@ async fn test_mcp_doc_move_round_trip() {
     fs::write(dir.path().join("config.json"), r#"{"old_name":"value"}"#).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_move",
         serde_json::json!({"path": "config.json", "from": "old_name", "to": "new_name"}),
     )
     .await;
-    assert!(!is_error, "doc_move should succeed: {text}");
+    assert!(!is_error, "doc_move should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_move ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_move files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17425,13 +17484,18 @@ async fn test_mcp_doc_delete_where_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_delete_where",
         serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
     )
     .await;
-    assert!(!is_error, "doc_delete_where should succeed: {text}");
+    assert!(!is_error, "doc_delete_where should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_delete_where ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "doc_delete_where files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -17722,11 +17786,12 @@ async fn test_mcp_git_status_errors_without_git_repo() {
     let dir = TempDir::new().unwrap(); // no git init - expect error from collect_status
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
-    assert!(is_error, "git_status should error outside git repo: {text}");
+    let (is_error, val) = call_tool_value(&client, "git_status", serde_json::json!({})).await;
+    assert!(is_error, "git_status should error outside git repo: {val}");
+    let err_text = val.get("raw_text").and_then(|v| v.as_str()).unwrap_or("");
     assert!(
-        text.contains("git") || text.contains("repository") || text.contains("failed"),
-        "error should mention git/repo: {text}"
+        err_text.contains("git") || err_text.contains("repository") || err_text.contains("failed"),
+        "error should mention git/repo: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -17744,7 +17809,7 @@ async fn test_mcp_md_table_append_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_table_append",
         serde_json::json!({
@@ -17754,7 +17819,12 @@ async fn test_mcp_md_table_append_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_table_append should succeed: {text}");
+    assert!(!is_error, "md_table_append should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_table_append ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_table_append files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(
@@ -17781,7 +17851,7 @@ async fn test_mcp_md_replace_section_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_replace_section",
         serde_json::json!({
@@ -17791,7 +17861,12 @@ async fn test_mcp_md_replace_section_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_replace_section should succeed: {text}");
+    assert!(!is_error, "md_replace_section should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_replace_section ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_replace_section files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
     assert!(
@@ -17875,7 +17950,7 @@ async fn test_mcp_batch_replace_round_trip() {
     fs::write(dir.path().join("b.txt"), "version = 1.0.0\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "batch_replace",
         serde_json::json!({
@@ -17885,7 +17960,12 @@ async fn test_mcp_batch_replace_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "batch_replace should succeed: {text}");
+    assert!(!is_error, "batch_replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 2,
+        "batch_replace files_changed: {val}"
+    );
 
     let a = fs::read_to_string(dir.path().join("a.txt")).unwrap();
     let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
@@ -17912,7 +17992,7 @@ async fn test_mcp_batch_replace_regex_round_trip() {
     fs::write(dir.path().join("y.txt"), "foo456bar\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "batch_replace",
         serde_json::json!({
@@ -17923,7 +18003,12 @@ async fn test_mcp_batch_replace_regex_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "batch_replace regex should succeed: {text}");
+    assert!(!is_error, "batch_replace regex should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace regex ok: {val}");
+    assert_eq!(
+        val["files_changed"], 2,
+        "batch_replace regex files_changed: {val}"
+    );
 
     let x = fs::read_to_string(dir.path().join("x.txt")).unwrap();
     let y = fs::read_to_string(dir.path().join("y.txt")).unwrap();
@@ -17964,7 +18049,7 @@ async fn test_mcp_batch_tidy_round_trip() {
     fs::write(dir.path().join("d.txt"), "foo  \nbar  ").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "batch_tidy",
         serde_json::json!({
@@ -17972,7 +18057,9 @@ async fn test_mcp_batch_tidy_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "batch_tidy should succeed: {text}");
+    assert!(!is_error, "batch_tidy should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_tidy ok: {val}");
+    assert_eq!(val["files_changed"], 2, "batch_tidy files_changed: {val}");
 
     let c = fs::read_to_string(dir.path().join("c.txt")).unwrap();
     let d = fs::read_to_string(dir.path().join("d.txt")).unwrap();
@@ -18065,7 +18152,7 @@ async fn test_mcp_replace_regex_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({
@@ -18076,7 +18163,12 @@ async fn test_mcp_replace_regex_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "regex replace should succeed");
+    assert!(!is_error, "regex replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "regex replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "regex replace files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("ver.txt")).unwrap();
     assert_eq!(content, "version = 1.2.99\nversion = 4.5.99\n");
@@ -18092,7 +18184,7 @@ async fn test_mcp_replace_nth_round_trip() {
     fs::write(dir.path().join("rep.txt"), "foo bar foo baz foo\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({
@@ -18103,7 +18195,9 @@ async fn test_mcp_replace_nth_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "nth replace should succeed");
+    assert!(!is_error, "nth replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "nth replace ok: {val}");
+    assert_eq!(val["files_changed"], 1, "nth replace files_changed: {val}");
 
     let content = fs::read_to_string(dir.path().join("rep.txt")).unwrap();
     assert_eq!(content, "foo bar qux baz foo\n");
@@ -18119,7 +18213,7 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
     fs::write(dir.path().join("stable.txt"), "no match here\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({
@@ -18132,7 +18226,12 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
     .await;
     assert!(
         !is_error,
-        "if_exists with no match should succeed (not error)"
+        "if_exists with no match should succeed (not error): {val}"
+    );
+    assert_eq!(val["ok"], true, "if_exists ok: {val}");
+    assert_eq!(
+        val["files_changed"], 0,
+        "if_exists no match files_changed: {val}"
     );
 
     let content = fs::read_to_string(dir.path().join("stable.txt")).unwrap();
@@ -18153,7 +18252,7 @@ async fn test_mcp_replace_whole_line_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({
@@ -18164,7 +18263,12 @@ async fn test_mcp_replace_whole_line_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "whole_line replace should succeed");
+    assert!(!is_error, "whole_line replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "whole_line replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "whole_line replace files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
     assert_eq!(content, "fn main() {\n    let y = 1;\n}\n");
@@ -18180,7 +18284,7 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
     fs::write(dir.path().join("data.txt"), "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
         serde_json::json!({
@@ -18192,7 +18296,12 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "whole_line+range replace should succeed");
+    assert!(!is_error, "whole_line+range replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "whole_line+range replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "whole_line+range files_changed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("data.txt")).unwrap();
     // Only the first "bbb" (line 2, within range 1:3) should be deleted.
@@ -18210,13 +18319,13 @@ async fn test_mcp_append_file_round_trip() {
     fs::write(&file, "line one\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "append_file",
         serde_json::json!({"path": "data.txt", "content": "line two\n"}),
     )
     .await;
-    assert!(!is_error, "append_file should succeed: {text}");
+    assert!(!is_error, "append_file should succeed: {val}");
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "line one\nline two\n",
@@ -18233,13 +18342,16 @@ async fn test_mcp_append_file_missing_file_returns_error() {
     let dir = TempDir::new().unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, _text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "append_file",
         serde_json::json!({"path": "nonexistent.txt", "content": "data\n"}),
     )
     .await;
-    assert!(is_error, "append_file should fail when file does not exist");
+    assert!(
+        is_error,
+        "append_file should fail when file does not exist: {val}"
+    );
     client.cancel().await.unwrap();
 }
 
@@ -18257,7 +18369,7 @@ async fn test_mcp_md_move_section_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_move_section",
         serde_json::json!({
@@ -18267,7 +18379,12 @@ async fn test_mcp_md_move_section_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_move_section should succeed: {text}");
+    assert!(!is_error, "md_move_section should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_move_section ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_move_section files_changed: {val}"
+    );
 
     let content = fs::read_to_string(&file).unwrap();
     let alpha_pos = content.find("## Alpha").expect("Alpha should exist");
@@ -19238,7 +19355,7 @@ async fn test_mcp_symlink_within_cwd_allowed() {
     std::os::unix::fs::symlink(sub.join("data.txt"), dir.path().join("link.txt")).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "read_file",
         serde_json::json!({"path": "link.txt"}),
@@ -19246,9 +19363,15 @@ async fn test_mcp_symlink_within_cwd_allowed() {
     .await;
     assert!(
         !is_error,
-        "symlink within workspace should be allowed: {text}"
+        "symlink within workspace should be allowed: {val}"
     );
-    assert!(text.contains("safe content"));
+    let content = val["reads"][0]["content"]
+        .as_str()
+        .expect("reads[0].content should be a string");
+    assert_eq!(
+        content, "safe content\n",
+        "symlink read should return file content"
+    );
     client.cancel().await.unwrap();
 }
 
@@ -19607,27 +19730,27 @@ async fn test_mcp_concurrent_replace_different_files() {
 
     // Fire 5 replace calls in parallel, each targeting a different file.
     let (r0, r1, r2, r3, r4) = tokio::join!(
-        call_tool_text(
+        call_tool_value(
             &client,
             "replace_text",
             serde_json::json!({"path": "f0.txt", "from": "old_value", "to": "new_0"}),
         ),
-        call_tool_text(
+        call_tool_value(
             &client,
             "replace_text",
             serde_json::json!({"path": "f1.txt", "from": "old_value", "to": "new_1"}),
         ),
-        call_tool_text(
+        call_tool_value(
             &client,
             "replace_text",
             serde_json::json!({"path": "f2.txt", "from": "old_value", "to": "new_2"}),
         ),
-        call_tool_text(
+        call_tool_value(
             &client,
             "replace_text",
             serde_json::json!({"path": "f3.txt", "from": "old_value", "to": "new_3"}),
         ),
-        call_tool_text(
+        call_tool_value(
             &client,
             "replace_text",
             serde_json::json!({"path": "f4.txt", "from": "old_value", "to": "new_4"}),
@@ -19638,6 +19761,12 @@ async fn test_mcp_concurrent_replace_different_files() {
     assert!(!r2.0, "replace on f2.txt should succeed: {}", r2.1);
     assert!(!r3.0, "replace on f3.txt should succeed: {}", r3.1);
     assert!(!r4.0, "replace on f4.txt should succeed: {}", r4.1);
+    // Verify structured JSON response fields on concurrent calls.
+    assert_eq!(r0.1["ok"], true, "r0 ok: {}", r0.1);
+    assert_eq!(r1.1["ok"], true, "r1 ok: {}", r1.1);
+    assert_eq!(r2.1["ok"], true, "r2 ok: {}", r2.1);
+    assert_eq!(r3.1["ok"], true, "r3 ok: {}", r3.1);
+    assert_eq!(r4.1["ok"], true, "r4 ok: {}", r4.1);
 
     // Verify each file was updated.
     for i in 0..5 {
