@@ -1259,7 +1259,7 @@ impl PatchloomService {
             before_context: p.before_context,
             after_context: p.after_context,
         };
-        let mut tool_result = self.run_ops(vec![replace_op], Some(p.strict))?;
+        let mut tool_result = self.run_one_op(replace_op, Some(p.strict))?;
 
         // Append validation warnings to the response.
         if !validation_warnings.is_empty() {
