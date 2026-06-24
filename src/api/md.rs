@@ -13,6 +13,34 @@ use super::{
     write_if_apply,
 };
 
+fn md_edit<F>(
+    path: &Path,
+    heading: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+    transform: F,
+) -> anyhow::Result<EditResult>
+where
+    F: FnOnce(&str, &str) -> Option<String>,
+{
+    let path_str = path.to_string_lossy();
+    let original =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
+    let new_content = transform(&original, heading)
+        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found in {}", heading, path_str))?;
+    let policy = WritePolicy::default();
+    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        action,
+        None,
+    ))
+}
+
 /// Replace the body of a markdown section identified by heading.
 pub fn md_replace_section(
     path: &Path,
@@ -21,23 +49,14 @@ pub fn md_replace_section(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let new_content = ops::md::replace_section_in(&original, heading, content)
-        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
+    md_edit(
+        path,
+        heading,
+        mode,
+        guard,
         "md.replace_section",
-        None,
-    ))
+        |orig, h| ops::md::replace_section_in(orig, h, content),
+    )
 }
 
 /// Insert or update a bullet point under a markdown heading.
@@ -50,23 +69,9 @@ pub fn md_upsert_bullet(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let new_content = ops::md::upsert_bullet_in(&original, heading, bullet)
-        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        "md.upsert_bullet",
-        None,
-    ))
+    md_edit(path, heading, mode, guard, "md.upsert_bullet", |orig, h| {
+        ops::md::upsert_bullet_in(orig, h, bullet)
+    })
 }
 
 /// Append a row to a markdown table under a heading.
@@ -77,23 +82,9 @@ pub fn md_table_append(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let new_content = ops::md::table_append_for_tx(&original, heading, row)
-        .ok_or_else(|| anyhow::anyhow!("no table found under heading '{}'", heading))?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        "md.table_append",
-        None,
-    ))
+    md_edit(path, heading, mode, guard, "md.table_append", |orig, h| {
+        ops::md::table_append_for_tx(orig, h, row)
+    })
 }
 
 /// Insert content after a markdown heading.
@@ -104,23 +95,14 @@ pub fn md_insert_after_heading(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let new_content = ops::md::insert_after_heading_in(&original, heading, insertion)
-        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
+    md_edit(
+        path,
+        heading,
+        mode,
+        guard,
         "md.insert_after_heading",
-        None,
-    ))
+        |orig, h| ops::md::insert_after_heading_in(orig, h, insertion),
+    )
 }
 
 /// Move a markdown section to a position relative to another heading.
@@ -224,21 +206,12 @@ pub fn md_insert_before_heading(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let new_content = ops::md::insert_before_heading_in(&original, heading, insertion)
-        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
-
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
+    md_edit(
+        path,
+        heading,
+        mode,
+        guard,
         "md.insert_before_heading",
-        None,
-    ))
+        |orig, h| ops::md::insert_before_heading_in(orig, h, insertion),
+    )
 }

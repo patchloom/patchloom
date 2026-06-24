@@ -161,6 +161,44 @@ pub enum DocAction {
 }
 
 impl DocAction {
+    /// Whether this action mutates a file (vs read-only query).
+    fn is_write(&self) -> bool {
+        matches!(
+            self,
+            DocAction::Set { .. }
+                | DocAction::Delete { .. }
+                | DocAction::DeleteWhere { .. }
+                | DocAction::Merge { .. }
+                | DocAction::Append { .. }
+                | DocAction::Prepend { .. }
+                | DocAction::Update { .. }
+                | DocAction::Move { .. }
+                | DocAction::Ensure { .. }
+        )
+    }
+
+    /// The primary file path for this action, if any.
+    fn file_path(&self) -> Option<&str> {
+        match self {
+            DocAction::Get { file, .. }
+            | DocAction::Has { file, .. }
+            | DocAction::Keys { file, .. }
+            | DocAction::Len { file, .. }
+            | DocAction::Set { file, .. }
+            | DocAction::Delete { file, .. }
+            | DocAction::DeleteWhere { file, .. }
+            | DocAction::Merge { file, .. }
+            | DocAction::Append { file, .. }
+            | DocAction::Prepend { file, .. }
+            | DocAction::Select { file, .. }
+            | DocAction::Update { file, .. }
+            | DocAction::Move { file, .. }
+            | DocAction::Ensure { file, .. }
+            | DocAction::Flatten { file } => Some(file.as_str()),
+            DocAction::Diff { .. } => None,
+        }
+    }
+
     /// Resolve all file paths against `cwd` so the command does not depend
     /// on the process-global current directory.
     fn resolve_files(&mut self, cwd: &std::path::Path) {
@@ -863,15 +901,7 @@ pub(crate) fn execute_with_mode(
         }
 
         // Write-mode subcommands are dispatched through execute_write() via run().
-        DocAction::Set { .. }
-        | DocAction::Delete { .. }
-        | DocAction::DeleteWhere { .. }
-        | DocAction::Merge { .. }
-        | DocAction::Append { .. }
-        | DocAction::Prepend { .. }
-        | DocAction::Update { .. }
-        | DocAction::Move { .. }
-        | DocAction::Ensure { .. } => {
+        _ => {
             anyhow::bail!("write operations require the run() entry point")
         }
     }
@@ -886,33 +916,8 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     args.action.resolve_files(&cwd);
 
-    let is_write = matches!(
-        &args.action,
-        DocAction::Set { .. }
-            | DocAction::Delete { .. }
-            | DocAction::DeleteWhere { .. }
-            | DocAction::Merge { .. }
-            | DocAction::Append { .. }
-            | DocAction::Prepend { .. }
-            | DocAction::Update { .. }
-            | DocAction::Move { .. }
-            | DocAction::Ensure { .. }
-    );
-
-    if is_write {
-        // Extract the file path from the action for EditorConfig lookup.
-        let doc_file_path: Option<&str> = match &args.action {
-            DocAction::Set { file, .. }
-            | DocAction::Delete { file, .. }
-            | DocAction::DeleteWhere { file, .. }
-            | DocAction::Merge { file, .. }
-            | DocAction::Append { file, .. }
-            | DocAction::Prepend { file, .. }
-            | DocAction::Update { file, .. }
-            | DocAction::Ensure { file, .. } => Some(file.as_str()),
-            DocAction::Move { file, .. } => Some(file.as_str()),
-            _ => None,
-        };
+    if args.action.is_write() {
+        let doc_file_path = args.action.file_path();
         let ctx = WriteContext {
             check: global.check,
             apply: global.apply,

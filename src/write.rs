@@ -274,11 +274,7 @@ pub fn policy_from_flags(
     #[allow(unused_variables)] file_path: Option<&std::path::Path>,
 ) -> WritePolicy {
     let efn = global.ensure_final_newline;
-    let eol = global.normalize_eol.map(|m| match m {
-        EolMode::Keep => EolMode::Keep,
-        EolMode::Lf => EolMode::Lf,
-        EolMode::Crlf => EolMode::Crlf,
-    });
+    let eol = global.normalize_eol;
     let ttw = global.trim_trailing_whitespace;
 
     let respect_ec = if cfg!(feature = "cli") {
