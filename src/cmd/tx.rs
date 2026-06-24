@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+#![cfg_attr(not(feature = "cli"), allow(dead_code))]
+#![cfg_attr(feature = "cli", allow(dead_code))]
 
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
@@ -62,6 +63,7 @@ pub struct TxArgs {
 const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
 
 #[cfg_attr(not(feature = "cli"), allow(dead_code))]
+#[allow(dead_code)]
 fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {

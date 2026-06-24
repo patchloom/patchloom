@@ -269,40 +269,44 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
 ///
 /// Build WritePolicy from GlobalFlags (and EditorConfig if respect_editorconfig).
 /// Usable from library tx execution paths as well (GlobalFlags can be simulated).
-#[allow(unused_mut, unused_assignments, unused_variables)]
 pub fn policy_from_flags(
     global: &crate::cli::global::GlobalFlags,
     file_path: Option<&std::path::Path>,
 ) -> WritePolicy {
-    let mut efn = global.ensure_final_newline;
-    let mut eol = global.normalize_eol.map(|m| match m {
+    let efn = global.ensure_final_newline;
+    let eol = global.normalize_eol.map(|m| match m {
         EolMode::Keep => EolMode::Keep,
         EolMode::Lf => EolMode::Lf,
         EolMode::Crlf => EolMode::Crlf,
     });
-    let mut ttw = global.trim_trailing_whitespace;
+    let ttw = global.trim_trailing_whitespace;
 
-    let mut respect_ec = global.respect_editorconfig;
-    #[cfg(not(feature = "cli"))]
-    {
-        respect_ec = false;
-    }
-    if respect_ec && let Some(path) = file_path {
+    let respect_ec = if cfg!(feature = "cli") {
+        global.respect_editorconfig
+    } else {
+        false
+    };
+
+    let (efn, eol, ttw) = if respect_ec && let Some(path) = file_path {
         #[cfg(feature = "cli")]
         if let Ok(props) = ec4rs::properties_of(path) {
+            let mut new_efn = efn;
+            let mut new_eol = eol;
+            let mut new_ttw = ttw;
+
             // insert_final_newline
             if !global.ensure_final_newline
                 && let Ok(ec4rs::property::FinalNewline::Value(true)) =
                     props.get::<ec4rs::property::FinalNewline>()
             {
-                efn = true;
+                new_efn = true;
             }
 
             // end_of_line
             if global.normalize_eol.is_none()
                 && let Ok(val) = props.get::<ec4rs::property::EndOfLine>()
             {
-                eol = Some(match val {
+                new_eol = Some(match val {
                     ec4rs::property::EndOfLine::Lf => EolMode::Lf,
                     ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
                     ec4rs::property::EndOfLine::Cr => EolMode::Keep,
@@ -314,10 +318,19 @@ pub fn policy_from_flags(
                 && let Ok(ec4rs::property::TrimTrailingWs::Value(true)) =
                     props.get::<ec4rs::property::TrimTrailingWs>()
             {
-                ttw = true;
+                new_ttw = true;
             }
+            (new_efn, new_eol, new_ttw)
+        } else {
+            (efn, eol, ttw)
         }
-    }
+        #[cfg(not(feature = "cli"))]
+        {
+            (efn, eol, ttw)
+        }
+    } else {
+        (efn, eol, ttw)
+    };
 
     WritePolicy {
         ensure_final_newline: efn,
