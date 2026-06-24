@@ -29,6 +29,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.5.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.4.0...patchloom-v0.5.0) (2026-06-24)
+
+
+### Features
+
+* add Streamable HTTP/HTTPS transport to mcp-server ([#866](https://github.com/patchloom/patchloom/issues/866)) ([30124e3](https://github.com/patchloom/patchloom/commit/30124e3ff7ca8120882684f8876b1f8c079fa57b))
+* Bline [#805](https://github.com/patchloom/patchloom/issues/805) downstream polish (PlanReport, search/AST docs, versions) ([#810](https://github.com/patchloom/patchloom/issues/810)) ([be7db34](https://github.com/patchloom/patchloom/commit/be7db3413ff02b7c763b005336d5b666d83e422b))
+* Bline library follow-ups ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#817](https://github.com/patchloom/patchloom/issues/817)) ([f421f57](https://github.com/patchloom/patchloom/commit/f421f57c95145372b7aed22aea2cc0ef3a7f685b))
+* Bline library follow-ups for execute_plan typed return, search primitives/format/ignore helper, richer types, errors, versions sync ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#816](https://github.com/patchloom/patchloom/issues/816)) ([4dcddf4](https://github.com/patchloom/patchloom/commit/4dcddf47e96e91ccae94fe231ecbf5189a2b7539))
+* full CLI/MCP/plan parity for Bline search ignore layering ([#821](https://github.com/patchloom/patchloom/issues/821)) ([#822](https://github.com/patchloom/patchloom/issues/822)) ([f7c0a8f](https://github.com/patchloom/patchloom/commit/f7c0a8fde8c2f04591ec0c22eb36374380e4f043))
+* library embedding gaps for pure 'ast'+'files' ([#792](https://github.com/patchloom/patchloom/issues/792)) ([#793](https://github.com/patchloom/patchloom/issues/793)) ([f0f99ef](https://github.com/patchloom/patchloom/commit/f0f99ef2b137633463312aad4be782868f2fda6e))
+* **lib:** ungate files helpers + add directory search API ([#773](https://github.com/patchloom/patchloom/issues/773) [#774](https://github.com/patchloom/patchloom/issues/774)) ([#775](https://github.com/patchloom/patchloom/issues/775)) ([505240c](https://github.com/patchloom/patchloom/commit/505240c6d48894e937ad775863147d12345b890f))
+* **mcp:** add execute_plan tool for multi-step tx plans + document cross-call semantics ([#827](https://github.com/patchloom/patchloom/issues/827)) ([#829](https://github.com/patchloom/patchloom/issues/829)) ([9b66e9a](https://github.com/patchloom/patchloom/commit/9b66e9abc5442b3a47001ce1e723268fc34559ba))
+* search ignore customization for [#796](https://github.com/patchloom/patchloom/issues/796), AST rewrite helpers for [#797](https://github.com/patchloom/patchloom/issues/797), guard/WritePolicy audit+docs for [#801](https://github.com/patchloom/patchloom/issues/801) ([#809](https://github.com/patchloom/patchloom/issues/809)) ([4ee9bb5](https://github.com/patchloom/patchloom/commit/4ee9bb5ab1442e9c7ea9f96f4eff3e8b05cb460d))
+
+
+### Bug Fixes
+
+* align version strings to 0.4 and expose search_one_file (Bline feedback on [#817](https://github.com/patchloom/patchloom/issues/817)) ([#818](https://github.com/patchloom/patchloom/issues/818)) ([1637cb3](https://github.com/patchloom/patchloom/commit/1637cb33cdebf06cb3a5af45f495aef5299cd85d))
+* **containment:** make allow_temp_directory() and allow_workspace_and_temp_dir() handle conventional /tmp paths on macOS ([#781](https://github.com/patchloom/patchloom/issues/781)) ([#782](https://github.com/patchloom/patchloom/issues/782)) ([15bdc53](https://github.com/patchloom/patchloom/commit/15bdc53c52563f1a0288fb50a6f8ac3c29c8a123))
+* FOSSA false positive and TLS error path test ([#870](https://github.com/patchloom/patchloom/issues/870)) ([2c81d04](https://github.com/patchloom/patchloom/commit/2c81d04c6f09d6d478c160cc9ff2a0041f691208))
+* HTTPS banner shows real port; add TLS round-trip test ([#869](https://github.com/patchloom/patchloom/issues/869)) ([df6839f](https://github.com/patchloom/patchloom/commit/df6839ffba996a2a3464498c9687d43c6f29a74d)), closes [#867](https://github.com/patchloom/patchloom/issues/867) [#868](https://github.com/patchloom/patchloom/issues/868)
+* remove redundant allow(dead_code) and fix vacuous test assertions ([#865](https://github.com/patchloom/patchloom/issues/865)) ([8717eb2](https://github.com/patchloom/patchloom/commit/8717eb220653a8bf3795a309568f5e43c964eef0))
+* route file MCP tools through tx engine for structured JSON responses ([#861](https://github.com/patchloom/patchloom/issues/861)) ([cd65cf6](https://github.com/patchloom/patchloom/commit/cd65cf6c14bacaf7bb04624462758901734aaf2a)), closes [#859](https://github.com/patchloom/patchloom/issues/859)
+* YAML nested keys structure and md move-section bodies ([#824](https://github.com/patchloom/patchloom/issues/824), [#825](https://github.com/patchloom/patchloom/issues/825)) ([#826](https://github.com/patchloom/patchloom/issues/826)) ([26eb0fc](https://github.com/patchloom/patchloom/commit/26eb0fc33e5b4c82f82bccf8a1cfaa4691f83fad))
+
 ## [0.4.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.3.0...patchloom-v0.4.0) (2026-06-22)
 
 
