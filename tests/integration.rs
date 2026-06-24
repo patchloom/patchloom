@@ -16960,6 +16960,31 @@ async fn test_mcp_create_existing_fails_without_force() {
 }
 
 #[tokio::test]
+async fn test_mcp_create_force_overwrites_existing() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("existing.txt"), "original\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "create_file",
+        serde_json::json!({"path": "existing.txt", "content": "replaced\n", "force": true}),
+    )
+    .await;
+    assert!(!is_error, "create with force should succeed: {val}");
+    assert_eq!(val["ok"], true, "create force ok field: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+        "replaced\n",
+        "content should be overwritten"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_delete_round_trip() {
     if !has_mcp_support() {
         return;
@@ -16980,6 +17005,48 @@ async fn test_mcp_delete_round_trip() {
     assert!(
         !dir.path().join("doomed.txt").exists(),
         "file should not exist after delete"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_delete_nonexistent_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "delete_file",
+        serde_json::json!({"path": "nonexistent.txt"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "delete should fail when file does not exist: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_move_nonexistent_source_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "move_file",
+        serde_json::json!({"from": "nonexistent.txt", "to": "dest.txt"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "move should fail when source does not exist: {val}"
     );
     client.cancel().await.unwrap();
 }
