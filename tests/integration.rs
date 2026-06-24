@@ -16480,7 +16480,12 @@ async fn call_tool_text(
 ) -> (bool, String) {
     let params = rmcp::model::CallToolRequestParams::new(tool.into())
         .with_arguments(serde_json::from_value(args).unwrap());
-    let result = client.peer().call_tool(params).await.unwrap();
+    let result = match client.peer().call_tool(params).await {
+        Ok(r) => r,
+        Err(e) => {
+            return (true, format!("MCP call error: {e}"));
+        }
+    };
     let is_error = result.is_error.unwrap_or(false);
     let text = result
         .content
@@ -17674,6 +17679,23 @@ async fn test_mcp_status_round_trip() {
     assert!(
         deleted.iter().any(|f| f.contains("to-be-deleted.txt")),
         "status should show deleted file: {status}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_git_status_errors_without_git_repo() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap(); // no git init - expect error from collect_status
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
+    assert!(is_error, "git_status should error outside git repo: {text}");
+    assert!(
+        text.contains("git") || text.contains("repository") || text.contains("failed"),
+        "error should mention git/repo: {text}"
     );
     client.cancel().await.unwrap();
 }
