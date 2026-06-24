@@ -1,6 +1,8 @@
 use crate::selector;
 use std::path::Path;
 
+mod preserve;
+
 #[derive(Debug, Clone, Copy)]
 pub enum FileFormat {
     Json,
@@ -74,7 +76,7 @@ pub fn serialize_value_preserving(
                 Ok(original_content.to_string())
             } else {
                 let body = serialize_value(new_value, format)?;
-                Ok(hoist_comments(original_content, &body))
+                Ok(preserve::hoist_comments(original_content, &body))
             }
         }
         // JSON has no comments.
@@ -172,30 +174,6 @@ fn try_preserve_yaml_array(
         return Ok(Some(spliced));
     }
     Ok(None)
-}
-
-/// Hoist leading comment lines (and blanks) from the original document
-/// onto a freshly serialized body. Used in fallback paths so that
-/// file-level and section comments are not lost.
-fn hoist_comments(original: &str, body: &str) -> String {
-    let comments: String = original
-        .lines()
-        .filter(|l| {
-            let t = l.trim_start();
-            t.is_empty() || t.starts_with('#')
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    if !comments.trim().is_empty() {
-        let sep = if comments.ends_with('\n') || body.starts_with('\n') {
-            ""
-        } else {
-            "\n"
-        };
-        format!("{}{}{}", comments, sep, body)
-    } else {
-        body.to_string()
-    }
 }
 
 // -----------------------------------------------------------------------
