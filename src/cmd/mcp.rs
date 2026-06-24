@@ -36,7 +36,6 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
-    #[allow(dead_code)]
     pub(crate) struct DocSetParams {
         /// File path (relative to working directory).
         pub path: String,
@@ -52,7 +51,6 @@ mod params {
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
     #[serde(deny_unknown_fields)]
     #[non_exhaustive]
-    #[allow(dead_code)]
     pub(crate) struct DocDeleteParams {
         /// File path.
         pub path: String,
