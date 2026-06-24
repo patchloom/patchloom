@@ -18122,10 +18122,17 @@ async fn test_mcp_rejects_unknown_fields() {
         .unwrap(),
     );
     let result = client.peer().call_tool(params).await;
-    assert!(
-        result.is_err(),
-        "unknown fields must be rejected by deny_unknown_fields"
-    );
+    // rmcp 1.8+ returns deny_unknown_fields violations as a tool result with
+    // isError (not a protocol-level Err), so accept either shape.
+    match result {
+        Err(_) => { /* protocol-level rejection: OK */ }
+        Ok(r) => {
+            assert!(
+                r.is_error.unwrap_or(false),
+                "unknown fields must be rejected by deny_unknown_fields"
+            );
+        }
+    }
     // File must remain unchanged
     let content = fs::read_to_string(dir.path().join("test.json")).unwrap();
     assert_eq!(content, r#"{"a":1}"#);

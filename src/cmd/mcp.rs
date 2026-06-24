@@ -455,6 +455,14 @@ mod params {
         pub strict: bool,
     }
 
+    /// No-parameter wrapper for tools that need no input (e.g., git_status).
+    /// Required because rmcp 1.8+ validates that `inputSchema` has a root
+    /// `type: "object"` field, which `serde_json::Value` does not provide.
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    #[non_exhaustive]
+    pub(crate) struct EmptyParams {}
+
     /// Parameters for executing a full multi-step transaction plan.
     /// This is the MCP equivalent of `patchloom tx`.
     #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1132,7 +1140,7 @@ impl PatchloomService {
     mcp_tool!(
         git_status,
         "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required.",
-        serde_json::Value,
+        EmptyParams,
         |self_, _p| {
             let global = GlobalFlags::with_cwd(self_.cwd());
             let status = crate::cmd::status::collect_status(&[], &global)
