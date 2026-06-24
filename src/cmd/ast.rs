@@ -212,6 +212,19 @@ pub struct RenameArgs {
 }
 
 /// Apply, check, or preview a single file mutation.
+/// What `apply_or_preview` actually did.
+#[derive(Debug, PartialEq, Eq)]
+enum PreviewAction {
+    /// File was written to disk via `atomic_write`.
+    Applied,
+    /// Check mode: reported what would change without writing.
+    Checked,
+    /// Diff mode with changes: printed unified diff hunks.
+    Diffed,
+    /// Diff mode with no changes: nothing printed.
+    Unchanged,
+}
+
 fn apply_or_preview(
     path: &std::path::Path,
     original: &str,
@@ -219,7 +232,7 @@ fn apply_or_preview(
     global: &GlobalFlags,
     cwd: &std::path::Path,
     status_msg: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<PreviewAction> {
     let display_path = path.strip_prefix(cwd).unwrap_or(path);
     if global.apply {
         let mut backup = BackupSession::new(cwd)?;
@@ -229,18 +242,22 @@ fn apply_or_preview(
         if !global.quiet {
             eprintln!("{}: {status_msg}", display_path.display());
         }
+        Ok(PreviewAction::Applied)
     } else if global.check {
         if !global.quiet {
             eprintln!("{}: {status_msg} (check mode)", display_path.display());
         }
+        Ok(PreviewAction::Checked)
     } else {
         let diff =
             crate::diff::unified_diff(&display_path.display().to_string(), original, new_content);
         if diff.has_changes {
             print!("{}", diff.hunks);
+            Ok(PreviewAction::Diffed)
+        } else {
+            Ok(PreviewAction::Unchanged)
         }
     }
-    Ok(())
 }
 
 fn resolve_target_paths(
@@ -1141,15 +1158,10 @@ mod tests {
         let new_content = "fn new() {}\n";
         std::fs::write(&f, original).unwrap();
 
-        // Default GlobalFlags: apply=false, check=false => diff mode.
         let global = GlobalFlags::default();
-
-        // Capture stdout via a helper: apply_or_preview prints to stdout.
-        // We verify it does not error and produces output.
-        let result = apply_or_preview(&f, original, new_content, &global, dir.path(), "renamed");
-        assert!(result.is_ok());
-        // We cannot capture print! output in a unit test, but we verify
-        // the function succeeds and the diff path is exercised.
+        let action =
+            apply_or_preview(&f, original, new_content, &global, dir.path(), "renamed").unwrap();
+        assert_eq!(action, PreviewAction::Diffed);
     }
 
     #[test]
@@ -1160,8 +1172,8 @@ mod tests {
         std::fs::write(&f, content).unwrap();
 
         let global = GlobalFlags::default();
-        let result = apply_or_preview(&f, content, content, &global, dir.path(), "no-op");
-        assert!(result.is_ok());
+        let action = apply_or_preview(&f, content, content, &global, dir.path(), "no-op").unwrap();
+        assert_eq!(action, PreviewAction::Unchanged);
     }
 
     #[test]
@@ -1175,15 +1187,16 @@ mod tests {
             check: true,
             ..GlobalFlags::default()
         };
-        let result = apply_or_preview(
+        let action = apply_or_preview(
             &f,
             content,
             "fn changed() {}\n",
             &global,
             dir.path(),
             "tested",
-        );
-        assert!(result.is_ok());
+        )
+        .unwrap();
+        assert_eq!(action, PreviewAction::Checked);
     }
 
     #[test]
@@ -1198,8 +1211,9 @@ mod tests {
             apply: true,
             ..GlobalFlags::default()
         };
-        let result = apply_or_preview(&f, original, new_content, &global, dir.path(), "applied");
-        assert!(result.is_ok());
+        let action =
+            apply_or_preview(&f, original, new_content, &global, dir.path(), "applied").unwrap();
+        assert_eq!(action, PreviewAction::Applied);
         // Verify the file was actually written.
         let on_disk = std::fs::read_to_string(&f).unwrap();
         assert_eq!(on_disk, new_content);
