@@ -683,6 +683,11 @@ impl PatchloomService {
         )
     }
 
+    /// Helper for single-op case to reduce vec! boilerplate in handlers.
+    fn run_one_op(&self, op: Operation, strict: Option<bool>) -> Result<CallToolResult, McpError> {
+        self.run_ops(vec![op], strict)
+    }
+
     /// Validate paths for a single operation (including embedded paths for PatchApply).
     fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
         for declared in crate::plan::declared_paths(op) {
@@ -773,12 +778,12 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("selector", &p.selector)?;
         validate_json_depth("value", &p.value)?;
-        self.run_ops(
-            vec![Operation::DocSet {
+        self.run_one_op(
+            Operation::DocSet {
                 path: p.path,
                 selector: p.selector,
                 value: p.value,
-            }],
+            },
             Some(p.strict),
         )
     }
