@@ -299,7 +299,7 @@ pub(crate) fn read_file_content<'a>(
 /// pending), `Ok(false)` if binary (skipped). This avoids the double-read that
 /// occurs when `is_binary_file` probes 8 KiB and then `read_file_content`
 /// re-reads the full file.
-fn read_and_probe(
+pub(crate) fn read_and_probe(
     pending: &mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
     path: &Path,
