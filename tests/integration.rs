@@ -1497,7 +1497,7 @@ fn test_search_nonexistent_path_warns_on_stderr() {
         .arg("totally_nonexistent_dir/")
         .assert()
         .code(3)
-        .stderr(predicate::str::contains("No such file or directory"));
+        .stderr(predicate::str::contains("totally_nonexistent_dir"));
 }
 
 #[test]
@@ -7335,7 +7335,7 @@ fn test_doc_get_nonexistent_file_fails() {
         .arg("key")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("No such file or directory"));
+        .stderr(predicate::str::contains("nonexistent/file_xyz.json"));
 }
 
 #[test]
