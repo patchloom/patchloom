@@ -625,7 +625,21 @@ impl PatchloomService {
             .with_route((Self::doc_update_tool_attr(), Self::doc_update))
             .with_route((Self::doc_move_tool_attr(), Self::doc_move))
             .with_route((Self::read_file_tool_attr(), Self::read_file))
-            .with_route((Self::fix_whitespace_tool_attr(), Self::fix_whitespace));
+            .with_route((Self::fix_whitespace_tool_attr(), Self::fix_whitespace))
+            .with_route((Self::md_upsert_bullet_tool_attr(), Self::md_upsert_bullet))
+            .with_route((Self::md_table_append_tool_attr(), Self::md_table_append))
+            .with_route((
+                Self::md_replace_section_tool_attr(),
+                Self::md_replace_section,
+            ))
+            .with_route((
+                Self::md_insert_after_heading_tool_attr(),
+                Self::md_insert_after_heading,
+            ))
+            .with_route((
+                Self::md_insert_before_heading_tool_attr(),
+                Self::md_insert_before_heading,
+            ));
 
         Ok(Self {
             tool_router,
@@ -1019,6 +1033,96 @@ impl PatchloomService {
             )
         }
     );
+
+    mcp_tool!(
+        md_upsert_bullet,
+        "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}",
+        MdUpsertBulletParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("bullet", &p.bullet)?;
+            self_.run_one_op(
+                Operation::MdUpsertBullet {
+                    path: p.path,
+                    heading: p.heading,
+                    bullet: p.bullet,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        md_table_append,
+        "Append a row to a markdown table under a heading. Example: {\"path\": \"README.md\", \"heading\": \"## Commands\", \"row\": \"| deploy | Run deployment |\"}",
+        MdTableAppendParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_param_size("row", &p.row)?;
+            self_.run_one_op(
+                Operation::MdTableAppend {
+                    path: p.path,
+                    heading: p.heading,
+                    row: p.row,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        md_replace_section,
+        "Replace the body of a markdown section. Content replaces everything between this heading and the next equal-or-higher heading. Example: {\"path\": \"README.md\", \"heading\": \"## Usage\", \"content\": \"Run `make build`.\\n\"}",
+        MdReplaceSectionParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_content_size("content", &p.content)?;
+            self_.run_one_op(
+                Operation::MdReplaceSection {
+                    path: p.path,
+                    heading: p.heading,
+                    content: p.content,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        md_insert_after_heading,
+        "Insert content after a markdown heading. Preserves existing body. Example: {\"path\": \"README.md\", \"heading\": \"## Notes\", \"content\": \"Updated 2025-01-01.\\n\"}",
+        MdInsertParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_content_size("content", &p.content)?;
+            self_.run_one_op(
+                Operation::MdInsertAfterHeading {
+                    path: p.path,
+                    heading: p.heading,
+                    content: p.content,
+                },
+                None,
+            )
+        }
+    );
+
+    mcp_tool!(
+        md_insert_before_heading,
+        "Insert content before a markdown heading. The new content appears above the heading line. Example: {\"path\": \"doc.md\", \"heading\": \"## API\", \"content\": \"---\\n\"}",
+        MdInsertParams,
+        |self_, p| {
+            self_.check_path(&p.path)?;
+            validate_content_size("content", &p.content)?;
+            self_.run_one_op(
+                Operation::MdInsertBeforeHeading {
+                    path: p.path,
+                    heading: p.heading,
+                    content: p.content,
+                },
+                None,
+            )
+        }
+    );
 }
 
 #[tool_router]
@@ -1337,101 +1441,6 @@ impl PatchloomService {
         }
 
         Ok(tool_result)
-    }
-
-    #[tool(
-        description = "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}"
-    )]
-    async fn md_upsert_bullet(
-        &self,
-        Parameters(p): Parameters<MdUpsertBulletParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("bullet", &p.bullet)?;
-        self.run_one_op(
-            Operation::MdUpsertBullet {
-                path: p.path,
-                heading: p.heading,
-                bullet: p.bullet,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Append a row to a markdown table under a heading. Example: {\"path\": \"README.md\", \"heading\": \"## Commands\", \"row\": \"| deploy | Run deployment |\"}"
-    )]
-    async fn md_table_append(
-        &self,
-        Parameters(p): Parameters<MdTableAppendParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("row", &p.row)?;
-        self.run_one_op(
-            Operation::MdTableAppend {
-                path: p.path,
-                heading: p.heading,
-                row: p.row,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Replace the body of a markdown section. Content replaces everything between this heading and the next equal-or-higher heading. Example: {\"path\": \"README.md\", \"heading\": \"## Usage\", \"content\": \"Run `make build`.\\n\"}"
-    )]
-    async fn md_replace_section(
-        &self,
-        Parameters(p): Parameters<MdReplaceSectionParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdReplaceSection {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Insert content after a markdown heading. Preserves existing body. Example: {\"path\": \"README.md\", \"heading\": \"## Notes\", \"content\": \"Updated 2025-01-01.\\n\"}"
-    )]
-    async fn md_insert_after_heading(
-        &self,
-        Parameters(p): Parameters<MdInsertParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdInsertAfterHeading {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Insert content before a markdown heading. The new content appears above the heading line. Example: {\"path\": \"doc.md\", \"heading\": \"## API\", \"content\": \"---\\n\"}"
-    )]
-    async fn md_insert_before_heading(
-        &self,
-        Parameters(p): Parameters<MdInsertParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdInsertBeforeHeading {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
     }
 
     #[tool(

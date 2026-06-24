@@ -63,6 +63,14 @@ pub struct BatchArgs {
 }
 
 /// Parse a single line into an Operation.
+/// Small helper macro used inside parse_line arms to cut the repetitive
+/// "Ok(Operation::Variant { ... })" boilerplate.
+macro_rules! op {
+    ($Variant:ident { $($tt:tt)* }) => {
+        Ok(Operation::$Variant { $($tt)* })
+    };
+}
+
 fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     let tokens = tokenize(line).map_err(|e| anyhow::anyhow!("line {line_num}: {e}"))?;
     if tokens.is_empty() {
@@ -75,54 +83,80 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "doc.set" => {
             require_args(op, args, 3, line_num)?;
             let value = parse_json_value(&args[2])?;
-            Ok(Operation::DocSet {
+            op!(DocSet {
                 path: args[0].clone(),
                 selector: args[1].clone(),
-                value,
+                value
             })
         }
         "doc.delete" => {
             require_args(op, args, 2, line_num)?;
-            Ok(Operation::DocDelete {
+            op!(DocDelete {
                 path: args[0].clone(),
-                selector: args[1].clone(),
+                selector: args[1].clone()
             })
         }
         "doc.merge" => {
             require_args(op, args, 2, line_num)?;
             let value = parse_json_value(&args[1])?;
-            Ok(Operation::DocMerge {
+            op!(DocMerge {
                 path: args[0].clone(),
-                value,
+                value
             })
         }
         "doc.ensure" => {
             require_args(op, args, 3, line_num)?;
             let value = parse_json_value(&args[2])?;
-            Ok(Operation::DocEnsure {
+            op!(DocEnsure {
                 path: args[0].clone(),
                 selector: args[1].clone(),
-                value,
+                value
             })
         }
         "doc.append" => {
             require_args(op, args, 3, line_num)?;
             let value = parse_json_value(&args[2])?;
-            Ok(Operation::DocAppend {
+            op!(DocAppend {
                 path: args[0].clone(),
                 selector: args[1].clone(),
-                value,
+                value
             })
         }
         "doc.prepend" => {
             require_args(op, args, 3, line_num)?;
             let value = parse_json_value(&args[2])?;
-            Ok(Operation::DocPrepend {
+            op!(DocPrepend {
                 path: args[0].clone(),
                 selector: args[1].clone(),
-                value,
+                value
             })
         }
+        "doc.update" => {
+            require_args(op, args, 3, line_num)?;
+            let value = parse_json_value(&args[2])?;
+            op!(DocUpdate {
+                path: args[0].clone(),
+                selector: args[1].clone(),
+                value
+            })
+        }
+        "doc.move" => {
+            require_args(op, args, 3, line_num)?;
+            op!(DocMove {
+                path: args[0].clone(),
+                from: args[1].clone(),
+                to: args[2].clone()
+            })
+        }
+        "doc.delete_where" => {
+            require_args(op, args, 3, line_num)?;
+            op!(DocDeleteWhere {
+                path: args[0].clone(),
+                selector: args[1].clone(),
+                predicate: args[2].clone()
+            })
+        }
+
         "replace" => {
             require_args(op, args, 3, line_num)?;
             Ok(Operation::Replace {
@@ -144,103 +178,79 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 after_context: None,
             })
         }
+
         "file.append" => {
             require_args(op, args, 2, line_num)?;
-            Ok(Operation::FileAppend {
+            op!(FileAppend {
                 path: args[0].clone(),
-                content: args[1].clone(),
+                content: args[1].clone()
             })
         }
         "file.create" => {
             require_args(op, args, 2, line_num)?;
-            Ok(Operation::FileCreate {
+            op!(FileCreate {
                 path: args[0].clone(),
                 content: args[1].clone(),
-                force: None,
+                force: None
             })
         }
         "file.delete" => {
             require_args(op, args, 1, line_num)?;
-            Ok(Operation::FileDelete {
-                path: args[0].clone(),
+            op!(FileDelete {
+                path: args[0].clone()
             })
         }
         "file.rename" => {
             require_args(op, args, 2, line_num)?;
-            Ok(Operation::FileRename {
+            op!(FileRename {
                 from: args[0].clone(),
                 to: args[1].clone(),
-                force: false,
+                force: false
             })
         }
+
         "md.upsert_bullet" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::MdUpsertBullet {
+            op!(MdUpsertBullet {
                 path: args[0].clone(),
                 heading: args[1].clone(),
-                bullet: args[2].clone(),
+                bullet: args[2].clone()
             })
         }
         "md.table_append" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::MdTableAppend {
+            op!(MdTableAppend {
                 path: args[0].clone(),
                 heading: args[1].clone(),
-                row: args[2].clone(),
-            })
-        }
-        "doc.update" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            Ok(Operation::DocUpdate {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                value,
-            })
-        }
-        "doc.move" => {
-            require_args(op, args, 3, line_num)?;
-            Ok(Operation::DocMove {
-                path: args[0].clone(),
-                from: args[1].clone(),
-                to: args[2].clone(),
-            })
-        }
-        "doc.delete_where" => {
-            require_args(op, args, 3, line_num)?;
-            Ok(Operation::DocDeleteWhere {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                predicate: args[2].clone(),
+                row: args[2].clone()
             })
         }
         "md.replace_section" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::MdReplaceSection {
+            op!(MdReplaceSection {
                 path: args[0].clone(),
                 heading: args[1].clone(),
-                content: args[2].clone(),
+                content: args[2].clone()
             })
         }
         "md.insert_after_heading" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::MdInsertAfterHeading {
+            op!(MdInsertAfterHeading {
                 path: args[0].clone(),
                 heading: args[1].clone(),
-                content: args[2].clone(),
+                content: args[2].clone()
             })
         }
         "md.insert_before_heading" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::MdInsertBeforeHeading {
+            op!(MdInsertBeforeHeading {
                 path: args[0].clone(),
                 heading: args[1].clone(),
-                content: args[2].clone(),
+                content: args[2].clone()
             })
         }
+
         "md.move_section" => {
-            // 4 args: md.move_section <path> <heading> before|after <target_heading>
-            // 5 args: md.move_section <path> <heading> <to> before|after <target_heading>
             if args.len() == 4 {
                 let (before, after) = parse_position_keyword(&args[2], line_num)?;
                 Ok(Operation::MdMoveSection {
@@ -267,47 +277,50 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         }
         "md.dedupe_headings" => {
             require_args(op, args, 1, line_num)?;
-            Ok(Operation::MdDedupeHeadings {
-                path: args[0].clone(),
+            op!(MdDedupeHeadings {
+                path: args[0].clone()
             })
         }
         "md.lint_agents" => {
             require_args(op, args, 1, line_num)?;
-            Ok(Operation::MdLintAgents {
-                path: args[0].clone(),
+            op!(MdLintAgents {
+                path: args[0].clone()
             })
         }
+
         "tidy.fix" => {
             require_args(op, args, 1, line_num)?;
-            Ok(Operation::TidyFix {
+            op!(TidyFix {
                 path: args[0].clone(),
                 ensure_final_newline: None,
                 trim_trailing_whitespace: None,
                 normalize_eol: None,
             })
         }
+
         #[cfg(feature = "ast")]
         "ast.rename" => {
             require_args(op, args, 3, line_num)?;
-            Ok(Operation::AstRename {
+            op!(AstRename {
                 path: args[0].clone(),
                 old_name: args[1].clone(),
                 new_name: args[2].clone(),
-                lang: None,
+                lang: None
             })
         }
         #[cfg(feature = "ast")]
         "ast.replace" => {
             require_args(op, args, 4, line_num)?;
-            Ok(Operation::AstReplace {
+            op!(AstReplace {
                 path: args[0].clone(),
                 symbol: args[1].clone(),
                 from: args[2].clone(),
                 to: args[3].clone(),
                 regex: false,
-                lang: None,
+                lang: None
             })
         }
+
         _ => anyhow::bail!("line {line_num}: unknown operation '{op}'"),
     }
 }
