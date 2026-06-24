@@ -445,6 +445,7 @@ jobs:
           client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
       - name: Clean up release notes file
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.cleanup-token.outputs.token }}
           TAG: ${{ needs.plan.outputs.tag }}
