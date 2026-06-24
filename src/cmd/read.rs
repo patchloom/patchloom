@@ -29,7 +29,7 @@ struct ReadOutput {
     content: String,
 }
 
-#[cfg_attr(not(feature = "cli"), allow(unused_imports))]
+#[allow(unused_imports)]
 pub(crate) use crate::ops::read::{LineRange, SelectedLines, parse_line_range, select_lines};
 
 fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, String> {

@@ -269,7 +269,6 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
 ///
 /// Build WritePolicy from GlobalFlags (and EditorConfig if respect_editorconfig).
 /// Usable from library tx execution paths as well (GlobalFlags can be simulated).
-#[allow(unused_mut, unused_assignments, unused_variables)]
 pub fn policy_from_flags(
     global: &crate::cli::global::GlobalFlags,
     file_path: Option<&std::path::Path>,
@@ -282,11 +281,11 @@ pub fn policy_from_flags(
     });
     let ttw = global.trim_trailing_whitespace;
 
-    let mut respect_ec = global.respect_editorconfig;
-    #[cfg(not(feature = "cli"))]
-    {
-        respect_ec = false;
-    }
+    let respect_ec = if cfg!(feature = "cli") {
+        global.respect_editorconfig
+    } else {
+        false
+    };
 
     let (efn, eol, ttw) = if respect_ec && let Some(path) = file_path {
         #[cfg(feature = "cli")]
