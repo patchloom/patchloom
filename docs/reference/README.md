@@ -353,7 +353,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 ## `mcp-server`
 
 - **What it does:** Starts an MCP (Model Context Protocol) server, exposing patchloom operations as structured tool calls. Supports stdio (default) and Streamable HTTP transport (with `--http`). Included by default in all builds.
-- **Use when:** An MCP-capable AI agent can call patchloom tools directly via structured tool calls instead of constructing shell commands. Use `--http` for remote agents or registry listings (e.g., Smithery.ai).
+- **Use when:** An MCP-capable AI agent can call patchloom tools directly via structured tool calls instead of constructing shell commands. Use `--http` for remote agents.
 - **Notable flags:**
   - `--log <path>`: Log tool calls to a JSONL file (also settable via `PATCHLOOM_MCP_LOG` env var).
   - `--http`: Use Streamable HTTP transport instead of stdio.
