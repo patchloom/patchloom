@@ -1436,7 +1436,7 @@ fn test_search_count_returns_success_on_match() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains(":2"));
+        .stdout(predicate::str::contains("count_exit.txt:2"));
 }
 
 #[test]
@@ -1783,8 +1783,8 @@ fn test_replace_range_requires_whole_line() {
         .arg("hi")
         .arg(file.to_str().unwrap())
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("--range requires --whole-line"));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -5052,8 +5052,8 @@ fn test_rename_refuses_overwrite_without_force() {
         .arg(&dst)
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("already exists"));
 
     // Both files should remain untouched.
     assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
@@ -5207,8 +5207,8 @@ fn test_rename_missing_source_fails() {
         .arg(dir.path().join("dst.txt"))
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("source file not found"));
 }
 
 #[test]
@@ -5968,8 +5968,8 @@ fn test_parse_unknown_subcommand_fails() {
         .unwrap()
         .arg("nonexistent-command")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(2)
+        .stderr(predicate::str::contains("unrecognized subcommand"));
 }
 
 // ---------------------------------------------------------------------------
@@ -6871,7 +6871,7 @@ fn test_search_short_alias_count() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains(":2"));
+        .stdout(predicate::str::contains("test.txt:2"));
 }
 
 #[test]
@@ -7334,8 +7334,8 @@ fn test_doc_get_nonexistent_file_fails() {
         .arg("/nonexistent/file_xyz.json")
         .arg("key")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("No such file or directory"));
 }
 
 #[test]
@@ -7351,8 +7351,8 @@ fn test_doc_get_unsupported_extension_fails() {
         .arg(&file)
         .arg("key")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("unsupported file extension"));
 }
 
 #[test]
@@ -7409,8 +7409,8 @@ fn test_patch_malformed_file_fails() {
         .arg("apply")
         .arg(&patch_file)
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(4)
+        .stderr(predicate::str::contains("parse error"));
 }
 
 // ---------------------------------------------------------------------------
@@ -7601,8 +7601,8 @@ fn test_doc_move_missing_source_fails() {
         .arg("target")
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("not found"));
 }
 
 #[test]
@@ -9502,8 +9502,10 @@ fn test_replace_insert_before_and_to_conflict() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains(
+            "--to cannot be combined with --insert-before",
+        ));
 }
 
 #[test]
@@ -9912,8 +9914,8 @@ fn test_delete_nonexistent_file_fails() {
         .arg(file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("file not found"));
 }
 
 #[test]
@@ -14972,7 +14974,7 @@ fn test_smoke_quickstart_command_flow() {
         .arg("src/")
         .assert()
         .success()
-        .stdout(predicate::str::contains(":2"));
+        .stdout(predicate::str::contains("lib.rs:2"));
 
     patchloom_in(dir.path())
         .arg("replace")
@@ -16254,8 +16256,8 @@ fn test_completions_invalid_shell_fails() {
         .unwrap()
         .args(["completions", "nonexistent"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(2)
+        .stderr(predicate::str::contains("invalid value"));
 }
 
 // ---------------------------------------------------------------------------
@@ -16574,21 +16576,23 @@ async fn test_mcp_read_round_trip() {
     fs::write(dir.path().join("data.txt"), "line1\nline2\nline3\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "read_file",
         serde_json::json!({"path": "data.txt"}),
     )
     .await;
     assert!(!is_error, "read should succeed");
-    assert!(
-        text.contains("line1"),
-        "read should return file content: {text}"
+    // read_file returns structured JSON with reads[0].content holding the file text.
+    let content = val["reads"][0]["content"]
+        .as_str()
+        .expect("reads[0].content should be a string");
+    assert_eq!(
+        content, "line1\nline2\nline3\n",
+        "read should return exact file content"
     );
-    assert!(
-        text.contains("line3"),
-        "read should return all lines: {text}"
-    );
+    assert_eq!(val["reads"][0]["total_lines"], 3, "should have 3 lines");
+    assert_eq!(val["reads"][0]["path"], "data.txt");
     client.cancel().await.unwrap();
 }
 
@@ -16623,16 +16627,28 @@ async fn test_mcp_search_finds_pattern() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "search_files",
         serde_json::json!({"pattern": "needle", "paths": ["haystack.txt"]}),
     )
     .await;
-    assert!(!is_error, "search should succeed: {text}");
+    assert!(!is_error, "search should succeed: {val}");
+    assert_eq!(
+        val["match_count"], 1,
+        "should find exactly one match: {val}"
+    );
+    assert_eq!(val["file_count"], 1, "should match in one file: {val}");
+    assert_eq!(
+        val["matches"][0]["path"], "haystack.txt",
+        "match should be in haystack.txt: {val}"
+    );
     assert!(
-        text.contains("needle"),
-        "search output should contain the match: {text}"
+        val["matches"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("needle"),
+        "match text should contain 'needle': {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -16646,7 +16662,7 @@ async fn test_mcp_search_multiline_returns_json_matches() {
     fs::write(dir.path().join("multi.txt"), "hello\nworld\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "search_files",
         serde_json::json!({
@@ -16656,15 +16672,13 @@ async fn test_mcp_search_multiline_returns_json_matches() {
         }),
     )
     .await;
-    assert!(!is_error, "multiline search should succeed: {text}");
-
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(json["match_count"], 1);
-    assert_eq!(json["file_count"], 1);
-    assert_eq!(json["matches"][0]["path"], "multi.txt");
-    assert_eq!(json["matches"][0]["line"], 1);
-    assert_eq!(json["matches"][0]["column"], 1);
-    assert_eq!(json["matches"][0]["text"], "hello\nworld");
+    assert!(!is_error, "multiline search should succeed: {val}");
+    assert_eq!(val["match_count"], 1);
+    assert_eq!(val["file_count"], 1);
+    assert_eq!(val["matches"][0]["path"], "multi.txt");
+    assert_eq!(val["matches"][0]["line"], 1);
+    assert_eq!(val["matches"][0]["column"], 1);
+    assert_eq!(val["matches"][0]["text"], "hello\nworld");
     client.cancel().await.unwrap();
 }
 
@@ -16677,7 +16691,7 @@ async fn test_mcp_search_invert_match_returns_non_matching_lines() {
     fs::write(dir.path().join("lines.txt"), "alpha\nbeta\ngamma\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "search_files",
         serde_json::json!({
@@ -16687,12 +16701,10 @@ async fn test_mcp_search_invert_match_returns_non_matching_lines() {
         }),
     )
     .await;
-    assert!(!is_error, "invert_match search should succeed: {text}");
-
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(json["match_count"], 2);
-    assert_eq!(json["matches"][0]["text"], "alpha");
-    assert_eq!(json["matches"][1]["text"], "gamma");
+    assert!(!is_error, "invert_match search should succeed: {val}");
+    assert_eq!(val["match_count"], 2);
+    assert_eq!(val["matches"][0]["text"], "alpha");
+    assert_eq!(val["matches"][1]["text"], "gamma");
     client.cancel().await.unwrap();
 }
 
@@ -16705,7 +16717,7 @@ async fn test_mcp_search_assert_count_match() {
     fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "search_files",
         serde_json::json!({
@@ -16715,12 +16727,10 @@ async fn test_mcp_search_assert_count_match() {
         }),
     )
     .await;
-    assert!(!is_error, "assert_count=2 should succeed: {text}");
-
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(json["assert_count"]["expected"], 2);
-    assert_eq!(json["assert_count"]["actual"], 2);
-    assert_eq!(json["assert_count"]["matched"], true);
+    assert!(!is_error, "assert_count=2 should succeed: {val}");
+    assert_eq!(val["assert_count"]["expected"], 2);
+    assert_eq!(val["assert_count"]["actual"], 2);
+    assert_eq!(val["assert_count"]["matched"], true);
     client.cancel().await.unwrap();
 }
 
@@ -16733,7 +16743,7 @@ async fn test_mcp_search_assert_count_mismatch() {
     fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "search_files",
         serde_json::json!({
@@ -16744,15 +16754,10 @@ async fn test_mcp_search_assert_count_mismatch() {
     )
     .await;
     // assert_count mismatch is a "changes_detected" result, reported as is_error=true
-    assert!(
-        is_error,
-        "assert_count mismatch should signal error: {text}"
-    );
-
-    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(json["assert_count"]["expected"], 5);
-    assert_eq!(json["assert_count"]["actual"], 2);
-    assert_eq!(json["assert_count"]["matched"], false);
+    assert!(is_error, "assert_count mismatch should signal error: {val}");
+    assert_eq!(val["assert_count"]["expected"], 5);
+    assert_eq!(val["assert_count"]["actual"], 2);
+    assert_eq!(val["assert_count"]["matched"], false);
     client.cancel().await.unwrap();
 }
 
@@ -16765,16 +16770,16 @@ async fn test_mcp_doc_has_existing_key() {
     fs::write(dir.path().join("data.json"), r#"{"name":"alice","age":30}"#).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
         serde_json::json!({"action": "has", "path": "data.json", "selector": "name"}),
     )
     .await;
-    assert!(!is_error, "doc_query has should succeed: {text}");
-    assert!(
-        text.contains("true"),
-        "doc_query has should return true for existing key: {text}"
+    assert!(!is_error, "doc_query has should succeed: {val}");
+    assert_eq!(
+        val, true,
+        "doc_query has should return true for existing key: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -16792,17 +16797,14 @@ async fn test_mcp_doc_get_reads_value() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_get",
         serde_json::json!({"path": "config.json", "selector": "version"}),
     )
     .await;
-    assert!(!is_error, "doc_get should succeed: {text}");
-    assert!(
-        text.contains("2.1.0"),
-        "doc_get should return the value: {text}"
-    );
+    assert!(!is_error, "doc_get should succeed: {val}");
+    assert_eq!(val, "2.1.0", "doc_get should return the exact value: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -17457,21 +17459,29 @@ async fn test_mcp_doc_keys_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
         serde_json::json!({"action": "keys", "path": "config.json", "selector": "."}),
     )
     .await;
-    assert!(!is_error, "doc_query keys should succeed: {text}");
+    assert!(!is_error, "doc_query keys should succeed: {val}");
+    let keys = val
+        .as_array()
+        .expect("doc_query keys should return an array");
     assert!(
-        text.contains("name"),
-        "doc_query keys output should contain 'name': {text}"
+        keys.contains(&serde_json::json!("name")),
+        "keys should contain 'name': {val}"
     );
     assert!(
-        text.contains("version"),
-        "doc_query keys output should contain 'version': {text}"
+        keys.contains(&serde_json::json!("version")),
+        "keys should contain 'version': {val}"
     );
+    assert!(
+        keys.contains(&serde_json::json!("debug")),
+        "keys should contain 'debug': {val}"
+    );
+    assert_eq!(keys.len(), 3, "should have exactly 3 keys: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -17484,14 +17494,14 @@ async fn test_mcp_doc_len_round_trip() {
     fs::write(dir.path().join("config.json"), r#"{"tags":["a","b","c"]}"#).unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
         serde_json::json!({"action": "len", "path": "config.json", "selector": "tags"}),
     )
     .await;
-    assert!(!is_error, "doc_query len should succeed: {text}");
-    assert!(text.contains('3'), "doc_query len should return 3: {text}");
+    assert!(!is_error, "doc_query len should succeed: {val}");
+    assert_eq!(val, 3, "doc_query len should return exactly 3: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -17508,17 +17518,18 @@ async fn test_mcp_doc_select_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
         serde_json::json!({"action": "select", "path": "config.json", "selector": "users[role=admin]"}),
     )
     .await;
-    assert!(!is_error, "doc_query select should succeed: {text}");
-    assert!(
-        text.contains("alice"),
-        "doc_query select should return matching item: {text}"
+    assert!(!is_error, "doc_query select should succeed: {val}");
+    assert_eq!(
+        val["role"], "admin",
+        "selected item should have role=admin: {val}"
     );
+    assert_eq!(val["name"], "alice", "selected item should be alice: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -17535,21 +17546,27 @@ async fn test_mcp_doc_flatten_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
         serde_json::json!({"action": "flatten", "path": "config.json"}),
     )
     .await;
-    assert!(!is_error, "doc_query flatten should succeed: {text}");
-    assert!(
-        text.contains("db.host"),
-        "doc_query flatten should contain 'db.host': {text}"
+    assert!(!is_error, "doc_query flatten should succeed: {val}");
+    let obj = val
+        .as_object()
+        .expect("flatten should return a JSON object");
+    assert_eq!(
+        obj.get("db.host").and_then(|v| v.as_str()),
+        Some("localhost"),
+        "flatten should map db.host to 'localhost': {val}"
     );
-    assert!(
-        text.contains("db.port"),
-        "doc_query flatten should contain 'db.port': {text}"
+    assert_eq!(
+        obj.get("db.port").and_then(|v| v.as_i64()),
+        Some(5432),
+        "flatten should map db.port to 5432: {val}"
     );
+    assert_eq!(obj.len(), 2, "flatten should have exactly 2 entries: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -17571,16 +17588,30 @@ async fn test_mcp_doc_diff_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "doc_diff",
         serde_json::json!({"file_a": "a.json", "file_b": "b.json"}),
     )
     .await;
-    assert!(!is_error, "doc_diff should succeed: {text}");
-    assert!(
-        text.contains("name"),
-        "doc_diff should report name difference: {text}"
+    assert!(!is_error, "doc_diff should succeed: {val}");
+    let diffs = val.as_array().expect("doc_diff should return a JSON array");
+    assert_eq!(diffs.len(), 1, "should have exactly one difference: {val}");
+    assert_eq!(
+        diffs[0]["path"], "name",
+        "diff should be on 'name' field: {val}"
+    );
+    assert_eq!(
+        diffs[0]["kind"], "changed",
+        "diff kind should be 'changed': {val}"
+    );
+    assert_eq!(
+        diffs[0]["old_value"], "old",
+        "old_value should be 'old': {val}"
+    );
+    assert_eq!(
+        diffs[0]["new_value"], "new",
+        "new_value should be 'new': {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -17792,7 +17823,7 @@ async fn test_mcp_md_lint_round_trip() {
     .unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
-    let (is_error, text) = call_tool_text(
+    let (is_error, val) = call_tool_value(
         &client,
         "md_lint",
         serde_json::json!({
@@ -17800,12 +17831,8 @@ async fn test_mcp_md_lint_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_lint should succeed: {text}");
-
-    let issues: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let arr = issues
-        .as_array()
-        .expect("md_lint should return a JSON array");
+    assert!(!is_error, "md_lint should succeed: {val}");
+    let arr = val.as_array().expect("md_lint should return a JSON array");
     assert!(
         !arr.is_empty(),
         "md_lint should find issues in file with duplicate heading"
@@ -17817,7 +17844,7 @@ async fn test_mcp_md_lint_round_trip() {
         "# Single Heading\n\nContent.\n",
     )
     .unwrap();
-    let (is_error2, text2) = call_tool_text(
+    let (is_error2, val2) = call_tool_value(
         &client,
         "md_lint",
         serde_json::json!({
@@ -17825,10 +17852,9 @@ async fn test_mcp_md_lint_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error2, "md_lint should succeed on clean file: {text2}");
-    let clean: serde_json::Value = serde_json::from_str(&text2).unwrap();
+    assert!(!is_error2, "md_lint should succeed on clean file: {val2}");
     assert_eq!(
-        clean.as_array().unwrap().len(),
+        val2.as_array().unwrap().len(),
         0,
         "md_lint should return empty array for clean file"
     );
@@ -18883,8 +18909,8 @@ fn test_schema_invalid_tier_fails() {
         .unwrap()
         .args(["schema", "--tier", "invalid"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("unknown tier"));
 }
 
 // ---------------------------------------------------------------------------
@@ -19714,12 +19740,12 @@ fn test_tx_ast_replace_in_plan() {
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
-        content.contains("99"),
-        "ast.replace should replace within symbol: {content}"
+        content.contains("let x = 99;"),
+        "ast.replace should replace 42 with 99 in compute: {content}"
     );
     assert!(
-        !content.contains("42"),
-        "old value should be gone: {content}"
+        !content.contains("let x = 42;"),
+        "old value 42 should be gone: {content}"
     );
 }
 
@@ -19872,8 +19898,8 @@ fn test_ast_search_basic() {
         .args(["ast", "search", "(function_item) @fn", "s.rs", "--json"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("f()"))
-        .stdout(predicates::str::contains("42"));
+        .stdout(predicates::str::contains("fn f()"))
+        .stdout(predicates::str::contains("let y = 42"));
 }
 
 #[test]
@@ -19961,8 +19987,8 @@ fn test_ast_diff_basic() {
         .args(["ast", "diff", "diff.rs", "--from", "HEAD", "--json"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("v2"))
-        .stdout(predicates::str::contains("added"));
+        .stdout(predicates::str::contains("\"name\": \"v2\""))
+        .stdout(predicates::str::contains("\"change\": \"added\""));
 }
 
 #[test]
@@ -20080,8 +20106,8 @@ fn test_append_cli_missing_file_fails() {
     patchloom_in(dir.path())
         .args(["append", "nope.txt", "--content", "data\n", "--apply"])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(""));
+        .code(1)
+        .stderr(predicate::str::contains("does not exist"));
 }
 
 #[test]
