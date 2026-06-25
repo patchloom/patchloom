@@ -270,7 +270,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if args.if_exists {
             return Ok(exit::SUCCESS);
         }
-        if global.json {
+        if global.json || global.jsonl {
             let output = ReplaceOutput {
                 ok: true,
                 match_count: 0,
@@ -278,7 +278,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files: vec![],
                 diff: None,
             };
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            global.emit_json(&output)?;
         }
         if global.show_status() {
             let path_desc = if args.paths.is_empty() {

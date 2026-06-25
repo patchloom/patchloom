@@ -239,11 +239,18 @@ fn apply_or_preview(
     backup: Option<&mut BackupSession>,
 ) -> anyhow::Result<PreviewAction> {
     let display_path = path.strip_prefix(cwd).unwrap_or(path);
-    if global.apply {
+    let policy = crate::write::policy_from_flags(global, Some(path));
+
+    let do_write = |backup: Option<&mut BackupSession>| -> anyhow::Result<()> {
         if let Some(b) = backup {
             b.save_before_write(path)?;
         }
-        crate::write::atomic_write(path, new_content, &Default::default())?;
+        crate::write::atomic_write(path, new_content, &policy)?;
+        Ok(())
+    };
+
+    if global.apply {
+        do_write(backup)?;
         if !global.quiet {
             eprintln!("{}: {status_msg}", display_path.display());
         }
@@ -258,6 +265,16 @@ fn apply_or_preview(
             crate::diff::unified_diff(&display_path.display().to_string(), original, new_content);
         if diff.has_changes {
             print!("{}", diff.hunks);
+        }
+        // --confirm: prompt after showing diff, then apply if confirmed.
+        if global.should_apply() {
+            do_write(backup)?;
+            if !global.quiet {
+                eprintln!("{}: {status_msg}", display_path.display());
+            }
+            return Ok(PreviewAction::Applied);
+        }
+        if diff.has_changes {
             Ok(PreviewAction::Diffed)
         } else {
             Ok(PreviewAction::Unchanged)
