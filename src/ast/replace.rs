@@ -37,7 +37,6 @@ pub fn replace_in_symbol(
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(lines.len());
 
-    // Extract the symbol body
     let body: String = lines[start_idx..end_idx]
         .iter()
         .map(|l| format!("{l}\n"))

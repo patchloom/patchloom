@@ -56,7 +56,6 @@ pub(super) fn splice_yaml_array_diffs(
             return Ok(None);
         }
     }
-    // Validate the spliced result.
     if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *target) {
         Ok(Some(result))
     } else {

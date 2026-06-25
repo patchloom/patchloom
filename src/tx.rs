@@ -416,7 +416,6 @@ pub(crate) fn get_doc_root<'a>(
 ) -> anyhow::Result<&'a mut serde_json::Value> {
     let file_path = cwd.join(path);
 
-    // Ensure the document is in the cache.
     if !doc_cache.contains_key(&file_path) {
         let content = read_file_content(pending, existed_before, &file_path)?;
         let format = detect_format(path).map_err(path_err(path))?;
