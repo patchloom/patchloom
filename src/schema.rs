@@ -123,6 +123,10 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
                     "if_exists": {"type": "boolean", "default": false, "description": "Do not error if no matches found."},
                     "whole_line": {"type": "boolean", "default": false, "description": "Replace the entire line containing each match."},
                     "range": {"type": "string", "description": "Restrict matching to a line range (e.g. '10:50'). Requires whole_line."},
+                    "word_boundary": {"type": "boolean", "default": false, "description": "Match only at word boundaries (\\b). Prevents partial matches inside identifiers."},
+                    "glob": {"type": "string", "description": "Glob pattern to filter files (e.g. '*.rs'). Replaces path for multi-file operations."},
+                    "insert_before": {"type": "string", "description": "Insert this text before the matched text instead of replacing it."},
+                    "insert_after": {"type": "string", "description": "Insert this text after the matched text instead of replacing it."},
                     "before_context": {"type": "string", "description": "Context line(s) before the target for anchor-based fallback matching when exact match fails."},
                     "after_context": {"type": "string", "description": "Context line(s) after the target for anchor-based fallback matching when exact match fails."}
                 }
@@ -1013,6 +1017,304 @@ mod tests {
         // Roundtrip: deserialize back.
         let deserialized: Vec<OperationSchema> = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.len(), schemas.len());
+    }
+
+    /// Verify that every field accepted by `plan::Operation` for a given op
+    /// name has a corresponding entry in the hand-written schema `properties`.
+    /// This catches drift when new fields are added to the serde-based
+    /// `Operation` enum but not to the JSON Schema export.
+    #[test]
+    fn schema_properties_cover_plan_operation_fields() {
+        use crate::plan::Operation;
+
+        // Build representative Operation values for each schema op name.
+        // Only the field names matter; values are dummies.
+        let mut ops: Vec<(&str, Operation)> = vec![
+            (
+                "replace",
+                Operation::Replace {
+                    glob: Some("*.rs".into()),
+                    path: Some("f.rs".into()),
+                    mode: Some("literal".into()),
+                    from: "a".into(),
+                    to: Some("b".into()),
+                    nth: Some(1),
+                    insert_before: Some("x".into()),
+                    insert_after: Some("y".into()),
+                    case_insensitive: false,
+                    multiline: false,
+                    if_exists: false,
+                    whole_line: false,
+                    range: Some("1:10".into()),
+                    word_boundary: false,
+                    before_context: Some("ctx".into()),
+                    after_context: Some("ctx".into()),
+                },
+            ),
+            (
+                "file.create",
+                Operation::FileCreate {
+                    path: "f".into(),
+                    content: "c".into(),
+                    force: Some(true),
+                },
+            ),
+            (
+                "file.append",
+                Operation::FileAppend {
+                    path: "f".into(),
+                    content: "c".into(),
+                },
+            ),
+            ("file.delete", Operation::FileDelete { path: "f".into() }),
+            (
+                "file.rename",
+                Operation::FileRename {
+                    from: "a".into(),
+                    to: "b".into(),
+                    force: true,
+                },
+            ),
+            (
+                "tidy.fix",
+                Operation::TidyFix {
+                    path: "f".into(),
+                    ensure_final_newline: Some(true),
+                    trim_trailing_whitespace: Some(true),
+                    normalize_eol: Some("lf".into()),
+                },
+            ),
+            (
+                "doc.set",
+                Operation::DocSet {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    value: serde_json::json!("v"),
+                },
+            ),
+            (
+                "doc.delete",
+                Operation::DocDelete {
+                    path: "f".into(),
+                    selector: "s".into(),
+                },
+            ),
+            (
+                "doc.merge",
+                Operation::DocMerge {
+                    path: "f".into(),
+                    value: serde_json::json!({}),
+                },
+            ),
+            (
+                "doc.append",
+                Operation::DocAppend {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    value: serde_json::json!([]),
+                },
+            ),
+            (
+                "doc.prepend",
+                Operation::DocPrepend {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    value: serde_json::json!([]),
+                },
+            ),
+            (
+                "doc.update",
+                Operation::DocUpdate {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    value: serde_json::json!({}),
+                },
+            ),
+            (
+                "doc.move",
+                Operation::DocMove {
+                    path: "f".into(),
+                    from: "a".into(),
+                    to: "b".into(),
+                },
+            ),
+            (
+                "doc.ensure",
+                Operation::DocEnsure {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    value: serde_json::json!(1),
+                },
+            ),
+            (
+                "doc.delete_where",
+                Operation::DocDeleteWhere {
+                    path: "f".into(),
+                    selector: "s".into(),
+                    predicate: "p".into(),
+                },
+            ),
+            (
+                "md.replace_section",
+                Operation::MdReplaceSection {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    content: "c".into(),
+                },
+            ),
+            (
+                "md.insert_after_heading",
+                Operation::MdInsertAfterHeading {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    content: "c".into(),
+                },
+            ),
+            (
+                "md.insert_before_heading",
+                Operation::MdInsertBeforeHeading {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    content: "c".into(),
+                },
+            ),
+            (
+                "md.upsert_bullet",
+                Operation::MdUpsertBullet {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    bullet: "b".into(),
+                },
+            ),
+            (
+                "md.table_append",
+                Operation::MdTableAppend {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    row: "r".into(),
+                },
+            ),
+            (
+                "md.move_section",
+                Operation::MdMoveSection {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    to: None,
+                    before: None,
+                    after: None,
+                },
+            ),
+            (
+                "md.dedupe_headings",
+                Operation::MdDedupeHeadings { path: "f".into() },
+            ),
+            (
+                "md.lint_agents",
+                Operation::MdLintAgents { path: "f".into() },
+            ),
+            (
+                "patch.apply",
+                Operation::PatchApply {
+                    diff: "d".into(),
+                    on_stale: Default::default(),
+                    allow_conflicts: false,
+                },
+            ),
+            (
+                "search",
+                Operation::Search {
+                    path: "f".into(),
+                    pattern: "p".into(),
+                    regex: false,
+                    case_insensitive: false,
+                    multiline: false,
+                    invert_match: false,
+                    context: None,
+                    before_context: None,
+                    after_context: None,
+                    assert_count: None,
+                    literal: false,
+                    globs: vec![],
+                    max_results: 0,
+                    exclude_patterns: vec![],
+                    custom_ignore_filenames: vec![],
+                },
+            ),
+            (
+                "read",
+                Operation::Read {
+                    path: "f".into(),
+                    lines: None,
+                },
+            ),
+        ];
+
+        #[cfg(feature = "ast")]
+        {
+            ops.push((
+                "ast.rename",
+                Operation::AstRename {
+                    path: "f.rs".into(),
+                    old_name: "old".into(),
+                    new_name: "new".into(),
+                    lang: None,
+                },
+            ));
+            ops.push((
+                "ast.replace",
+                Operation::AstReplace {
+                    path: "f.rs".into(),
+                    symbol: "s".into(),
+                    from: "a".into(),
+                    to: "b".into(),
+                    regex: false,
+                    lang: None,
+                },
+            ));
+        }
+
+        let schemas = operation_schemas();
+        let schema_map: std::collections::HashMap<&str, &OperationSchema> =
+            schemas.iter().map(|s| (s.name.as_str(), s)).collect();
+
+        let mut missing: Vec<String> = Vec::new();
+
+        for (op_name, op_value) in &ops {
+            let schema = match schema_map.get(op_name) {
+                Some(s) => s,
+                None => {
+                    missing.push(format!("{op_name}: no schema found"));
+                    continue;
+                }
+            };
+            let props = schema
+                .parameters
+                .get("properties")
+                .and_then(|v| v.as_object())
+                .unwrap_or_else(|| {
+                    panic!("schema {op_name}: parameters.properties is not an object")
+                });
+
+            // Serialize the Operation to get its field names.
+            let serialized = serde_json::to_value(op_value).unwrap();
+            let obj = serialized.as_object().unwrap();
+            for key in obj.keys() {
+                if key == "op" {
+                    continue; // tag field, not a parameter
+                }
+                if !props.contains_key(key) {
+                    missing.push(format!(
+                        "{op_name}: plan.rs field '{key}' missing from schema properties"
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "schema/plan drift detected:\n  {}",
+            missing.join("\n  ")
+        );
     }
 
     // Static assertion: types must be Send + Sync.

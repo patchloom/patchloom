@@ -286,6 +286,25 @@ impl GlobalFlags {
         }
     }
 
+    /// Emit a collection of items in structured format.
+    ///
+    /// In `--json` mode, emits a pretty-printed JSON array of all items.
+    /// In `--jsonl` mode, emits one compact JSON line per item.
+    /// Returns `true` if structured output was emitted.
+    pub fn emit_json_items<T: serde::Serialize>(&self, items: &[T]) -> anyhow::Result<bool> {
+        if self.json {
+            println!("{}", serde_json::to_string_pretty(items)?);
+            Ok(true)
+        } else if self.jsonl {
+            for item in items {
+                println!("{}", serde_json::to_string(item)?);
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
     pub fn read_files_from(&self) -> anyhow::Result<Option<Vec<String>>> {

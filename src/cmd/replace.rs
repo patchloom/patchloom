@@ -311,12 +311,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files,
                 diff: None,
             };
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            for f in &files {
-                println!("{}", serde_json::to_string(f)?);
-            }
-        } else if !global.quiet {
+            global.emit_json(&output)?;
+        } else if !global.emit_json_items(&files)? && !global.quiet {
             println!("{total_matches} match(es) in {file_count} file(s)");
             for f in &files {
                 println!("  {}: {} match(es)", f.path, f.match_count);
@@ -344,17 +340,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files,
                 diff: diff_text,
             };
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if global.jsonl {
-            for f in &files {
-                println!("{}", serde_json::to_string(f)?);
-            }
-        } else if global.diff {
-            print!("{}", make_diff_output(&replacements, color));
-        } else if !global.quiet {
-            println!("replaced {total_matches} match(es) in {file_count} file(s)");
-            for f in &files {
-                println!("  {}: {} match(es)", f.path, f.match_count);
+            global.emit_json(&output)?;
+        } else if !global.emit_json_items(&files)? {
+            if global.diff {
+                print!("{}", make_diff_output(&replacements, color));
+            } else if !global.quiet {
+                println!("replaced {total_matches} match(es) in {file_count} file(s)");
+                for f in &files {
+                    println!("  {}: {} match(es)", f.path, f.match_count);
+                }
             }
         }
         return Ok(exit::SUCCESS);
@@ -370,12 +364,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files,
             diff: Some(make_diff_output(&replacements, false)),
         };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else if global.jsonl {
-        for f in &files {
-            println!("{}", serde_json::to_string(f)?);
-        }
-    } else {
+        global.emit_json(&output)?;
+    } else if !global.emit_json_items(&files)? {
         print!("{}", make_diff_output(&replacements, color));
     }
     if global.show_status() {

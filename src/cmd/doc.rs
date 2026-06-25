@@ -11,6 +11,7 @@ use crate::write::policy_from_flags;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
+use std::cell::Cell;
 use std::path::Path;
 
 #[derive(Debug, Args)]
@@ -496,6 +497,8 @@ struct WriteContext {
     confirm: bool,
     color: bool,
     write_policy: write::WritePolicy,
+    /// Set to `true` by `write_result` when a file is actually written.
+    wrote: Cell<bool>,
 }
 
 /// Diff / check / apply logic shared by all write subcommands.
@@ -524,6 +527,7 @@ fn write_result(
         let p = Path::new(path);
         let writes = [(p, new_content, &ctx.write_policy)];
         crate::backup::backup_write_files(cwd, &writes)?;
+        ctx.wrote.set(true);
         return Ok((String::new(), exit::SUCCESS));
     }
     // Default or explicit --diff: show unified diff.
@@ -538,6 +542,7 @@ fn write_result(
             let p = Path::new(path);
             let writes = [(p, new_content, &ctx.write_policy)];
             crate::backup::backup_write_files(cwd, &writes)?;
+            ctx.wrote.set(true);
         }
         Ok((output, exit::SUCCESS))
     } else {
@@ -924,16 +929,13 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             confirm: global.confirm,
             color: global.should_color(),
             write_policy: policy_from_flags(global, doc_file_path.map(std::path::Path::new)),
+            wrote: Cell::new(false),
         };
         let (output, code) = execute_write(&args.action, &ctx, &cwd)?;
         if code == exit::FAILURE && !output.is_empty() {
             if global.json || global.jsonl {
                 let err_obj = serde_json::json!({"ok": false, "error": &output});
-                if global.json {
-                    println!("{}", serde_json::to_string_pretty(&err_obj)?);
-                } else {
-                    println!("{}", serde_json::to_string(&err_obj)?);
-                }
+                global.emit_json(&err_obj)?;
             } else if !global.quiet {
                 eprintln!("{output}");
             }
@@ -943,11 +945,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if global.json || global.jsonl {
                 let check_obj =
                     serde_json::json!({"ok": true, "has_changes": true, "message": &output});
-                if global.json {
-                    println!("{}", serde_json::to_string_pretty(&check_obj)?);
-                } else {
-                    println!("{}", serde_json::to_string(&check_obj)?);
-                }
+                global.emit_json(&check_obj)?;
             } else if !global.quiet {
                 println!("{output}");
             }
@@ -956,7 +954,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !output.is_empty() {
             println!("{output}");
         }
-        if global.apply && code == exit::SUCCESS {
+        if ctx.wrote.get() && code == exit::SUCCESS {
             crate::write::run_format_command(global, &cwd)?;
         }
         if global.apply
