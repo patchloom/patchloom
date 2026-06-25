@@ -1316,6 +1316,13 @@ impl PatchloomService {
         self.check_path(&p.path)?;
         validate_param_size("old_name", &p.old_name)?;
         validate_param_size("new_name", &p.new_name)?;
+        if p.old_name == p.new_name {
+            return exit_code_to_result(
+                exit::NO_MATCHES,
+                "",
+                "old_name and new_name are identical.",
+            );
+        }
         let cwd = self.cwd().to_path_buf();
         let target = cwd.join(&p.path);
         let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
