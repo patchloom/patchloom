@@ -5801,3 +5801,71 @@ async fn test_mcp_http_replace_text_round_trip() {
     client.cancel().await.unwrap();
     child.kill().await.ok();
 }
+
+#[test]
+fn test_tx_replace_range_without_whole_line_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "line2",
+            "to": "replaced",
+            "range": "1:3",
+            "whole_line": false
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4)
+        .stderr(predicates::str::contains("range requires whole_line=true"));
+
+    // File must not be modified
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\nline3\n");
+}
+
+#[test]
+fn test_tx_replace_whole_line_and_multiline_rejected() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "line2",
+            "to": "replaced",
+            "whole_line": true,
+            "multiline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(4)
+        .stderr(predicates::str::contains(
+            "whole_line and multiline cannot be combined",
+        ));
+
+    // File must not be modified
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\nline3\n");
+}
