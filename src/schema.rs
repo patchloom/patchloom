@@ -41,7 +41,7 @@ static OPERATION_FULL_SCHEMA: std::sync::LazyLock<serde_json::Value> =
 /// rename value (e.g., `"doc.set"`). This function finds the matching variant,
 /// clones it, strips the `op` discriminator property (not needed for standalone
 /// schema consumers), and removes top-level `$schema`/`title` for compactness.
-fn operation_variant_schema(op_name: &str) -> serde_json::Value {
+pub fn operation_variant_schema(op_name: &str) -> serde_json::Value {
     let schema = &*OPERATION_FULL_SCHEMA;
 
     // Navigate: schema.oneOf[i].properties.op.const == op_name
