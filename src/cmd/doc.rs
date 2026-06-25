@@ -251,7 +251,7 @@ fn flatten_value<'a>(
     out: &mut Vec<(String, &'a serde_json::Value)>,
 ) {
     match value {
-        serde_json::Value::Object(map) => {
+        serde_json::Value::Object(map) if !map.is_empty() => {
             for (k, v) in map {
                 let restore = buf.len();
                 if !buf.is_empty() {
@@ -262,7 +262,7 @@ fn flatten_value<'a>(
                 buf.truncate(restore);
             }
         }
-        serde_json::Value::Array(arr) => {
+        serde_json::Value::Array(arr) if !arr.is_empty() => {
             for (i, v) in arr.iter().enumerate() {
                 let restore = buf.len();
                 buf.push('[');
@@ -1648,5 +1648,43 @@ mod tests {
         assert!(output.contains("b.d = 3"), "missing b.d: {output}");
         assert!(output.contains("e[0] = 10"), "missing e[0]: {output}");
         assert!(output.contains("e[1] = 20"), "missing e[1]: {output}");
+    }
+
+    #[test]
+    fn flatten_includes_empty_arrays() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"tags":[],"name":"foo","items":[1]}"#);
+        let action = DocAction::Flatten { file: path };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["tags"], serde_json::json!([]));
+        assert_eq!(parsed["name"], serde_json::json!("foo"));
+        assert_eq!(parsed["items[0]"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn flatten_includes_empty_objects() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"config":{},"name":"bar"}"#);
+        let action = DocAction::Flatten { file: path };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["config"], serde_json::json!({}));
+        assert_eq!(parsed["name"], serde_json::json!("bar"));
+    }
+
+    #[test]
+    fn flatten_includes_nested_empty_containers() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a":{"b":[],"c":{}},"d":[1]}"#);
+        let action = DocAction::Flatten { file: path };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["a.b"], serde_json::json!([]));
+        assert_eq!(parsed["a.c"], serde_json::json!({}));
+        assert_eq!(parsed["d[0]"], serde_json::json!(1));
     }
 }
