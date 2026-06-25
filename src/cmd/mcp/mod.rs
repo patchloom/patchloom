@@ -525,10 +525,14 @@ impl PatchloomService {
                 Tool::new(meta.tool_name, meta.description, Arc::new(input_schema)),
                 move |ctx: ToolCallContext<'_, PatchloomService>| {
                     let fields = Arc::clone(&allowed_fields);
+                    let svc = ctx.service.clone();
+                    let args = ctx.arguments.unwrap_or_default();
                     Box::pin(async move {
-                        let args_value =
-                            serde_json::Value::Object(ctx.arguments.unwrap_or_default());
-                        handle_simple_op(ctx.service, meta, args_value, &fields)
+                        svc.blocking(move |svc| {
+                            let args_value = serde_json::Value::Object(args);
+                            handle_simple_op(svc, meta, args_value, &fields)
+                        })
+                        .await
                     })
                 },
             ));
@@ -553,6 +557,23 @@ impl PatchloomService {
     /// The workspace root directory (non-canonicalized).
     fn cwd(&self) -> &std::path::Path {
         self.path_guard.root()
+    }
+
+    /// Run a synchronous closure on the blocking thread pool.
+    ///
+    /// All MCP handlers perform synchronous file I/O. Wrapping them in
+    /// `spawn_blocking` prevents blocking the tokio async runtime, which
+    /// matters for HTTP transport where concurrent requests would otherwise
+    /// serialize on a single async task.
+    async fn blocking<F, R>(&self, f: F) -> Result<R, McpError>
+    where
+        F: FnOnce(&PatchloomService) -> Result<R, McpError> + Send + 'static,
+        R: Send + 'static,
+    {
+        let svc = self.clone();
+        tokio::task::spawn_blocking(move || f(&svc))
+            .await
+            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     /// Write a JSONL log entry for a tool call if logging is enabled.
@@ -700,14 +721,17 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocGetParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        let abs = self.cwd().join(&p.path);
-        let action = crate::cmd::doc::DocAction::Get {
-            file: abs.to_string_lossy().into_owned(),
-            selector: p.selector,
-        };
-        doc_readonly(&action)
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            validate_param_size("selector", &p.selector)?;
+            let abs = svc.cwd().join(&p.path);
+            let action = crate::cmd::doc::DocAction::Get {
+                file: abs.to_string_lossy().into_owned(),
+                selector: p.selector,
+            };
+            doc_readonly(&action)
+        })
+        .await
     }
 
     #[tool(
@@ -717,51 +741,63 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocQueryParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        if let Some(ref sel) = p.selector {
-            validate_param_size("selector", sel)?;
-        }
-        let abs = self.cwd().join(&p.path);
-        let file = abs.to_string_lossy().into_owned();
-        let action = match p.action.as_str() {
-            "has" => {
-                let selector = p.selector.ok_or_else(|| {
-                    McpError::invalid_params("'has' action requires a selector".to_string(), None)
-                })?;
-                crate::cmd::doc::DocAction::Has { file, selector }
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            if let Some(ref sel) = p.selector {
+                validate_param_size("selector", sel)?;
             }
-            "keys" => {
-                let selector = p.selector.ok_or_else(|| {
-                    McpError::invalid_params("'keys' action requires a selector".to_string(), None)
-                })?;
-                crate::cmd::doc::DocAction::Keys { file, selector }
-            }
-            "len" => {
-                let selector = p.selector.ok_or_else(|| {
-                    McpError::invalid_params("'len' action requires a selector".to_string(), None)
-                })?;
-                crate::cmd::doc::DocAction::Len { file, selector }
-            }
-            "select" => {
-                let selector = p.selector.ok_or_else(|| {
-                    McpError::invalid_params(
-                        "'select' action requires a selector".to_string(),
+            let abs = svc.cwd().join(&p.path);
+            let file = abs.to_string_lossy().into_owned();
+            let action = match p.action.as_str() {
+                "has" => {
+                    let selector = p.selector.ok_or_else(|| {
+                        McpError::invalid_params(
+                            "'has' action requires a selector".to_string(),
+                            None,
+                        )
+                    })?;
+                    crate::cmd::doc::DocAction::Has { file, selector }
+                }
+                "keys" => {
+                    let selector = p.selector.ok_or_else(|| {
+                        McpError::invalid_params(
+                            "'keys' action requires a selector".to_string(),
+                            None,
+                        )
+                    })?;
+                    crate::cmd::doc::DocAction::Keys { file, selector }
+                }
+                "len" => {
+                    let selector = p.selector.ok_or_else(|| {
+                        McpError::invalid_params(
+                            "'len' action requires a selector".to_string(),
+                            None,
+                        )
+                    })?;
+                    crate::cmd::doc::DocAction::Len { file, selector }
+                }
+                "select" => {
+                    let selector = p.selector.ok_or_else(|| {
+                        McpError::invalid_params(
+                            "'select' action requires a selector".to_string(),
+                            None,
+                        )
+                    })?;
+                    crate::cmd::doc::DocAction::Select { file, selector }
+                }
+                "flatten" => crate::cmd::doc::DocAction::Flatten { file },
+                other => {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "unknown action '{other}'; valid actions: has, keys, len, select, flatten"
+                        ),
                         None,
-                    )
-                })?;
-                crate::cmd::doc::DocAction::Select { file, selector }
-            }
-            "flatten" => crate::cmd::doc::DocAction::Flatten { file },
-            other => {
-                return Err(McpError::invalid_params(
-                    format!(
-                        "unknown action '{other}'; valid actions: has, keys, len, select, flatten"
-                    ),
-                    None,
-                ));
-            }
-        };
-        doc_readonly(&action)
+                    ));
+                }
+            };
+            doc_readonly(&action)
+        })
+        .await
     }
 
     #[tool(
@@ -771,15 +807,18 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<DocDiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.file_a)?;
-        self.check_path(&p.file_b)?;
-        let abs_a = self.cwd().join(&p.file_a);
-        let abs_b = self.cwd().join(&p.file_b);
-        let action = crate::cmd::doc::DocAction::Diff {
-            file_a: abs_a.to_string_lossy().into_owned(),
-            file_b: abs_b.to_string_lossy().into_owned(),
-        };
-        doc_readonly(&action)
+        self.blocking(move |svc| {
+            svc.check_path(&p.file_a)?;
+            svc.check_path(&p.file_b)?;
+            let abs_a = svc.cwd().join(&p.file_a);
+            let abs_b = svc.cwd().join(&p.file_b);
+            let action = crate::cmd::doc::DocAction::Diff {
+                file_a: abs_a.to_string_lossy().into_owned(),
+                file_b: abs_b.to_string_lossy().into_owned(),
+            };
+            doc_readonly(&action)
+        })
+        .await
     }
 
     #[tool(
@@ -789,92 +828,95 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
-        if p.files_with_matches && p.count {
-            return Err(McpError::invalid_params(
-                "files_with_matches and count cannot be combined",
-                None,
-            ));
-        }
-        if p.invert_match && p.multiline {
-            return Err(McpError::invalid_params(
-                "invert_match and multiline cannot be combined",
-                None,
-            ));
-        }
-        validate_param_size("pattern", &p.pattern)?;
-        for path in &p.paths {
-            self.check_path(path)?;
-        }
-        // Validate custom ignore filenames too (new in #821 for layered ignores).
-        // Treat them as paths relative to cwd for containment (even if just names like ".blineignore").
-        for f in &p.custom_ignore_filenames {
-            self.check_path(f)?;
-        }
-        let search_args = crate::cmd::search::SearchArgs {
-            pattern: p.pattern,
-            paths: if p.paths.is_empty() {
-                vec![".".into()]
-            } else {
-                p.paths
-            },
-            literal: p.literal,
-            regex: !p.literal,
-            context: p.context,
-            before_context: p.before_context,
-            after_context: p.after_context,
-            files_with_matches: p.files_with_matches,
-            count: p.count,
-            invert_match: p.invert_match,
-            multiline: p.multiline,
-            case_insensitive: p.case_insensitive,
-            assert_count: p.assert_count,
-            max_results: p.max_results,
-        };
-        let mut global = GlobalFlags::with_cwd_and_json(self.cwd());
-        global.glob = p.globs;
-        global.exclude = p.exclude_patterns;
-        global.ignore_file = p.custom_ignore_filenames;
-        let results = crate::cmd::search::collect_matches(&search_args, &global)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-        // --assert-count mode: return count comparison instead of matches.
-        if let Some(expected) = p.assert_count {
-            let actual: usize = results.file_match_counts.values().sum();
-            let matched = actual == expected;
-            let status = if matched {
-                "success"
-            } else {
-                "changes_detected"
+        self.blocking(move |svc| {
+            if p.files_with_matches && p.count {
+                return Err(McpError::invalid_params(
+                    "files_with_matches and count cannot be combined",
+                    None,
+                ));
+            }
+            if p.invert_match && p.multiline {
+                return Err(McpError::invalid_params(
+                    "invert_match and multiline cannot be combined",
+                    None,
+                ));
+            }
+            validate_param_size("pattern", &p.pattern)?;
+            for path in &p.paths {
+                svc.check_path(path)?;
+            }
+            // Validate custom ignore filenames too (new in #821 for layered ignores).
+            // Treat them as paths relative to cwd for containment (even if just names like ".blineignore").
+            for f in &p.custom_ignore_filenames {
+                svc.check_path(f)?;
+            }
+            let search_args = crate::cmd::search::SearchArgs {
+                pattern: p.pattern,
+                paths: if p.paths.is_empty() {
+                    vec![".".into()]
+                } else {
+                    p.paths
+                },
+                literal: p.literal,
+                regex: !p.literal,
+                context: p.context,
+                before_context: p.before_context,
+                after_context: p.after_context,
+                files_with_matches: p.files_with_matches,
+                count: p.count,
+                invert_match: p.invert_match,
+                multiline: p.multiline,
+                case_insensitive: p.case_insensitive,
+                assert_count: p.assert_count,
+                max_results: p.max_results,
             };
-            let code = if matched {
-                exit::SUCCESS
+            let mut global = GlobalFlags::with_cwd_and_json(svc.cwd());
+            global.glob = p.globs;
+            global.exclude = p.exclude_patterns;
+            global.ignore_file = p.custom_ignore_filenames;
+            let results = crate::cmd::search::collect_matches(&search_args, &global)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+            // --assert-count mode: return count comparison instead of matches.
+            if let Some(expected) = p.assert_count {
+                let actual: usize = results.file_match_counts.values().sum();
+                let matched = actual == expected;
+                let status = if matched {
+                    "success"
+                } else {
+                    "changes_detected"
+                };
+                let code = if matched {
+                    exit::SUCCESS
+                } else {
+                    exit::CHANGES_DETECTED
+                };
+                let output = serde_json::json!({
+                    "ok": true,
+                    "status": status,
+                    "assert_count": {
+                        "expected": expected,
+                        "actual": actual,
+                        "matched": matched,
+                    }
+                });
+                return exit_code_to_result(code, &output.to_string(), "");
+            }
+
+            let has_matches = if search_args.count || search_args.files_with_matches {
+                !results.file_match_counts.is_empty()
             } else {
-                exit::CHANGES_DETECTED
+                results.has_matches()
             };
-            let output = serde_json::json!({
-                "ok": true,
-                "status": status,
-                "assert_count": {
-                    "expected": expected,
-                    "actual": actual,
-                    "matched": matched,
-                }
-            });
-            return exit_code_to_result(code, &output.to_string(), "");
-        }
+            if !has_matches {
+                return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
+            }
 
-        let has_matches = if search_args.count || search_args.files_with_matches {
-            !results.file_match_counts.is_empty()
-        } else {
-            results.has_matches()
-        };
-        if !has_matches {
-            return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
-        }
-
-        let output = crate::cmd::search::format_results(results, &search_args, &global)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        exit_code_to_result(exit::SUCCESS, &output, "No results.")
+            let output = crate::cmd::search::format_results(results, &search_args, &global)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            exit_code_to_result(exit::SUCCESS, &output, "No results.")
+        })
+        .await
     }
 
     #[tool(
@@ -884,107 +926,111 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("from", &p.from)?;
-        if let Some(ref to) = p.to {
-            validate_content_size("to", to)?;
-        }
-        if let Some(ref ib) = p.insert_before {
-            validate_content_size("insert_before", ib)?;
-        }
-        if let Some(ref ia) = p.insert_after {
-            validate_content_size("insert_after", ia)?;
-        }
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            validate_param_size("from", &p.from)?;
+            if let Some(ref to) = p.to {
+                validate_content_size("to", to)?;
+            }
+            if let Some(ref ib) = p.insert_before {
+                validate_content_size("insert_before", ib)?;
+            }
+            if let Some(ref ia) = p.insert_after {
+                validate_content_size("insert_after", ia)?;
+            }
 
-        // Mirror CLI validations (replace.rs:239-247).
-        if p.nth == Some(0) {
-            return Err(McpError::invalid_params("nth must be >= 1 (1-based)", None));
-        }
-        let mode_count =
-            p.to.is_some() as u8 + p.insert_before.is_some() as u8 + p.insert_after.is_some() as u8;
-        if mode_count > 1 {
-            return Err(McpError::invalid_params(
-                "to, insert_before, and insert_after are mutually exclusive",
-                None,
-            ));
-        }
-        if mode_count == 0 {
-            return Err(McpError::invalid_params(
-                "one of to, insert_before, or insert_after is required",
-                None,
-            ));
-        }
-        if p.whole_line && p.multiline {
-            return Err(McpError::invalid_params(
-                "whole_line and multiline cannot be combined",
-                None,
-            ));
-        }
-        if p.range.is_some() && !p.whole_line {
-            return Err(McpError::invalid_params(
-                "range requires whole_line=true",
-                None,
-            ));
-        }
+            // Mirror CLI validations (replace.rs:239-247).
+            if p.nth == Some(0) {
+                return Err(McpError::invalid_params("nth must be >= 1 (1-based)", None));
+            }
+            let mode_count = p.to.is_some() as u8
+                + p.insert_before.is_some() as u8
+                + p.insert_after.is_some() as u8;
+            if mode_count > 1 {
+                return Err(McpError::invalid_params(
+                    "to, insert_before, and insert_after are mutually exclusive",
+                    None,
+                ));
+            }
+            if mode_count == 0 {
+                return Err(McpError::invalid_params(
+                    "one of to, insert_before, or insert_after is required",
+                    None,
+                ));
+            }
+            if p.whole_line && p.multiline {
+                return Err(McpError::invalid_params(
+                    "whole_line and multiline cannot be combined",
+                    None,
+                ));
+            }
+            if p.range.is_some() && !p.whole_line {
+                return Err(McpError::invalid_params(
+                    "range requires whole_line=true",
+                    None,
+                ));
+            }
 
-        // Tier 2: pre-validate structured file edits and collect warnings.
-        let validation_warnings = if !p.regex {
-            let abs = self.cwd().join(&p.path);
-            if let Ok(content) = std::fs::read_to_string(&abs) {
-                let to_str = p.to.as_deref().unwrap_or("");
-                let result =
-                    crate::fallback::validate_edit(&content, &p.from, to_str, Some(&p.path));
-                let mut warnings = result.warnings;
-                if !result.valid {
-                    warnings.extend(result.errors);
+            // Tier 2: pre-validate structured file edits and collect warnings.
+            let validation_warnings = if !p.regex {
+                let abs = svc.cwd().join(&p.path);
+                if let Ok(content) = std::fs::read_to_string(&abs) {
+                    let to_str = p.to.as_deref().unwrap_or("");
+                    let result =
+                        crate::fallback::validate_edit(&content, &p.from, to_str, Some(&p.path));
+                    let mut warnings = result.warnings;
+                    if !result.valid {
+                        warnings.extend(result.errors);
+                    }
+                    warnings
+                } else {
+                    Vec::new()
                 }
-                warnings
             } else {
                 Vec::new()
+            };
+
+            let mode = if p.regex {
+                Some("regex".to_string())
+            } else {
+                None
+            };
+            let replace_op = Operation::Replace {
+                glob: None,
+                path: Some(p.path),
+                mode,
+                from: p.from,
+                to: p.to,
+                nth: p.nth,
+                insert_before: p.insert_before,
+                insert_after: p.insert_after,
+                case_insensitive: p.case_insensitive,
+                multiline: p.multiline,
+                if_exists: p.if_exists,
+                whole_line: p.whole_line,
+                range: p.range,
+                word_boundary: p.word_boundary,
+                before_context: p.before_context,
+                after_context: p.after_context,
+            };
+            let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
+
+            // Append validation warnings to the response.
+            if !validation_warnings.is_empty() {
+                let warning_text = format!(
+                    "\n\nWarnings:\n{}",
+                    validation_warnings
+                        .iter()
+                        .map(|w| format!("  - {w}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
+                tool_result.content.push(Content::text(warning_text));
             }
-        } else {
-            Vec::new()
-        };
 
-        let mode = if p.regex {
-            Some("regex".to_string())
-        } else {
-            None
-        };
-        let replace_op = Operation::Replace {
-            glob: None,
-            path: Some(p.path),
-            mode,
-            from: p.from,
-            to: p.to,
-            nth: p.nth,
-            insert_before: p.insert_before,
-            insert_after: p.insert_after,
-            case_insensitive: p.case_insensitive,
-            multiline: p.multiline,
-            if_exists: p.if_exists,
-            whole_line: p.whole_line,
-            range: p.range,
-            word_boundary: p.word_boundary,
-            before_context: p.before_context,
-            after_context: p.after_context,
-        };
-        let mut tool_result = self.run_one_op(replace_op, Some(p.strict))?;
-
-        // Append validation warnings to the response.
-        if !validation_warnings.is_empty() {
-            let warning_text = format!(
-                "\n\nWarnings:\n{}",
-                validation_warnings
-                    .iter()
-                    .map(|w| format!("  - {w}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-            tool_result.content.push(Content::text(warning_text));
-        }
-
-        Ok(tool_result)
+            Ok(tool_result)
+        })
+        .await
     }
 
     #[tool(
@@ -994,32 +1040,35 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdMoveSectionParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        if let Some(ref to) = p.to {
-            self.check_path(to)?;
-        }
-        if p.before.is_none() && p.after.is_none() {
-            return Err(McpError::invalid_params(
-                "exactly one of 'before' or 'after' must be provided",
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            if let Some(ref to) = p.to {
+                svc.check_path(to)?;
+            }
+            if p.before.is_none() && p.after.is_none() {
+                return Err(McpError::invalid_params(
+                    "exactly one of 'before' or 'after' must be provided",
+                    None,
+                ));
+            }
+            if p.before.is_some() && p.after.is_some() {
+                return Err(McpError::invalid_params(
+                    "'before' and 'after' cannot both be set",
+                    None,
+                ));
+            }
+            svc.run_ops(
+                vec![Operation::MdMoveSection {
+                    path: p.path,
+                    heading: p.heading,
+                    to: p.to,
+                    before: p.before,
+                    after: p.after,
+                }],
                 None,
-            ));
-        }
-        if p.before.is_some() && p.after.is_some() {
-            return Err(McpError::invalid_params(
-                "'before' and 'after' cannot both be set",
-                None,
-            ));
-        }
-        self.run_ops(
-            vec![Operation::MdMoveSection {
-                path: p.path,
-                heading: p.heading,
-                to: p.to,
-                before: p.before,
-                after: p.after,
-            }],
-            None,
-        )
+            )
+        })
+        .await
     }
 
     #[tool(
@@ -1029,14 +1078,17 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<MdLintAgentsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        let abs = self.cwd().join(&p.path);
-        let content = std::fs::read_to_string(&abs)
-            .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
-        let issues = crate::ops::md::lint_agents_content(&content);
-        let json = serde_json::to_string_pretty(&issues)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            let abs = svc.cwd().join(&p.path);
+            let content = std::fs::read_to_string(&abs)
+                .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+            let issues = crate::ops::md::lint_agents_content(&content);
+            let json = serde_json::to_string_pretty(&issues)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![Content::text(json)]))
+        })
+        .await
     }
 
     #[tool(
@@ -1046,20 +1098,24 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<PatchParams>,
     ) -> Result<CallToolResult, McpError> {
-        validate_content_size("diff", &p.diff)?;
-        // Validate paths embedded in the diff.
-        let patch_files = crate::ops::patch::parse_patch(&p.diff)
-            .map_err(|e| McpError::invalid_params(format!("failed to parse diff: {e}"), None))?;
-        for pf in &patch_files {
-            self.check_path(&pf.path)?;
-        }
+        self.blocking(move |svc| {
+            validate_content_size("diff", &p.diff)?;
+            // Validate paths embedded in the diff.
+            let patch_files = crate::ops::patch::parse_patch(&p.diff).map_err(|e| {
+                McpError::invalid_params(format!("failed to parse diff: {e}"), None)
+            })?;
+            for pf in &patch_files {
+                svc.check_path(&pf.path)?;
+            }
 
-        let op = Operation::PatchApply {
-            diff: p.diff,
-            on_stale: p.on_stale,
-            allow_conflicts: p.allow_conflicts,
-        };
-        self.run_one_op(op, Some(p.strict))
+            let op = Operation::PatchApply {
+                diff: p.diff,
+                on_stale: p.on_stale,
+                allow_conflicts: p.allow_conflicts,
+            };
+            svc.run_one_op(op, Some(p.strict))
+        })
+        .await
     }
 
     #[tool(
@@ -1069,46 +1125,49 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<BatchReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
-        if p.files.is_empty() {
-            return Err(McpError::invalid_params(
-                "files array must not be empty",
-                None,
-            ));
-        }
-        validate_batch_size("files", p.files.len())?;
-        validate_param_size("from", &p.from)?;
-        validate_content_size("to", &p.to)?;
-        for f in &p.files {
-            self.check_path(f)?;
-        }
-        let mode = if p.regex {
-            Some("regex".to_string())
-        } else {
-            None
-        };
-        let ops: Vec<Operation> = p
-            .files
-            .into_iter()
-            .map(|file| Operation::Replace {
-                glob: None,
-                path: Some(file),
-                mode: mode.clone(),
-                from: p.from.clone(),
-                to: Some(p.to.clone()),
-                nth: None,
-                insert_before: None,
-                insert_after: None,
-                case_insensitive: p.case_insensitive,
-                multiline: p.multiline,
-                if_exists: false,
-                whole_line: false,
-                range: None,
-                word_boundary: p.word_boundary,
-                before_context: None,
-                after_context: None,
-            })
-            .collect();
-        self.run_ops(ops, Some(p.strict))
+        self.blocking(move |svc| {
+            if p.files.is_empty() {
+                return Err(McpError::invalid_params(
+                    "files array must not be empty",
+                    None,
+                ));
+            }
+            validate_batch_size("files", p.files.len())?;
+            validate_param_size("from", &p.from)?;
+            validate_content_size("to", &p.to)?;
+            for f in &p.files {
+                svc.check_path(f)?;
+            }
+            let mode = if p.regex {
+                Some("regex".to_string())
+            } else {
+                None
+            };
+            let ops: Vec<Operation> = p
+                .files
+                .into_iter()
+                .map(|file| Operation::Replace {
+                    glob: None,
+                    path: Some(file),
+                    mode: mode.clone(),
+                    from: p.from.clone(),
+                    to: Some(p.to.clone()),
+                    nth: None,
+                    insert_before: None,
+                    insert_after: None,
+                    case_insensitive: p.case_insensitive,
+                    multiline: p.multiline,
+                    if_exists: false,
+                    whole_line: false,
+                    range: None,
+                    word_boundary: p.word_boundary,
+                    before_context: None,
+                    after_context: None,
+                })
+                .collect();
+            svc.run_ops(ops, Some(p.strict))
+        })
+        .await
     }
 
     #[tool(
@@ -1118,27 +1177,30 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<BatchTidyParams>,
     ) -> Result<CallToolResult, McpError> {
-        if p.files.is_empty() {
-            return Err(McpError::invalid_params(
-                "files array must not be empty",
-                None,
-            ));
-        }
-        validate_batch_size("files", p.files.len())?;
-        for f in &p.files {
-            self.check_path(f)?;
-        }
-        let ops: Vec<Operation> = p
-            .files
-            .into_iter()
-            .map(|file| Operation::TidyFix {
-                path: file,
-                ensure_final_newline: Some(true),
-                trim_trailing_whitespace: Some(true),
-                normalize_eol: None,
-            })
-            .collect();
-        self.run_ops(ops, Some(p.strict))
+        self.blocking(move |svc| {
+            if p.files.is_empty() {
+                return Err(McpError::invalid_params(
+                    "files array must not be empty",
+                    None,
+                ));
+            }
+            validate_batch_size("files", p.files.len())?;
+            for f in &p.files {
+                svc.check_path(f)?;
+            }
+            let ops: Vec<Operation> = p
+                .files
+                .into_iter()
+                .map(|file| Operation::TidyFix {
+                    path: file,
+                    ensure_final_newline: Some(true),
+                    trim_trailing_whitespace: Some(true),
+                    normalize_eol: None,
+                })
+                .collect();
+            svc.run_ops(ops, Some(p.strict))
+        })
+        .await
     }
 
     #[tool(
@@ -1148,34 +1210,38 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<ExecutePlanParams>,
     ) -> Result<CallToolResult, McpError> {
-        let mut plan = if let Some(inline_plan) = p.plan {
-            inline_plan
-        } else if let Some(path) = &p.plan_path {
-            self.check_path(path)?;
-            let abs = self.cwd().join(path);
-            let content = std::fs::read_to_string(&abs).map_err(|e| {
-                McpError::internal_error(format!("failed to read plan_path: {e}"), None)
-            })?;
-            crate::plan::parse_plan_auto(&content, Some(path), None)
-                .map_err(|e| McpError::invalid_params(format!("failed to parse plan: {e}"), None))?
-        } else {
-            return Err(McpError::invalid_params(
-                "either 'plan' (inline) or 'plan_path' must be provided",
-                None,
-            ));
-        };
+        self.blocking(move |svc| {
+            let mut plan = if let Some(inline_plan) = p.plan {
+                inline_plan
+            } else if let Some(path) = &p.plan_path {
+                svc.check_path(path)?;
+                let abs = svc.cwd().join(path);
+                let content = std::fs::read_to_string(&abs).map_err(|e| {
+                    McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+                })?;
+                crate::plan::parse_plan_auto(&content, Some(path), None).map_err(|e| {
+                    McpError::invalid_params(format!("failed to parse plan: {e}"), None)
+                })?
+            } else {
+                return Err(McpError::invalid_params(
+                    "either 'plan' (inline) or 'plan_path' must be provided",
+                    None,
+                ));
+            };
 
-        // Validate every path declared by operations against the PathGuard
-        // (including special handling for paths embedded in PatchApply diffs).
-        for op in &plan.operations {
-            self.validate_op_paths(op)?;
-        }
+            // Validate every path declared by operations against the PathGuard
+            // (including special handling for paths embedded in PatchApply diffs).
+            for op in &plan.operations {
+                svc.validate_op_paths(op)?;
+            }
 
-        // The `strict` parameter from the MCP invocation always controls the execution
-        // (it defaults to true). This provides a simple, predictable experience for agents.
-        plan.strict = Some(p.strict);
+            // The `strict` parameter from the MCP invocation always controls the execution
+            // (it defaults to true). This provides a simple, predictable experience for agents.
+            plan.strict = Some(p.strict);
 
-        execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))
+            execute_plan_validated(plan, svc.cwd(), Some(&svc.path_guard))
+        })
+        .await
     }
 
     // doc_set, doc_delete, doc_merge, doc_append, doc_prepend, doc_ensure,
@@ -1189,16 +1255,19 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<TidyParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        self.run_ops(
-            vec![Operation::TidyFix {
-                path: p.path,
-                ensure_final_newline: Some(true),
-                trim_trailing_whitespace: Some(true),
-                normalize_eol: None,
-            }],
-            None,
-        )
+        self.blocking(move |svc| {
+            svc.check_path(&p.path)?;
+            svc.run_ops(
+                vec![Operation::TidyFix {
+                    path: p.path,
+                    ensure_final_newline: Some(true),
+                    trim_trailing_whitespace: Some(true),
+                    normalize_eol: None,
+                }],
+                None,
+            )
+        })
+        .await
     }
 
     // md_upsert_bullet, md_table_append, md_replace_section,
@@ -1217,10 +1286,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstListParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_list(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_list(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1231,10 +1298,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstReadParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_read(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_read(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1245,10 +1310,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstRenameParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_rename(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_rename(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1259,10 +1322,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstValidateParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_validate(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_validate(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1273,10 +1334,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstSearchParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_search(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_search(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1287,10 +1346,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstRefsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_refs(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_refs(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1301,10 +1358,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstDepsParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_deps(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_deps(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1315,10 +1370,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstMapParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_map(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_map(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1329,10 +1382,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstDiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_diff(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_diff(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1343,10 +1394,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstImpactParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_impact(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_impact(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[cfg(feature = "ast")]
@@ -1357,10 +1406,8 @@ impl PatchloomService {
         &self,
         Parameters(p): Parameters<AstReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
-        let svc = self.clone();
-        tokio::task::spawn_blocking(move || ast_tools::handle_ast_replace(&svc, p))
+        self.blocking(move |svc| ast_tools::handle_ast_replace(svc, p))
             .await
-            .map_err(|e| McpError::internal_error(format!("task join error: {e}"), None))?
     }
 
     #[tool(
@@ -1370,12 +1417,15 @@ impl PatchloomService {
         &self,
         Parameters(_p): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
-        let global = GlobalFlags::with_cwd(self.cwd());
-        let status = crate::cmd::status::collect_status(&[], &global)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        let json = serde_json::to_string_pretty(&status)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        self.blocking(move |svc| {
+            let global = GlobalFlags::with_cwd(svc.cwd());
+            let status = crate::cmd::status::collect_status(&[], &global)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let json = serde_json::to_string_pretty(&status)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![Content::text(json)]))
+        })
+        .await
     }
 
     // move_file, append_file, create_file, and delete_file are auto-generated

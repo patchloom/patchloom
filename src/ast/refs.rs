@@ -86,7 +86,20 @@ pub fn find_refs_in_source(
     let Some((tree, _)) = parse_source(source, lang) else {
         return Vec::new();
     };
+    find_refs_in_source_with_tree(source, symbol_name, &tree, file_path)
+}
 
+/// Find all references using a pre-parsed tree (avoids redundant parsing).
+///
+/// Use this when you already have a [`tree_sitter_lib::Tree`] for the source,
+/// e.g. from a cache keyed by file path. This eliminates the O(N) re-parsing
+/// cost when scanning the same file for multiple symbol names.
+pub fn find_refs_in_source_with_tree(
+    source: &str,
+    symbol_name: &str,
+    tree: &tree_sitter_lib::Tree,
+    file_path: &str,
+) -> Vec<SymbolRef> {
     let lines: Vec<&str> = source.lines().collect();
     let mut refs = Vec::new();
     collect_refs(

@@ -2617,3 +2617,27 @@ async fn test_mcp_ast_replace_within_symbol() {
     );
     client.cancel().await.unwrap();
 }
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_list_unsupported_file_names_language() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.csv"), "a,b,c\n1,2,3\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) =
+        call_tool_text(&client, "ast_list", serde_json::json!({"path": "data.csv"})).await;
+    assert!(is_error, "ast_list on unsupported file should return error");
+    assert!(
+        text.contains("Unsupported language"),
+        "response should contain 'Unsupported language': {text}"
+    );
+    assert!(
+        text.contains("Rust"),
+        "response should list supported languages: {text}"
+    );
+    client.cancel().await.unwrap();
+}
