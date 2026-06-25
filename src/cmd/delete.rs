@@ -167,12 +167,10 @@ mod tests {
             make_args(&target.to_string_lossy()),
             &GlobalFlags::default(),
         );
-        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("target is not a file")
+            err.contains("target is not a file"),
+            "expected 'target is not a file' error, got: {err}"
         );
     }
 
@@ -206,10 +204,10 @@ mod tests {
             make_args("/tmp/nonexistent_patchloom_test_file_xyz.txt"),
             &GlobalFlags::default(),
         );
-        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
         assert!(
-            result.unwrap_err().to_string().contains("file not found"),
-            "error should mention 'file not found'"
+            err.contains("file not found"),
+            "error should mention 'file not found', got: {err}"
         );
     }
 }

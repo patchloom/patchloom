@@ -2241,11 +2241,10 @@ mod tests {
                     from: "nonexistent".into(),
                     to: "b".into(),
                 },
-            );
-            assert!(err.is_err());
+            )
+            .unwrap_err();
             assert!(
-                err.unwrap_err()
-                    .to_string()
+                err.to_string()
                     .contains("source key 'nonexistent' not found")
             );
         }
