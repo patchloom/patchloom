@@ -233,6 +233,196 @@ pub(crate) struct BatchTidyParams {
     pub strict: bool,
 }
 
+// ---------------------------------------------------------------------------
+// AST parameter types
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstListParams {
+    /// File or directory to list symbols from.
+    pub path: String,
+    /// Filter by symbol kind (comma-separated: function,struct,enum,class,method,trait,impl,const,type,interface,module).
+    pub kind: Option<String>,
+    /// Language hint (overrides extension detection). E.g. "rs", "py", "go", "ts", "java", "c", "cpp".
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstReadParams {
+    /// File to read from.
+    pub path: String,
+    /// Symbol name (e.g. "run" or "Server::start").
+    pub symbol: String,
+    /// Number of context lines before/after the symbol.
+    #[serde(default)]
+    pub context: usize,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstRenameParams {
+    /// The identifier to rename.
+    pub old_name: String,
+    /// The new identifier name.
+    pub new_name: String,
+    /// File or directory to rename in.
+    pub path: String,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstValidateParams {
+    /// File or directory to validate syntax.
+    pub path: String,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstSearchParams {
+    /// Tree-sitter S-expression query, or a code pattern (with pattern=true).
+    pub query: String,
+    /// File or directory to search.
+    pub path: String,
+    /// Treat the query as a code pattern with meta-variables ($VAR, $$$MULTI).
+    #[serde(default)]
+    pub pattern: bool,
+    /// Language hint (required for pattern mode).
+    pub lang: Option<String>,
+    /// Maximum number of results.
+    pub max_results: Option<usize>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstRefsParams {
+    /// Symbol name to find references for.
+    pub symbol: String,
+    /// File or directory to search.
+    pub path: String,
+    /// Include the definition site in results.
+    #[serde(default)]
+    pub include_def: bool,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstDepsParams {
+    /// File or directory to analyze.
+    pub path: String,
+    /// Show reverse dependencies (what imports this file).
+    #[serde(default)]
+    pub reverse: bool,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstMapParams {
+    /// Directory to map.
+    pub path: String,
+    /// Maximum approximate token count for output.
+    #[serde(default = "default_map_max_tokens")]
+    pub max_tokens: usize,
+    /// Boost symbols from these files (comma-separated paths).
+    #[serde(default)]
+    pub focus: Vec<String>,
+    /// Boost these symbol names (comma-separated).
+    #[serde(default)]
+    pub boost: Vec<String>,
+}
+
+#[cfg(feature = "ast")]
+fn default_map_max_tokens() -> usize {
+    1024
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstDiffParams {
+    /// File to diff.
+    pub path: String,
+    /// Git ref for the "old" version (default: HEAD).
+    #[serde(default = "default_head")]
+    pub from: String,
+    /// Git ref for the "new" version (default: working tree).
+    pub to: Option<String>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+fn default_head() -> String {
+    "HEAD".to_string()
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstImpactParams {
+    /// Symbol name to analyze.
+    pub symbol: String,
+    /// Directory to scan for references.
+    pub path: String,
+    /// Maximum traversal depth (1 = direct refs only).
+    #[serde(default = "default_impact_depth")]
+    pub depth: usize,
+}
+
+#[cfg(feature = "ast")]
+fn default_impact_depth() -> usize {
+    3
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstReplaceParams {
+    /// File containing the symbol.
+    pub path: String,
+    /// Symbol name to scope the replacement to.
+    pub symbol: String,
+    /// Text or regex pattern to find.
+    pub from: String,
+    /// Replacement text.
+    pub to: String,
+    /// Treat --from as a regex pattern.
+    #[serde(default)]
+    pub regex: bool,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
 /// No-parameter wrapper for tools that need no input (e.g., git_status).
 /// Required because rmcp 1.8+ validates that `inputSchema` has a root
 /// `type: "object"` field, which `serde_json::Value` does not provide.

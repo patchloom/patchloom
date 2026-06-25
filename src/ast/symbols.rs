@@ -452,6 +452,10 @@ fn extract_ts_js(
             let name = child_text_by_kinds(node, &["type_identifier", "identifier"], source)?;
             Some((SymbolKind::Interface, name.to_string()))
         }
+        "enum_declaration" if language == Language::TypeScript => {
+            let name = child_text_by_kinds(node, &["type_identifier", "identifier"], source)?;
+            Some((SymbolKind::Enum, name.to_string()))
+        }
         "lexical_declaration" => {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
@@ -596,12 +600,14 @@ fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolK
     let symbol_kind = match kind {
         "function_item" | "function_definition" | "function_declaration" => SymbolKind::Function,
         "method_definition" | "method_declaration" => SymbolKind::Method,
-        "class_definition" | "class_declaration" => SymbolKind::Class,
+        "class_definition" | "class_declaration" | "class_specifier" => SymbolKind::Class,
         "interface_declaration" => SymbolKind::Interface,
         "struct_item" | "struct_declaration" | "struct_specifier" => SymbolKind::Struct,
         "enum_item" | "enum_declaration" | "enum_specifier" => SymbolKind::Enum,
         "type_declaration" | "type_item" | "type_alias_declaration" => SymbolKind::Type,
-        "module_declaration" | "mod_item" | "namespace_declaration" => SymbolKind::Module,
+        "module_declaration" | "mod_item" | "namespace_declaration" | "namespace_definition" => {
+            SymbolKind::Module
+        }
         "trait_item" | "trait_declaration" | "protocol_declaration" => SymbolKind::Trait,
         _ => return None,
     };
@@ -753,6 +759,209 @@ impl Server {
         assert!(out.contains("pub fn new(b: u32) -> u32"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old"));
+    }
+
+    #[test]
+    fn extract_typescript_symbols() {
+        let source = r#"
+class Foo {
+    greet(name: string): string {
+        return `Hello, ${name}`;
+    }
+
+    farewell(): void {
+        console.log("bye");
+    }
+}
+
+function bar(x: number): number {
+    return x * 2;
+}
+
+interface Baz {
+    id: number;
+    name: string;
+}
+
+enum Status {
+    Active,
+    Inactive,
+    Pending,
+}
+
+const MAX_RETRIES = 5;
+"#;
+        let symbols = extract_symbols(source, Language::TypeScript);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Foo"), "should find class Foo");
+        assert!(names.contains(&"bar"), "should find function bar");
+        assert!(names.contains(&"Baz"), "should find interface Baz");
+        assert!(names.contains(&"Status"), "should find enum Status");
+        assert!(
+            names.contains(&"MAX_RETRIES"),
+            "should find const MAX_RETRIES"
+        );
+
+        // Class Foo should have methods as children
+        let class_foo = symbols.iter().find(|s| s.name == "Foo").unwrap();
+        assert_eq!(class_foo.kind, SymbolKind::Class);
+        let child_names: Vec<&str> = class_foo.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            child_names.contains(&"greet"),
+            "Foo should contain method greet"
+        );
+        assert!(
+            child_names.contains(&"farewell"),
+            "Foo should contain method farewell"
+        );
+
+        // Interface
+        let iface = symbols.iter().find(|s| s.name == "Baz").unwrap();
+        assert_eq!(iface.kind, SymbolKind::Interface);
+
+        // Enum
+        let status = symbols.iter().find(|s| s.name == "Status").unwrap();
+        assert_eq!(status.kind, SymbolKind::Enum);
+    }
+
+    #[test]
+    fn extract_java_symbols() {
+        let source = r#"
+public class Foo {
+    private int count;
+
+    public void bar() {
+        System.out.println("hello");
+    }
+
+    public int getCount() {
+        return count;
+    }
+}
+
+interface Baz {
+    void process();
+    String getName();
+}
+
+enum Status {
+    ACTIVE,
+    INACTIVE,
+    PENDING
+}
+"#;
+        let symbols = extract_symbols(source, Language::Java);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Foo"), "should find class Foo");
+        assert!(names.contains(&"Baz"), "should find interface Baz");
+        assert!(names.contains(&"Status"), "should find enum Status");
+
+        // Class Foo should have method children
+        let class_foo = symbols.iter().find(|s| s.name == "Foo").unwrap();
+        assert_eq!(class_foo.kind, SymbolKind::Class);
+        let child_names: Vec<&str> = class_foo.children.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            child_names.contains(&"bar"),
+            "Foo should contain method bar"
+        );
+        assert!(
+            child_names.contains(&"getCount"),
+            "Foo should contain method getCount"
+        );
+
+        // Interface
+        let iface = symbols.iter().find(|s| s.name == "Baz").unwrap();
+        assert_eq!(iface.kind, SymbolKind::Interface);
+
+        // Enum
+        let status = symbols.iter().find(|s| s.name == "Status").unwrap();
+        assert_eq!(status.kind, SymbolKind::Enum);
+    }
+
+    #[test]
+    fn extract_c_symbols() {
+        let source = r#"
+#include <stdio.h>
+
+void foo(int x) {
+    printf("%d\n", x);
+}
+
+int calculate(int a, int b) {
+    return a + b;
+}
+
+struct Bar {
+    int x;
+    int y;
+    char name[64];
+};
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+};
+"#;
+        let symbols = extract_symbols(source, Language::C);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"foo"), "should find function foo");
+        assert!(
+            names.contains(&"calculate"),
+            "should find function calculate"
+        );
+        assert!(names.contains(&"Bar"), "should find struct Bar");
+        assert!(names.contains(&"Color"), "should find enum Color");
+
+        // Check kinds
+        let foo_sym = symbols.iter().find(|s| s.name == "foo").unwrap();
+        assert_eq!(foo_sym.kind, SymbolKind::Function);
+
+        let bar_sym = symbols.iter().find(|s| s.name == "Bar").unwrap();
+        assert_eq!(bar_sym.kind, SymbolKind::Struct);
+
+        let color_sym = symbols.iter().find(|s| s.name == "Color").unwrap();
+        assert_eq!(color_sym.kind, SymbolKind::Enum);
+    }
+
+    #[test]
+    fn extract_cpp_symbols() {
+        let source = r#"
+#include <iostream>
+#include <string>
+
+class Engine {
+public:
+    void start() {
+        std::cout << "started" << std::endl;
+    }
+
+    int getSpeed() const {
+        return speed;
+    }
+
+private:
+    int speed;
+};
+
+namespace utils {
+    int helper(int x) {
+        return x + 1;
+    }
+}
+
+struct Point {
+    double x;
+    double y;
+};
+"#;
+        let symbols = extract_symbols(source, Language::Cpp);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Engine"), "should find class Engine");
+        assert!(names.contains(&"Point"), "should find struct Point");
+        // Namespace may or may not be detected depending on grammar; check class details
+        let engine = symbols.iter().find(|s| s.name == "Engine").unwrap();
+        assert_eq!(engine.kind, SymbolKind::Class);
     }
 
     #[test]

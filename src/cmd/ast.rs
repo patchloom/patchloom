@@ -40,7 +40,7 @@ pub struct AstArgs {
     pub command: AstCommand,
 }
 
-fn display_path(path: &Path, cwd: &Path) -> String {
+pub fn display_path(path: &Path, cwd: &Path) -> String {
     path.strip_prefix(cwd).unwrap_or(path).display().to_string()
 }
 
@@ -106,21 +106,34 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     } else if target.is_dir() {
         let paths = collect_source_files(&target, global)?;
-        for path in &paths {
+
+        struct ListFileResult {
+            display: String,
+            symbols: Vec<SymbolDef>,
+        }
+
+        let results: Vec<ListFileResult> = crate::par_process_files(&paths, None, &[], |path| {
             let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
             let symbols = symbols::extract_symbols_from_file(path, Some(lang));
-            let filtered = filter_symbols(&symbols, &kind_filter);
+            if symbols.is_empty() {
+                return None;
+            }
+            let display = display_path(path, &cwd);
+            Some(ListFileResult { display, symbols })
+        });
+
+        for result in &results {
+            let filtered = filter_symbols(&result.symbols, &kind_filter);
             if filtered.is_empty() {
                 continue;
             }
             any_output = true;
-            let display = display_path(path, &cwd);
             if global.json || global.jsonl {
-                print_symbols_json(&display, &filtered, global)?;
+                print_symbols_json(&result.display, &filtered, global)?;
             } else if args.compact {
-                print_symbols_compact(&display, &filtered);
+                print_symbols_compact(&result.display, &filtered);
             } else {
-                print_symbols_human(&display, &filtered);
+                print_symbols_human(&result.display, &filtered);
             }
         }
     } else {
@@ -282,7 +295,7 @@ fn apply_or_preview(
     }
 }
 
-fn resolve_target_paths(
+pub fn resolve_target_paths(
     target: &std::path::Path,
     path_arg: &str,
     global: &GlobalFlags,
@@ -410,30 +423,38 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
 
-    for path in &paths {
+    struct ValidateFileResult {
+        display: String,
+        result: crate::ast::validate::ValidationResult,
+    }
+
+    let results: Vec<ValidateFileResult> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
         if !lang.has_grammar() {
-            continue;
+            return None;
         }
-        let result = crate::ast::validate::validate_file(path, Some(lang))?;
-        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
+        let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
+        let display = display_path(path, &cwd);
+        Some(ValidateFileResult { display, result })
+    });
 
+    for vr in &results {
         if global.json || global.jsonl {
             let obj = serde_json::json!({
-                "file": display_path.display().to_string(),
-                "valid": result.valid,
-                "language": result.language,
-                "errors": result.errors,
+                "file": vr.display,
+                "valid": vr.result.valid,
+                "language": vr.result.language,
+                "errors": vr.result.errors,
             });
             global.emit_json(&obj)?;
-        } else if !result.valid {
+        } else if !vr.result.valid {
             all_valid = false;
-            eprintln!("{}: INVALID ({})", display_path.display(), result.language);
-            for err in &result.errors {
+            eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
+            for err in &vr.result.errors {
                 eprintln!("  line {}:{}: {}", err.line, err.column, err.text.trim());
             }
         } else if !global.quiet {
-            eprintln!("{}: OK ({})", display_path.display(), result.language);
+            eprintln!("{}: OK ({})", vr.display, vr.result.language);
         }
     }
 
@@ -478,28 +499,33 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
 
-    for path in &paths {
-        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+    struct SearchFileResult {
+        display: String,
+        matches: Vec<crate::ast::search::SearchMatch>,
+    }
 
+    let file_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
+        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
         let query_str = if args.pattern {
-            crate::ast::search::compile_pattern_query(&args.query, lang)?
+            crate::ast::search::compile_pattern_query(&args.query, lang).ok()?
         } else {
             args.query.clone()
         };
-
-        let results =
-            crate::ast::search::search_file(path, &query_str, Some(lang), args.max_results)?;
-        if results.is_empty() {
-            continue;
+        let matches =
+            crate::ast::search::search_file(path, &query_str, Some(lang), args.max_results).ok()?;
+        if matches.is_empty() {
+            return None;
         }
-
         let display = display_path(path, &cwd);
+        Some(SearchFileResult { display, matches })
+    });
 
-        for m in &results {
+    for result in &file_results {
+        for m in &result.matches {
             total_matches += 1;
             if global.json || global.jsonl {
                 let obj = serde_json::json!({
-                    "file": display,
+                    "file": result.display,
                     "line": m.line,
                     "column": m.column,
                     "text": m.text,
@@ -509,7 +535,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             } else {
                 println!(
                     "{}:{}:{}: {}",
-                    display,
+                    result.display,
                     m.line,
                     m.column,
                     m.text.lines().next().unwrap_or("")
@@ -556,13 +582,14 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
 
-    let mut all_refs = Vec::new();
+    let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
+        crate::par_process_files(&paths, None, &[], |path| {
+            let display = display_path(path, &cwd);
+            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+            if refs.is_empty() { None } else { Some(refs) }
+        });
 
-    for path in &paths {
-        let display = display_path(path, &cwd);
-        let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
-        all_refs.extend(refs);
-    }
+    let mut all_refs: Vec<_> = per_file_refs.into_iter().flatten().collect();
 
     if !args.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -663,24 +690,32 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
     } else {
-        for path in &paths {
+        struct DepsFileResult {
+            display: String,
+            imports: Vec<crate::ast::deps::Import>,
+        }
+
+        let results: Vec<DepsFileResult> = crate::par_process_files(&paths, None, &[], |path| {
             let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
             if imports.is_empty() {
-                continue;
+                return None;
             }
-            any_output = true;
             let display = display_path(path, &cwd);
+            Some(DepsFileResult { display, imports })
+        });
 
+        for result in &results {
+            any_output = true;
             if global.json || global.jsonl {
                 let obj = serde_json::json!({
-                    "file": display,
-                    "imports": imports,
+                    "file": result.display,
+                    "imports": result.imports,
                 });
                 global.emit_json(&obj)?;
             } else {
-                println!("{display}");
+                println!("{}", result.display);
                 println!("  imports:");
-                for imp in &imports {
+                for imp in &result.imports {
                     println!("    {}", imp.path);
                 }
                 println!();
@@ -991,7 +1026,7 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-fn get_git_file_content(
+pub fn get_git_file_content(
     cwd: &std::path::Path,
     file_path: &str,
     git_ref: &str,
@@ -1013,11 +1048,11 @@ fn get_git_file_content(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn lang_from_str(s: &str) -> Language {
+pub fn lang_from_str(s: &str) -> Language {
     Language::from_extension(s)
 }
 
-fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
+pub fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
     match kind_arg {
         Some(s) => s
             .split(',')
@@ -1027,7 +1062,10 @@ fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
     }
 }
 
-fn filter_symbols<'a>(symbols: &'a [SymbolDef], kind_filter: &[SymbolKind]) -> Vec<&'a SymbolDef> {
+pub fn filter_symbols<'a>(
+    symbols: &'a [SymbolDef],
+    kind_filter: &[SymbolKind],
+) -> Vec<&'a SymbolDef> {
     if kind_filter.is_empty() {
         return symbols.iter().collect();
     }
@@ -1037,7 +1075,7 @@ fn filter_symbols<'a>(symbols: &'a [SymbolDef], kind_filter: &[SymbolKind]) -> V
         .collect()
 }
 
-fn collect_source_files(
+pub fn collect_source_files(
     dir: &std::path::Path,
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
@@ -1098,7 +1136,7 @@ fn print_symbols_json(
     Ok(())
 }
 
-fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
+pub fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
     let children: Vec<serde_json::Value> = sym
         .children
         .iter()

@@ -480,6 +480,149 @@ import java.io.File;
     }
 
     #[test]
+    fn typescript_imports() {
+        let source = r#"
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import type { Config } from './config';
+
+const fs = require('fs');
+const path = require('path');
+
+function main() {
+    const [state, setState] = useState(0);
+    axios.get('/api/data');
+}
+"#;
+        let imports = extract_imports(source, Language::TypeScript);
+        assert!(
+            imports.len() >= 3,
+            "should find at least 3 imports, got {}",
+            imports.len()
+        );
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(paths.contains(&"react"), "should find react import");
+        assert!(paths.contains(&"axios"), "should find axios import");
+        // require() calls
+        assert!(paths.contains(&"fs"), "should find fs require");
+    }
+
+    #[test]
+    fn typescript_import_lines() {
+        let source = r#"
+import { Router } from 'express';
+import helmet from 'helmet';
+"#;
+        let imports = extract_imports(source, Language::TypeScript);
+        assert_eq!(imports.len(), 2);
+        // Verify line numbers are correct (1-based)
+        assert_eq!(imports[0].line, 2);
+        assert_eq!(imports[1].line, 3);
+    }
+
+    #[test]
+    fn java_imports_regular_and_static() {
+        let source = r#"
+package com.example.app;
+
+import java.util.List;
+import java.util.Map;
+import java.io.IOException;
+import static org.junit.Assert.*;
+
+public class App {
+    public void run() {
+        List<String> items = List.of("a", "b");
+    }
+}
+"#;
+        let imports = extract_imports(source, Language::Java);
+        assert!(
+            imports.len() >= 4,
+            "should find at least 4 imports, got {}",
+            imports.len()
+        );
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(
+            paths.iter().any(|p| p.contains("java.util.List")),
+            "should find java.util.List import"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("java.util.Map")),
+            "should find java.util.Map import"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("java.io.IOException")),
+            "should find java.io.IOException import"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("org.junit.Assert")),
+            "should find static org.junit.Assert import"
+        );
+    }
+
+    #[test]
+    fn java_import_raw_text() {
+        let source = r#"
+import java.util.ArrayList;
+import static java.lang.Math.PI;
+"#;
+        let imports = extract_imports(source, Language::Java);
+        assert_eq!(imports.len(), 2);
+        assert!(imports[0].raw.contains("import java.util.ArrayList"));
+        assert!(imports[1].raw.contains("import static java.lang.Math.PI"));
+    }
+
+    #[test]
+    fn c_includes_system_and_local() {
+        let source = r#"
+#include <stdlib.h>
+#include <string.h>
+#include "config.h"
+#include "utils/helpers.h"
+
+void init() {
+    char* buf = malloc(256);
+    memset(buf, 0, 256);
+}
+"#;
+        let imports = extract_imports(source, Language::C);
+        assert_eq!(imports.len(), 4);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(paths.contains(&"stdlib.h"));
+        assert!(paths.contains(&"string.h"));
+        assert!(paths.contains(&"config.h"));
+        assert!(paths.contains(&"utils/helpers.h"));
+    }
+
+    #[test]
+    fn cpp_includes() {
+        let source = r#"
+#include <iostream>
+#include <vector>
+#include <string>
+#include "engine.hpp"
+
+namespace app {
+    class Runner {
+    public:
+        void run() {
+            std::vector<std::string> items;
+            std::cout << items.size() << std::endl;
+        }
+    };
+}
+"#;
+        let imports = extract_imports(source, Language::Cpp);
+        assert_eq!(imports.len(), 4);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(paths.contains(&"iostream"));
+        assert!(paths.contains(&"vector"));
+        assert!(paths.contains(&"string"));
+        assert!(paths.contains(&"engine.hpp"));
+    }
+
+    #[test]
     fn unknown_language_returns_empty() {
         let imports = extract_imports("anything", Language::Unknown);
         assert!(imports.is_empty());

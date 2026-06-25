@@ -27,49 +27,79 @@ use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    // -- File Operations (display_order 10-19) --
     /// Append content to an existing file.
+    #[command(display_order = 10)]
     Append(append::AppendArgs),
     /// Create a new file with specified content.
+    #[command(display_order = 11)]
     Create(create::CreateArgs),
     /// Delete a file.
+    #[command(display_order = 12)]
     Delete(delete::DeleteArgs),
-    /// Fast literal or regex search across text files.
-    Search(search::SearchArgs),
-    /// Mechanical string replacement across text files with diff preview.
-    Replace(replace::ReplaceArgs),
-    /// Show which files have uncommitted changes.
-    Status(status::StatusArgs),
-    /// Preview or apply unified diffs safely.
-    Patch(patch::PatchArgs),
     /// Read file contents with optional line range.
+    #[command(display_order = 13)]
     Read(read::ReadArgs),
     /// Rename (move) a file.
+    #[command(display_order = 14)]
     Rename(rename::RenameArgs),
-    /// Markdown section-aware operations.
-    Md(md::MdArgs),
-    /// Parser-backed JSON, YAML, and TOML operations.
-    Doc(doc::DocArgs),
+
+    // -- Text Operations (display_order 20-29) --
+    /// Fast literal or regex search across text files.
+    #[command(display_order = 20)]
+    Search(search::SearchArgs),
+    /// Mechanical string replacement across text files with diff preview.
+    #[command(display_order = 21)]
+    Replace(replace::ReplaceArgs),
+    /// Preview or apply unified diffs safely.
+    #[command(display_order = 22)]
+    Patch(patch::PatchArgs),
     /// Text-file newline, line ending, and whitespace normalization.
+    #[command(display_order = 23)]
     Tidy(tidy::TidyArgs),
-    /// Execute a multi-operation plan atomically.
-    Tx(tx::TxArgs),
     /// Execute multiple operations from a simple line-oriented format.
+    #[command(display_order = 24)]
     Batch(batch::BatchArgs),
-    /// Explain a tx plan in plain English.
-    Explain(explain::ExplainArgs),
-    /// Restore files from a backup created by --apply.
-    Undo(undo::UndoArgs),
+
+    // -- Structured Data (display_order 30-39) --
+    /// Parser-backed JSON, YAML, and TOML operations.
+    #[command(display_order = 30)]
+    Doc(doc::DocArgs),
+    /// Markdown section-aware operations.
+    #[command(display_order = 31)]
+    Md(md::MdArgs),
+
+    // -- AST Operations (display_order 40-49) --
     /// AST-aware operations: list, read, rename, validate.
     #[cfg(feature = "ast")]
+    #[command(display_order = 40)]
     Ast(ast::AstArgs),
+
+    // -- Automation (display_order 50-69) --
+    /// Execute a multi-operation plan atomically.
+    #[command(display_order = 50)]
+    Tx(tx::TxArgs),
+    /// Explain a tx plan in plain English.
+    #[command(display_order = 51)]
+    Explain(explain::ExplainArgs),
+    /// Restore files from a backup created by --apply.
+    #[command(display_order = 52)]
+    Undo(undo::UndoArgs),
+    /// Show which files have uncommitted changes.
+    #[command(display_order = 53)]
+    Status(status::StatusArgs),
     /// Export operation schemas, tier-filtered listings, or system prompt fragments.
+    #[command(display_order = 54)]
     Schema(schema::SchemaArgs),
     /// Print agent rules for using patchloom (AGENTS.md content for end users).
+    #[command(display_order = 55)]
     AgentRules(AgentRulesArgs),
     /// Set up patchloom in the current project.
+    #[command(display_order = 56)]
     Init(init::InitArgs),
     /// Start an MCP (Model Context Protocol) server (stdio by default, Streamable HTTP with --http).
     #[cfg(feature = "mcp")]
+    #[command(display_order = 57)]
     McpServer {
         /// Log every tool call to a JSONL file (tool name, duration, status).
         /// Also settable via PATCHLOOM_MCP_LOG env var; the flag takes precedence.
@@ -102,6 +132,7 @@ pub enum Command {
         tls_key: Option<std::path::PathBuf>,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
+    #[command(display_order = 58)]
     Completions {
         /// Shell to generate completions for.
         #[arg(value_enum)]

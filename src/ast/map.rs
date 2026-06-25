@@ -1,6 +1,6 @@
 //! Repository map with PageRank ranking and token-budget-aware output.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
@@ -92,8 +92,8 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
         return Vec::new();
     }
 
-    // Build adjacency: edges[i] = list of j where symbol i references symbol j
-    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
+    // Build adjacency: edges[i] = set of j where symbol i references symbol j
+    let mut edges: Vec<HashSet<usize>> = vec![HashSet::new(); n];
 
     for fd in &file_data {
         for (idx, (_, name, _, _, _)) in all_symbols.iter().enumerate() {
@@ -109,7 +109,7 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
                     if let Some(targets) = name_to_idx.get(name.as_str()) {
                         for &target in targets {
                             if target != idx {
-                                edges[idx].push(target);
+                                edges[idx].insert(target);
                             }
                         }
                     }
@@ -133,8 +133,8 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
                     (0..n).filter(|&i| all_symbols[i].0 == fd.path).collect();
                 for &src in &file_symbols {
                     for &dst in indices {
-                        if all_symbols[dst].0 != fd.path && !edges[src].contains(&dst) {
-                            edges[src].push(dst);
+                        if all_symbols[dst].0 != fd.path {
+                            edges[src].insert(dst);
                         }
                     }
                 }
@@ -192,7 +192,7 @@ fn collect_flat_symbols(
 }
 
 fn pagerank(
-    edges: &[Vec<usize>],
+    edges: &[HashSet<usize>],
     n: usize,
     opts: &MapOptions<'_>,
     symbols: &[(String, String, SymbolKind, String, usize)],
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn pagerank_trivial() {
         // Two nodes pointing at each other
-        let edges = vec![vec![1], vec![0]];
+        let edges = vec![HashSet::from([1]), HashSet::from([0])];
         let symbols = vec![
             (
                 "a.rs".into(),
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn boost_increases_score() {
-        let edges = vec![vec![], vec![]];
+        let edges = vec![HashSet::new(), HashSet::new()];
         let symbols = vec![
             (
                 "a.rs".into(),
