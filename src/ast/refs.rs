@@ -377,6 +377,28 @@ int main() {
         assert!(refs.is_empty());
     }
 
+    /// Verify that `find_refs_in_source_with_tree` produces the same results
+    /// as `find_refs_in_source` when given a pre-parsed tree (regression guard
+    /// for the tree-cache optimization added in #934).
+    #[test]
+    fn find_refs_with_tree_matches_full_parse() {
+        let source = "fn greet() {}\nfn main() { greet(); greet(); }\n";
+        let lang = Language::Rust;
+        let (tree, _) = crate::ast::parse_source(source, lang).expect("parse should succeed");
+        let via_full = find_refs_in_source(source, "greet", lang, "test.rs");
+        let via_tree = find_refs_in_source_with_tree(source, "greet", &tree, "test.rs");
+        assert_eq!(
+            via_full.len(),
+            via_tree.len(),
+            "with_tree should produce the same number of refs"
+        );
+        for (a, b) in via_full.iter().zip(via_tree.iter()) {
+            assert_eq!(a.line, b.line);
+            assert_eq!(a.kind, b.kind);
+            assert_eq!(a.context, b.context);
+        }
+    }
+
     #[test]
     fn ref_kind_serializes() {
         let json = serde_json::to_string(&RefKind::Definition).unwrap();

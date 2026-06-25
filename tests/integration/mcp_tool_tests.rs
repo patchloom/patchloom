@@ -301,6 +301,35 @@ async fn test_mcp_doc_get_reads_value() {
     client.cancel().await.unwrap();
 }
 
+/// Regression test for #939: search_files with zero matches must return a
+/// descriptive "No matches found." message, not the generic exit-code text.
+#[tokio::test]
+async fn test_mcp_search_no_match_returns_descriptive_message() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hello.txt"), "nothing relevant here\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({"pattern": "zzz_nonexistent_pattern_zzz"}),
+    )
+    .await;
+    assert!(is_error, "search with no matches should return error");
+    assert!(
+        text.contains("No matches found"),
+        "response should say 'No matches found', got: {text}"
+    );
+    assert!(
+        !text.contains("Operation failed with exit code"),
+        "generic message should not appear: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_search_rejects_absolute_path() {
     if !has_mcp_support() {
