@@ -15,7 +15,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests, integration tests, and generated-doc freshness checks. While iterating locally, `make check-fast` skips the doc freshness checks.
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks. While iterating locally, `make check-fast` skips the doc freshness checks but adds library hygiene enforcement.
 
 ## Development workflow
 
