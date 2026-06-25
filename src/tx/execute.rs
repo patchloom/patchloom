@@ -2,7 +2,7 @@ use super::output::{TxExecResult, TxLintResult, TxReadResult, TxSearchMatch, TxS
 use super::validate::op_label;
 use crate::cli::global::{EolMode, GlobalFlags};
 use crate::ops::doc::{
-    DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
+    FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
     serialize_value_preserving,
 };
 use crate::ops::md::{
@@ -696,7 +696,8 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
 }
 
 pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
-    let (path, mutation) = op_to_doc_mutation(op);
+    let (path, mutation) =
+        crate::plan::op_to_doc_mutation(op).expect("execute_doc_op called with non-doc operation");
     let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
         .map_err(path_err(path))?;
 
@@ -718,97 +719,8 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     }
 }
 
-/// Extract the file path and a [`DocMutation`] from a doc [`Operation`].
-fn op_to_doc_mutation(op: &Operation) -> (&str, DocMutation) {
-    match op {
-        Operation::DocSet {
-            path,
-            selector,
-            value,
-        } => (
-            path,
-            DocMutation::Set {
-                selector: selector.clone(),
-                value: value.clone(),
-            },
-        ),
-        Operation::DocDelete { path, selector } => (
-            path,
-            DocMutation::Delete {
-                selector: selector.clone(),
-            },
-        ),
-        Operation::DocMerge { path, value } => (
-            path,
-            DocMutation::Merge {
-                value: value.clone(),
-            },
-        ),
-        Operation::DocAppend {
-            path,
-            selector,
-            value,
-        } => (
-            path,
-            DocMutation::Append {
-                selector: selector.clone(),
-                value: value.clone(),
-            },
-        ),
-        Operation::DocPrepend {
-            path,
-            selector,
-            value,
-        } => (
-            path,
-            DocMutation::Prepend {
-                selector: selector.clone(),
-                value: value.clone(),
-            },
-        ),
-        Operation::DocUpdate {
-            path,
-            selector,
-            value,
-        } => (
-            path,
-            DocMutation::Update {
-                selector: selector.clone(),
-                value: value.clone(),
-            },
-        ),
-        Operation::DocMove { path, from, to } => (
-            path,
-            DocMutation::Move {
-                from: from.clone(),
-                to: to.clone(),
-            },
-        ),
-        Operation::DocEnsure {
-            path,
-            selector,
-            value,
-        } => (
-            path,
-            DocMutation::Ensure {
-                selector: selector.clone(),
-                value: value.clone(),
-            },
-        ),
-        Operation::DocDeleteWhere {
-            path,
-            selector,
-            predicate,
-        } => (
-            path,
-            DocMutation::DeleteWhere {
-                selector: selector.clone(),
-                predicate: predicate.clone(),
-            },
-        ),
-        _ => unreachable!("op_to_doc_mutation called with non-doc operation"),
-    }
-}
+// op_to_doc_mutation moved to plan.rs as the single source of truth for
+// Operation::Doc* -> DocMutation conversion (see #901).
 
 pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     match op {
