@@ -2233,6 +2233,38 @@ mod tests {
         }
 
         #[test]
+        fn mutation_move_missing_source() {
+            let mut root = json!({"a": 1});
+            let err = apply_doc_mutation(
+                &mut root,
+                DocMutation::Move {
+                    from: "nonexistent".into(),
+                    to: "b".into(),
+                },
+            );
+            assert!(err.is_err());
+            assert!(
+                err.unwrap_err()
+                    .to_string()
+                    .contains("source key 'nonexistent' not found")
+            );
+        }
+
+        #[test]
+        fn mutation_prepend_to_non_array() {
+            let mut root = json!({"items": "not-array"});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Prepend {
+                    selector: "items".into(),
+                    value: json!(1),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::TypeError(_)));
+        }
+
+        #[test]
         fn mutation_ensure_missing() {
             let mut root = json!({"a": 1});
             let result = apply_doc_mutation(
