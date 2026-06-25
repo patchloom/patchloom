@@ -2,8 +2,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
-    navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
+    DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
+    serialize_value_preserving,
 };
 use crate::selector;
 use crate::write;
@@ -586,39 +586,49 @@ fn execute_write(
     ctx: &WriteContext,
     cwd: &std::path::Path,
 ) -> anyhow::Result<(String, u8)> {
+    let (file, mutation) = action_to_mutation(action)?;
+    with_doc_mutation(file, ctx, cwd, |root| {
+        match apply_doc_mutation(root, mutation).with_context(|| file.to_string())? {
+            MutationResult::Applied => Ok(None),
+            MutationResult::NoMatch => Ok(Some((String::new(), exit::NO_MATCHES))),
+            MutationResult::AlreadyExists => Ok(Some((String::new(), exit::SUCCESS))),
+            MutationResult::TypeError(msg) => Ok(Some((format!("{msg} in {file}"), exit::FAILURE))),
+        }
+    })
+}
+
+/// Convert a write [`DocAction`] into a file path and [`DocMutation`].
+fn action_to_mutation(action: &DocAction) -> anyhow::Result<(&str, DocMutation)> {
     match action {
         DocAction::Set {
             file,
             selector,
             value,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            set_at_path(root, &sel, parse_value(value)).with_context(|| file.clone())?;
-            Ok(None)
-        }),
-
-        DocAction::Delete { file, selector } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            if !delete_at_selector(root, &sel).with_context(|| file.clone())? {
-                return Ok(Some((String::new(), exit::NO_MATCHES)));
-            }
-            Ok(None)
-        }),
-
+        } => Ok((
+            file,
+            DocMutation::Set {
+                selector: selector.clone(),
+                value: parse_value(value),
+            },
+        )),
+        DocAction::Delete { file, selector } => Ok((
+            file,
+            DocMutation::Delete {
+                selector: selector.clone(),
+            },
+        )),
         DocAction::DeleteWhere {
             file,
             selector,
             predicate,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            let removed = delete_where(root, &sel, predicate).with_context(|| file.clone())?;
-            if removed == 0 {
-                return Ok(Some((String::new(), exit::NO_MATCHES)));
-            }
-            Ok(None)
-        }),
-
-        DocAction::Merge { file, stdin, value } => with_doc_mutation(file, ctx, cwd, |root| {
+        } => Ok((
+            file,
+            DocMutation::DeleteWhere {
+                selector: selector.clone(),
+                predicate: predicate.clone(),
+            },
+        )),
+        DocAction::Merge { file, stdin, value } => {
             let merge_str = if *stdin {
                 std::io::read_to_string(std::io::stdin())?
             } else if let Some(v) = value {
@@ -626,80 +636,64 @@ fn execute_write(
             } else {
                 anyhow::bail!("merge requires --stdin or --value");
             };
-            deep_merge(root, &parse_value(&merge_str));
-            Ok(None)
-        }),
-
+            Ok((
+                file,
+                DocMutation::Merge {
+                    value: parse_value(&merge_str),
+                },
+            ))
+        }
         DocAction::Append {
             file,
             selector,
             value,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            let target = navigate_mut(root, &sel, false).with_context(|| file.clone())?;
-            match target.as_array_mut() {
-                Some(arr) => arr.push(parse_value(value)),
-                None => {
-                    return Ok(Some((
-                        format!("doc append: target at '{selector}' is not an array in {file}"),
-                        exit::FAILURE,
-                    )));
-                }
-            }
-            Ok(None)
-        }),
-
+        } => Ok((
+            file,
+            DocMutation::Append {
+                selector: selector.clone(),
+                value: parse_value(value),
+            },
+        )),
         DocAction::Prepend {
             file,
             selector,
             value,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            let target = navigate_mut(root, &sel, false).with_context(|| file.clone())?;
-            match target.as_array_mut() {
-                Some(arr) => arr.insert(0, parse_value(value)),
-                None => {
-                    return Ok(Some((
-                        format!("doc prepend: target at '{selector}' is not an array in {file}"),
-                        exit::FAILURE,
-                    )));
-                }
-            }
-            Ok(None)
-        }),
-
+        } => Ok((
+            file,
+            DocMutation::Prepend {
+                selector: selector.clone(),
+                value: parse_value(value),
+            },
+        )),
         DocAction::Update {
             file,
             selector,
             value,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            if update_matching(root, &sel, &parse_value(value)) == 0 {
-                return Ok(Some((String::new(), exit::NO_MATCHES)));
-            }
-            Ok(None)
-        }),
-
-        DocAction::Move { file, from, to } => with_doc_mutation(file, ctx, cwd, |root| {
-            let from_sel = selector::parse_anyhow(from)?;
-            let to_sel = selector::parse_anyhow(to)?;
-            move_at_path(root, &from_sel, &to_sel).with_context(|| file.clone())?;
-            Ok(None)
-        }),
-
+        } => Ok((
+            file,
+            DocMutation::Update {
+                selector: selector.clone(),
+                value: parse_value(value),
+            },
+        )),
+        DocAction::Move { file, from, to } => Ok((
+            file,
+            DocMutation::Move {
+                from: from.clone(),
+                to: to.clone(),
+            },
+        )),
         DocAction::Ensure {
             file,
             selector,
             value,
-        } => with_doc_mutation(file, ctx, cwd, |root| {
-            let sel = selector::parse_anyhow(selector)?;
-            if !selector::eval(root, &sel).is_empty() {
-                return Ok(Some((String::new(), exit::SUCCESS)));
-            }
-            set_at_path(root, &sel, parse_value(value)).with_context(|| file.clone())?;
-            Ok(None)
-        }),
-
+        } => Ok((
+            file,
+            DocMutation::Ensure {
+                selector: selector.clone(),
+                value: parse_value(value),
+            },
+        )),
         // Read-only actions are handled by execute_with_mode().
         _ => anyhow::bail!("not a write action"),
     }
@@ -990,6 +984,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::doc::deep_merge;
     use std::fs;
     use tempfile::TempDir;
 

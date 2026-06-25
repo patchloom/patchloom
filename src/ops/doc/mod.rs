@@ -738,8 +738,15 @@ pub fn delete_where(
     let eq_pos = predicate
         .find('=')
         .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
-    let pred_key = &predicate[..eq_pos];
-    let pred_val = &predicate[eq_pos + 1..];
+    let pred_key = predicate[..eq_pos].trim();
+    if pred_key.is_empty() {
+        anyhow::bail!("predicate key is empty; expected key=value format");
+    }
+    let raw_val = &predicate[eq_pos + 1..];
+    if raw_val.starts_with('=') {
+        anyhow::bail!("predicate uses '==' but only '=' is supported; use key=value format");
+    }
+    let pred_val = raw_val.trim();
 
     let target = navigate_mut(root, segments, false)?;
     let arr = target
@@ -886,6 +893,158 @@ pub fn update_matching(
                 }
             }
             count
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unified doc mutation dispatch
+// ---------------------------------------------------------------------------
+
+/// Describes a single mutation to apply to a parsed document root.
+///
+/// This enum captures the 9 doc write operations so that both the CLI
+/// (`cmd/doc.rs`) and the transaction engine (`tx.rs`) share a single
+/// dispatch path instead of duplicating the match logic.
+pub enum DocMutation {
+    Set {
+        selector: String,
+        value: serde_json::Value,
+    },
+    Delete {
+        selector: String,
+    },
+    Merge {
+        value: serde_json::Value,
+    },
+    Append {
+        selector: String,
+        value: serde_json::Value,
+    },
+    Prepend {
+        selector: String,
+        value: serde_json::Value,
+    },
+    Update {
+        selector: String,
+        value: serde_json::Value,
+    },
+    Move {
+        from: String,
+        to: String,
+    },
+    Ensure {
+        selector: String,
+        value: serde_json::Value,
+    },
+    DeleteWhere {
+        selector: String,
+        predicate: String,
+    },
+}
+
+/// Result of applying a [`DocMutation`] to a document root.
+pub enum MutationResult {
+    /// The mutation was applied and the document was modified.
+    Applied,
+    /// The selector matched nothing (e.g. delete on a missing key).
+    NoMatch,
+    /// The path already exists (used by `Ensure` when no write is needed).
+    AlreadyExists,
+    /// A type error occurred (e.g. append to a non-array). The string
+    /// includes the operation name prefix for backward-compatible error
+    /// messages (e.g. "doc append: target at 'x' is not an array").
+    TypeError(String),
+}
+
+/// Apply a [`DocMutation`] to an in-memory document root.
+///
+/// Callers are responsible for:
+/// - Parsing the file and providing the root `Value`
+/// - Serializing the modified root back to disk
+/// - Mapping [`MutationResult`] to the appropriate exit code or error
+pub fn apply_doc_mutation(
+    root: &mut serde_json::Value,
+    mutation: DocMutation,
+) -> anyhow::Result<MutationResult> {
+    match mutation {
+        DocMutation::Set { selector, value } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            set_at_path(root, &sel, value)?;
+            Ok(MutationResult::Applied)
+        }
+        DocMutation::Delete { selector } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            if delete_at_selector(root, &sel)? {
+                Ok(MutationResult::Applied)
+            } else {
+                Ok(MutationResult::NoMatch)
+            }
+        }
+        DocMutation::Merge { value } => {
+            deep_merge(root, &value);
+            Ok(MutationResult::Applied)
+        }
+        DocMutation::Append { selector, value } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            let target = navigate_mut(root, &sel, false)?;
+            match target.as_array_mut() {
+                Some(arr) => {
+                    arr.push(value);
+                    Ok(MutationResult::Applied)
+                }
+                None => Ok(MutationResult::TypeError(format!(
+                    "doc append: target at '{selector}' is not an array"
+                ))),
+            }
+        }
+        DocMutation::Prepend { selector, value } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            let target = navigate_mut(root, &sel, false)?;
+            match target.as_array_mut() {
+                Some(arr) => {
+                    arr.insert(0, value);
+                    Ok(MutationResult::Applied)
+                }
+                None => Ok(MutationResult::TypeError(format!(
+                    "doc prepend: target at '{selector}' is not an array"
+                ))),
+            }
+        }
+        DocMutation::Update { selector, value } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            if update_matching(root, &sel, &value) == 0 {
+                Ok(MutationResult::NoMatch)
+            } else {
+                Ok(MutationResult::Applied)
+            }
+        }
+        DocMutation::Move { from, to } => {
+            let from_sel = selector::parse_anyhow(&from)?;
+            let to_sel = selector::parse_anyhow(&to)?;
+            move_at_path(root, &from_sel, &to_sel)?;
+            Ok(MutationResult::Applied)
+        }
+        DocMutation::Ensure { selector, value } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            if !selector::eval(root, &sel).is_empty() {
+                Ok(MutationResult::AlreadyExists)
+            } else {
+                set_at_path(root, &sel, value)?;
+                Ok(MutationResult::Applied)
+            }
+        }
+        DocMutation::DeleteWhere {
+            selector,
+            predicate,
+        } => {
+            let sel = selector::parse_anyhow(&selector)?;
+            let removed = delete_where(root, &sel, &predicate)?;
+            if removed == 0 {
+                Ok(MutationResult::NoMatch)
+            } else {
+                Ok(MutationResult::Applied)
+            }
         }
     }
 }
@@ -1577,6 +1736,42 @@ mod tests {
         }
 
         #[test]
+        fn delete_where_double_equals_rejected() {
+            let mut root =
+                json!({"items": [{"name": "a", "keep": false}, {"name": "b", "keep": true}]});
+            let sel = crate::selector::parse("items").unwrap();
+            let err = delete_where(&mut root, &sel, "keep == false").unwrap_err();
+            assert!(
+                err.to_string().contains("'=='"),
+                "expected == rejection, got: {err}"
+            );
+            // Array must be unchanged (no silent removal).
+            assert_eq!(root["items"].as_array().unwrap().len(), 2);
+        }
+
+        #[test]
+        fn delete_where_empty_key_rejected() {
+            let mut root = json!({"items": [{"name": "a"}]});
+            let sel = crate::selector::parse("items").unwrap();
+            let err = delete_where(&mut root, &sel, "=value").unwrap_err();
+            assert!(
+                err.to_string().contains("empty"),
+                "expected empty-key error, got: {err}"
+            );
+        }
+
+        #[test]
+        fn delete_where_trims_whitespace() {
+            let mut root = json!({"items": [{"name": "a"}, {"name": "b"}]});
+            let sel = crate::selector::parse("items").unwrap();
+            // Spaces around key and value should be trimmed.
+            let removed = delete_where(&mut root, &sel, " name = a ").unwrap();
+            assert_eq!(removed, 1);
+            assert_eq!(root["items"].as_array().unwrap().len(), 1);
+            assert_eq!(root["items"][0]["name"], "b");
+        }
+
+        #[test]
         fn delete_at_selector_removes_key() {
             let mut root = json!({"a": 1, "b": 2});
             let sel = crate::selector::parse("b").unwrap();
@@ -1883,6 +2078,215 @@ mod tests {
                 let reparsed = parse_doc(&serialized, &FileFormat::Json).unwrap();
                 prop_assert_eq!(&new_value, &reparsed);
             }
+        }
+    }
+
+    // ── DocMutation / apply_doc_mutation tests ────────────────────────
+    mod mutation_tests {
+        use super::super::*;
+        use serde_json::json;
+
+        #[test]
+        fn mutation_set() {
+            let mut root = json!({"a": 1});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Set {
+                    selector: "b".into(),
+                    value: json!(2),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root, json!({"a": 1, "b": 2}));
+        }
+
+        #[test]
+        fn mutation_delete_existing() {
+            let mut root = json!({"a": 1, "b": 2});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Delete {
+                    selector: "b".into(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root, json!({"a": 1}));
+        }
+
+        #[test]
+        fn mutation_delete_missing() {
+            let mut root = json!({"a": 1});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Delete {
+                    selector: "z".into(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::NoMatch));
+        }
+
+        #[test]
+        fn mutation_merge() {
+            let mut root = json!({"a": 1});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Merge {
+                    value: json!({"b": 2}),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root, json!({"a": 1, "b": 2}));
+        }
+
+        #[test]
+        fn mutation_append_to_array() {
+            let mut root = json!({"items": [1, 2]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Append {
+                    selector: "items".into(),
+                    value: json!(3),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root["items"], json!([1, 2, 3]));
+        }
+
+        #[test]
+        fn mutation_append_to_non_array() {
+            let mut root = json!({"items": "not-array"});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Append {
+                    selector: "items".into(),
+                    value: json!(1),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::TypeError(_)));
+        }
+
+        #[test]
+        fn mutation_prepend_to_array() {
+            let mut root = json!({"items": [2, 3]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Prepend {
+                    selector: "items".into(),
+                    value: json!(1),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root["items"], json!([1, 2, 3]));
+        }
+
+        #[test]
+        fn mutation_update_matching() {
+            let mut root = json!({"items": [{"id": 1, "v": "a"}, {"id": 2, "v": "b"}]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Update {
+                    selector: "items[id=1]".into(),
+                    value: json!({"id": 1, "v": "updated"}),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root["items"][0]["v"], "updated");
+        }
+
+        #[test]
+        fn mutation_update_no_match() {
+            let mut root = json!({"items": [{"id": 1}]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Update {
+                    selector: "items[id=99]".into(),
+                    value: json!({"id": 99}),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::NoMatch));
+        }
+
+        #[test]
+        fn mutation_move_key() {
+            let mut root = json!({"src": 42, "dst": {}});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Move {
+                    from: "src".into(),
+                    to: "dst.val".into(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root, json!({"dst": {"val": 42}}));
+        }
+
+        #[test]
+        fn mutation_ensure_missing() {
+            let mut root = json!({"a": 1});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Ensure {
+                    selector: "b".into(),
+                    value: json!(2),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root, json!({"a": 1, "b": 2}));
+        }
+
+        #[test]
+        fn mutation_ensure_existing() {
+            let mut root = json!({"a": 1});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::Ensure {
+                    selector: "a".into(),
+                    value: json!(99),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::AlreadyExists));
+            assert_eq!(root["a"], 1); // unchanged
+        }
+
+        #[test]
+        fn mutation_delete_where_matching() {
+            let mut root = json!({"items": [{"k": "a"}, {"k": "b"}]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::DeleteWhere {
+                    selector: "items".into(),
+                    predicate: "k=a".into(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::Applied));
+            assert_eq!(root["items"].as_array().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn mutation_delete_where_no_match() {
+            let mut root = json!({"items": [{"k": "a"}]});
+            let result = apply_doc_mutation(
+                &mut root,
+                DocMutation::DeleteWhere {
+                    selector: "items".into(),
+                    predicate: "k=z".into(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(result, MutationResult::NoMatch));
         }
     }
 }

@@ -3,8 +3,8 @@ use crate::cli::global::{EolMode, GlobalFlags};
 
 use crate::exit;
 use crate::ops::doc::{
-    FileFormat, deep_merge, delete_at_selector, delete_where, detect_format, move_at_path,
-    navigate_mut, parse_doc, serialize_value_preserving, set_at_path, update_matching,
+    DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
+    serialize_value_preserving,
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, move_section_in,
@@ -16,7 +16,6 @@ use crate::ops::replace::{
     replacement_text, validate_replace_mode,
 };
 use crate::plan::{self, Operation, Plan};
-use crate::selector;
 
 use crate::write::{WritePolicy, apply_policy, atomic_create_new, atomic_write};
 use anyhow::Context;
@@ -262,10 +261,6 @@ pub(crate) fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn parse_selector(input: &str) -> anyhow::Result<selector::Selector> {
-    selector::parse_anyhow(input)
 }
 
 // ---------------------------------------------------------------------------
@@ -943,111 +938,112 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
 }
 
 pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+    let (path, mutation) = op_to_doc_mutation(op);
+    let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
+        .map_err(path_err(path))?;
+    let label = op_label(op);
+
+    match apply_doc_mutation(root, mutation).map_err(path_err(path))? {
+        MutationResult::Applied | MutationResult::AlreadyExists => Ok(()),
+        MutationResult::NoMatch => {
+            anyhow::bail!("{path}: {label} matched nothing");
+        }
+        MutationResult::TypeError(msg) => {
+            anyhow::bail!("{path}: {msg}");
+        }
+    }
+}
+
+/// Extract the file path and a [`DocMutation`] from a doc [`Operation`].
+fn op_to_doc_mutation(op: &Operation) -> (&str, DocMutation) {
     match op {
         Operation::DocSet {
             path,
             selector,
             value,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            set_at_path(root, &sel, value.clone()).map_err(path_err(path))?;
-        }
-
-        Operation::DocDelete { path, selector } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            delete_at_selector(root, &sel).map_err(path_err(path))?;
-        }
-
-        Operation::DocMerge { path, value } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            deep_merge(root, value);
-        }
-
+        } => (
+            path,
+            DocMutation::Set {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        ),
+        Operation::DocDelete { path, selector } => (
+            path,
+            DocMutation::Delete {
+                selector: selector.clone(),
+            },
+        ),
+        Operation::DocMerge { path, value } => (
+            path,
+            DocMutation::Merge {
+                value: value.clone(),
+            },
+        ),
         Operation::DocAppend {
             path,
             selector,
             value,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
-            target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
-                .push(value.clone());
-        }
-
+        } => (
+            path,
+            DocMutation::Append {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        ),
         Operation::DocPrepend {
             path,
             selector,
             value,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            let target = navigate_mut(root, &sel, false).map_err(path_err(path))?;
-            target
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("{path}: target is not an array"))?
-                .insert(0, value.clone());
-        }
-
+        } => (
+            path,
+            DocMutation::Prepend {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        ),
         Operation::DocUpdate {
             path,
             selector,
             value,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            let count = update_matching(root, &sel, value);
-            if count == 0 {
-                anyhow::bail!("{path}: no matching nodes found for selector '{selector}'");
-            }
-        }
-
-        Operation::DocMove { path, from, to } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let from_sel = parse_selector(from).map_err(path_err(path))?;
-            let to_sel = parse_selector(to).map_err(path_err(path))?;
-            move_at_path(root, &from_sel, &to_sel).map_err(path_err(path))?;
-        }
-
+        } => (
+            path,
+            DocMutation::Update {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        ),
+        Operation::DocMove { path, from, to } => (
+            path,
+            DocMutation::Move {
+                from: from.clone(),
+                to: to.clone(),
+            },
+        ),
         Operation::DocEnsure {
             path,
             selector,
             value,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            // If the path already exists, no-op.
-            if selector::eval(root, &sel).is_empty() {
-                set_at_path(root, &sel, value.clone()).map_err(path_err(path))?;
-            }
-        }
-
+        } => (
+            path,
+            DocMutation::Ensure {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        ),
         Operation::DocDeleteWhere {
             path,
             selector,
             predicate,
-        } => {
-            let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-                .map_err(path_err(path))?;
-            let sel = parse_selector(selector).map_err(path_err(path))?;
-            delete_where(root, &sel, predicate).map_err(path_err(path))?;
-        }
-
-        _ => unreachable!("execute_doc_op called with non-doc operation"),
+        } => (
+            path,
+            DocMutation::DeleteWhere {
+                selector: selector.clone(),
+                predicate: predicate.clone(),
+            },
+        ),
+        _ => unreachable!("op_to_doc_mutation called with non-doc operation"),
     }
-    Ok(())
 }
 
 pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
