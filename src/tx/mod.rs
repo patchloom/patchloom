@@ -3,6 +3,8 @@
 mod execute;
 mod lifecycle;
 mod output;
+mod replace_op;
+mod search_op;
 mod validate;
 
 // Re-export all pub and pub(crate) items so `crate::tx::*` paths continue to work.
