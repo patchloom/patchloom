@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
-use super::refs::{RefKind, find_refs_in_source};
+use super::refs::{RefKind, find_refs_in_source_with_tree};
 use super::symbols::{SymbolDef, SymbolKind, extract_symbols};
 
 /// A symbol entry in the repository map.
@@ -95,13 +95,25 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
     // Build adjacency: edges[i] = set of j where symbol i references symbol j
     let mut edges: Vec<HashSet<usize>> = vec![HashSet::new(); n];
 
+    // Pre-parse all files once; reuse trees for all symbol lookups.
+    let tree_cache: HashMap<&str, tree_sitter_lib::Tree> = file_data
+        .iter()
+        .filter_map(|fd| {
+            let (tree, _) = super::parse_source(&fd.source, fd.lang)?;
+            Some((fd.path.as_str(), tree))
+        })
+        .collect();
+
     for fd in &file_data {
+        let Some(tree) = tree_cache.get(fd.path.as_str()) else {
+            continue;
+        };
         for (idx, (_, name, _, _, _)) in all_symbols.iter().enumerate() {
             if all_symbols[idx].0 != fd.path {
                 continue;
             }
             // Find what this symbol references in other symbols
-            let refs = find_refs_in_source(&fd.source, name, fd.lang, &fd.path);
+            let refs = find_refs_in_source_with_tree(&fd.source, name, tree, &fd.path);
             for r in &refs {
                 if r.kind == RefKind::Reference {
                     // This file references `name`, add edges from referencing symbols
@@ -121,12 +133,15 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
     // Also find cross-file references: for each file, scan for identifiers
     // that match symbol names in other files
     for fd in &file_data {
+        let Some(tree) = tree_cache.get(fd.path.as_str()) else {
+            continue;
+        };
         for (name, indices) in &name_to_idx {
             // Skip symbols defined in this file
             if indices.iter().all(|&i| all_symbols[i].0 == fd.path) {
                 continue;
             }
-            let refs = find_refs_in_source(&fd.source, name, fd.lang, &fd.path);
+            let refs = find_refs_in_source_with_tree(&fd.source, name, tree, &fd.path);
             if refs.iter().any(|r| r.kind == RefKind::Reference) {
                 // Find symbols in this file that could be the referencing context
                 let file_symbols: Vec<usize> =
@@ -379,6 +394,69 @@ mod tests {
         assert!(tree.contains("a.rs\n"));
         assert!(tree.contains("b.rs\n"));
         assert!(tree.contains("fn foo()"));
+    }
+
+    #[test]
+    fn pagerank_converges_early_for_small_graph() {
+        // A small graph should converge well before max_iterations (100).
+        // Two nodes pointing at each other: convergence should be very fast.
+        let edges = vec![HashSet::from([1]), HashSet::from([0])];
+        let symbols = vec![
+            (
+                "a.rs".into(),
+                "foo".into(),
+                SymbolKind::Function,
+                String::new(),
+                1,
+            ),
+            (
+                "b.rs".into(),
+                "bar".into(),
+                SymbolKind::Function,
+                String::new(),
+                1,
+            ),
+        ];
+        let opts = MapOptions::default();
+        let scores = pagerank(&edges, 2, &opts, &symbols);
+        // Both should have approximately equal non-zero scores that sum to ~1.0
+        let total: f64 = scores.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 0.01,
+            "PageRank scores should sum to ~1.0, got {total}"
+        );
+        assert!(
+            scores[0] > 0.0 && scores[1] > 0.0,
+            "all scores should be positive"
+        );
+    }
+
+    #[test]
+    fn pagerank_disconnected_graph_converges_immediately() {
+        // A graph with no edges should converge in 1 iteration:
+        // all scores remain at 1/N through personalization.
+        let edges = vec![HashSet::new(); 4];
+        let symbols: Vec<_> = (0..4)
+            .map(|i| {
+                (
+                    format!("f{i}.rs"),
+                    format!("sym{i}"),
+                    SymbolKind::Function,
+                    String::new(),
+                    1usize,
+                )
+            })
+            .collect();
+        let opts = MapOptions::default();
+        let scores = pagerank(&edges, 4, &opts, &symbols);
+        // All scores should be equal (1/4 * (1-d) + d * 0 = 0.0375)
+        let expected = (1.0 - 0.85) / 4.0; // personalization component
+        for (i, &s) in scores.iter().enumerate() {
+            assert!(
+                (s - expected).abs() < 1e-6,
+                "score[{i}] = {s}, expected ~{expected}"
+            );
+        }
     }
 
     #[test]

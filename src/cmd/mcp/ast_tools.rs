@@ -28,7 +28,6 @@ pub(super) fn handle_ast_list(
         if !lang.has_grammar() {
             return exit_code_to_result(
                 exit::NO_MATCHES,
-                "",
                 &format!(
                     "Unsupported language: {} (detected from {}). \
                      Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
@@ -36,6 +35,7 @@ pub(super) fn handle_ast_list(
                      TOML, YAML, JSON, Shell.",
                     lang, p.path,
                 ),
+                "",
             );
         }
         let symbols = crate::ast::symbols::extract_symbols_from_file(&target, Some(lang));
@@ -49,17 +49,26 @@ pub(super) fn handle_ast_list(
         let global = GlobalFlags::with_cwd(&cwd);
         let paths = crate::cmd::ast::collect_source_files(&target, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        for path in &paths {
+
+        struct ListResult {
+            entries: Vec<serde_json::Value>,
+        }
+        let par_results: Vec<ListResult> = crate::par_process_files(&paths, None, &[], |path| {
             let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
             let symbols = crate::ast::symbols::extract_symbols_from_file(path, Some(lang));
             let filtered = crate::cmd::ast::filter_symbols(&symbols, &kind_filter);
             if filtered.is_empty() {
-                continue;
+                return None;
             }
             let display = crate::cmd::ast::display_path(path, &cwd);
-            for sym in &filtered {
-                results.push(crate::cmd::ast::symbol_to_json(sym, &display));
-            }
+            let entries = filtered
+                .iter()
+                .map(|sym| crate::cmd::ast::symbol_to_json(sym, &display))
+                .collect();
+            Some(ListResult { entries })
+        });
+        for r in par_results {
+            results.extend(r.entries);
         }
     } else {
         return Err(McpError::invalid_params(
@@ -227,22 +236,20 @@ pub(super) fn handle_ast_validate(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    let mut results = Vec::new();
-    for path in &paths {
+    let results: Vec<serde_json::Value> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         if !lang.has_grammar() {
-            continue;
+            return None;
         }
-        let result = crate::ast::validate::validate_file(path, Some(lang))
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
         let display = crate::cmd::ast::display_path(path, &cwd);
-        results.push(serde_json::json!({
+        Some(serde_json::json!({
             "file": display,
             "valid": result.valid,
             "language": result.language,
             "errors": result.errors,
-        }));
-    }
+        }))
+    });
 
     if results.is_empty() {
         return exit_code_to_result(exit::NO_MATCHES, "", "No files with grammars found.");
@@ -266,34 +273,38 @@ pub(super) fn handle_ast_search(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    let mut all_matches = Vec::new();
-    for path in &paths {
+    struct SearchFileResult {
+        entries: Vec<serde_json::Value>,
+    }
+    let par_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-
         let query_str = if p.pattern {
-            crate::ast::search::compile_pattern_query(&p.query, lang)
-                .map_err(|e| McpError::invalid_params(format!("{e}"), None))?
+            crate::ast::search::compile_pattern_query(&p.query, lang).ok()?
         } else {
             p.query.clone()
         };
-
-        let results = crate::ast::search::search_file(path, &query_str, Some(lang), p.max_results)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let results =
+            crate::ast::search::search_file(path, &query_str, Some(lang), p.max_results).ok()?;
         if results.is_empty() {
-            continue;
+            return None;
         }
-
         let display = crate::cmd::ast::display_path(path, &cwd);
-        for m in &results {
-            all_matches.push(serde_json::json!({
-                "file": display,
-                "line": m.line,
-                "column": m.column,
-                "text": m.text,
-                "captures": m.captures,
-            }));
-        }
-    }
+        let entries = results
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "file": display,
+                    "line": m.line,
+                    "column": m.column,
+                    "text": m.text,
+                    "captures": m.captures,
+                })
+            })
+            .collect();
+        Some(SearchFileResult { entries })
+    });
+    let all_matches: Vec<serde_json::Value> =
+        par_results.into_iter().flat_map(|r| r.entries).collect();
 
     if all_matches.is_empty() {
         return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
@@ -317,12 +328,13 @@ pub(super) fn handle_ast_refs(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    let mut all_refs = Vec::new();
-    for path in &paths {
-        let display = crate::cmd::ast::display_path(path, &cwd);
-        let refs = crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
-        all_refs.extend(refs);
-    }
+    let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
+        crate::par_process_files(&paths, None, &[], |path| {
+            let display = crate::cmd::ast::display_path(path, &cwd);
+            let refs = crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
+            if refs.is_empty() { None } else { Some(refs) }
+        });
+    let mut all_refs: Vec<crate::ast::refs::SymbolRef> = per_file.into_iter().flatten().collect();
 
     if !p.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -361,7 +373,8 @@ pub(super) fn handle_ast_deps(
         let target_name = target
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .to_string();
         let scan_dir = if target.is_file() {
             target.parent().unwrap_or(&cwd).to_path_buf()
         } else {
@@ -370,37 +383,50 @@ pub(super) fn handle_ast_deps(
         let all_files = crate::cmd::ast::collect_source_files(&scan_dir, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
 
-        for path in &all_files {
-            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
-            let matching: Vec<_> = imports
-                .iter()
-                .filter(|i| i.path.contains(target_name))
-                .collect();
-            if matching.is_empty() {
-                continue;
-            }
-            let display = crate::cmd::ast::display_path(path, &cwd);
-            for imp in &matching {
-                results.push(serde_json::json!({
-                    "file": display,
-                    "imports": imp.path,
-                    "line": imp.line,
-                    "raw": imp.raw,
-                }));
-            }
+        struct RevDepsResult {
+            entries: Vec<serde_json::Value>,
+        }
+        let par_results: Vec<RevDepsResult> =
+            crate::par_process_files(&all_files, None, &[], |path| {
+                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                let matching: Vec<_> = imports
+                    .iter()
+                    .filter(|i| i.path.contains(target_name.as_str()))
+                    .collect();
+                if matching.is_empty() {
+                    return None;
+                }
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                let entries = matching
+                    .iter()
+                    .map(|imp| {
+                        serde_json::json!({
+                            "file": display,
+                            "imports": imp.path,
+                            "line": imp.line,
+                            "raw": imp.raw,
+                        })
+                    })
+                    .collect();
+                Some(RevDepsResult { entries })
+            });
+        for r in par_results {
+            results.extend(r.entries);
         }
     } else {
-        for path in &paths {
-            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
-            if imports.is_empty() {
-                continue;
-            }
-            let display = crate::cmd::ast::display_path(path, &cwd);
-            results.push(serde_json::json!({
-                "file": display,
-                "imports": imports,
-            }));
-        }
+        let par_results: Vec<serde_json::Value> =
+            crate::par_process_files(&paths, None, &[], |path| {
+                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                if imports.is_empty() {
+                    return None;
+                }
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                Some(serde_json::json!({
+                    "file": display,
+                    "imports": imports,
+                }))
+            });
+        results.extend(par_results);
     }
 
     if results.is_empty() {

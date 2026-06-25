@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
-use super::refs::{RefKind, find_refs_in_source};
+use super::refs::{RefKind, find_refs_in_source_with_tree};
 use super::symbols::extract_symbols;
 
 /// A node in the impact tree.
@@ -51,6 +51,15 @@ pub fn compute_impact(
     // when multiple references exist in the same file.
     let mut symbol_cache: HashMap<String, Vec<super::symbols::SymbolDef>> = HashMap::new();
 
+    // Pre-parse all files once; reuse trees for all symbol lookups.
+    let tree_cache: HashMap<String, tree_sitter_lib::Tree> = file_data
+        .iter()
+        .filter_map(|(_, display, source, lang)| {
+            let (tree, _) = super::parse_source(source, *lang)?;
+            Some(((*display).to_string(), tree))
+        })
+        .collect();
+
     find_dependents(
         symbol_name,
         &file_data,
@@ -58,6 +67,7 @@ pub fn compute_impact(
         1,
         &mut visited,
         &mut symbol_cache,
+        &tree_cache,
     )
 }
 
@@ -68,11 +78,18 @@ fn find_dependents(
     current_depth: usize,
     visited: &mut HashSet<String>,
     symbol_cache: &mut HashMap<String, Vec<super::symbols::SymbolDef>>,
+    tree_cache: &HashMap<String, tree_sitter_lib::Tree>,
 ) -> Vec<ImpactNode> {
     let mut results = Vec::new();
 
     for (_, display, source, lang) in file_data {
-        let refs = find_refs_in_source(source, symbol_name, *lang, display);
+        let key = (*display).to_string();
+        let refs = if let Some(tree) = tree_cache.get(&key) {
+            find_refs_in_source_with_tree(source, symbol_name, tree, display)
+        } else {
+            // Fallback: parse on the fly (should not happen with pre-built cache)
+            super::refs::find_refs_in_source(source, symbol_name, *lang, display)
+        };
         if refs.is_empty() {
             continue;
         }
@@ -111,6 +128,7 @@ fn find_dependents(
                     current_depth + 1,
                     visited,
                     symbol_cache,
+                    tree_cache,
                 )
             } else {
                 Vec::new()

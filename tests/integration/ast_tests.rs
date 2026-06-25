@@ -326,3 +326,19 @@ fn test_ast_map_jsonl_per_entry_output() {
         json_arr.len()
     );
 }
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_unsupported_file_reports_language() {
+    // Regression test for #937: unsupported language should report detected
+    // language name and list supported languages.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.csv");
+    fs::write(&file, "a,b,c\n1,2,3\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "list", "data.csv"])
+        .assert()
+        .code(3) // NO_MATCHES
+        .stderr(predicates::str::contains("Unsupported language"))
+        .stderr(predicates::str::contains("Rust"));
+}
