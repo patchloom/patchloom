@@ -1136,6 +1136,46 @@ fn test_doc_flatten_json_output() {
         .stdout(predicate::str::contains("\"patchloom\""));
 }
 
+#[test]
+fn test_doc_flatten_includes_empty_arrays() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(
+        &file,
+        r#"{"default":["a"],"empty_arr":[],"empty_obj":{},"nested":{"deep_empty":[]}}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["empty_arr"],
+        serde_json::json!([]),
+        "empty array missing: {stdout}"
+    );
+    assert_eq!(
+        parsed["empty_obj"],
+        serde_json::json!({}),
+        "empty object missing: {stdout}"
+    );
+    assert_eq!(
+        parsed["nested.deep_empty"],
+        serde_json::json!([]),
+        "nested empty array missing: {stdout}"
+    );
+    assert_eq!(parsed["default[0]"], serde_json::json!("a"));
+}
+
 // ---------------------------------------------------------------------------
 // doc diff
 // ---------------------------------------------------------------------------
