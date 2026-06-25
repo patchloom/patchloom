@@ -44,7 +44,9 @@ audit-test-hygiene: ## Audit test names/comments for staleness and weak assertio
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
 	@grep -rnE 'test_.*(same_file|same-file|core_feature|old_module)' tests/ src/ --include='*.rs' --include='*.py' || echo "(none found)"
 	@echo "=== Weak assertions (bare .failure/.success without content checks) ==="
-	@python3 -c "import re; lines=open('tests/integration.rs').readlines(); kw=r'contains|stdout|stderr|output|predicate|let content|get_output|assert_eq|assert!|read_to_string|exists|code\([0-9]'; bare=[f'{i+1}: {lines[i].strip()}' for i in range(len(lines)) if re.search(r'\.assert\(\)\s*\n\s*\.success\(\)', ''.join(lines[i:i+2]), re.M) and not re.search(kw,lines[i]) and not re.search(kw,''.join(lines[i:i+6]))]; print('\n'.join(bare[:10]) or '(none obvious - success bare cleaned via .code(0), failures are error cases)') " 
+	@python3 -c "import re, glob; all_bare=[]; \
+	[all_bare.extend([f'{f}:{i+1}: {lines[i].strip()}' for i in range(len(lines)) if re.search(r'\.assert\(\)\s*\n\s*\.success\(\)', ''.join(lines[i:i+2]), re.M) and not re.search(kw,lines[i]) and not re.search(kw,''.join(lines[i:i+6]))]) for f in sorted(glob.glob('tests/integration/*.rs')) for lines in [open(f).readlines()] for kw in [r'contains|stdout|stderr|output|predicate|let content|get_output|assert_eq|assert!|read_to_string|exists|code\([0-9]']]; \
+	print('\n'.join(all_bare[:10]) or '(none obvious - success bare cleaned via .code(0), failures are error cases)')"
 	@echo "Run this after refactors or MPI cycles. Strengthen names + assertions. (improved lookahead per Test Auditor #784 follow-up)"
 
 verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated releases, addresses long generated changelog bloat)

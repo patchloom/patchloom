@@ -1,0 +1,1997 @@
+use super::*;
+
+#[tokio::test]
+async fn test_mcp_doc_set_round_trip() {
+    if !has_mcp_support() {
+        return; // binary built with --no-default-features (no MCP)
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"old","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
+    )
+    .await;
+    assert!(!is_error, "doc_set should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_set ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_set files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["name"], "new", "doc_set did not update file: {content}");
+    assert_eq!(
+        v["version"], "1.0",
+        "doc_set clobbered other keys: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({"path": "hello.txt", "from": "world", "to": "patchloom"}),
+    )
+    .await;
+    assert!(!is_error, "replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "replace ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "replace files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("hello.txt")).unwrap();
+    assert_eq!(content, "hello patchloom\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_read_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "line1\nline2\nline3\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "read_file",
+        serde_json::json!({"path": "data.txt"}),
+    )
+    .await;
+    assert!(!is_error, "read should succeed");
+    // read_file returns structured JSON with reads[0].content holding the file text.
+    let content = val["reads"][0]["content"]
+        .as_str()
+        .expect("reads[0].content should be a string");
+    assert_eq!(
+        content, "line1\nline2\nline3\n",
+        "read should return exact file content"
+    );
+    assert_eq!(val["reads"][0]["total_lines"], 3, "should have 3 lines");
+    assert_eq!(val["reads"][0]["path"], "data.txt");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_set_nonexistent_file_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_set on nonexistent file should return error: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_finds_pattern() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("haystack.txt"),
+        "first line\nsecond needle line\nthird line\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({"pattern": "needle", "paths": ["haystack.txt"]}),
+    )
+    .await;
+    assert!(!is_error, "search should succeed: {val}");
+    assert_eq!(
+        val["match_count"], 1,
+        "should find exactly one match: {val}"
+    );
+    assert_eq!(val["file_count"], 1, "should match in one file: {val}");
+    assert_eq!(
+        val["matches"][0]["path"], "haystack.txt",
+        "match should be in haystack.txt: {val}"
+    );
+    assert!(
+        val["matches"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("needle"),
+        "match text should contain 'needle': {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_multiline_returns_json_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("multi.txt"), "hello\nworld\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "hello.*world",
+            "paths": ["multi.txt"],
+            "multiline": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "multiline search should succeed: {val}");
+    assert_eq!(val["match_count"], 1);
+    assert_eq!(val["file_count"], 1);
+    assert_eq!(val["matches"][0]["path"], "multi.txt");
+    assert_eq!(val["matches"][0]["line"], 1);
+    assert_eq!(val["matches"][0]["column"], 1);
+    assert_eq!(val["matches"][0]["text"], "hello\nworld");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_invert_match_returns_non_matching_lines() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lines.txt"), "alpha\nbeta\ngamma\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "beta",
+            "paths": ["lines.txt"],
+            "invert_match": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "invert_match search should succeed: {val}");
+    assert_eq!(val["match_count"], 2);
+    assert_eq!(val["matches"][0]["text"], "alpha");
+    assert_eq!(val["matches"][1]["text"], "gamma");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_assert_count_match() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "foo",
+            "paths": ["rep.txt"],
+            "assert_count": 2
+        }),
+    )
+    .await;
+    assert!(!is_error, "assert_count=2 should succeed: {val}");
+    assert_eq!(val["assert_count"]["expected"], 2);
+    assert_eq!(val["assert_count"]["actual"], 2);
+    assert_eq!(val["assert_count"]["matched"], true);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_assert_count_mismatch() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo\nfoo\nbar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "foo",
+            "paths": ["rep.txt"],
+            "assert_count": 5
+        }),
+    )
+    .await;
+    // assert_count mismatch is a "changes_detected" result, reported as is_error=true
+    assert!(is_error, "assert_count mismatch should signal error: {val}");
+    assert_eq!(val["assert_count"]["expected"], 5);
+    assert_eq!(val["assert_count"]["actual"], 2);
+    assert_eq!(val["assert_count"]["matched"], false);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_has_existing_key() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name":"alice","age":30}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "has", "path": "data.json", "selector": "name"}),
+    )
+    .await;
+    assert!(!is_error, "doc_query has should succeed: {val}");
+    assert_eq!(
+        val, true,
+        "doc_query has should return true for existing key: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_get_reads_value() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"version":"2.1.0","debug":false}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({"path": "config.json", "selector": "version"}),
+    )
+    .await;
+    assert!(!is_error, "doc_get should succeed: {val}");
+    assert_eq!(val, "2.1.0", "doc_get should return the exact value: {val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_rejects_absolute_path() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
+        .with_arguments(
+            serde_json::from_value(
+                serde_json::json!({"pattern": "secret", "paths": ["/etc/passwd"]}),
+            )
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with absolute path should be rejected as a path containment violation"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_search_rejects_conflicting_modes() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "pattern": "hello",
+                "files_with_matches": true,
+                "count": true
+            }))
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with both files_with_matches and count should be rejected"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_file_rename_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old_name.txt"), "content\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "move_file",
+        serde_json::json!({"from": "old_name.txt", "to": "new_name.txt"}),
+    )
+    .await;
+    assert!(!is_error, "rename should succeed: {val}");
+    assert_eq!(val["ok"], true, "rename ok field: {val}");
+    assert_eq!(val["files_created"], 1, "rename files_created: {val}");
+    assert_eq!(val["files_deleted"], 1, "rename files_deleted: {val}");
+    assert!(
+        !dir.path().join("old_name.txt").exists(),
+        "old file should not exist"
+    );
+    assert!(
+        dir.path().join("new_name.txt").exists(),
+        "new file should exist"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new_name.txt")).unwrap(),
+        "content\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_create_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "create_file",
+        serde_json::json!({"path": "new_file.txt", "content": "hello world\n"}),
+    )
+    .await;
+    assert!(!is_error, "create should succeed: {val}");
+    assert_eq!(val["ok"], true, "create ok field: {val}");
+    assert_eq!(val["files_created"], 1, "create files_created: {val}");
+    assert!(
+        dir.path().join("new_file.txt").exists(),
+        "file should exist after create"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new_file.txt")).unwrap(),
+        "hello world\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_create_existing_fails_without_force() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("existing.txt"), "original\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "create_file",
+        serde_json::json!({"path": "existing.txt", "content": "new content\n"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "create should fail for existing file without force: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+        "original\n",
+        "original content should be preserved"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_create_force_overwrites_existing() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("existing.txt"), "original\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "create_file",
+        serde_json::json!({"path": "existing.txt", "content": "replaced\n", "force": true}),
+    )
+    .await;
+    assert!(!is_error, "create with force should succeed: {val}");
+    assert_eq!(val["ok"], true, "create force ok field: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("existing.txt")).unwrap(),
+        "replaced\n",
+        "content should be overwritten"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_delete_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doomed.txt"), "bye\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "delete_file",
+        serde_json::json!({"path": "doomed.txt"}),
+    )
+    .await;
+    assert!(!is_error, "delete should succeed: {val}");
+    assert_eq!(val["ok"], true, "delete ok field: {val}");
+    assert_eq!(val["files_deleted"], 1, "delete files_deleted: {val}");
+    assert!(
+        !dir.path().join("doomed.txt").exists(),
+        "file should not exist after delete"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_delete_nonexistent_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "delete_file",
+        serde_json::json!({"path": "nonexistent.txt"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "delete should fail when file does not exist: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_move_nonexistent_source_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "move_file",
+        serde_json::json!({"from": "nonexistent.txt", "to": "dest.txt"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "move should fail when source does not exist: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_patch_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "old line\n").unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1 +1 @@\n-old line\n+new line\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "patch should succeed: {val}");
+    assert_eq!(val["ok"], true, "patch ok field: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "new line\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_on_stale_merge() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\nold line\nline3\nextra\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge"}),
+    )
+    .await;
+    assert!(!is_error, "patch merge should succeed: {val}");
+    assert_eq!(val["ok"], true, "patch merge ok field: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "line1\nnew line\nline3\nextra\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\ncompletely different\nline3\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "conflicting merge without allow_conflicts should fail: {val}"
+    );
+    assert_eq!(val["ok"], false, "patch conflict ok should be false: {val}");
+    let response_str = val.to_string();
+    assert!(
+        response_str.contains("conflict"),
+        "response should mention conflict: {val}"
+    );
+    assert!(
+        !response_str.contains("<<<<<<<"),
+        "conflict markers must not appear in response: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("target.txt")).unwrap(),
+        "line1\ncompletely different\nline3\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("target.txt"),
+        "line1\ncompletely different\nline3\n",
+    )
+    .unwrap();
+
+    let diff = "--- a/target.txt\n+++ b/target.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "on_stale": "merge", "allow_conflicts": true}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "patch merge with allow_conflicts should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "patch allow_conflicts ok field: {val}");
+    let content = fs::read_to_string(dir.path().join("target.txt")).unwrap();
+    assert!(
+        content.contains("<<<<<<< patchloom (ours)"),
+        "should have ours marker: {content}"
+    );
+    assert!(
+        content.contains("======="),
+        "should have separator: {content}"
+    );
+    assert!(
+        content.contains(">>>>>>> patch (theirs)"),
+        "should have theirs marker: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_md_insert_after_heading_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doc.md"), "# Title\n\nExisting body.\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_insert_after_heading",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Title",
+            "content": "Inserted line.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md insert_after_heading should succeed: {val}");
+    assert_eq!(val["ok"], true, "md insert_after_heading ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md insert_after_heading files_changed: {val}"
+    );
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("Inserted line."),
+        "inserted content should be present: {content}"
+    );
+    // Existing body should still be there.
+    assert!(
+        content.contains("Existing body."),
+        "existing body should be preserved: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_md_insert_before_heading_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# First\n\nBody one.\n\n## Second\n\nBody two.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_insert_before_heading",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## Second",
+            "content": "Preface text.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md insert_before_heading should succeed: {val}");
+    assert_eq!(val["ok"], true, "md insert_before_heading ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md insert_before_heading files_changed: {val}"
+    );
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("Preface text."),
+        "inserted content should be present: {content}"
+    );
+    // The preface should appear before ## Second.
+    let preface_pos = content.find("Preface text.").unwrap();
+    let heading_pos = content.find("## Second").unwrap();
+    assert!(
+        preface_pos < heading_pos,
+        "preface should appear before ## Second"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_tidy_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // File missing final newline and with trailing whitespace.
+    fs::write(dir.path().join("messy.txt"), "hello   \nworld").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "fix_whitespace",
+        serde_json::json!({"path": "messy.txt"}),
+    )
+    .await;
+    assert!(!is_error, "tidy should succeed: {val}");
+    assert_eq!(val["ok"], true, "tidy ok: {val}");
+    assert_eq!(val["files_changed"], 1, "tidy files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("messy.txt")).unwrap();
+    assert!(content.ends_with('\n'), "tidy should ensure final newline");
+    assert!(
+        !content.contains("   \n"),
+        "tidy should trim trailing whitespace"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_upsert_bullet_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("doc.md"), "# Rules\n\n- Existing rule\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_upsert_bullet",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Rules",
+            "bullet": "- New rule"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_upsert_bullet should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_upsert_bullet ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_upsert_bullet files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("- New rule"),
+        "md_upsert_bullet should add the bullet: {content}"
+    );
+    assert!(
+        content.contains("- Existing rule"),
+        "md_upsert_bullet should preserve existing bullets: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_merge_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_merge",
+        serde_json::json!({"path": "config.json", "value": {"debug": true}}),
+    )
+    .await;
+    assert!(!is_error, "doc_merge should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_merge ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_merge files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["debug"], true, "doc_merge should add new key: {content}");
+    assert_eq!(
+        v["name"], "app",
+        "doc_merge should preserve existing keys: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_delete_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete",
+        serde_json::json!({"path": "config.json", "selector": "debug"}),
+    )
+    .await;
+    assert!(!is_error, "doc_delete should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_delete ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_delete files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(v.get("debug").is_none(), "doc_delete should remove key");
+    assert_eq!(v["name"], "app", "doc_delete should preserve other keys");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_append_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_append",
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
+    )
+    .await;
+    assert!(!is_error, "doc_append should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_append ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_append files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+    assert_eq!(v["tags"][2], "c");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_prepend_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_prepend",
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
+    )
+    .await;
+    assert!(!is_error, "doc_prepend should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_prepend ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_prepend files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"][0], "z", "doc_prepend should insert at front");
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_ensure_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"name":"app"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Ensure a missing key.
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_ensure",
+        serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
+    )
+    .await;
+    assert!(!is_error, "doc_ensure should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_ensure ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_ensure files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["debug"], false, "doc_ensure should set missing key");
+    assert_eq!(v["name"], "app", "doc_ensure should preserve existing keys");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_update_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"active":false},{"active":false}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_update",
+        serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
+    )
+    .await;
+    assert!(!is_error, "doc_update should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_update ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_update files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["items"][0]["active"], true);
+    assert_eq!(v["items"][1]["active"], true);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_move_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"old_name":"value"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_move",
+        serde_json::json!({"path": "config.json", "from": "old_name", "to": "new_name"}),
+    )
+    .await;
+    assert!(!is_error, "doc_move should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_move ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_move files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(v.get("old_name").is_none(), "doc_move should remove source");
+    assert_eq!(v["new_name"], "value", "doc_move should set destination");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_delete_where_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"name":"keep"},{"name":"drop"},{"name":"keep2"}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete_where",
+        serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
+    )
+    .await;
+    assert!(!is_error, "doc_delete_where should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_delete_where ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "doc_delete_where files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(
+        items.len(),
+        2,
+        "doc_delete_where should remove matching item"
+    );
+    assert_eq!(items[0]["name"], "keep");
+    assert_eq!(items[1]["name"], "keep2");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "keys", "path": "config.json", "selector": "."}),
+    )
+    .await;
+    assert!(!is_error, "doc_query keys should succeed: {val}");
+    let keys = val
+        .as_array()
+        .expect("doc_query keys should return an array");
+    assert!(
+        keys.contains(&serde_json::json!("name")),
+        "keys should contain 'name': {val}"
+    );
+    assert!(
+        keys.contains(&serde_json::json!("version")),
+        "keys should contain 'version': {val}"
+    );
+    assert!(
+        keys.contains(&serde_json::json!("debug")),
+        "keys should contain 'debug': {val}"
+    );
+    assert_eq!(keys.len(), 3, "should have exactly 3 keys: {val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"tags":["a","b","c"]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "config.json", "selector": "tags"}),
+    )
+    .await;
+    assert!(!is_error, "doc_query len should succeed: {val}");
+    assert_eq!(val, 3, "doc_query len should return exactly 3: {val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_select_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"users":[{"role":"admin","name":"alice"},{"role":"user","name":"bob"}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "select", "path": "config.json", "selector": "users[role=admin]"}),
+    )
+    .await;
+    assert!(!is_error, "doc_query select should succeed: {val}");
+    assert_eq!(
+        val["role"], "admin",
+        "selected item should have role=admin: {val}"
+    );
+    assert_eq!(val["name"], "alice", "selected item should be alice: {val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_flatten_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"db":{"host":"localhost","port":5432}}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "flatten", "path": "config.json"}),
+    )
+    .await;
+    assert!(!is_error, "doc_query flatten should succeed: {val}");
+    let obj = val
+        .as_object()
+        .expect("flatten should return a JSON object");
+    assert_eq!(
+        obj.get("db.host").and_then(|v| v.as_str()),
+        Some("localhost"),
+        "flatten should map db.host to 'localhost': {val}"
+    );
+    assert_eq!(
+        obj.get("db.port").and_then(|v| v.as_i64()),
+        Some(5432),
+        "flatten should map db.port to 5432: {val}"
+    );
+    assert_eq!(obj.len(), 2, "flatten should have exactly 2 entries: {val}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_diff_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("a.json"),
+        r#"{"name":"old","version":"1.0"}"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("b.json"),
+        r#"{"name":"new","version":"1.0"}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_diff",
+        serde_json::json!({"file_a": "a.json", "file_b": "b.json"}),
+    )
+    .await;
+    assert!(!is_error, "doc_diff should succeed: {val}");
+    let diffs = val.as_array().expect("doc_diff should return a JSON array");
+    assert_eq!(diffs.len(), 1, "should have exactly one difference: {val}");
+    assert_eq!(
+        diffs[0]["path"], "name",
+        "diff should be on 'name' field: {val}"
+    );
+    assert_eq!(
+        diffs[0]["kind"], "changed",
+        "diff kind should be 'changed': {val}"
+    );
+    assert_eq!(
+        diffs[0]["old_value"], "old",
+        "old_value should be 'old': {val}"
+    );
+    assert_eq!(
+        diffs[0]["new_value"], "new",
+        "new_value should be 'new': {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_status_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Initialize a git repo so status has something to report.
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("tracked.txt"), "hello\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Modify the tracked file to create a diff.
+    fs::write(dir.path().join("tracked.txt"), "modified\n").unwrap();
+
+    // New untracked file -> created category in status.
+    fs::write(dir.path().join("created.txt"), "new content\n").unwrap();
+
+    // Tracked then deleted -> deleted category.
+    fs::write(dir.path().join("to-be-deleted.txt"), "will be gone\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "to-be-deleted.txt"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "add for delete"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::remove_file(dir.path().join("to-be-deleted.txt")).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, status) = call_tool_value(&client, "git_status", serde_json::json!({})).await;
+    assert!(!is_error, "status should succeed: {status}");
+    let modified: Vec<String> = status
+        .get("modified")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let created: Vec<String> = status
+        .get("created")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let deleted: Vec<String> = status
+        .get("deleted")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        modified.iter().any(|f| f.contains("tracked.txt")),
+        "status should show modified file: {status}"
+    );
+    assert!(
+        created.iter().any(|f| f.contains("created.txt")),
+        "status should show created file: {status}"
+    );
+    assert!(
+        deleted.iter().any(|f| f.contains("to-be-deleted.txt")),
+        "status should show deleted file: {status}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_git_status_errors_without_git_repo() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap(); // no git init - expect error from collect_status
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, err_text) = call_tool_text(&client, "git_status", serde_json::json!({})).await;
+    assert!(
+        is_error,
+        "git_status should error outside git repo: {err_text}"
+    );
+    assert!(
+        err_text.contains("git") || err_text.contains("repository") || err_text.contains("failed"),
+        "error should mention git/repo: {err_text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_table_append_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Changelog\n\n| Version | Date |\n|---------|------|\n| 0.1.0 | 2024-01-01 |\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_table_append",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "# Changelog",
+            "row": "| 0.2.0 | 2024-06-15 |"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_table_append should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_table_append ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_table_append files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("| 0.2.0 | 2024-06-15 |"),
+        "md_table_append should add the row: {content}"
+    );
+    assert!(
+        content.contains("| 0.1.0 | 2024-01-01 |"),
+        "md_table_append should preserve existing rows: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_replace_section_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\nIntro text.\n\n## API\n\nOld API docs.\n\n## Usage\n\nUsage text.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_replace_section",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## API",
+            "content": "New API documentation.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_replace_section should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_replace_section ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_replace_section files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    assert!(
+        content.contains("New API documentation."),
+        "md_replace_section should insert new content: {content}"
+    );
+    assert!(
+        !content.contains("Old API docs."),
+        "md_replace_section should remove old content: {content}"
+    );
+    assert!(
+        content.contains("## Usage"),
+        "md_replace_section should preserve other sections: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_lint_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Create a file with a duplicate heading (a lint issue).
+    fs::write(
+        dir.path().join("AGENTS.md"),
+        "# Rules\n\nFirst section.\n\n# Rules\n\nDuplicate heading.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_lint",
+        serde_json::json!({
+            "path": "AGENTS.md"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_lint should succeed: {val}");
+    let arr = val.as_array().expect("md_lint should return a JSON array");
+    assert!(
+        !arr.is_empty(),
+        "md_lint should find issues in file with duplicate heading"
+    );
+
+    // Also test a clean file returns an empty array.
+    fs::write(
+        dir.path().join("clean.md"),
+        "# Single Heading\n\nContent.\n",
+    )
+    .unwrap();
+    let (is_error2, val2) = call_tool_value(
+        &client,
+        "md_lint",
+        serde_json::json!({
+            "path": "clean.md"
+        }),
+    )
+    .await;
+    assert!(!is_error2, "md_lint should succeed on clean file: {val2}");
+    assert_eq!(
+        val2.as_array().unwrap().len(),
+        0,
+        "md_lint should return empty array for clean file"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Homogeneous batch MCP integration tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_mcp_batch_replace_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "version = 1.0.0\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "version = 1.0.0\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["a.txt", "b.txt"],
+            "from": "1.0.0",
+            "to": "2.0.0"
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 2,
+        "batch_replace files_changed: {val}"
+    );
+
+    let a = fs::read_to_string(dir.path().join("a.txt")).unwrap();
+    let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
+    assert!(a.contains("2.0.0"), "a.txt should be updated: {a}");
+    assert!(b.contains("2.0.0"), "b.txt should be updated: {b}");
+    assert!(
+        !a.contains("1.0.0"),
+        "a.txt should not have old version: {a}"
+    );
+    assert!(
+        !b.contains("1.0.0"),
+        "b.txt should not have old version: {b}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_regex_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("x.txt"), "foo123bar\n").unwrap();
+    fs::write(dir.path().join("y.txt"), "foo456bar\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["x.txt", "y.txt"],
+            "from": "foo\\d+bar",
+            "to": "replaced",
+            "regex": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace regex should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace regex ok: {val}");
+    assert_eq!(
+        val["files_changed"], 2,
+        "batch_replace regex files_changed: {val}"
+    );
+
+    let x = fs::read_to_string(dir.path().join("x.txt")).unwrap();
+    let y = fs::read_to_string(dir.path().join("y.txt")).unwrap();
+    assert!(x.contains("replaced"), "x.txt: {x}");
+    assert!(y.contains("replaced"), "y.txt: {y}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_empty_files_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "files": [],
+            "from": "a",
+            "to": "b"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(result.is_err(), "empty files array should be rejected");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_tidy_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Files with trailing whitespace and missing final newline.
+    fs::write(dir.path().join("c.txt"), "hello   \nworld").unwrap();
+    fs::write(dir.path().join("d.txt"), "foo  \nbar  ").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_tidy",
+        serde_json::json!({
+            "files": ["c.txt", "d.txt"]
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_tidy should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_tidy ok: {val}");
+    assert_eq!(val["files_changed"], 2, "batch_tidy files_changed: {val}");
+
+    let c = fs::read_to_string(dir.path().join("c.txt")).unwrap();
+    let d = fs::read_to_string(dir.path().join("d.txt")).unwrap();
+    assert!(c.ends_with('\n'), "c.txt should have final newline");
+    assert!(d.ends_with('\n'), "d.txt should have final newline");
+    assert!(
+        !c.contains("   \n"),
+        "c.txt trailing whitespace should be trimmed"
+    );
+    assert!(
+        !d.contains("  \n"),
+        "d.txt trailing whitespace should be trimmed"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_path_traversal_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "content\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "files": ["ok.txt", "../../etc/passwd"],
+            "from": "a",
+            "to": "b"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "batch_replace with path traversal should be rejected"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_rejects_unknown_fields() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.json"), r#"{"a":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Send a valid tool call but with an extra hallucinated parameter.
+    // deny_unknown_fields on the params struct must reject this.
+    let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "test.json",
+            "selector": "a",
+            "value": 2,
+            "hallucinated_param": true
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    // rmcp 1.8+ returns deny_unknown_fields violations as a tool result with
+    // isError (not a protocol-level Err), so accept either shape.
+    match result {
+        Err(_) => { /* protocol-level rejection: OK */ }
+        Ok(r) => {
+            assert!(
+                r.is_error.unwrap_or(false),
+                "unknown fields must be rejected by deny_unknown_fields"
+            );
+        }
+    }
+    // File must remain unchanged
+    let content = fs::read_to_string(dir.path().join("test.json")).unwrap();
+    assert_eq!(content, r#"{"a":1}"#);
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_regex_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("ver.txt"),
+        "version = 1.2.3\nversion = 4.5.6\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "ver.txt",
+            "from": r"version = (\d+)\.(\d+)\.(\d+)",
+            "to": "version = $1.$2.99",
+            "regex": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "regex replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "regex replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "regex replace files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("ver.txt")).unwrap();
+    assert_eq!(content, "version = 1.2.99\nversion = 4.5.99\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_nth_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("rep.txt"), "foo bar foo baz foo\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "rep.txt",
+            "from": "foo",
+            "to": "qux",
+            "nth": 2
+        }),
+    )
+    .await;
+    assert!(!is_error, "nth replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "nth replace ok: {val}");
+    assert_eq!(val["files_changed"], 1, "nth replace files_changed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("rep.txt")).unwrap();
+    assert_eq!(content, "foo bar qux baz foo\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_if_exists_no_match_succeeds() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("stable.txt"), "no match here\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "stable.txt",
+            "from": "nonexistent",
+            "to": "replacement",
+            "if_exists": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "if_exists with no match should succeed (not error): {val}"
+    );
+    assert_eq!(val["ok"], true, "if_exists ok: {val}");
+    assert_eq!(
+        val["files_changed"], 0,
+        "if_exists no match files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("stable.txt")).unwrap();
+    assert_eq!(content, "no match here\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_whole_line_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "fn main() {\n    dbg!(x);\n    let y = 1;\n    dbg!(y);\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "from": "dbg!",
+            "to": "",
+            "whole_line": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "whole_line replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "whole_line replace files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+    assert_eq!(content, "fn main() {\n    let y = 1;\n}\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_replace_whole_line_with_range_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "data.txt",
+            "from": "bbb",
+            "to": "",
+            "whole_line": true,
+            "range": "1:3"
+        }),
+    )
+    .await;
+    assert!(!is_error, "whole_line+range replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "whole_line+range replace ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "whole_line+range files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("data.txt")).unwrap();
+    // Only the first "bbb" (line 2, within range 1:3) should be deleted.
+    assert_eq!(content, "aaa\nccc\nbbb\neee\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_append_file_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "line one\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "append_file",
+        serde_json::json!({"path": "data.txt", "content": "line two\n"}),
+    )
+    .await;
+    assert!(!is_error, "append_file should succeed: {val}");
+    assert_eq!(val["ok"], true, "append ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "append files_changed: {val}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line one\nline two\n",
+        "content should be appended"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_append_file_missing_file_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "append_file",
+        serde_json::json!({"path": "nonexistent.txt", "content": "data\n"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "append_file should fail when file does not exist: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_move_section_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Top\n\nIntro\n\n## Alpha\n\nA content\n\n## Beta\n\nB content\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_move_section",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## Beta",
+            "before": "## Alpha"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md_move_section should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_move_section ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md_move_section files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(&file).unwrap();
+    let alpha_pos = content.find("## Alpha").expect("Alpha should exist");
+    let beta_pos = content.find("## Beta").expect("Beta should exist");
+    assert!(
+        beta_pos < alpha_pos,
+        "Beta should come before Alpha after move"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_unknown_action_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"x":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("doc_query").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "data.json",
+            "action": "nonexistent"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "unknown action should return McpError::invalid_params"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_has_without_selector_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"x":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("doc_query").with_arguments(
+        serde_json::from_value(serde_json::json!({
+            "path": "data.json",
+            "action": "has"
+        }))
+        .unwrap(),
+    );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "'has' without selector should return McpError::invalid_params"
+    );
+    client.cancel().await.unwrap();
+}
