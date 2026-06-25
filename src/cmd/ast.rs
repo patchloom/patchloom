@@ -6,6 +6,7 @@ use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::{Args, Subcommand};
+use std::path::Path;
 
 #[derive(Debug, Subcommand)]
 pub enum AstCommand {
@@ -37,6 +38,10 @@ pub enum AstCommand {
 pub struct AstArgs {
     #[command(subcommand)]
     pub command: AstCommand,
+}
+
+fn display_path(path: &Path, cwd: &Path) -> String {
+    path.strip_prefix(cwd).unwrap_or(path).display().to_string()
 }
 
 pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -712,7 +717,7 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
         .map(|p| {
-            let display = p.strip_prefix(&cwd).unwrap_or(p).display().to_string();
+            let display = display_path(p, &cwd);
             (p.clone(), display)
         })
         .collect();
@@ -880,7 +885,7 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
         .map(|p| {
-            let display = p.strip_prefix(&cwd).unwrap_or(p).display().to_string();
+            let display = display_path(p, &cwd);
             (p.clone(), display)
         })
         .collect();
