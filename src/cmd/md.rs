@@ -244,12 +244,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let original = read(&file)?;
             let (new, removed) = dedupe_headings_in(&original);
             if !removed.is_empty() {
-                if global.json {
-                    println!("{}", serde_json::to_string_pretty(&removed)?);
-                } else if global.jsonl {
-                    for h in &removed {
-                        println!("{}", serde_json::to_string(h)?);
-                    }
+                if global.json || global.jsonl {
+                    global.emit_json_items(&removed)?;
                 } else if !global.quiet {
                     for h in &removed {
                         eprintln!("md: removed duplicate: {h}");
@@ -263,12 +259,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let content = read(&file)?;
             let issues = lint_agents_content(&content);
 
-            if global.json {
-                println!("{}", serde_json::to_string_pretty(&issues)?);
-            } else if global.jsonl {
-                for issue in &issues {
-                    println!("{}", serde_json::to_string(issue)?);
-                }
+            if global.json || global.jsonl {
+                global.emit_json_items(&issues)?;
             } else if !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {

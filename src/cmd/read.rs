@@ -92,7 +92,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         match read_one_file(&resolved_str, parsed_lines) {
             Ok(output) => {
                 if global.jsonl {
-                    println!("{}", serde_json::to_string(&output)?);
+                    global.emit_json(&output)?;
                 } else if global.json {
                     outputs.push(output);
                 } else if !global.quiet {
@@ -123,9 +123,9 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.json {
         if !multi && outputs.len() == 1 {
-            println!("{}", serde_json::to_string_pretty(&outputs[0])?);
+            global.emit_json(&outputs[0])?;
         } else {
-            println!("{}", serde_json::to_string_pretty(&outputs)?);
+            global.emit_json(&outputs)?;
         }
     }
 
