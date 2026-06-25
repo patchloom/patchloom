@@ -193,6 +193,81 @@ def setup_file():
     }
 
     #[test]
+    fn rename_typescript_identifier_skips_strings() {
+        let source = r#"
+function processItem(item: string): string {
+    const label = "processItem handler";
+    // processItem does the work
+    console.log(item);
+    return processItem(item.trim());
+}
+
+class Worker {
+    processItem(data: any): void {
+        const result = processItem(data);
+        console.log(result);
+    }
+}
+"#;
+        let result =
+            rename_in_source(source, "processItem", "handleItem", Language::TypeScript).unwrap();
+        // Function declaration and calls should be renamed
+        assert!(result.content.contains("function handleItem("));
+        assert!(result.content.contains("return handleItem("));
+        // String literal and comment should NOT be renamed
+        assert!(result.content.contains("\"processItem handler\""));
+        assert!(result.content.contains("// processItem"));
+        assert!(result.replacements >= 3);
+    }
+
+    #[test]
+    fn rename_typescript_type_identifier() {
+        let source = r#"
+interface UserConfig {
+    name: string;
+    age: number;
+}
+
+function createConfig(): UserConfig {
+    const cfg: UserConfig = { name: "test", age: 30 };
+    return cfg;
+}
+"#;
+        let result =
+            rename_in_source(source, "UserConfig", "AppConfig", Language::TypeScript).unwrap();
+        assert!(result.content.contains("interface AppConfig"));
+        assert!(result.content.contains("): AppConfig"));
+        assert!(result.content.contains("cfg: AppConfig"));
+        assert!(!result.content.contains("UserConfig"));
+    }
+
+    #[test]
+    fn rename_java_method_skips_strings() {
+        let source = r#"
+public class Service {
+    public void processOrder(String id) {
+        System.out.println("processOrder called");
+        // processOrder handles business logic
+        String result = processOrder(id);
+    }
+
+    private String processOrder(int count) {
+        return "done";
+    }
+}
+"#;
+        let result =
+            rename_in_source(source, "processOrder", "handleOrder", Language::Java).unwrap();
+        // Method declarations and calls should be renamed
+        assert!(result.content.contains("void handleOrder("));
+        assert!(result.content.contains("String handleOrder("));
+        // String literal and comment should NOT be renamed
+        assert!(result.content.contains("\"processOrder called\""));
+        assert!(result.content.contains("// processOrder"));
+        assert!(result.replacements >= 3);
+    }
+
+    #[test]
     fn rename_go_identifier() {
         let source = r#"
 package main

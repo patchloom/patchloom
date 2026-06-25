@@ -250,6 +250,115 @@ def main():
     }
 
     #[test]
+    fn find_refs_typescript() {
+        let source = r#"
+function calculate(x: number): number {
+    return x * 2;
+}
+
+function main(): void {
+    const a = calculate(10);
+    const b = calculate(20);
+    console.log("calculate result", a + b);
+}
+
+class MathHelper {
+    run(): number {
+        return calculate(42);
+    }
+}
+"#;
+        let refs = find_refs_in_source(source, "calculate", Language::TypeScript, "test.ts");
+        // Should find def + 3 call-site refs, NOT the string "calculate result"
+        let defs: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        let uses: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Reference)
+            .collect();
+        assert!(!defs.is_empty(), "should find at least one definition");
+        assert!(uses.len() >= 3, "should find at least 3 reference sites");
+        // No ref should come from the string literal line
+        for r in &refs {
+            assert!(
+                !r.context.contains("\"calculate"),
+                "string literal should be skipped"
+            );
+        }
+    }
+
+    #[test]
+    fn find_refs_java() {
+        let source = r#"
+public class OrderService {
+    public void processOrder(String id) {
+        System.out.println("processOrder: " + id);
+    }
+
+    public void batchProcess() {
+        processOrder("abc");
+        processOrder("def");
+    }
+}
+"#;
+        let refs = find_refs_in_source(source, "processOrder", Language::Java, "OrderService.java");
+        // Should find the method def + 2 calls; NOT the string
+        let defs: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        let uses: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Reference)
+            .collect();
+        assert!(!defs.is_empty(), "should find processOrder definition");
+        assert!(
+            uses.len() >= 2,
+            "should find at least 2 processOrder call refs"
+        );
+        // String should not appear as a ref
+        for r in &refs {
+            assert!(
+                !r.context.contains("\"processOrder:"),
+                "string literal should be skipped"
+            );
+        }
+    }
+
+    #[test]
+    fn find_refs_c() {
+        let source = r#"
+#include <stdio.h>
+
+void helper(int x) {
+    printf("%d\n", x);
+}
+
+int main() {
+    helper(1);
+    helper(2);
+    // helper is useful
+    return 0;
+}
+"#;
+        let refs = find_refs_in_source(source, "helper", Language::C, "main.c");
+        // Should find the declaration + at least 2 call sites
+        // (C grammar nests identifiers inside function_declarator,
+        // so definition detection may classify the decl as Reference)
+        assert!(
+            refs.len() >= 3,
+            "should find at least 3 occurrences of helper, got {}",
+            refs.len()
+        );
+        // Comment should be skipped
+        for r in &refs {
+            assert!(!r.context.starts_with("//"), "comment should not be a ref");
+        }
+    }
+
+    #[test]
     fn unknown_language_returns_empty() {
         let refs = find_refs_in_source("anything", "x", Language::Unknown, "test.txt");
         assert!(refs.is_empty());

@@ -14,6 +14,8 @@ tempfile = "3"
 
 [dependencies.patchloom]
 path = ".."
+default-features = false
+features = ["cli", "ast", "files"]
 
 [dependencies.serde_json]
 version = "1"
@@ -56,4 +58,19 @@ doc = false
 [[bin]]
 name = "fuzz_fallback_resolve"
 path = "fuzz_targets/fuzz_fallback_resolve.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_ast_parse"
+path = "fuzz_targets/fuzz_ast_parse.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_md_heading"
+path = "fuzz_targets/fuzz_md_heading.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_replace_regex"
+path = "fuzz_targets/fuzz_replace_regex.rs"
 doc = false

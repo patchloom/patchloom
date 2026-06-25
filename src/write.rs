@@ -21,12 +21,21 @@ pub enum EolMode {
     Crlf,
 }
 
+/// Indentation style read from EditorConfig.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentStyle {
+    Space,
+    Tab,
+}
+
 /// Controls which transformations are applied before writing a file.
 pub struct WritePolicy {
     pub ensure_final_newline: bool,
     pub normalize_eol: EolMode,
     pub trim_trailing_whitespace: bool,
     pub collapse_blanks: bool,
+    pub indent_style: Option<IndentStyle>,
+    pub indent_size: Option<usize>,
 }
 
 impl WritePolicy {
@@ -37,6 +46,8 @@ impl WritePolicy {
             && matches!(self.normalize_eol, EolMode::Keep)
             && !self.trim_trailing_whitespace
             && !self.collapse_blanks
+            && self.indent_style.is_none()
+            && self.indent_size.is_none()
     }
 
     /// Apply an override, setting only the fields that are `Some`.
@@ -64,6 +75,8 @@ impl Default for WritePolicy {
             normalize_eol: EolMode::Keep,
             trim_trailing_whitespace: false,
             collapse_blanks: false,
+            indent_style: None,
+            indent_size: None,
         }
     }
 }
@@ -81,6 +94,7 @@ pub struct WritePolicyOverride {
     pub normalize_eol: Option<String>,
     pub trim_trailing_whitespace: Option<bool>,
     pub collapse_blanks: Option<bool>,
+    pub respect_editorconfig: Option<bool>,
 }
 
 /// Parse a string EOL mode value into [`EolMode`].
@@ -327,6 +341,9 @@ pub fn policy_from_flags(
         false
     };
 
+    let mut indent_style: Option<IndentStyle> = None;
+    let mut indent_size: Option<usize> = None;
+
     let (efn, eol, ttw) = if respect_ec {
         #[cfg(feature = "cli")]
         if let Some(p) = file_path {
@@ -362,6 +379,22 @@ pub fn policy_from_flags(
                 {
                     new_ttw = true;
                 }
+
+                // indent_style
+                if let Ok(val) = props.get::<ec4rs::property::IndentStyle>() {
+                    indent_style = Some(match val {
+                        ec4rs::property::IndentStyle::Tabs => IndentStyle::Tab,
+                        ec4rs::property::IndentStyle::Spaces => IndentStyle::Space,
+                    });
+                }
+
+                // indent_size
+                if let Ok(ec4rs::property::IndentSize::Value(n)) =
+                    props.get::<ec4rs::property::IndentSize>()
+                {
+                    indent_size = Some(n);
+                }
+
                 (new_efn, new_eol, new_ttw)
             } else {
                 (efn, eol, ttw)
@@ -382,6 +415,8 @@ pub fn policy_from_flags(
         normalize_eol: eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: ttw,
         collapse_blanks: global.collapse_blanks,
+        indent_style,
+        indent_size,
     }
 }
 
@@ -663,6 +698,56 @@ mod tests {
         assert!(policy.ensure_final_newline);
         assert!(matches!(policy.normalize_eol, EolMode::Lf));
         assert!(policy.trim_trailing_whitespace);
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_editorconfig_reads_indent_properties() {
+        let dir = tempfile::tempdir().unwrap();
+        let ec_path = dir.path().join(".editorconfig");
+        fs::write(
+            &ec_path,
+            "root = true\n\n[*]\nindent_style = space\nindent_size = 4\n",
+        )
+        .unwrap();
+
+        let file = dir.path().join("test.rs");
+        fs::write(&file, "fn main() {}\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+
+        let policy = policy_from_flags(&global, Some(&file));
+        assert_eq!(policy.indent_style, Some(IndentStyle::Space));
+        assert_eq!(policy.indent_size, Some(4));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_editorconfig_tab_indent() {
+        let dir = tempfile::tempdir().unwrap();
+        let ec_path = dir.path().join(".editorconfig");
+        fs::write(&ec_path, "root = true\n\n[*]\nindent_style = tab\n").unwrap();
+
+        let file = dir.path().join("test.go");
+        fs::write(&file, "package main\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+
+        let policy = policy_from_flags(&global, Some(&file));
+        assert_eq!(policy.indent_style, Some(IndentStyle::Tab));
+        assert_eq!(policy.indent_size, None);
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_no_editorconfig_indent_is_none() {
+        let global = test_global_flags();
+
+        let policy = policy_from_flags(&global, None);
+        assert_eq!(policy.indent_style, None);
+        assert_eq!(policy.indent_size, None);
     }
 
     #[test]

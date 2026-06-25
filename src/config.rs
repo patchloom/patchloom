@@ -17,6 +17,17 @@ pub struct ProjectConfig {
     pub exclude: Exclude,
     pub output: Output,
     pub tx: TxConfig,
+    pub defaults: Defaults,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Defaults {
+    /// Default to --apply mode. When true, write commands apply changes without needing --apply flag.
+    pub apply: Option<bool>,
+    /// Default format command (e.g., "cargo fmt"). Applied after --apply unless overridden by CLI --format.
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -101,6 +112,17 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
     }
     if !global.collapse_blanks && config.write_policy.collapse_blanks == Some(true) {
         global.collapse_blanks = true;
+    }
+    if !global.respect_editorconfig && config.write_policy.respect_editorconfig == Some(true) {
+        global.respect_editorconfig = true;
+    }
+
+    // Defaults: config provides defaults, CLI flags win.
+    if !global.apply && config.defaults.apply == Some(true) {
+        global.apply = true;
+    }
+    if global.format.is_none() {
+        global.format = config.defaults.format.clone();
     }
 
     // Exclude globs: prepend config globs before user globs.
@@ -289,6 +311,7 @@ color = "always"
                 normalize_eol: Some("lf".into()),
                 trim_trailing_whitespace: Some(true),
                 collapse_blanks: Some(true),
+                respect_editorconfig: Some(true),
             },
             exclude: Exclude {
                 globs: vec!["target/**".into()],
@@ -297,6 +320,7 @@ color = "always"
                 color: Some("always".into()),
             },
             tx: TxConfig::default(),
+            defaults: Defaults::default(),
         };
         let mut global = crate::cli::global::GlobalFlags::default();
         apply_config(&mut global, &config);
@@ -308,6 +332,7 @@ color = "always"
         ));
         assert!(global.trim_trailing_whitespace);
         assert!(global.collapse_blanks);
+        assert!(global.respect_editorconfig);
         assert_eq!(global.glob, vec!["target/**"]);
         assert!(matches!(
             global.color,
@@ -455,5 +480,76 @@ color = "always"
             None
         );
         assert!(cached.config_dir().is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_respect_editorconfig_from_config() {
+        let config = ProjectConfig {
+            write_policy: WritePolicyOverride {
+                respect_editorconfig: Some(true),
+                ..WritePolicyOverride::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        assert!(!global.respect_editorconfig);
+        apply_config(&mut global, &config);
+        assert!(global.respect_editorconfig);
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_apply_default_from_config() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        assert!(!global.apply);
+        apply_config(&mut global, &config);
+        assert!(global.apply);
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_format_default_from_config() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                format: Some("cargo fmt --all".into()),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        assert!(global.format.is_none());
+        apply_config(&mut global, &config);
+        assert_eq!(global.format.as_deref(), Some("cargo fmt --all"));
+    }
+
+    #[test]
+    fn find_and_load_with_defaults() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            r#"
+[defaults]
+apply = true
+format = "cargo fmt"
+
+[write_policy]
+respect_editorconfig = true
+"#,
+        )
+        .unwrap();
+
+        let (config, found_dir) = find_and_load(dir.path()).unwrap();
+        assert_eq!(found_dir, dir.path());
+        assert_eq!(config.defaults.apply, Some(true));
+        assert_eq!(config.defaults.format.as_deref(), Some("cargo fmt"));
+        assert_eq!(config.write_policy.respect_editorconfig, Some(true));
     }
 }

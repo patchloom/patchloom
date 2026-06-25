@@ -31,6 +31,7 @@ patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 | [08-mcp-tool-call.json](08-mcp-tool-call.json) | Reference showing MCP tool call arguments for common operations (not a tx plan) | `doc_set`, `search_files`, `move_file`, `md_table_append` |
 | [09-patch-apply.json](09-patch-apply.json) | Apply a unified diff then follow up with a glob replace to catch remaining references | `patch.apply`, `replace` |
 | [10-inspect-and-edit.json](10-inspect-and-edit.json) | Read a config, search for references, then update both config and source code in one tx | `read`, `search`, `doc.set`, `replace` |
+| [11-ast-operations.sh](11-ast-operations.sh) | AST-aware operations: list, read, rename, validate, search, refs, deps, map, diff, impact, replace | `ast list`, `ast read`, `ast rename`, `ast validate`, `ast search`, `ast refs`, `ast deps`, `ast map`, `ast diff`, `ast impact`, `ast replace` |
 | search_directory (api) | Use `patchloom::api::search_directory` with context, globs, max_results (see #779) | library api example in docs and tests |
 
 ## Write modes

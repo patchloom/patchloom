@@ -220,6 +220,8 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
         normalize_eol: opts.normalize_eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
         collapse_blanks: opts.collapse_blanks,
+        indent_style: None,
+        indent_size: None,
     }
 }
 
