@@ -670,24 +670,24 @@ fn execute_plan_validated(
 }
 
 /// Convert an exit code + output string into a `CallToolResult`.
-fn exit_code_to_result(
-    code: u8,
-    output: &str,
-    success_fallback: &str,
-) -> Result<CallToolResult, McpError> {
-    if code == exit::SUCCESS {
-        let msg = if output.trim().is_empty() {
-            success_fallback.to_string()
-        } else {
-            output.trim().to_string()
-        };
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
-    } else {
-        let msg = if output.trim().is_empty() {
+///
+/// When `output` is non-empty it is used as-is. Otherwise `fallback` is used
+/// for both success and error results so callers can provide a descriptive
+/// message regardless of exit code. If both are empty and the code indicates
+/// failure, a generic "Operation failed with exit code N." message is returned.
+fn exit_code_to_result(code: u8, output: &str, fallback: &str) -> Result<CallToolResult, McpError> {
+    let msg = if output.trim().is_empty() {
+        if fallback.is_empty() && code != exit::SUCCESS {
             format!("Operation failed with exit code {code}.")
         } else {
-            output.trim().to_string()
-        };
+            fallback.to_string()
+        }
+    } else {
+        output.trim().to_string()
+    };
+    if code == exit::SUCCESS {
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    } else {
         Ok(CallToolResult::error(vec![Content::text(msg)]))
     }
 }

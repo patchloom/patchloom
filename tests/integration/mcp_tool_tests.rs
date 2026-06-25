@@ -2113,9 +2113,10 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
 }
 
 /// Regression test for #892: sequential MCP replace_text calls to the same
-/// file must each see the result of the previous call.
+/// file must each see the result of the previous call (MCP call ordering,
+/// not handler internals).
 #[tokio::test]
-async fn test_mcp_sequential_writes_same_file_no_data_loss() {
+async fn test_mcp_replace_text_sequential_calls_see_prior_writes() {
     if !has_mcp_support() {
         return;
     }
@@ -2638,6 +2639,37 @@ async fn test_mcp_ast_list_unsupported_file_names_language() {
     assert!(
         text.contains("Rust"),
         "response should list supported languages: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Regression test for #939: NO_MATCHES results must return the descriptive
+/// fallback message, not the generic "Operation failed with exit code 3."
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_no_matches_returns_descriptive_message() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn hello() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Search for a symbol that does not exist
+    let (is_error, text) = call_tool_text(
+        &client,
+        "ast_refs",
+        serde_json::json!({"path": "lib.rs", "symbol": "nonexistent_symbol_xyz"}),
+    )
+    .await;
+    assert!(is_error, "ast_refs on missing symbol should return error");
+    assert!(
+        text.contains("No references found"),
+        "response should contain descriptive message, not generic exit code: {text}"
+    );
+    assert!(
+        !text.contains("Operation failed with exit code"),
+        "generic message should not appear: {text}"
     );
     client.cancel().await.unwrap();
 }
