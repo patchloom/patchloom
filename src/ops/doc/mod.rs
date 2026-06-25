@@ -202,6 +202,189 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
     }
 }
 
+// ---------------------------------------------------------------------------
+// Pure data helpers (value parsing, flattening, diffing)
+// ---------------------------------------------------------------------------
+
+/// Parse a CLI value string into a [`serde_json::Value`].
+///
+/// Recognition order: JSON-quoted string, JSON object/array, boolean, null,
+/// i64, f64, then fallback to bare string.
+pub fn parse_value(s: &str) -> serde_json::Value {
+    // JSON-quoted string
+    if s.starts_with('"')
+        && s.ends_with('"')
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
+    }
+    // JSON object or array
+    if (s.starts_with('{') || s.starts_with('['))
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
+    {
+        return v;
+    }
+    // Booleans
+    if s == "true" {
+        return serde_json::Value::Bool(true);
+    }
+    if s == "false" {
+        return serde_json::Value::Bool(false);
+    }
+    // Null
+    if s == "null" {
+        return serde_json::Value::Null;
+    }
+    // Integer
+    if let Ok(n) = s.parse::<i64>() {
+        return serde_json::Value::Number(n.into());
+    }
+    // Float
+    if let Ok(n) = s.parse::<f64>()
+        && let Some(num) = serde_json::Number::from_f64(n)
+    {
+        return serde_json::Value::Number(num);
+    }
+    // Bare string
+    serde_json::Value::String(s.to_string())
+}
+
+/// Recursively enumerate all leaf selector paths in a JSON value.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
+/// The buffer is extended and truncated as the recursion descends and
+/// ascends, so only leaf paths produce a final `String::clone()`.
+pub fn flatten_value<'a>(
+    value: &'a serde_json::Value,
+    buf: &mut String,
+    out: &mut Vec<(String, &'a serde_json::Value)>,
+) {
+    match value {
+        serde_json::Value::Object(map) if !map.is_empty() => {
+            for (k, v) in map {
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
+            }
+        }
+        serde_json::Value::Array(arr) if !arr.is_empty() => {
+            for (i, v) in arr.iter().enumerate() {
+                let restore = buf.len();
+                buf.push('[');
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
+                flatten_value(v, buf, out);
+                buf.truncate(restore);
+            }
+        }
+        _ => {
+            out.push((buf.clone(), value));
+        }
+    }
+}
+
+/// Entry in a structured diff.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiffEntry {
+    pub path: String,
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<serde_json::Value>,
+}
+
+/// Compute structural differences between two JSON values.
+///
+/// Uses a mutable `String` buffer for the path prefix to avoid
+/// allocating a new `String` via `format!()` at every recursion level.
+pub fn diff_values(
+    a: &serde_json::Value,
+    b: &serde_json::Value,
+    buf: &mut String,
+    out: &mut Vec<DiffEntry>,
+) {
+    match (a, b) {
+        (serde_json::Value::Object(ma), serde_json::Value::Object(mb)) => {
+            for (k, va) in ma {
+                let restore = buf.len();
+                if !buf.is_empty() {
+                    buf.push('.');
+                }
+                buf.push_str(k);
+                if let Some(vb) = mb.get(k) {
+                    diff_values(va, vb, buf, out);
+                } else {
+                    out.push(DiffEntry {
+                        path: buf.clone(),
+                        kind: "removed",
+                        old_value: Some(va.clone()),
+                        new_value: None,
+                    });
+                }
+                buf.truncate(restore);
+            }
+            for (k, vb) in mb {
+                if !ma.contains_key(k) {
+                    let restore = buf.len();
+                    if !buf.is_empty() {
+                        buf.push('.');
+                    }
+                    buf.push_str(k);
+                    out.push(DiffEntry {
+                        path: buf.clone(),
+                        kind: "added",
+                        old_value: None,
+                        new_value: Some(vb.clone()),
+                    });
+                    buf.truncate(restore);
+                }
+            }
+        }
+        (serde_json::Value::Array(aa), serde_json::Value::Array(ab)) => {
+            let max_len = aa.len().max(ab.len());
+            for i in 0..max_len {
+                let restore = buf.len();
+                buf.push('[');
+                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
+                buf.push(']');
+                match (aa.get(i), ab.get(i)) {
+                    (Some(va), Some(vb)) => diff_values(va, vb, buf, out),
+                    (Some(va), None) => out.push(DiffEntry {
+                        path: buf.clone(),
+                        kind: "removed",
+                        old_value: Some(va.clone()),
+                        new_value: None,
+                    }),
+                    (None, Some(vb)) => out.push(DiffEntry {
+                        path: buf.clone(),
+                        kind: "added",
+                        old_value: None,
+                        new_value: Some(vb.clone()),
+                    }),
+                    (None, None) => {}
+                }
+                buf.truncate(restore);
+            }
+        }
+        _ => {
+            if a != b {
+                out.push(DiffEntry {
+                    path: buf.clone(),
+                    kind: "changed",
+                    old_value: Some(a.clone()),
+                    new_value: Some(b.clone()),
+                });
+            }
+        }
+    }
+}
+
 /// Recursively resolve YAML merge keys (`<<`) in a parsed JSON value.
 ///
 /// When `serde_yaml_ng` deserializes `<<: *anchor`, it produces a literal
@@ -1673,6 +1856,61 @@ mod tests {
             )
             .unwrap();
             assert!(matches!(result, MutationResult::NoMatch));
+        }
+    }
+
+    // ── pure data helper tests ───────────────────────────────────────
+    mod data_helper_tests {
+        use super::super::*;
+        use serde_json::json;
+
+        #[test]
+        fn parse_value_bare_string() {
+            assert_eq!(parse_value("hello"), json!("hello"));
+        }
+
+        #[test]
+        fn parse_value_integer() {
+            assert_eq!(parse_value("42"), json!(42));
+        }
+
+        #[test]
+        fn parse_value_bool() {
+            assert_eq!(parse_value("true"), json!(true));
+        }
+
+        #[test]
+        fn parse_value_null() {
+            assert_eq!(parse_value("null"), serde_json::Value::Null);
+        }
+
+        #[test]
+        fn parse_value_json_object() {
+            assert_eq!(parse_value(r#"{"a":1}"#), json!({"a": 1}));
+        }
+
+        #[test]
+        fn flatten_value_nested() {
+            let val = json!({"a": {"b": 1}, "c": [2, 3]});
+            let mut buf = String::new();
+            let mut out = Vec::new();
+            flatten_value(&val, &mut buf, &mut out);
+            let paths: Vec<&str> = out.iter().map(|(p, _)| p.as_str()).collect();
+            assert!(paths.contains(&"a.b"));
+            assert!(paths.contains(&"c[0]"));
+            assert!(paths.contains(&"c[1]"));
+        }
+
+        #[test]
+        fn diff_values_detects_changes() {
+            let a = json!({"x": 1, "y": 2});
+            let b = json!({"x": 1, "y": 3, "z": 4});
+            let mut buf = String::new();
+            let mut out = Vec::new();
+            diff_values(&a, &b, &mut buf, &mut out);
+            assert_eq!(out.len(), 2); // y changed, z added
+            assert!(out.iter().any(|e| e.path == "y" && e.kind == "changed"));
+            assert!(out.iter().any(|e| e.path == "z" && e.kind == "added"));
         }
     }
 }

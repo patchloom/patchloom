@@ -2,15 +2,14 @@ use crate::cli::global::GlobalFlags;
 use crate::diff;
 use crate::exit;
 use crate::ops::doc::{
-    DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
-    serialize_value_preserving,
+    DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, diff_values,
+    flatten_value, parse_doc, parse_value, serialize_value_preserving,
 };
 use crate::selector;
 use crate::write;
 use crate::write::policy_from_flags;
 use anyhow::Context;
 use clap::Args;
-use serde::Serialize;
 use std::cell::Cell;
 use std::path::Path;
 
@@ -239,143 +238,6 @@ fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
 // Output formatting
 // ---------------------------------------------------------------------------
 
-/// Recursively enumerate all leaf selector paths in a JSON value.
-///
-/// Uses a mutable `String` buffer for the path prefix to avoid
-/// allocating a new `String` via `format!()` at every recursion level.
-/// The buffer is extended and truncated as the recursion descends and
-/// ascends, so only leaf paths produce a final `String::clone()`.
-fn flatten_value<'a>(
-    value: &'a serde_json::Value,
-    buf: &mut String,
-    out: &mut Vec<(String, &'a serde_json::Value)>,
-) {
-    match value {
-        serde_json::Value::Object(map) if !map.is_empty() => {
-            for (k, v) in map {
-                let restore = buf.len();
-                if !buf.is_empty() {
-                    buf.push('.');
-                }
-                buf.push_str(k);
-                flatten_value(v, buf, out);
-                buf.truncate(restore);
-            }
-        }
-        serde_json::Value::Array(arr) if !arr.is_empty() => {
-            for (i, v) in arr.iter().enumerate() {
-                let restore = buf.len();
-                buf.push('[');
-                // write! on a String is infallible.
-                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
-                buf.push(']');
-                flatten_value(v, buf, out);
-                buf.truncate(restore);
-            }
-        }
-        _ => {
-            out.push((buf.clone(), value));
-        }
-    }
-}
-
-/// Entry in a structured diff.
-#[derive(Debug, Clone, Serialize)]
-struct DiffEntry {
-    path: String,
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    old_value: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    new_value: Option<serde_json::Value>,
-}
-
-/// Compute structural differences between two JSON values.
-///
-/// Uses a mutable `String` buffer for the path prefix to avoid
-/// allocating a new `String` via `format!()` at every recursion level.
-fn diff_values(
-    a: &serde_json::Value,
-    b: &serde_json::Value,
-    buf: &mut String,
-    out: &mut Vec<DiffEntry>,
-) {
-    match (a, b) {
-        (serde_json::Value::Object(ma), serde_json::Value::Object(mb)) => {
-            for (k, va) in ma {
-                let restore = buf.len();
-                if !buf.is_empty() {
-                    buf.push('.');
-                }
-                buf.push_str(k);
-                if let Some(vb) = mb.get(k) {
-                    diff_values(va, vb, buf, out);
-                } else {
-                    out.push(DiffEntry {
-                        path: buf.clone(),
-                        kind: "removed",
-                        old_value: Some(va.clone()),
-                        new_value: None,
-                    });
-                }
-                buf.truncate(restore);
-            }
-            for (k, vb) in mb {
-                if !ma.contains_key(k) {
-                    let restore = buf.len();
-                    if !buf.is_empty() {
-                        buf.push('.');
-                    }
-                    buf.push_str(k);
-                    out.push(DiffEntry {
-                        path: buf.clone(),
-                        kind: "added",
-                        old_value: None,
-                        new_value: Some(vb.clone()),
-                    });
-                    buf.truncate(restore);
-                }
-            }
-        }
-        (serde_json::Value::Array(aa), serde_json::Value::Array(ab)) => {
-            let max_len = aa.len().max(ab.len());
-            for i in 0..max_len {
-                let restore = buf.len();
-                buf.push('[');
-                let _ = std::fmt::Write::write_fmt(buf, format_args!("{i}"));
-                buf.push(']');
-                match (aa.get(i), ab.get(i)) {
-                    (Some(va), Some(vb)) => diff_values(va, vb, buf, out),
-                    (Some(va), None) => out.push(DiffEntry {
-                        path: buf.clone(),
-                        kind: "removed",
-                        old_value: Some(va.clone()),
-                        new_value: None,
-                    }),
-                    (None, Some(vb)) => out.push(DiffEntry {
-                        path: buf.clone(),
-                        kind: "added",
-                        old_value: None,
-                        new_value: Some(vb.clone()),
-                    }),
-                    (None, None) => {}
-                }
-                buf.truncate(restore);
-            }
-        }
-        _ => {
-            if a != b {
-                out.push(DiffEntry {
-                    path: buf.clone(),
-                    kind: "changed",
-                    old_value: Some(a.clone()),
-                    new_value: Some(b.clone()),
-                });
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputMode {
     Text,
@@ -418,53 +280,6 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
             .collect::<Result<Vec<_>, _>>()?
             .join("\n")),
     }
-}
-
-// ---------------------------------------------------------------------------
-// Value parsing & serialization helpers
-// ---------------------------------------------------------------------------
-
-/// Parse a CLI value string into a [`serde_json::Value`].
-///
-/// Recognition order: JSON-quoted string, JSON object/array, boolean, null,
-/// i64, f64, then fallback to bare string.
-pub(crate) fn parse_value(s: &str) -> serde_json::Value {
-    // JSON-quoted string
-    if s.starts_with('"')
-        && s.ends_with('"')
-        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
-    {
-        return v;
-    }
-    // JSON object or array
-    if (s.starts_with('{') || s.starts_with('['))
-        && let Ok(v) = serde_json::from_str::<serde_json::Value>(s)
-    {
-        return v;
-    }
-    // Booleans
-    if s == "true" {
-        return serde_json::Value::Bool(true);
-    }
-    if s == "false" {
-        return serde_json::Value::Bool(false);
-    }
-    // Null
-    if s == "null" {
-        return serde_json::Value::Null;
-    }
-    // Integer
-    if let Ok(n) = s.parse::<i64>() {
-        return serde_json::Value::Number(n.into());
-    }
-    // Float
-    if let Ok(n) = s.parse::<f64>()
-        && let Some(num) = serde_json::Number::from_f64(n)
-    {
-        return serde_json::Value::Number(num);
-    }
-    // Bare string
-    serde_json::Value::String(s.to_string())
 }
 
 /// Serialize a [`serde_json::Value`] back to the original file format.
