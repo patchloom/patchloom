@@ -114,8 +114,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 continue;
             }
             any_output = true;
-            let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-            let display = display_path.display().to_string();
+            let display = display_path(path, &cwd);
             if global.json || global.jsonl {
                 print_symbols_json(&display, &filtered, global)?;
             } else if args.compact {
@@ -477,8 +476,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             continue;
         }
 
-        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-        let display = display_path.display().to_string();
+        let display = display_path(path, &cwd);
 
         for m in &results {
             total_matches += 1;
@@ -544,8 +542,7 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut all_refs = Vec::new();
 
     for path in &paths {
-        let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-        let display = display_path.display().to_string();
+        let display = display_path(path, &cwd);
         let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
         all_refs.extend(refs);
     }
@@ -630,8 +627,7 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 continue;
             }
             any_output = true;
-            let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-            let display = display_path.display().to_string();
+            let display = display_path(path, &cwd);
 
             if global.json || global.jsonl {
                 for imp in &matching {
@@ -656,8 +652,7 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 continue;
             }
             any_output = true;
-            let display_path = path.strip_prefix(&cwd).unwrap_or(path);
-            let display = display_path.display().to_string();
+            let display = display_path(path, &cwd);
 
             if global.json || global.jsonl {
                 let obj = serde_json::json!({

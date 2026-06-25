@@ -60,5 +60,3 @@ pub struct TxArgs {
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
-
-// ---------------------------------------------------------------------------
