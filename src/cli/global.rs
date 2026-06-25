@@ -184,18 +184,34 @@ pub(crate) fn confirm_prompt_interactive(
 
 impl GlobalFlags {
     /// Copy write-only flags from a [`WriteFlags`] into this struct.
+    ///
+    /// Uses destructuring so the compiler errors if a new field is added to
+    /// [`WriteFlags`] without updating this function.
     pub fn merge_write(&mut self, w: &WriteFlags) {
-        self.diff = w.diff;
-        self.apply = w.apply;
-        self.check = w.check;
-        self.confirm = w.confirm;
-        self.ensure_final_newline = w.ensure_final_newline;
-        self.normalize_eol = w.normalize_eol;
-        self.trim_trailing_whitespace = w.trim_trailing_whitespace;
-        self.respect_editorconfig = w.respect_editorconfig;
-        self.collapse_blanks = w.collapse_blanks;
-        self.format = w.format.clone();
-        self.format_timeout = w.format_timeout;
+        let WriteFlags {
+            diff,
+            apply,
+            check,
+            confirm,
+            ensure_final_newline,
+            normalize_eol,
+            trim_trailing_whitespace,
+            respect_editorconfig,
+            collapse_blanks,
+            ref format,
+            format_timeout,
+        } = *w;
+        self.diff = diff;
+        self.apply = apply;
+        self.check = check;
+        self.confirm = confirm;
+        self.ensure_final_newline = ensure_final_newline;
+        self.normalize_eol = normalize_eol;
+        self.trim_trailing_whitespace = trim_trailing_whitespace;
+        self.respect_editorconfig = respect_editorconfig;
+        self.collapse_blanks = collapse_blanks;
+        self.format = format.clone();
+        self.format_timeout = format_timeout;
     }
 
     /// Whether to proceed with the write after optional confirmation.
@@ -441,6 +457,39 @@ mod tests {
         let mut g = GlobalFlags::default();
         g.merge_write(&w);
         assert!(g.confirm);
+    }
+
+    /// Verify merge_write copies every field. If a new field is added to
+    /// WriteFlags, this test (and the destructuring in merge_write) will
+    /// fail to compile until updated.
+    #[test]
+    fn merge_write_copies_all_fields() {
+        let w = WriteFlags {
+            diff: true,
+            apply: true,
+            check: false,
+            confirm: true,
+            ensure_final_newline: true,
+            normalize_eol: Some(EolMode::Lf),
+            trim_trailing_whitespace: true,
+            respect_editorconfig: true,
+            collapse_blanks: true,
+            format: Some("cargo fmt".into()),
+            format_timeout: Some(60),
+        };
+        let mut g = GlobalFlags::default();
+        g.merge_write(&w);
+        assert!(g.diff);
+        assert!(g.apply);
+        assert!(!g.check);
+        assert!(g.confirm);
+        assert!(g.ensure_final_newline);
+        assert_eq!(g.normalize_eol, Some(EolMode::Lf));
+        assert!(g.trim_trailing_whitespace);
+        assert!(g.respect_editorconfig);
+        assert!(g.collapse_blanks);
+        assert_eq!(g.format.as_deref(), Some("cargo fmt"));
+        assert_eq!(g.format_timeout, Some(60));
     }
 
     #[test]
