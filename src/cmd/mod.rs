@@ -20,6 +20,7 @@ pub mod status;
 pub mod tidy;
 pub mod tx;
 pub mod undo;
+pub mod write_dispatch;
 
 use crate::cli::Cli;
 use clap::{Args, Subcommand, ValueEnum};

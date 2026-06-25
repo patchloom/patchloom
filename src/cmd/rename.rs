@@ -1,4 +1,5 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
@@ -92,100 +93,63 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    // --check mode: report that rename would happen (no file read needed).
-    if global.check {
-        let output = RenameOutput {
-            ok: true,
-            from: args.from.clone(),
-            to: args.to.clone(),
-            diff: None,
-            applied: None,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("would rename {} -> {}", args.from, args.to);
+    // Pre-read source content so the diff closure works after the file is moved.
+    // Returns None for binary files (non-UTF-8).
+    let source_content = fs::read_to_string(&src).ok();
+    let is_binary = source_content.is_none();
+
+    let diff_fn_impl = |color: bool| -> String {
+        if let Some(ref content) = source_content {
+            make_diff_output(&args.from, &args.to, content, color)
+        } else {
+            String::new()
         }
-        return Ok(exit::CHANGES_DETECTED);
-    }
+    };
+
+    let (check_msg, apply_msg, post_msg) = if is_binary {
+        (
+            format!("would rename {} -> {} (binary)", args.from, args.to),
+            format!("renamed {} -> {} (binary)", args.from, args.to),
+            format!("renamed {} -> {}", args.from, args.to),
+        )
+    } else {
+        (
+            format!("would rename {} -> {}", args.from, args.to),
+            format!("renamed {} -> {}", args.from, args.to),
+            format!("renamed {} -> {}", args.from, args.to),
+        )
+    };
 
     let policy = policy_from_flags(global, Some(&dst));
 
-    // --apply mode: perform the rename.
-    if global.apply {
-        rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        if global.json || global.jsonl || global.diff {
-            // After --apply, source is gone; read from destination.
-            let diff_for_json = if global.diff {
-                try_diff(&dst, &args.from, &args.to, false)
-            } else {
-                None
-            };
-            let output = RenameOutput {
-                ok: true,
-                from: args.from.clone(),
-                to: args.to.clone(),
-                diff: diff_for_json,
-                applied: None,
-            };
-            if !global.emit_json(&output)? {
-                if let Some(d) = try_diff(&dst, &args.from, &args.to, global.should_color()) {
-                    print!("{d}");
-                } else if !global.quiet {
-                    println!("renamed {} -> {} (binary)", args.from, args.to);
-                }
-            }
-        } else if !global.quiet {
-            println!("renamed {} -> {}", args.from, args.to);
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: show what would happen (source still exists).
-    let diff_text = try_diff(&src, &args.from, &args.to, false);
-
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
-            rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
-            crate::write::run_format_command(global, &cwd)?;
-        }
-        let output = RenameOutput {
+    execute_write(
+        global,
+        &cwd,
+        |phase, diff| RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: args.to.clone(),
-            diff: diff_text,
-            applied: Some(applied),
-        };
-        global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    let output = RenameOutput {
-        ok: true,
-        from: args.from.clone(),
-        to: args.to.clone(),
-        diff: diff_text,
-        applied: None,
-    };
-    if !global.emit_json(&output)? {
-        if let Some(d) = try_diff(&src, &args.from, &args.to, global.should_color()) {
-            print!("{d}");
-        } else if !global.quiet {
-            println!("would rename {} -> {} (binary)", args.from, args.to);
-        }
-    }
-
-    // --confirm: prompt after showing preview, then rename if confirmed.
-    if global.should_apply() {
-        rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
-        if global.show_status() {
-            eprintln!("renamed {} -> {}", args.from, args.to);
-        }
-    }
-
-    Ok(exit::SUCCESS)
+            diff,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
+        },
+        if is_binary {
+            None
+        } else {
+            Some(&diff_fn_impl as &dyn Fn(bool) -> String)
+        },
+        || {
+            rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
+            Ok(())
+        },
+        WriteMessages {
+            check: &check_msg,
+            apply: &apply_msg,
+            post_confirm: Some(&post_msg),
+        },
+    )
 }
 
 fn rename_with_backup(
@@ -234,18 +198,6 @@ fn do_rename(
         fs::remove_file(src).with_context(|| format!("removing source file {}", src.display()))?;
     }
     Ok(())
-}
-
-/// Try to read `path` as text and produce a rename diff. Returns `None` for
-/// binary files (non-UTF-8 content) or if the file cannot be read.
-fn try_diff(
-    path: &std::path::Path,
-    from_label: &str,
-    to_label: &str,
-    color: bool,
-) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
-    Some(make_diff_output(from_label, to_label, &content, color))
 }
 
 /// Rename a file, falling back to copy+delete when the source and destination

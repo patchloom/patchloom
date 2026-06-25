@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::exit;
+use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
@@ -42,71 +42,32 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("target is not a file: {}", args.file);
     }
 
-    if global.check {
-        let output = DeleteOutput {
+    let check_msg = format!("would delete {}", args.file);
+    let apply_msg = format!("deleted {}", args.file);
+    let post_msg = format!("deleted {}", args.file);
+
+    execute_write(
+        global,
+        &cwd,
+        |phase, _diff| DeleteOutput {
             ok: true,
             path: args.file.clone(),
-            applied: false,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("would delete {}", args.file);
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    if global.apply {
-        delete_with_backup(&path, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
-        let output = DeleteOutput {
-            ok: true,
-            path: args.file.clone(),
-            applied: true,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("deleted {}", args.file);
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
-            delete_with_backup(&path, &cwd)?;
-            crate::write::run_format_command(global, &cwd)?;
-        }
-        let output = DeleteOutput {
-            ok: true,
-            path: args.file.clone(),
-            applied,
-        };
-        global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default: dry-run (show what would be deleted).
-    let output = DeleteOutput {
-        ok: true,
-        path: args.file.clone(),
-        applied: false,
-    };
-    if !global.emit_json(&output)? && !global.quiet {
-        println!("would delete {}", args.file);
-    }
-
-    // --confirm: prompt after showing preview, then delete if confirmed.
-    if global.should_apply() {
-        delete_with_backup(&path, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
-        if global.show_status() {
-            eprintln!("deleted {}", args.file);
-        }
-    }
-    Ok(exit::SUCCESS)
+            applied: matches!(phase, WritePhase::Applied | WritePhase::Confirmed(true)),
+        },
+        None::<&dyn Fn(bool) -> String>,
+        || delete_with_backup(&path, &cwd),
+        WriteMessages {
+            check: &check_msg,
+            apply: &apply_msg,
+            post_confirm: Some(&post_msg),
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exit;
     use tempfile::TempDir;
 
     fn make_args(path: &str) -> DeleteArgs {
