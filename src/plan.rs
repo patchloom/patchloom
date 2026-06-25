@@ -281,13 +281,6 @@ pub enum Operation {
     },
 }
 
-/// Returns the file paths (as `&str`) that are declared by the operation
-/// and should be subject to PathGuard / containment validation.
-///
-/// This eliminates duplication between:
-/// - upfront checks in `execute_plan` (library use, #755)
-/// - test validation logic in MCP
-///
 /// Convert a doc-family `Operation` into a `(path, DocMutation)` pair.
 ///
 /// Returns `None` for non-doc operations. This is the single source of truth
@@ -385,6 +378,13 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
     }
 }
 
+/// Returns the file paths (as `&str`) that are declared by the operation
+/// and should be subject to PathGuard / containment validation.
+///
+/// This eliminates duplication between:
+/// - upfront checks in `execute_plan` (library use, #755)
+/// - test validation logic in MCP
+///
 /// - `Replace`: includes `path` (if present) and `glob` pattern (if present).
 /// - Cross-file ops (`FileRename`, `MdMoveSection`): includes both source
 ///   and destination file paths.

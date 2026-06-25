@@ -209,7 +209,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    let root = global.resolve_cwd()?;
+    let cwd = global.resolve_cwd()?;
     let command_label = if merge_mode {
         "patch merge"
     } else {
@@ -224,7 +224,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_clean = true;
         let mut results = Vec::new();
         for pf in &patch_files {
-            let file_path = root.join(&pf.path);
+            let file_path = cwd.join(&pf.path);
             let original = match std::fs::read_to_string(&file_path) {
                 Ok(s) => s,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -286,7 +286,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut results = Vec::new();
         let mut all_ok = true;
         for pf in &patch_files {
-            let file_path = root.join(&pf.path);
+            let file_path = cwd.join(&pf.path);
             let original = std::fs::read_to_string(&file_path).unwrap_or_default();
             match apply_patch_file(&original, &pf.hunks, check_options) {
                 Ok(applied) => {
@@ -321,7 +321,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut has_conflicts = false;
 
     for pf in &patch_files {
-        let file_path = root.join(&pf.path);
+        let file_path = cwd.join(&pf.path);
         let original = std::fs::read_to_string(&file_path).unwrap_or_default();
         let applied = match apply_patch_file(&original, &pf.hunks, apply_options) {
             Ok(a) => a,
@@ -372,8 +372,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .zip(&policies)
             .map(|((p, c), pol)| (p.as_path(), c.as_str(), pol))
             .collect();
-        crate::backup::backup_write_files(&root, &writes)?;
-        crate::write::run_format_command(global, &root)?;
+        crate::backup::backup_write_files(&cwd, &writes)?;
+        crate::write::run_format_command(global, &cwd)?;
         return Ok(exit::SUCCESS);
     }
 

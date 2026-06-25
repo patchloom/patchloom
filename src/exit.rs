@@ -1,25 +1,18 @@
-/// Exit codes for patchloom.
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
+//! Exit codes for patchloom.
+
+#![cfg_attr(not(feature = "cli"), allow(dead_code))]
+
 pub const SUCCESS: u8 = 0;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const FAILURE: u8 = 1;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const CHANGES_DETECTED: u8 = 2;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const NO_MATCHES: u8 = 3;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const PARSE_ERROR: u8 = 4;
-/// Tx operation staging failure (`error_kind`: `operation_failed`).
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
-pub const OPERATION_FAILED: u8 = 9;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const AMBIGUOUS: u8 = 5;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const VALIDATION_FAILED: u8 = 6;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const ROLLBACK: u8 = 7;
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
 pub const CONFLICTS: u8 = 8;
+/// Tx operation staging failure (`error_kind`: `operation_failed`).
+pub const OPERATION_FAILED: u8 = 9;
 
 #[cfg(test)]
 mod tests {
