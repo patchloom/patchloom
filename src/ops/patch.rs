@@ -154,9 +154,10 @@ const CONFLICT_OURS: &str = "<<<<<<< patchloom (ours)";
 const CONFLICT_SEP: &str = "=======";
 const CONFLICT_THEIRS: &str = ">>>>>>> patch (theirs)";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
-#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
 pub enum OnStale {
     #[default]
     Fail,
