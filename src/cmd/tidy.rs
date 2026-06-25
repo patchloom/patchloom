@@ -92,10 +92,10 @@ fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
 fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<TidyIssue>> {
-    let root = global.resolve_cwd()?;
+    let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&root))?;
-    let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&root))?;
+    let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
 
     let quiet = global.quiet;
     let file_issues: Vec<Vec<TidyIssue>> =
@@ -171,10 +171,10 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
         TidyAction::Fix { paths } => {
-            let root = global.resolve_cwd()?;
+            let cwd = global.resolve_cwd()?;
             let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-            let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&root))?;
-            let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&root))?;
+            let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
+            let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
 
             // Parallel read+compute phase: each file is read, checked for
             // binary content, and has the write policy applied concurrently.
@@ -202,7 +202,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         return None;
                     }
                     let rel_path = file_path
-                        .strip_prefix(&root)
+                        .strip_prefix(&cwd)
                         .unwrap_or(file_path)
                         .to_string_lossy()
                         .to_string();
@@ -220,7 +220,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Serial output/write phase for ordered, crash-safe writes.
             let any_changed = !results.is_empty();
             let mut backup = if global.apply && any_changed {
-                Some(crate::backup::BackupSession::new(&root)?)
+                Some(crate::backup::BackupSession::new(&cwd)?)
             } else {
                 None
             };
@@ -288,7 +288,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 if let Some(b) = backup {
                     b.finalize()?;
                 }
-                crate::write::run_format_command(global, &root)?;
+                crate::write::run_format_command(global, &cwd)?;
                 Ok(exit::SUCCESS)
             } else if any_changed {
                 if global.show_status() {
@@ -301,8 +301,8 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         .iter()
                         .map(|r| (r.path.as_path(), r.fixed.as_str(), &noop))
                         .collect();
-                    crate::backup::backup_write_files(&root, &writes)?;
-                    crate::write::run_format_command(global, &root)?;
+                    crate::backup::backup_write_files(&cwd, &writes)?;
+                    crate::write::run_format_command(global, &cwd)?;
                     return Ok(exit::SUCCESS);
                 }
                 Ok(exit::CHANGES_DETECTED)
