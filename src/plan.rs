@@ -292,6 +292,103 @@ pub enum Operation {
 /// - upfront checks in `execute_plan` (library use, #755)
 /// - test validation logic in MCP
 ///
+/// Convert a doc-family `Operation` into a `(path, DocMutation)` pair.
+///
+/// Returns `None` for non-doc operations. This is the single source of truth
+/// for mapping `Operation::Doc*` variants to `DocMutation`, used by both the
+/// tx engine (`tx/execute.rs`) and any future callers.
+pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::doc::DocMutation)> {
+    use crate::ops::doc::DocMutation;
+    match op {
+        Operation::DocSet {
+            path,
+            selector,
+            value,
+        } => Some((
+            path,
+            DocMutation::Set {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        )),
+        Operation::DocDelete { path, selector } => Some((
+            path,
+            DocMutation::Delete {
+                selector: selector.clone(),
+            },
+        )),
+        Operation::DocMerge { path, value } => Some((
+            path,
+            DocMutation::Merge {
+                value: value.clone(),
+            },
+        )),
+        Operation::DocAppend {
+            path,
+            selector,
+            value,
+        } => Some((
+            path,
+            DocMutation::Append {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        )),
+        Operation::DocPrepend {
+            path,
+            selector,
+            value,
+        } => Some((
+            path,
+            DocMutation::Prepend {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        )),
+        Operation::DocUpdate {
+            path,
+            selector,
+            value,
+        } => Some((
+            path,
+            DocMutation::Update {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        )),
+        Operation::DocMove { path, from, to } => Some((
+            path,
+            DocMutation::Move {
+                from: from.clone(),
+                to: to.clone(),
+            },
+        )),
+        Operation::DocEnsure {
+            path,
+            selector,
+            value,
+        } => Some((
+            path,
+            DocMutation::Ensure {
+                selector: selector.clone(),
+                value: value.clone(),
+            },
+        )),
+        Operation::DocDeleteWhere {
+            path,
+            selector,
+            predicate,
+        } => Some((
+            path,
+            DocMutation::DeleteWhere {
+                selector: selector.clone(),
+                predicate: predicate.clone(),
+            },
+        )),
+        _ => None,
+    }
+}
+
 /// - `Replace`: includes `path` (if present) and `glob` pattern (if present).
 /// - Cross-file ops (`FileRename`, `MdMoveSection`): includes both source
 ///   and destination file paths.
@@ -678,5 +775,45 @@ mod tests {
         let json = r#"{"version":"1","operations":[{"op":"read","path":"f.txt"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(declared_paths(&plan.operations[0]), vec!["f.txt"]);
+    }
+
+    #[test]
+    fn op_to_doc_mutation_covers_all_doc_variants() {
+        use crate::ops::doc::DocMutation;
+
+        let cases = [
+            r#"{"op":"doc.set","path":"f.json","selector":"k","value":1}"#,
+            r#"{"op":"doc.delete","path":"f.json","selector":"k"}"#,
+            r#"{"op":"doc.merge","path":"f.json","value":{}}"#,
+            r#"{"op":"doc.append","path":"f.json","selector":"arr","value":1}"#,
+            r#"{"op":"doc.prepend","path":"f.json","selector":"arr","value":0}"#,
+            r#"{"op":"doc.update","path":"f.json","selector":"k","value":2}"#,
+            r#"{"op":"doc.move","path":"f.json","from":"a","to":"b"}"#,
+            r#"{"op":"doc.ensure","path":"f.json","selector":"k","value":1}"#,
+            r#"{"op":"doc.delete_where","path":"f.json","selector":"arr","predicate":"n=x"}"#,
+        ];
+
+        for (i, case) in cases.iter().enumerate() {
+            let json = format!(r#"{{"version":"1","operations":[{case}]}}"#);
+            let plan = parse_plan(&json).unwrap();
+            let result = op_to_doc_mutation(&plan.operations[0]);
+            assert!(
+                result.is_some(),
+                "doc variant {i} should return Some, got None"
+            );
+            let (path, _mutation) = result.unwrap();
+            assert_eq!(path, "f.json", "variant {i} path mismatch");
+        }
+
+        // Non-doc variants return None
+        let non_doc = r#"{"version":"1","operations":[{"op":"replace","from":"a","to":"b"}]}"#;
+        let plan = parse_plan(non_doc).unwrap();
+        assert!(op_to_doc_mutation(&plan.operations[0]).is_none());
+
+        // Verify the specific mutation variant matches
+        let set_json = r#"{"version":"1","operations":[{"op":"doc.set","path":"x.json","selector":"key","value":"val"}]}"#;
+        let plan = parse_plan(set_json).unwrap();
+        let (_, mutation) = op_to_doc_mutation(&plan.operations[0]).unwrap();
+        assert!(matches!(mutation, DocMutation::Set { .. }));
     }
 }
