@@ -89,7 +89,9 @@ fn find_dependents(
             .iter()
             .filter(|r| r.kind == RefKind::Reference)
             .filter_map(|r| {
-                let symbols = symbol_cache.get(&key).expect("symbol_cache entry inserted before recursion");
+                let symbols = symbol_cache
+                    .get(&key)
+                    .expect("symbol_cache entry inserted before recursion");
                 let containing = find_containing_in(symbols, r.line);
                 let name = containing.unwrap_or_else(|| format!("<{}>", display));
                 if visited.contains(&name) {
