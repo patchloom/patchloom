@@ -1,100 +1,14 @@
+// Parameter structs for MCP tools with custom handler logic.
+//
+// Simple 1:1 Operation-mapped tools (doc_set, doc_delete, doc_merge, doc_append,
+// doc_prepend, doc_ensure, doc_delete_where, doc_update, doc_move, read_file,
+// md_upsert_bullet, md_table_append, md_replace_section, md_insert_after_heading,
+// md_insert_before_heading, move_file, append_file, create_file, delete_file) are
+// auto-generated from MCP_TOOL_REGISTRY; they use the Operation variant's schema
+// directly and do not need dedicated params structs.
+
 use super::*;
 use serde::Deserialize;
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocSetParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Selector for the value to set (e.g., `version`, `db.pool`, `items[0].name`).
-    pub selector: String,
-    /// Value to set (string, number, boolean, object, or array).
-    pub value: serde_json::Value,
-    /// Roll back all writes when format/validate lifecycle steps fail.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocDeleteParams {
-    /// File path.
-    pub path: String,
-    /// Selector for the value to delete.
-    pub selector: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocMergeParams {
-    /// File path.
-    pub path: String,
-    /// Object to deep-merge into the document root.
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocArrayParams {
-    /// File path.
-    pub path: String,
-    /// Selector pointing to the target array.
-    pub selector: String,
-    /// Value to append or prepend.
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocEnsureParams {
-    /// File path.
-    pub path: String,
-    /// Selector for the value to ensure exists.
-    pub selector: String,
-    /// Value to set only if the selector path is missing.
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocUpdateParams {
-    /// File path.
-    pub path: String,
-    /// Wildcard selector for items to update (e.g., `items[*]`).
-    pub selector: String,
-    /// Value to set on each matched item.
-    pub value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocMoveParams {
-    /// File path.
-    pub path: String,
-    /// Source selector path to move from.
-    pub from: String,
-    /// Destination selector path to move to.
-    pub to: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DocDeleteWhereParams {
-    /// File path.
-    pub path: String,
-    /// Selector pointing to the target array.
-    pub selector: String,
-    /// Predicate for items to delete (e.g., "name=obsolete").
-    pub predicate: String,
-}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -158,67 +72,9 @@ pub(crate) struct DocGetParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub(crate) struct ReadFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Optional line range (e.g., "10:20"). Omit to read the entire file.
-    pub lines: Option<String>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct MdLintAgentsParams {
     /// Markdown file path (typically AGENTS.md).
     pub path: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdUpsertBulletParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading to find (e.g., "## Rules").
-    pub heading: String,
-    /// Bullet text to add (e.g., "- New rule"). Skipped if already present.
-    pub bullet: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdTableAppendParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading above the target table.
-    pub heading: String,
-    /// Table row to append (e.g., "| col1 | col2 |").
-    pub row: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdReplaceSectionParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading of the section to replace.
-    pub heading: String,
-    /// New content for the section body.
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct MdInsertParams {
-    /// Markdown file path.
-    pub path: String,
-    /// Heading to target (e.g., "## Changelog").
-    pub heading: String,
-    /// Content to insert.
-    pub content: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -245,50 +101,6 @@ pub(crate) struct MdMoveSectionParams {
 #[non_exhaustive]
 pub(crate) struct TidyParams {
     /// File path to normalize.
-    pub path: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct FileRenameParams {
-    /// Source file path (relative to working directory).
-    pub from: String,
-    /// Destination file path (relative to working directory).
-    pub to: String,
-    /// If true, overwrite the destination if it already exists.
-    #[serde(default)]
-    pub force: bool,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct AppendFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Content to append to the file.
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct CreateFileParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    /// Content to write to the new file.
-    pub content: String,
-    /// If true, overwrite an existing file instead of failing.
-    #[serde(default)]
-    pub force: bool,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[non_exhaustive]
-pub(crate) struct DeleteFileParams {
-    /// File path (relative to working directory).
     pub path: String,
 }
 

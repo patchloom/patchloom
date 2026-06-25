@@ -5,16 +5,17 @@
 //!
 //! Run with: `patchloom mcp-server`
 
-use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, ErrorData as McpError, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResult, Content, ErrorData as McpError, JsonObject,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt, tool, tool_router};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::cli::global::GlobalFlags;
 use crate::containment::PathGuard;
@@ -144,6 +145,332 @@ fn validate_operation_paths(
 }
 
 // ---------------------------------------------------------------------------
+// Auto-generated tool registry
+// ---------------------------------------------------------------------------
+
+/// Validation rule for a single field in an auto-generated MCP tool.
+enum FieldValidation {
+    /// Validate a string field with `check_path` (path containment).
+    Path(&'static str),
+    /// Validate a string field with `validate_param_size` (1 MiB limit).
+    ParamSize(&'static str),
+    /// Validate a string field with `validate_content_size` (10 MiB limit).
+    ContentSize(&'static str),
+    /// Validate a `serde_json::Value` field with `validate_json_depth` (64 levels).
+    JsonDepth(&'static str),
+}
+
+/// Metadata for an auto-generated MCP tool that maps 1:1 to an `Operation` variant.
+struct McpToolMeta {
+    /// MCP tool name (e.g., `"doc_set"`).
+    tool_name: &'static str,
+    /// `Operation` variant's serde tag value (e.g., `"doc.set"`).
+    op_name: &'static str,
+    /// Tool description shown to MCP clients.
+    description: &'static str,
+    /// Whether the tool accepts a `strict` parameter (plan-level, not on Operation).
+    has_strict: bool,
+    /// Field-level validation rules applied before deserialization.
+    validations: &'static [FieldValidation],
+}
+
+/// Registry of simple MCP tools that map 1:1 to `Operation` variants.
+///
+/// Each entry auto-generates an MCP tool at startup: the input schema is derived
+/// from the Operation variant via `operation_variant_schema()`, and the handler
+/// deserializes the JSON args directly into an `Operation` (injecting the `op`
+/// discriminator). This eliminates dedicated params structs and handler methods
+/// for these tools.
+const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
+    McpToolMeta {
+        tool_name: "doc_set",
+        op_name: "doc.set",
+        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
+        has_strict: true,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_delete",
+        op_name: "doc.delete",
+        description: "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_merge",
+        op_name: "doc.merge",
+        description: "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}} }",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_append",
+        op_name: "doc.append",
+        description: "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_prepend",
+        op_name: "doc.prepend",
+        description: "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0.",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_ensure",
+        op_name: "doc.ensure",
+        description: "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_delete_where",
+        op_name: "doc.delete_where",
+        description: "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("predicate"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_update",
+        op_name: "doc.update",
+        description: "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("selector"),
+            FieldValidation::JsonDepth("value"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "doc_move",
+        op_name: "doc.move",
+        description: "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("from"),
+            FieldValidation::ParamSize("to"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "read_file",
+        op_name: "read",
+        description: "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}",
+        has_strict: false,
+        validations: &[FieldValidation::Path("path")],
+    },
+    McpToolMeta {
+        tool_name: "md_upsert_bullet",
+        op_name: "md.upsert_bullet",
+        description: "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("bullet"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "md_table_append",
+        op_name: "md.table_append",
+        description: "Append a row to a markdown table under a heading. Example: {\"path\": \"docs/api.md\", \"heading\": \"## Endpoints\", \"row\": \"| GET | /health | 200 |\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("row"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "md_replace_section",
+        op_name: "md.replace_section",
+        description: "Replace the content of a markdown section (from heading to next same-level heading). Example: {\"path\": \"README.md\", \"heading\": \"## Installation\", \"content\": \"Run `cargo install patchloom`.\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "md_insert_after_heading",
+        op_name: "md.insert_after_heading",
+        description: "Insert content immediately after a markdown heading (before existing section body). Example: {\"path\": \"AGENTS.md\", \"heading\": \"## Rules\", \"content\": \"Always run tests.\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "md_insert_before_heading",
+        op_name: "md.insert_before_heading",
+        description: "Insert content before a markdown heading. Example: {\"path\": \"AGENTS.md\", \"heading\": \"## Rules\", \"content\": \"## Preamble\\nRead this first.\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "move_file",
+        op_name: "file.rename",
+        description: "Move or rename a file. Use force=true to overwrite existing. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}",
+        has_strict: false,
+        validations: &[FieldValidation::Path("from"), FieldValidation::Path("to")],
+    },
+    McpToolMeta {
+        tool_name: "append_file",
+        op_name: "file.append",
+        description: "Append content to the end of an existing file. Example: {\"path\": \"log.txt\", \"content\": \"new entry\\n\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "create_file",
+        op_name: "file.create",
+        description: "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"src/new.rs\", \"content\": \"fn main() {}\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "delete_file",
+        op_name: "file.delete",
+        description: "Delete a file. Example: {\"path\": \"obsolete.txt\"}",
+        has_strict: false,
+        validations: &[FieldValidation::Path("path")],
+    },
+];
+
+/// Inject a `strict` boolean property (default true) into a JSON Schema object.
+fn inject_strict_into_schema(mut schema: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = schema.as_object_mut()
+        && let Some(props) = obj.get_mut("properties").and_then(|p| p.as_object_mut())
+    {
+        props.insert(
+            "strict".to_string(),
+            serde_json::json!({
+                "type": "boolean",
+                "description": "Enable strict mode (default true). When true, ambiguous matches cause an error instead of a best-effort resolution.",
+                "default": true
+            }),
+        );
+    }
+    schema
+}
+
+/// Generic handler for auto-generated MCP tools.
+///
+/// Runs field validations from the registry entry, injects the `op` discriminator,
+/// deserializes into an `Operation`, and executes via `run_one_op`.
+fn handle_simple_op(
+    service: &PatchloomService,
+    meta: &McpToolMeta,
+    mut args: serde_json::Value,
+    allowed_fields: &std::collections::HashSet<String>,
+) -> Result<CallToolResult, McpError> {
+    let args_obj = args
+        .as_object()
+        .ok_or_else(|| McpError::invalid_params("expected JSON object", None))?;
+
+    // Reject unknown fields (replaces deny_unknown_fields from hand-written params).
+    let unknown: Vec<&str> = args_obj
+        .keys()
+        .filter(|k| !allowed_fields.contains(k.as_str()))
+        .map(|k| k.as_str())
+        .collect();
+    if !unknown.is_empty() {
+        return Err(McpError::invalid_params(
+            format!("unknown field(s): {}", unknown.join(", ")),
+            None,
+        ));
+    }
+
+    // Run field validations.
+    for v in meta.validations {
+        match v {
+            FieldValidation::Path(field) => {
+                if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    service.check_path(val)?;
+                }
+            }
+            FieldValidation::ParamSize(field) => {
+                if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    validate_param_size(field, val)?;
+                }
+            }
+            FieldValidation::ContentSize(field) => {
+                if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    validate_content_size(field, val)?;
+                }
+            }
+            FieldValidation::JsonDepth(field) => {
+                if let Some(val) = args_obj.get(*field) {
+                    validate_json_depth(field, val)?;
+                }
+            }
+        }
+    }
+
+    // Extract and remove `strict` before deserializing into Operation.
+    let strict = if meta.has_strict {
+        let s = args
+            .as_object()
+            .and_then(|o| o.get("strict"))
+            .and_then(|v| v.as_bool());
+        if let Some(obj) = args.as_object_mut() {
+            obj.remove("strict");
+        }
+        s
+    } else {
+        None
+    };
+
+    // Inject the `op` discriminator for serde tagged-enum deserialization.
+    if let Some(obj) = args.as_object_mut() {
+        obj.insert(
+            "op".to_string(),
+            serde_json::Value::String(meta.op_name.to_string()),
+        );
+    }
+
+    let op: Operation = serde_json::from_value(args)
+        .map_err(|e| McpError::invalid_params(format!("invalid parameters: {e}"), None))?;
+
+    service.run_one_op(op, strict)
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -168,7 +495,41 @@ impl PatchloomService {
         let call_log = log_flag
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("PATCHLOOM_MCP_LOG").map(PathBuf::from));
-        let tool_router = Self::tool_router();
+        let mut tool_router = Self::tool_router();
+
+        // Register auto-generated tools from the registry. Each tool derives
+        // its input schema from the corresponding Operation variant and uses
+        // the generic `handle_simple_op` dispatcher.
+        for meta in MCP_TOOL_REGISTRY {
+            let mut schema = crate::schema::operation_variant_schema(meta.op_name);
+            if meta.has_strict {
+                schema = inject_strict_into_schema(schema);
+            }
+            // Collect the set of allowed field names from the schema properties
+            // so handle_simple_op can reject unknown fields (deny_unknown_fields).
+            let allowed_fields: Arc<std::collections::HashSet<String>> = Arc::new(
+                schema
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .map(|props| props.keys().cloned().collect())
+                    .unwrap_or_default(),
+            );
+
+            let input_schema: JsonObject = serde_json::from_value(schema)
+                .expect("operation_variant_schema must produce a valid JSON object");
+
+            tool_router.add_route(ToolRoute::new_dyn(
+                Tool::new(meta.tool_name, meta.description, Arc::new(input_schema)),
+                move |ctx: ToolCallContext<'_, PatchloomService>| {
+                    let fields = Arc::clone(&allowed_fields);
+                    Box::pin(async move {
+                        let args_value =
+                            serde_json::Value::Object(ctx.arguments.unwrap_or_default());
+                        handle_simple_op(ctx.service, meta, args_value, &fields)
+                    })
+                },
+            ));
+        }
 
         Ok(Self {
             tool_router,
@@ -814,198 +1175,9 @@ impl PatchloomService {
         execute_plan_validated(plan, self.cwd(), Some(&self.path_guard))
     }
 
-    #[tool(
-        description = "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}"
-    )]
-    async fn doc_set(
-        &self,
-        Parameters(p): Parameters<DocSetParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocSet {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            Some(p.strict),
-        )
-    }
-
-    #[tool(
-        description = "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}"
-    )]
-    async fn doc_delete(
-        &self,
-        Parameters(p): Parameters<DocDeleteParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        self.run_one_op(
-            Operation::DocDelete {
-                path: p.path,
-                selector: p.selector,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}} }"
-    )]
-    async fn doc_merge(
-        &self,
-        Parameters(p): Parameters<DocMergeParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocMerge {
-                path: p.path,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}"
-    )]
-    async fn doc_append(
-        &self,
-        Parameters(p): Parameters<DocArrayParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocAppend {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0."
-    )]
-    async fn doc_prepend(
-        &self,
-        Parameters(p): Parameters<DocArrayParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocPrepend {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}"
-    )]
-    async fn doc_ensure(
-        &self,
-        Parameters(p): Parameters<DocEnsureParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocEnsure {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}"
-    )]
-    async fn doc_delete_where(
-        &self,
-        Parameters(p): Parameters<DocDeleteWhereParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_param_size("predicate", &p.predicate)?;
-        self.run_one_op(
-            Operation::DocDeleteWhere {
-                path: p.path,
-                selector: p.selector,
-                predicate: p.predicate,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}"
-    )]
-    async fn doc_update(
-        &self,
-        Parameters(p): Parameters<DocUpdateParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("selector", &p.selector)?;
-        validate_json_depth("value", &p.value)?;
-        self.run_one_op(
-            Operation::DocUpdate {
-                path: p.path,
-                selector: p.selector,
-                value: p.value,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}"
-    )]
-    async fn doc_move(
-        &self,
-        Parameters(p): Parameters<DocMoveParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("from", &p.from)?;
-        validate_param_size("to", &p.to)?;
-        self.run_one_op(
-            Operation::DocMove {
-                path: p.path,
-                from: p.from,
-                to: p.to,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}"
-    )]
-    async fn read_file(
-        &self,
-        Parameters(p): Parameters<ReadFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        self.run_one_op(
-            Operation::Read {
-                path: p.path,
-                lines: p.lines,
-            },
-            None,
-        )
-    }
+    // doc_set, doc_delete, doc_merge, doc_append, doc_prepend, doc_ensure,
+    // doc_delete_where, doc_update, doc_move, and read_file are auto-generated
+    // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
         description = "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
@@ -1026,100 +1198,9 @@ impl PatchloomService {
         )
     }
 
-    #[tool(
-        description = "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}"
-    )]
-    async fn md_upsert_bullet(
-        &self,
-        Parameters(p): Parameters<MdUpsertBulletParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("bullet", &p.bullet)?;
-        self.run_one_op(
-            Operation::MdUpsertBullet {
-                path: p.path,
-                heading: p.heading,
-                bullet: p.bullet,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Append a row to a markdown table under a heading. Example: {\"path\": \"README.md\", \"heading\": \"## Commands\", \"row\": \"| deploy | Run deployment |\"}"
-    )]
-    async fn md_table_append(
-        &self,
-        Parameters(p): Parameters<MdTableAppendParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_param_size("row", &p.row)?;
-        self.run_one_op(
-            Operation::MdTableAppend {
-                path: p.path,
-                heading: p.heading,
-                row: p.row,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Replace the body of a markdown section. Content replaces everything between this heading and the next equal-or-higher heading. Example: {\"path\": \"README.md\", \"heading\": \"## Usage\", \"content\": \"Run `make build`.\\n\"}"
-    )]
-    async fn md_replace_section(
-        &self,
-        Parameters(p): Parameters<MdReplaceSectionParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdReplaceSection {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Insert content after a markdown heading. Preserves existing body. Example: {\"path\": \"README.md\", \"heading\": \"## Notes\", \"content\": \"Updated 2025-01-01.\\n\"}"
-    )]
-    async fn md_insert_after_heading(
-        &self,
-        Parameters(p): Parameters<MdInsertParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdInsertAfterHeading {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Insert content before a markdown heading. The new content appears above the heading line. Example: {\"path\": \"doc.md\", \"heading\": \"## API\", \"content\": \"---\\n\"}"
-    )]
-    async fn md_insert_before_heading(
-        &self,
-        Parameters(p): Parameters<MdInsertParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::MdInsertBeforeHeading {
-                path: p.path,
-                heading: p.heading,
-                content: p.content,
-            },
-            None,
-        )
-    }
+    // md_upsert_bullet, md_table_append, md_replace_section,
+    // md_insert_after_heading, and md_insert_before_heading are auto-generated
+    // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
         description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
@@ -1136,72 +1217,8 @@ impl PatchloomService {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(
-        description = "Rename (move) a file. Handles binary files. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}"
-    )]
-    async fn move_file(
-        &self,
-        Parameters(p): Parameters<FileRenameParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.from)?;
-        self.check_path(&p.to)?;
-        self.run_one_op(
-            Operation::FileRename {
-                from: p.from,
-                to: p.to,
-                force: p.force,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Append content to the end of an existing file. Inserts a newline separator if the file does not end with one. Fails if the file does not exist. Example: {\"path\": \"tests.rs\", \"content\": \"#[test]\\nfn new() {}\"}"
-    )]
-    async fn append_file(
-        &self,
-        Parameters(p): Parameters<AppendFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::FileAppend {
-                path: p.path,
-                content: p.content,
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"hello.txt\", \"content\": \"Hello, World!\"}"
-    )]
-    async fn create_file(
-        &self,
-        Parameters(p): Parameters<CreateFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        validate_content_size("content", &p.content)?;
-        self.run_one_op(
-            Operation::FileCreate {
-                path: p.path,
-                content: p.content,
-                force: Some(p.force),
-            },
-            None,
-        )
-    }
-
-    #[tool(
-        description = "Delete a file. Fails if the file does not exist. Example: {\"path\": \"temp.txt\"}"
-    )]
-    async fn delete_file(
-        &self,
-        Parameters(p): Parameters<DeleteFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.check_path(&p.path)?;
-        self.run_one_op(Operation::FileDelete { path: p.path }, None)
-    }
+    // move_file, append_file, create_file, and delete_file are auto-generated
+    // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 }
 
 impl ServerHandler for PatchloomService {
@@ -1587,12 +1604,11 @@ mod tests {
         client.cancel().await.unwrap();
     }
 
-    /// Verify that every field in each MCP params struct corresponds to a field
-    /// in the matching `plan::Operation` variant (and vice versa).
+    /// Verify field drift between hand-written MCP params structs and Operation variants.
     ///
-    /// This catches drift when a field is added to `Operation` but forgotten in
-    /// the MCP params, or vice versa. Allowed exceptions are listed explicitly
-    /// (e.g., `strict` exists only in MCP params, `glob` only in Operation).
+    /// Auto-generated tools (registered via MCP_TOOL_REGISTRY) are drift-proof by
+    /// construction since they use the Operation variant's schema directly. This test
+    /// only covers hand-written handlers that maintain their own params structs.
     #[test]
     fn mcp_params_fields_match_operation_variants() {
         use crate::schema::operation_variant_schema;
@@ -1616,7 +1632,6 @@ mod tests {
                 .unwrap_or_default()
         }
 
-        // (Operation serde name, MCP params type keys, allowed MCP-only fields, allowed Operation-only fields)
         struct Check {
             op_name: &'static str,
             mcp_keys: std::collections::BTreeSet<String>,
@@ -1624,91 +1639,18 @@ mod tests {
             op_only_allowed: &'static [&'static str],
         }
 
+        // Only hand-written handlers need drift checking.
         let checks = vec![
             Check {
                 op_name: "replace",
                 mcp_keys: schema_keys_for::<ReplaceParams>(),
                 mcp_only_allowed: &["strict", "regex"],
-                // `glob` and `mode` are Operation-only (MCP uses `path` always, `regex` bool instead of mode string)
                 op_only_allowed: &["glob", "mode"],
-            },
-            Check {
-                op_name: "doc.set",
-                mcp_keys: schema_keys_for::<DocSetParams>(),
-                mcp_only_allowed: &["strict"],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.delete",
-                mcp_keys: schema_keys_for::<DocDeleteParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.merge",
-                mcp_keys: schema_keys_for::<DocMergeParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.append",
-                mcp_keys: schema_keys_for::<DocArrayParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.ensure",
-                mcp_keys: schema_keys_for::<DocEnsureParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.update",
-                mcp_keys: schema_keys_for::<DocUpdateParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.move",
-                mcp_keys: schema_keys_for::<DocMoveParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "doc.delete_where",
-                mcp_keys: schema_keys_for::<DocDeleteWhereParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "file.create",
-                mcp_keys: schema_keys_for::<CreateFileParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "file.append",
-                mcp_keys: schema_keys_for::<AppendFileParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "file.delete",
-                mcp_keys: schema_keys_for::<DeleteFileParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "file.rename",
-                mcp_keys: schema_keys_for::<FileRenameParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
             },
             Check {
                 op_name: "tidy.fix",
                 mcp_keys: schema_keys_for::<TidyParams>(),
                 mcp_only_allowed: &[],
-                // Operation has granular control fields; MCP is always fix-all
                 op_only_allowed: &[
                     "ensure_final_newline",
                     "trim_trailing_whitespace",
@@ -1719,30 +1661,6 @@ mod tests {
                 op_name: "patch.apply",
                 mcp_keys: schema_keys_for::<PatchParams>(),
                 mcp_only_allowed: &["strict"],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "md.replace_section",
-                mcp_keys: schema_keys_for::<MdReplaceSectionParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "md.upsert_bullet",
-                mcp_keys: schema_keys_for::<MdUpsertBulletParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "md.table_append",
-                mcp_keys: schema_keys_for::<MdTableAppendParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
-                op_name: "md.insert_after_heading",
-                mcp_keys: schema_keys_for::<MdInsertParams>(),
-                mcp_only_allowed: &[],
                 op_only_allowed: &[],
             },
             Check {
@@ -1758,18 +1676,9 @@ mod tests {
                 op_only_allowed: &[],
             },
             Check {
-                op_name: "read",
-                mcp_keys: schema_keys_for::<ReadFileParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[],
-            },
-            Check {
                 op_name: "search",
                 mcp_keys: schema_keys_for::<SearchParams>(),
-                // MCP search has extra display-only fields not in Operation;
-                // `literal` is the MCP name for Operation's `regex` (inverted semantics)
                 mcp_only_allowed: &["paths", "files_with_matches", "count", "literal"],
-                // `path` (singular) vs MCP `paths` (plural); `regex` vs MCP `literal`
                 op_only_allowed: &["path", "regex"],
             },
         ];
@@ -1782,7 +1691,6 @@ mod tests {
             let op_only_allowed: std::collections::BTreeSet<&str> =
                 check.op_only_allowed.iter().copied().collect();
 
-            // Fields in MCP params but not in Operation
             for key in &check.mcp_keys {
                 if !op_keys.contains(key) && !mcp_only_allowed.contains(key.as_str()) {
                     errors.push(format!(
@@ -1792,7 +1700,6 @@ mod tests {
                 }
             }
 
-            // Fields in Operation but not in MCP params
             for key in &op_keys {
                 if !check.mcp_keys.contains(key) && !op_only_allowed.contains(key.as_str()) {
                     errors.push(format!(
