@@ -725,7 +725,7 @@ fn apply_patch_path_matching_uses_path_components() {
 fn make_write_policy_maps_options() {
     let opts = WritePolicyOptions {
         ensure_final_newline: true,
-        normalize_eol: Some(EolNormalization::Lf),
+        normalize_eol: Some(EolMode::Lf),
         trim_trailing_whitespace: true,
         collapse_blanks: true,
     };
@@ -735,8 +735,8 @@ fn make_write_policy_maps_options() {
     assert!(policy.collapse_blanks);
     assert_eq!(
         policy.normalize_eol,
-        crate::write::EolMode::Lf,
-        "should map EolNormalization::Lf to EolMode::Lf"
+        EolMode::Lf,
+        "should map EolMode::Lf correctly"
     );
 
     // Default options should produce default policy.
@@ -1131,7 +1131,7 @@ const _: () = {
     let _ = _assert::<ApplyMode>;
     let _ = _assert::<ReplaceOptions>;
     let _ = _assert::<WritePolicyOptions>;
-    let _ = _assert::<EolNormalization>;
+    let _ = _assert::<EolMode>;
 };
 
 #[test]
@@ -1851,13 +1851,13 @@ fn read_nonexistent_file_fails() {
 #[test]
 fn make_write_policy_maps_crlf() {
     let opts = WritePolicyOptions {
-        normalize_eol: Some(EolNormalization::Crlf),
+        normalize_eol: Some(EolMode::Crlf),
         ..WritePolicyOptions::default()
     };
     let policy = make_write_policy(&opts);
     assert_eq!(
         policy.normalize_eol,
-        crate::write::EolMode::Crlf,
-        "should map EolNormalization::Crlf to EolMode::Crlf"
+        EolMode::Crlf,
+        "should map EolMode::Crlf correctly"
     );
 }

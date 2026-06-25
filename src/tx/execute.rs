@@ -586,7 +586,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 ensure_final_newline: ensure_final_newline.unwrap_or(true),
                 trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
                 normalize_eol: if let Some(eol) = normalize_eol {
-                    plan_normalize_eol(eol)?
+                    crate::write::parse_eol_mode(eol)?
                 } else {
                     EolMode::Keep
                 },
@@ -733,17 +733,6 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
 // Write policy
 // ---------------------------------------------------------------------------
 
-pub(crate) fn plan_normalize_eol(mode: &str) -> anyhow::Result<EolMode> {
-    match mode {
-        "lf" => Ok(EolMode::Lf),
-        "crlf" => Ok(EolMode::Crlf),
-        "keep" => Ok(EolMode::Keep),
-        _ => {
-            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
-        }
-    }
-}
-
 /// Build the effective write policy for a pending file.
 ///
 /// Start from the CLI-derived per-file defaults, including any EditorConfig
@@ -755,23 +744,9 @@ fn build_write_policy(
     path: &Path,
 ) -> anyhow::Result<WritePolicy> {
     let mut write_policy = crate::write::policy_from_flags(global, Some(path));
-    let Some(plan_write_policy) = &plan.write_policy else {
-        return Ok(write_policy);
-    };
-
-    if let Some(ensure_final_newline) = plan_write_policy.ensure_final_newline {
-        write_policy.ensure_final_newline = ensure_final_newline;
+    if let Some(ov) = &plan.write_policy {
+        write_policy.apply_override(ov)?;
     }
-    if let Some(normalize_eol) = plan_write_policy.normalize_eol.as_deref() {
-        write_policy.normalize_eol = plan_normalize_eol(normalize_eol)?;
-    }
-    if let Some(trim_trailing_whitespace) = plan_write_policy.trim_trailing_whitespace {
-        write_policy.trim_trailing_whitespace = trim_trailing_whitespace;
-    }
-    if let Some(collapse_blanks) = plan_write_policy.collapse_blanks {
-        write_policy.collapse_blanks = collapse_blanks;
-    }
-
     Ok(write_policy)
 }
 

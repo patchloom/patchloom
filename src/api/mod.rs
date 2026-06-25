@@ -82,7 +82,7 @@ use std::path::Path;
 use crate::backup::BackupSession;
 use crate::containment::PathGuard;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
-use crate::write::{WritePolicy, atomic_write};
+use crate::write::{EolMode, WritePolicy, atomic_write};
 
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use crate::tx::{
@@ -187,22 +187,20 @@ pub struct ReplaceOptions {
 pub struct WritePolicyOptions {
     /// Ensure non-empty files end with a newline.
     pub ensure_final_newline: bool,
-    /// Normalize line endings. `None` means keep existing.
-    pub normalize_eol: Option<EolNormalization>,
+    /// Normalize line endings. `None` means keep existing (`EolMode::Keep`).
+    pub normalize_eol: Option<EolMode>,
     /// Remove trailing whitespace from each line.
     pub trim_trailing_whitespace: bool,
     /// Collapse consecutive blank lines into a single blank line.
     pub collapse_blanks: bool,
 }
 
-/// Line ending normalization mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EolNormalization {
-    /// Normalize to LF (`\n`).
-    Lf,
-    /// Normalize to CRLF (`\r\n`).
-    Crlf,
-}
+/// Backward-compatible alias for [`EolMode`](crate::write::EolMode).
+#[deprecated(
+    since = "0.6.0",
+    note = "use crate::write::EolMode instead (Lf, Crlf, Keep)"
+)]
+pub type EolNormalization = EolMode;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -217,14 +215,9 @@ pub enum EolNormalization {
 /// `write` + `atomic_write` primitives. Differences from MCP (which uses strict pre-checks + defaults)
 /// are intentional.
 pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
-    use crate::write::EolMode;
     WritePolicy {
         ensure_final_newline: opts.ensure_final_newline,
-        normalize_eol: match opts.normalize_eol {
-            None => EolMode::Keep,
-            Some(EolNormalization::Lf) => EolMode::Lf,
-            Some(EolNormalization::Crlf) => EolMode::Crlf,
-        },
+        normalize_eol: opts.normalize_eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
         collapse_blanks: opts.collapse_blanks,
     }
