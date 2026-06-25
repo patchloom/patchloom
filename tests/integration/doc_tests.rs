@@ -1,0 +1,1772 @@
+use super::*;
+
+#[test]
+fn test_doc_get_jsonl_compound_value_is_single_line_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"obj":{"name":"patchloom","version":1}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("obj")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["name"], "patchloom");
+    assert_eq!(json["version"], 1);
+}
+
+#[test]
+fn test_doc_get_quiet_suppresses_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        output.stdout.is_empty(),
+        "quiet should suppress doc get output"
+    );
+}
+
+#[test]
+fn test_doc_get_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+#[test]
+fn test_doc_has_existing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom","version":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("has")
+        .arg(&file)
+        .arg("name")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("true"));
+}
+
+#[test]
+fn test_doc_has_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("has")
+        .arg(&file)
+        .arg("missing")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("false"));
+}
+
+#[test]
+fn test_doc_keys_jsonl_outputs_one_key_per_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"scripts":{"build":"tsc","lint":"eslint"}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("scripts")
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().any(|v| v == "build"));
+    assert!(lines.iter().any(|v| v == "lint"));
+}
+
+#[test]
+fn test_doc_keys_lists_object_keys() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"alpha":1,"beta":2,"gamma":3}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg(".")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alpha"))
+        .stdout(predicate::str::contains("beta"))
+        .stdout(predicate::str::contains("gamma"));
+}
+
+#[test]
+fn test_doc_set_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["version"], serde_json::json!("2.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_doc_set_confirm_eof_does_not_modify_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = run_patchloom_confirm_in_pty(
+        &[
+            "doc",
+            "set",
+            file.to_str().unwrap(),
+            "version",
+            "\"2.0\"",
+            "--confirm",
+        ],
+        "\u{4}",
+    );
+
+    assert!(output.status.success());
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["version"], serde_json::json!("1.0"));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Apply? [Y/n]"));
+}
+
+#[test]
+fn test_doc_set_preserves_key_order() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    // Keys are intentionally NOT in alphabetical order.
+    fs::write(&file, r#"{"z_last":1,"a_first":2,"m_middle":3}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("a_first")
+        .arg("99")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    // The written file must keep keys in the original insertion order,
+    // not sorted alphabetically. If serde_json's preserve_order feature
+    // is missing, keys would appear as a_first, m_middle, z_last.
+    let content = fs::read_to_string(&file).unwrap();
+    let z_pos = content.find("z_last").expect("z_last missing");
+    let a_pos = content.find("a_first").expect("a_first missing");
+    let m_pos = content.find("m_middle").expect("m_middle missing");
+    assert!(
+        z_pos < a_pos && a_pos < m_pos,
+        "key order not preserved: z_last@{z_pos}, a_first@{a_pos}, m_middle@{m_pos}"
+    );
+}
+
+#[test]
+fn test_doc_set_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\n[server]\nhost = \"localhost\"\nport = 8080\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("server.port")
+        .arg("9090")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    // Comments must survive.
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# DB"),
+        "section comment stripped: {content}"
+    );
+    // Value must be updated.
+    assert!(content.contains("9090"), "new value missing: {content}");
+    assert!(!content.contains("8080"), "old value present: {content}");
+    // Section order must be preserved.
+    let server_pos = content.find("[server]").expect("[server] missing");
+    let db_pos = content.find("[database]").expect("[database] missing");
+    assert!(
+        server_pos < db_pos,
+        "section order changed: server@{server_pos} db@{db_pos}"
+    );
+}
+
+#[test]
+fn test_doc_merge_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\n\n[server]\nhost = \"localhost\"\nport = 8080 # default\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"logging": "debug"}"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(content.contains("logging"), "merged key missing: {content}");
+}
+
+#[test]
+fn test_doc_delete_toml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "# Main config\nname = \"my-app\"\nversion = 1\n\n# Server\n[server]\nhost = \"localhost\"\nport = 8080\n\n# DB\n[database]\nurl = \"pg\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("version")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(
+        !content.contains("version"),
+        "deleted key still present: {content}"
+    );
+    assert!(content.contains("name"), "surviving key missing: {content}");
+}
+
+#[test]
+fn test_doc_set_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("server.port")
+        .arg("9090")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    // Output must be syntactically valid YAML.
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    // Comments must survive.
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    // Value must be updated.
+    assert!(content.contains("9090"), "new value missing: {content}");
+    assert!(!content.contains("8080"), "old value present: {content}");
+    // Key order must be preserved.
+    let server_pos = content.find("server:").expect("server: missing");
+    let db_pos = content.find("database:").expect("database: missing");
+    assert!(
+        server_pos < db_pos,
+        "key order changed: server@{server_pos} db@{db_pos}"
+    );
+}
+
+#[test]
+fn test_doc_merge_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"logging": "debug"}"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(content.contains("logging"), "merged key missing: {content}");
+    assert!(content.contains("debug"), "merged value missing: {content}");
+}
+
+#[test]
+fn test_doc_delete_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Main config\nname: my-app\nversion: 1\n\n# Server\nserver:\n  host: localhost\n  port: 8080 # default\n\n# DB\ndatabase:\n  url: pg\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("version")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Main config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# default"),
+        "inline comment stripped: {content}"
+    );
+    assert!(content.contains("# DB"), "DB comment stripped: {content}");
+    assert!(
+        !content.contains("version:"),
+        "deleted key still present: {content}"
+    );
+    assert!(
+        content.contains("name: my-app"),
+        "surviving key missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_append_yaml_sequence_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "# Items\n- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("")
+        .arg("item3")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(content.contains("# Items"), "comment stripped: {content}");
+    assert!(content.contains("item1"), "item1 missing: {content}");
+    assert!(content.contains("item2"), "item2 missing: {content}");
+    assert!(
+        content.contains("item3"),
+        "appended item3 missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_set_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "# Items list\n- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("[1]")
+        .arg("updated")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Items list"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("item1"),
+        "unchanged element lost: {content}"
+    );
+    assert!(
+        content.contains("updated"),
+        "updated element missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_delete_where_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(
+        &file,
+        "# Contact links\n- name: keep\n  url: keep.com\n- name: remove\n  url: remove.com\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("")
+        .arg("--predicate")
+        .arg("name=remove")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Contact links"),
+        "top comment stripped: {content}"
+    );
+    assert!(content.contains("keep"), "kept element missing: {content}");
+    assert!(
+        !content.contains("remove"),
+        "removed element still present: {content}"
+    );
+}
+
+#[test]
+fn test_doc_prepend_yaml_produces_valid_output() {
+    // Verifies that prepend produces valid YAML with comments preserved.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "# Config\nname: app\nitems:\n  - existing\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("\"first\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let parsed: serde_json::Value =
+        serde_yaml_ng::from_str(&content).expect("output is not valid YAML");
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "first", "prepended item not at position 0");
+    assert_eq!(items[1], "existing", "original item not at position 1");
+}
+
+#[test]
+fn test_doc_update_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nitems:\n  - name: a\n    status: pending # TODO\n  - name: b\n    status: pending\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("update")
+        .arg(&file)
+        .arg("items[*].status")
+        .arg("done")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(content.contains("done"), "updated value missing: {content}");
+    assert!(
+        !content.contains("pending"),
+        "old value still present: {content}"
+    );
+}
+
+#[test]
+fn test_doc_ensure_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Server\nserver:\n  host: localhost\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("server.port")
+        .arg("8080")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(content.contains("8080"), "ensured value missing: {content}");
+    assert!(
+        content.contains("name: my-app"),
+        "existing key missing: {content}"
+    );
+}
+
+#[test]
+fn test_doc_ensure_deep_nested_yaml_creates_structure_and_preserves_comments() {
+    // Exercise nested creation via CLI + header comment preservation.
+    // (Multi-intermediate like server.tls.port may hit fallback; 1-level
+    // nested + structure is asserted. Deeper cases covered in unit tests.)
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "# App Config\nname: demo\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("server.port")
+        .arg("9443")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content).expect("must be valid YAML");
+    assert!(
+        content.contains("# App Config"),
+        "header comment lost: {content}"
+    );
+    assert!(
+        content.contains("9443") || content.contains("port"),
+        "port value missing: {content}"
+    );
+    // Note: full reparsed structure for new top-level containers is validated in
+    // unit tests (serialize_value_preserving + reparsed == expected).
+}
+
+#[test]
+fn test_doc_move_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nold_name: my-app\n\n# Server\nserver:\n  host: localhost\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("old_name")
+        .arg("new_name")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Server"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("new_name"),
+        "renamed key missing: {content}"
+    );
+    assert!(
+        !content.contains("old_name"),
+        "old key still present: {content}"
+    );
+    assert!(
+        content.contains("my-app"),
+        "value lost during move: {content}"
+    );
+}
+
+#[test]
+fn test_doc_prepend_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("first")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("first"),
+        "prepended item missing: {content}"
+    );
+    assert!(
+        content.contains("existing"),
+        "original item missing: {content}"
+    );
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "first", "prepended item not at position 0");
+    assert_eq!(items[1], "existing", "original item not at position 1");
+}
+
+#[test]
+fn test_doc_delete_where_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - name: keep\n    val: 1\n  - name: remove\n    val: 2\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("items")
+        .arg("--predicate")
+        .arg("name=remove")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    assert!(
+        content.contains("keep"),
+        "surviving item missing: {content}"
+    );
+    assert!(
+        !content.contains("remove"),
+        "deleted item still present: {content}"
+    );
+}
+
+#[test]
+fn test_doc_append_yaml_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "# Config\nname: my-app\n\n# Items\nitems:\n  - existing\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("items")
+        .arg("last")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Config"),
+        "top comment stripped: {content}"
+    );
+    assert!(
+        content.contains("# Items"),
+        "section comment stripped: {content}"
+    );
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let items = parsed.get("items").expect("items key missing");
+    assert_eq!(items[0], "existing", "original item not at position 0");
+    assert_eq!(items[1], "last", "appended item not at position 1");
+}
+
+#[test]
+fn test_doc_prepend_yaml_sequence_root_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.yaml");
+    fs::write(&file, "# Items list\n- item1\n- item2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("")
+        .arg("item0")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+        .expect("CST output is not valid YAML");
+    assert!(
+        content.contains("# Items list"),
+        "comment stripped: {content}"
+    );
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content).unwrap();
+    let arr = parsed.as_array().expect("root should be array");
+    assert_eq!(arr[0], "item0", "prepended item not at position 0");
+    assert_eq!(arr[1], "item1", "original item1 not at position 1");
+    assert_eq!(arr[2], "item2", "original item2 not at position 2");
+}
+
+#[test]
+fn test_doc_delete_where() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"name":"keep"},{"name":"remove"}]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("items")
+        .arg("--predicate")
+        .arg("name=remove")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().expect("items should be an array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], serde_json::json!("keep"));
+}
+
+// ---------------------------------------------------------------------------
+// md
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_yaml() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "name: patchloom\nversion: 1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("name")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::starts_with("\"patchloom\"")
+                .or(predicate::str::starts_with("patchloom")),
+        );
+}
+
+#[test]
+fn test_doc_get_yaml_merge_key_resolved() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "defaults: &d\n  timeout: 30\n  retries: 3\nstaging:\n  <<: *d\n",
+    )
+    .unwrap();
+
+    // Inherited key via merge must be accessible.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("staging.retries")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("3"));
+}
+
+#[test]
+fn test_doc_set_yaml_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(&file, "name: old\nversion: 1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("name")
+        .arg("\"new\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("name: new") || content.contains("name: \"new\""),
+        "YAML should contain updated name value: {content}"
+    );
+    assert!(
+        !content.contains("name: old"),
+        "YAML should not contain old name value: {content}"
+    );
+}
+
+#[test]
+fn test_doc_get_toml() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "[package]\nname = \"patchloom\"\nversion = \"1.0\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("package.name")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("patchloom"));
+}
+
+#[test]
+fn test_doc_set_toml_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[package]\nname = \"old\"\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("package.name")
+        .arg("\"new\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("name = \"new\""),
+        "TOML should contain updated name value: {content}"
+    );
+}
+
+#[test]
+fn test_doc_len_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items":[1,2,3,4,5]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .arg("items")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("5"));
+}
+
+#[test]
+fn test_doc_append_to_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"tags":["a","b"]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("tags")
+        .arg(r#""c""#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["tags"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn test_doc_flatten_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a":1,"b":{"c":2},"d":[10,20]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a = 1"))
+        .stdout(predicate::str::contains("b.c = 2"))
+        .stdout(predicate::str::contains("d[0] = 10"))
+        .stdout(predicate::str::contains("d[1] = 20"));
+}
+
+#[test]
+fn test_doc_flatten_json_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\""))
+        .stdout(predicate::str::contains("\"patchloom\""));
+}
+
+// ---------------------------------------------------------------------------
+// doc diff
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_diff_shows_changes() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"name":"old","keep":1}"#).unwrap();
+    fs::write(&b, r#"{"name":"new","keep":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("~ name"));
+}
+
+// ---------------------------------------------------------------------------
+// --check mode: exits 2 when changes detected, does NOT write
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_flatten_jsonl_outputs_path_value_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1,"b":{"c":2}}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("flatten")
+        .arg(&file)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(lines.iter().any(|v| v["path"] == "a" && v["value"] == 1));
+    assert!(lines.iter().any(|v| v["path"] == "b.c" && v["value"] == 2));
+}
+
+#[test]
+fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"name":"old","removed":true}"#).unwrap();
+    fs::write(&b, r#"{"name":"new","added":"yes"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .arg("--jsonl")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "changed" && v["path"] == "name")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "removed" && v["path"] == "removed")
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|v| v["kind"] == "added" && v["path"] == "added")
+    );
+}
+
+#[test]
+fn test_doc_delete_removes_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"keep","remove_me":true}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("remove_me")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["name"], serde_json::json!("keep"));
+    assert!(v.get("remove_me").is_none(), "key should be removed");
+}
+
+#[test]
+fn test_doc_merge_combines_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"b":2}"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["a"], serde_json::json!(1));
+    assert_eq!(v["b"], serde_json::json!(2));
+}
+
+#[test]
+fn test_doc_prepend_inserts_at_front() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[2,3]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("prepend")
+        .arg(&file)
+        .arg("items")
+        .arg("1")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items[0], serde_json::json!(1));
+    assert_eq!(items.len(), 3);
+}
+
+#[test]
+fn test_doc_select_filters_by_predicate() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"status":"active","name":"a"},{"status":"done","name":"b"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("select")
+        .arg(&file)
+        .arg("items[status=active]")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"name\""))
+        .stdout(predicate::str::contains("\"a\""))
+        .stdout(predicate::str::contains("\"b\"").not());
+}
+
+#[test]
+fn test_doc_ensure_creates_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("b")
+        .arg("2")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["b"], serde_json::json!(2));
+}
+
+#[test]
+fn test_doc_ensure_noop_when_exists() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    // ensure with --check when key already exists should exit 0 (no changes)
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("a")
+        .arg("1")
+        .arg("--check")
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn test_doc_move_renames_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"old_key":"value"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("old_key")
+        .arg("new_key")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["new_key"], serde_json::json!("value"));
+    assert!(v.get("old_key").is_none(), "old key should be gone");
+}
+
+#[test]
+fn test_doc_update_matching_nodes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"s":"a"},{"s":"b"}]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("update")
+        .arg(&file)
+        .arg("items[*].s")
+        .arg("\"x\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items[0]["s"], serde_json::json!("x"));
+    assert_eq!(items[1]["s"], serde_json::json!("x"));
+}
+
+// ---------------------------------------------------------------------------
+// md: dedupe-headings, lint-agents
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_nonexistent_file_fails() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg("/nonexistent/file_xyz.json")
+        .arg("key")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("nonexistent/file_xyz.json"));
+}
+
+#[test]
+fn test_doc_get_unsupported_extension_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.ini");
+    fs::write(&file, "key=value\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("key")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unsupported file extension"));
+}
+
+#[test]
+fn test_doc_get_nonexistent_file_json_envelope() {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", "/nonexistent/file_xyz.json", "key", "--json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"].is_string(),
+        "envelope should contain error field"
+    );
+}
+
+#[test]
+fn test_doc_get_unsupported_extension_json_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.ini");
+    fs::write(&file, "key=value\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", &file.to_string_lossy(), "key", "--json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert!(json["error"].is_string());
+}
+
+#[test]
+fn test_doc_select_no_matches_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"status":"active"}]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("select")
+        .arg(&file)
+        .arg("items[status=nonexistent]")
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_doc_move_missing_source_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("move")
+        .arg(&file)
+        .arg("nonexistent")
+        .arg("target")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("not found"));
+}
+
+#[test]
+fn test_doc_merge_nested_objects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"x":{"existing":"old"}}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"x":{"nested":"new"}}"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["x"]["existing"],
+        serde_json::json!("old"),
+        "existing key preserved"
+    );
+    assert_eq!(v["x"]["nested"], serde_json::json!("new"), "new key merged");
+}
+
+#[test]
+fn test_doc_ensure_noop_when_value_differs() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    // ensure a=99 when a already exists with value 1: should NOT change the value
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("ensure")
+        .arg(&file)
+        .arg("a")
+        .arg("99")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["a"],
+        serde_json::json!(1),
+        "ensure should not overwrite existing key"
+    );
+}
+
+#[test]
+fn test_doc_set_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("1.0"),
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// tx: file.delete on empty file (bug fix), validation optional step
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_honors_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("package.json"),
+        "{\n  \"version\": \"1.0.0\"\n}\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("doc")
+        .arg("get")
+        .arg("package.json")
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1.0.0"));
+}
+
+#[test]
+fn test_doc_delete_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"key":"value","other":"keep"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("key")
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    // File should be unchanged in --check mode.
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, r#"{"key":"value","other":"keep"}"#,
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc merge --check exits 2 when changes would be made
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_merge_check_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("merge")
+        .arg(&file)
+        .arg("--value")
+        .arg(r#"{"b":2}"#)
+        .arg("--check")
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, r#"{"a":1}"#,
+        "file should be unchanged in --check mode"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// --json error envelope (#227)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_check_produces_stdout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would modify"),
+        "doc --check should produce stdout, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_doc_check_json_produces_structured_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .arg("--check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], true, "check output should have ok=true");
+    assert_eq!(
+        json["has_changes"], true,
+        "check output should have has_changes=true"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// doc --json failure produces structured error on stdout (#545)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_json_failure_structured_on_stdout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("append")
+        .arg(&file)
+        .arg("name")
+        .arg("\"x\"")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    // Stderr should be empty; error goes to stdout as JSON.
+    assert!(
+        String::from_utf8_lossy(&output.stderr).trim().is_empty(),
+        "stderr should be empty in --json mode"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
+    assert_eq!(json["ok"], false);
+    assert!(
+        json["error"].as_str().unwrap().contains("not an array"),
+        "error should mention 'not an array'"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Symlink integration tests (#231 coverage)
+// ---------------------------------------------------------------------------

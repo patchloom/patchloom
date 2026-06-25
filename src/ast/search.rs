@@ -117,7 +117,6 @@ pub fn search_file(
 /// For MVP, we support a simpler approach: find AST nodes of a specific
 /// kind that match a text pattern.
 pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<String> {
-    // Parse the pattern to get its AST structure
     let (tree, _) = parse_source(pattern, lang)
         .ok_or_else(|| anyhow::anyhow!("cannot parse pattern for {lang}"))?;
 
@@ -129,7 +128,6 @@ pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<St
         root
     };
 
-    // Build a query from the AST structure
     let mut query = String::new();
     build_query_from_node(child, pattern, &mut query, &mut 0);
     Ok(query)

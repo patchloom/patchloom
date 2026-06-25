@@ -128,7 +128,6 @@ fn collect_python_imports(node: tree_sitter_lib::Node, source: &str, imports: &m
 fn collect_js_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
     if node.kind() == "import_statement" {
         if let Ok(text) = node.utf8_text(source.as_bytes()) {
-            // Extract the module path from the string literal
             let path = extract_quoted_string(text).unwrap_or_else(|| text.trim().to_string());
             imports.push(Import {
                 path,
