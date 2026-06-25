@@ -32,7 +32,7 @@ pub struct Plan {
     /// Schema version string. Validated against the supported version.
     pub version: String,
     pub cwd: Option<String>,
-    pub write_policy: Option<PlanWritePolicy>,
+    pub write_policy: Option<crate::write::WritePolicyOverride>,
     /// When omitted from the plan, defaults to strict mode at execution time.
     #[serde(default)]
     pub strict: Option<bool>,
@@ -51,16 +51,12 @@ pub struct FormatStep {
     pub timeout: Option<u64>,
 }
 
-/// Write policy settings specified in the plan.
-#[derive(Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
-#[non_exhaustive]
-pub struct PlanWritePolicy {
-    pub ensure_final_newline: Option<bool>,
-    pub normalize_eol: Option<String>,
-    pub trim_trailing_whitespace: Option<bool>,
-    pub collapse_blanks: Option<bool>,
-}
+/// Backward-compatible alias for [`WritePolicyOverride`](crate::write::WritePolicyOverride).
+#[deprecated(
+    since = "0.6.0",
+    note = "use crate::write::WritePolicyOverride instead"
+)]
+pub type PlanWritePolicy = crate::write::WritePolicyOverride;
 
 /// A single operation within a plan.
 #[derive(Debug, Deserialize, Serialize)]

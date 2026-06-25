@@ -38,6 +38,23 @@ impl WritePolicy {
             && !self.trim_trailing_whitespace
             && !self.collapse_blanks
     }
+
+    /// Apply an override, setting only the fields that are `Some`.
+    pub fn apply_override(&mut self, ov: &WritePolicyOverride) -> anyhow::Result<()> {
+        if let Some(v) = ov.ensure_final_newline {
+            self.ensure_final_newline = v;
+        }
+        if let Some(ref s) = ov.normalize_eol {
+            self.normalize_eol = parse_eol_mode(s)?;
+        }
+        if let Some(v) = ov.trim_trailing_whitespace {
+            self.trim_trailing_whitespace = v;
+        }
+        if let Some(v) = ov.collapse_blanks {
+            self.collapse_blanks = v;
+        }
+        Ok(())
+    }
 }
 
 impl Default for WritePolicy {
@@ -47,6 +64,34 @@ impl Default for WritePolicy {
             normalize_eol: EolMode::Keep,
             trim_trailing_whitespace: false,
             collapse_blanks: false,
+        }
+    }
+}
+
+/// Partially-specified write policy for config files, plans, and overrides.
+///
+/// Each field is optional; only `Some` values override the base [`WritePolicy`].
+/// Used by `.patchloom.toml` config, tx plan `write_policy`, and any context
+/// that needs to partially override write transformations.
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct WritePolicyOverride {
+    pub ensure_final_newline: Option<bool>,
+    pub normalize_eol: Option<String>,
+    pub trim_trailing_whitespace: Option<bool>,
+    pub collapse_blanks: Option<bool>,
+}
+
+/// Parse a string EOL mode value into [`EolMode`].
+pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
+    match mode {
+        "lf" => Ok(EolMode::Lf),
+        "crlf" => Ok(EolMode::Crlf),
+        "keep" => Ok(EolMode::Keep),
+        _ => {
+            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
         }
     }
 }

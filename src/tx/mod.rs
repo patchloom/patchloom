@@ -26,9 +26,7 @@ pub(crate) use validate::validate_operation;
 pub(crate) use execute::execute_and_collect;
 // Test-only re-exports for src/cmd/tx.rs tests
 #[cfg(test)]
-pub(crate) use execute::{
-    path_err, plan_normalize_eol, read_and_probe, read_file_content, update_file_content,
-};
+pub(crate) use execute::{path_err, read_and_probe, read_file_content, update_file_content};
 
 // lifecycle.rs
 pub use lifecycle::{CommitError, RestoreFailGuard, execute_plan_direct};
