@@ -906,6 +906,7 @@ pub fn update_matching(
 /// This enum captures the 9 doc write operations so that both the CLI
 /// (`cmd/doc.rs`) and the transaction engine (`tx.rs`) share a single
 /// dispatch path instead of duplicating the match logic.
+#[derive(Debug)]
 pub enum DocMutation {
     Set {
         selector: String,
@@ -944,6 +945,7 @@ pub enum DocMutation {
 }
 
 /// Result of applying a [`DocMutation`] to a document root.
+#[derive(Debug)]
 pub enum MutationResult {
     /// The mutation was applied and the document was modified.
     Applied,

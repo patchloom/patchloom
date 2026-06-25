@@ -1427,6 +1427,76 @@ mod tests {
     }
 
     #[test]
+    fn tx_doc_delete_missing_key_is_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.json");
+        fs::write(&f, r#"{"a": 1}"#).unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "doc.delete", "path": "{}", "selector": "nonexistent"}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "doc.delete on missing key should succeed (idempotent)"
+        );
+    }
+
+    #[test]
+    fn tx_doc_delete_where_no_match_is_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("data.json");
+        fs::write(&f, r#"{"items": [{"name": "a"}]}"#).unwrap();
+
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "operations": [
+    {{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "name=nonexistent"}}
+  ]
+}}"#,
+            portable_path_str(&f)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "doc.delete_where with zero matches should succeed (idempotent)"
+        );
+    }
+
+    #[test]
     fn tx_strict_mode_rollback_on_operation_failure() {
         let dir = TempDir::new().unwrap();
         let f = dir.path().join("data.txt");
