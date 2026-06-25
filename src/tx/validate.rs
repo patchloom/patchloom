@@ -45,6 +45,9 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             insert_before,
             insert_after,
             nth,
+            whole_line,
+            multiline,
+            range,
             ..
         } => {
             if from.is_empty() {
@@ -52,6 +55,12 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             }
             if *nth == Some(0) {
                 anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
+            }
+            if *whole_line && *multiline {
+                anyhow::bail!("replace: whole_line and multiline cannot be combined");
+            }
+            if range.is_some() && !*whole_line {
+                anyhow::bail!("replace: range requires whole_line=true");
             }
             match validate_replace_mode(
                 to.is_some(),
@@ -132,4 +141,104 @@ pub(crate) fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a minimal valid Replace operation, then override fields.
+    fn replace_op(whole_line: bool, multiline: bool, range: Option<&str>) -> Operation {
+        Operation::Replace {
+            glob: None,
+            path: Some("f.txt".into()),
+            mode: None,
+            from: "needle".into(),
+            to: Some("replacement".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline,
+            if_exists: false,
+            whole_line,
+            range: range.map(String::from),
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+        }
+    }
+
+    #[test]
+    fn replace_whole_line_and_multiline_rejected() {
+        let op = replace_op(true, true, None);
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("whole_line and multiline cannot be combined"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn replace_range_without_whole_line_rejected() {
+        let op = replace_op(false, false, Some("10:50"));
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string().contains("range requires whole_line=true"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn replace_range_with_whole_line_accepted() {
+        let op = replace_op(true, false, Some("10:50"));
+        assert!(validate_operation(&op).is_ok());
+    }
+
+    #[test]
+    fn replace_whole_line_without_multiline_accepted() {
+        let op = replace_op(true, false, None);
+        assert!(validate_operation(&op).is_ok());
+    }
+
+    #[test]
+    fn replace_empty_from_rejected() {
+        let op = Operation::Replace {
+            glob: None,
+            path: Some("f.txt".into()),
+            mode: None,
+            from: String::new(),
+            to: Some("x".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            range: None,
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+        };
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string().contains("non-empty search pattern"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn replace_nth_zero_rejected() {
+        let mut op = replace_op(false, false, None);
+        if let Operation::Replace { ref mut nth, .. } = op {
+            *nth = Some(0);
+        }
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string().contains("nth is 1-based"),
+            "unexpected error: {err}"
+        );
+    }
 }
