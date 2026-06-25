@@ -130,11 +130,11 @@ Every command returns a specific exit code:
 | 2 | Changes detected (with `--check`) |
 | 3 | No matches found |
 | 4 | Parse error in input |
-| 9 | Tx operation staging failure (`operation_failed`) |
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
 | 6 | Validation failed (writes may remain) |
 | 7 | Rollback (strict mode, no writes remain) |
 | 8 | Patch merge conflicts detected (apply blocked unless `--allow-conflicts`) |
+| 9 | Tx operation staging failure (`operation_failed`) |
 
 These codes let CI pipelines and agent frameworks branch on outcomes without parsing output.
 
