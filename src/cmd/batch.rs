@@ -352,7 +352,7 @@ fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> 
 /// handles JSON literals, quoted strings, booleans, null, numbers, and
 /// bare-string fallback.
 fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
-    Ok(crate::cmd::doc::parse_value(s))
+    Ok(crate::ops::doc::parse_value(s))
 }
 
 /// Tokenize a line using shell-like quoting rules.
