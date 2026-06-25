@@ -150,19 +150,28 @@ pub fn validate_edit(
     let mut warnings = Vec::new();
 
     // If we can detect the file format, validate the result.
-    if let Some(path) = file_path {
-        if path.ends_with(".json") {
-            if let Err(e) = serde_json::from_str::<serde_json::Value>(&new_content) {
-                errors.push(format!("result would be invalid JSON: {e}"));
+    if let Some(path) = file_path
+        && let Ok(fmt) = crate::ops::doc::detect_format(path)
+    {
+        let parse_err = match fmt {
+            crate::ops::doc::FileFormat::Json => {
+                serde_json::from_str::<serde_json::Value>(&new_content)
+                    .err()
+                    .map(|e| format!("result would be invalid JSON: {e}"))
             }
-        } else if path.ends_with(".yaml") || path.ends_with(".yml") {
-            if let Err(e) = serde_yaml_ng::from_str::<serde_json::Value>(&new_content) {
-                errors.push(format!("result would be invalid YAML: {e}"));
+            crate::ops::doc::FileFormat::Yaml => {
+                serde_yaml_ng::from_str::<serde_json::Value>(&new_content)
+                    .err()
+                    .map(|e| format!("result would be invalid YAML: {e}"))
             }
-        } else if path.ends_with(".toml")
-            && let Err(e) = toml_edit::de::from_str::<serde_json::Value>(&new_content)
-        {
-            errors.push(format!("result would be invalid TOML: {e}"));
+            crate::ops::doc::FileFormat::Toml => {
+                toml_edit::de::from_str::<serde_json::Value>(&new_content)
+                    .err()
+                    .map(|e| format!("result would be invalid TOML: {e}"))
+            }
+        };
+        if let Some(msg) = parse_err {
+            errors.push(msg);
         }
     }
 
