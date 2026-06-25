@@ -1,7 +1,7 @@
 use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
+use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
-use crate::exit;
 use crate::write::{atomic_write, policy_from_flags};
 use anyhow::bail;
 use clap::Args;
@@ -64,106 +64,48 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let existing = fs::read_to_string(&path)?;
     let combined = crate::ops::file::append_content(&existing, &append_content);
 
-    // --check mode
-    if global.check {
-        let output = AppendOutput {
+    let diff_fn = |color: bool| {
+        let diff = unified_diff(&args.file, &existing, &combined);
+        let dr = DiffResult { diffs: vec![diff] };
+        format_diff_result_colored(&dr, color)
+    };
+
+    let check_msg = format!("would append to {}", args.file);
+    let apply_msg = format!("appended to {}", args.file);
+
+    execute_write(
+        global,
+        &cwd,
+        |phase, diff| AppendOutput {
             ok: true,
             path: args.file.clone(),
-            diff: None,
-            applied: None,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("would append to {}", args.file);
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    // --apply mode
-    if global.apply {
-        let policy = policy_from_flags(global, Some(&path));
-        let mut backup = BackupSession::new(&cwd)?;
-        backup.save_before_write(&path)?;
-        atomic_write(&path, &combined, &policy)?;
-        backup.finalize()?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        if global.diff {
-            let diff = unified_diff(&args.file, &existing, &combined);
-            let dr = DiffResult { diffs: vec![diff] };
-            let output = AppendOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: Some(format_diff_result_colored(&dr, false)),
-                applied: None,
-            };
-            if !global.emit_json(&output)? {
-                print!("{}", format_diff_result_colored(&dr, global.should_color()));
-            }
-        } else {
-            let output = AppendOutput {
-                ok: true,
-                path: args.file.clone(),
-                diff: None,
-                applied: None,
-            };
-            if !global.emit_json(&output)? && !global.quiet {
-                println!("appended to {}", args.file);
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode
-    let diff = unified_diff(&args.file, &existing, &combined);
-    let dr = DiffResult { diffs: vec![diff] };
-    let diff_text = format_diff_result_colored(&dr, false);
-
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
+            diff,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
+        },
+        Some(&diff_fn),
+        || {
             let policy = policy_from_flags(global, Some(&path));
             let mut backup = BackupSession::new(&cwd)?;
             backup.save_before_write(&path)?;
             atomic_write(&path, &combined, &policy)?;
             backup.finalize()?;
-            crate::write::run_format_command(global, &cwd)?;
-        }
-        let output = AppendOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: Some(diff_text),
-            applied: Some(applied),
-        };
-        global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    let output = AppendOutput {
-        ok: true,
-        path: args.file.clone(),
-        diff: Some(diff_text),
-        applied: None,
-    };
-    if !global.emit_json(&output)? {
-        print!("{}", format_diff_result_colored(&dr, global.should_color()));
-    }
-
-    // --confirm: prompt after showing diff, then apply if confirmed.
-    if global.should_apply() {
-        let policy = policy_from_flags(global, Some(&path));
-        let mut backup = BackupSession::new(&cwd)?;
-        backup.save_before_write(&path)?;
-        atomic_write(&path, &combined, &policy)?;
-        backup.finalize()?;
-        crate::write::run_format_command(global, &cwd)?;
-    }
-
-    Ok(exit::SUCCESS)
+            Ok(())
+        },
+        WriteMessages {
+            check: &check_msg,
+            apply: &apply_msg,
+            post_confirm: None,
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exit;
     use std::fs;
     use tempfile::TempDir;
 

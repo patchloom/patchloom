@@ -1,7 +1,7 @@
 use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
+use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
-use crate::exit;
 use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
 use anyhow::bail;
 use clap::Args;
@@ -41,12 +41,6 @@ struct CreateOutput {
     applied: Option<bool>,
 }
 
-fn make_diff_output(path: &str, content: &str, color: bool) -> String {
-    let diff = unified_diff(path, "", content);
-    let diff_result = DiffResult { diffs: vec![diff] };
-    format_diff_result_colored(&diff_result, color)
-}
-
 fn create_with_backup(
     path: &std::path::Path,
     content: &str,
@@ -62,6 +56,15 @@ fn create_with_backup(
         atomic_create_new(path, content, policy)?;
     }
     backup.finalize()?;
+    Ok(())
+}
+
+fn ensure_parent_dirs(path: &std::path::Path) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
     Ok(())
 }
 
@@ -93,116 +96,46 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("file already exists: {}", args.file);
     }
 
-    // --check mode: report that file would be created.
-    // Parent directory creation is handled transparently by --apply,
-    // so --check does not reject missing parents.
-    if global.check {
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: None,
-            applied: None,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("would create {}", args.file);
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    // --apply mode: write file.
-    if global.apply {
-        let policy = policy_from_flags(global, Some(&path));
-
-        // Ensure parent directories exist.
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent)?;
-        }
-
-        create_with_backup(&path, &content, args.force, &cwd, &policy)?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        let diff_text = if global.diff {
-            Some(make_diff_output(&args.file, &content, false))
-        } else {
-            None
-        };
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: diff_text,
-            applied: None,
-        };
-        if !global.emit_json(&output)? {
-            if global.diff {
-                print!(
-                    "{}",
-                    make_diff_output(&args.file, &content, global.should_color())
-                );
-            } else if !global.quiet {
-                println!("created {}", args.file);
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: show unified diff of changes.
-    let diff_text = make_diff_output(&args.file, &content, false);
-
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
-            let policy = policy_from_flags(global, Some(&path));
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-            {
-                fs::create_dir_all(parent)?;
-            }
-            create_with_backup(&path, &content, args.force, &cwd, &policy)?;
-            crate::write::run_format_command(global, &cwd)?;
-        }
-        let output = CreateOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff: Some(diff_text),
-            applied: Some(applied),
-        };
-        global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    let output = CreateOutput {
-        ok: true,
-        path: args.file.clone(),
-        diff: Some(diff_text),
-        applied: None,
+    let diff_fn = |color: bool| {
+        let diff = unified_diff(&args.file, "", &content);
+        let diff_result = DiffResult { diffs: vec![diff] };
+        format_diff_result_colored(&diff_result, color)
     };
-    if !global.emit_json(&output)? {
-        print!(
-            "{}",
-            make_diff_output(&args.file, &content, global.should_color())
-        );
-    }
 
-    // --confirm: prompt after showing diff, then apply if confirmed.
-    if global.should_apply() {
-        let policy = policy_from_flags(global, Some(&path));
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            fs::create_dir_all(parent)?;
-        }
-        create_with_backup(&path, &content, args.force, &cwd, &policy)?;
-        crate::write::run_format_command(global, &cwd)?;
-    }
+    let check_msg = format!("would create {}", args.file);
+    let apply_msg = format!("created {}", args.file);
 
-    Ok(exit::SUCCESS)
+    execute_write(
+        global,
+        &cwd,
+        |phase, diff| CreateOutput {
+            ok: true,
+            path: args.file.clone(),
+            diff,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
+        },
+        Some(&diff_fn),
+        || {
+            let policy = policy_from_flags(global, Some(&path));
+            ensure_parent_dirs(&path)?;
+            create_with_backup(&path, &content, args.force, &cwd, &policy)?;
+            Ok(())
+        },
+        WriteMessages {
+            check: &check_msg,
+            apply: &apply_msg,
+            post_confirm: None,
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exit;
     use std::fs;
     use tempfile::TempDir;
 
