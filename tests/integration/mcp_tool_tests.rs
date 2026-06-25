@@ -2111,3 +2111,64 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
 
     client.cancel().await.unwrap();
 }
+
+/// Regression test for #892: sequential MCP replace_text calls to the same
+/// file must each see the result of the previous call.
+#[tokio::test]
+async fn test_mcp_sequential_writes_same_file_no_data_loss() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("target.txt"), "line_a\nline_b\nline_c\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+
+    // Write 1: replace line_a
+    let (err1, v1) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "target.txt",
+            "from": "line_a",
+            "to": "REPLACED_A"
+        }),
+    )
+    .await;
+    assert!(!err1, "replace 1 should succeed: {v1}");
+
+    // Write 2: replace line_b (must see write 1's result)
+    let (err2, v2) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "target.txt",
+            "from": "line_b",
+            "to": "REPLACED_B"
+        }),
+    )
+    .await;
+    assert!(!err2, "replace 2 should succeed: {v2}");
+
+    // Write 3: replace line_c (must see writes 1+2's result)
+    let (err3, v3) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "target.txt",
+            "from": "line_c",
+            "to": "REPLACED_C"
+        }),
+    )
+    .await;
+    assert!(!err3, "replace 3 should succeed: {v3}");
+
+    // All three writes must be present
+    let content = fs::read_to_string(dir.path().join("target.txt")).unwrap();
+    assert_eq!(
+        content, "REPLACED_A\nREPLACED_B\nREPLACED_C\n",
+        "sequential writes lost data: {content}"
+    );
+
+    client.cancel().await.unwrap();
+}
