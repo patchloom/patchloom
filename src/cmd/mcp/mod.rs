@@ -1270,6 +1270,7 @@ impl PatchloomService {
         Parameters(p): Parameters<AstReadParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("symbol", &p.symbol)?;
         let cwd = self.cwd().to_path_buf();
         let target = cwd.join(&p.path);
 
@@ -1626,6 +1627,12 @@ impl PatchloomService {
         Parameters(p): Parameters<AstMapParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        for s in &p.focus {
+            validate_param_size("focus", s)?;
+        }
+        for s in &p.boost {
+            validate_param_size("boost", s)?;
+        }
         let cwd = self.cwd().to_path_buf();
         let target = cwd.join(&p.path);
 
@@ -1673,6 +1680,10 @@ impl PatchloomService {
         Parameters(p): Parameters<AstDiffParams>,
     ) -> Result<CallToolResult, McpError> {
         self.check_path(&p.path)?;
+        validate_param_size("from", &p.from)?;
+        if let Some(ref to) = p.to {
+            validate_param_size("to", to)?;
+        }
         let cwd = self.cwd().to_path_buf();
         let target = cwd.join(&p.path);
         let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
