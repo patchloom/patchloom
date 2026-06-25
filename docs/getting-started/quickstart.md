@@ -127,7 +127,48 @@ after writes, so use `"strict": true` in the plan if you want those failures to
 roll back all changes too. Lifecycle failure output includes the failing step
 number, exit status, and the `cwd` used for that step.
 
-## Step 6: Inspect and undo changes
+## Step 6: Explore code structure with AST
+
+List all functions and types in a directory:
+
+```bash
+patchloom ast list src/
+```
+
+Filter by symbol kind:
+
+```bash
+patchloom ast list src/ --kind function,struct
+```
+
+Read a specific symbol's source code:
+
+```bash
+patchloom ast read src/main.rs run
+```
+
+Find all references to a symbol across files:
+
+```bash
+patchloom ast refs process_data src/
+```
+
+Validate syntax of source files:
+
+```bash
+patchloom ast validate src/
+```
+
+Generate a ranked repository map (PageRank over the symbol graph):
+
+```bash
+patchloom ast map src/ --max-tokens 2048
+```
+
+AST commands support 20 languages including Rust, Python, TypeScript, JavaScript,
+Go, Java, C#, C/C++, Ruby, PHP, Swift, Kotlin, HCL, and more.
+
+## Step 7: Inspect and undo changes
 
 After any `--apply`, you can ask patchloom what changed and restore the latest backup session.
 
@@ -151,7 +192,7 @@ Restore the most recent backup session:
 patchloom undo --apply
 ```
 
-## Step 7: Use in CI
+## Step 8: Use in CI
 
 Check whether a plan would produce changes (exit code 2 = changes pending):
 

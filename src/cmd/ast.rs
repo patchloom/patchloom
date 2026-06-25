@@ -88,11 +88,28 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let kind_filter = parse_kind_filter(&args.kind);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!(
+        "ast list: target={}, kind_filter={:?}",
+        args.path,
+        kind_filter
+    );
 
     let mut any_output = false;
 
     if target.is_file() {
-        let symbols = symbols::extract_symbols_from_file(&target, lang_hint);
+        let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+        crate::verbose!("ast list: detected language={lang} for {}", args.path);
+        if !lang.has_grammar() {
+            eprintln!(
+                "Unsupported language: {} (detected from {}). \
+                 Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
+                 C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
+                 TOML, YAML, JSON, Shell.",
+                lang, args.path,
+            );
+            return Ok(exit::NO_MATCHES);
+        }
+        let symbols = symbols::extract_symbols_from_file(&target, Some(lang));
         let filtered = filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             any_output = true;
@@ -106,6 +123,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     } else if target.is_dir() {
         let paths = collect_source_files(&target, global)?;
+        crate::verbose!("ast list: scanning {} files in {}", paths.len(), args.path);
 
         struct ListFileResult {
             display: String,
@@ -174,6 +192,11 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let lang_hint = args.lang.as_deref().map(lang_from_str);
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+    crate::verbose!(
+        "ast read: file={}, symbol={}, lang={lang}",
+        args.path,
+        args.symbol
+    );
     let source = std::fs::read_to_string(&target)?;
     let all_symbols = symbols::extract_symbols(&source, lang);
     let sym = symbols::find_symbol(&all_symbols, &args.symbol)
@@ -313,11 +336,18 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!(
+        "ast rename: '{}' -> '{}' in {}",
+        args.old_name,
+        args.new_name,
+        args.path
+    );
 
     let mut total_replacements = 0usize;
     let mut files_changed = 0usize;
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast rename: scanning {} files", paths.len());
 
     // Single backup session for all files (batched, not per-file).
     let mut backup = if global.apply {
@@ -418,10 +448,12 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!("ast validate: target={}", args.path);
 
     let mut all_valid = true;
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast validate: checking {} files", paths.len());
 
     struct ValidateFileResult {
         display: String,
@@ -494,10 +526,17 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!(
+        "ast search: query={}, pattern={}, target={}",
+        args.query,
+        args.pattern,
+        args.path
+    );
 
     let mut total_matches = 0usize;
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast search: scanning {} files", paths.len());
 
     struct SearchFileResult {
         display: String,
@@ -579,8 +618,10 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast refs: scanning {} files", paths.len());
 
     let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
         crate::par_process_files(&paths, None, &[], |path| {
@@ -641,8 +682,10 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!("ast deps: target={}, reverse={}", args.path, args.reverse);
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast deps: scanning {} files", paths.len());
 
     let mut any_output = false;
 
@@ -755,12 +798,18 @@ pub struct MapArgs {
 fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
+    crate::verbose!(
+        "ast map: target={}, max_tokens={}",
+        args.path,
+        args.max_tokens
+    );
 
     if !target.is_dir() {
         anyhow::bail!("path must be a directory: {}", args.path);
     }
 
     let paths = collect_source_files(&target, global)?;
+    crate::verbose!("ast map: collected {} source files", paths.len());
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
         .map(|p| {
@@ -830,9 +879,16 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
+    crate::verbose!(
+        "ast replace: symbol={}, from={}, regex={}",
+        args.symbol,
+        args.from,
+        args.regex
+    );
 
     let source = std::fs::read_to_string(&target)?;
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+    crate::verbose!("ast replace: lang={lang}, file={}", args.path);
 
     let result = crate::ast::replace::replace_in_symbol(
         &source,
@@ -926,8 +982,10 @@ pub struct ImpactArgs {
 fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
+    crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
+    crate::verbose!("ast impact: scanning {} files", paths.len());
 
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
@@ -991,6 +1049,11 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+    crate::verbose!(
+        "ast diff: file={}, from={}, lang={lang}",
+        args.path,
+        args.from
+    );
 
     // Get old version from git
     let old_source = get_git_file_content(&cwd, &args.path, &args.from)?;

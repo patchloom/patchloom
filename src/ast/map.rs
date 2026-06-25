@@ -198,7 +198,8 @@ fn pagerank(
     symbols: &[(String, String, SymbolKind, String, usize)],
 ) -> Vec<f64> {
     let damping = 0.85;
-    let iterations = 20;
+    let max_iterations = 100;
+    let convergence_threshold = 1e-6;
 
     // Initialize with personalization bias
     let mut scores = vec![1.0 / n as f64; n];
@@ -226,7 +227,7 @@ fn pagerank(
     // Compute out-degree
     let out_degree: Vec<usize> = edges.iter().map(|e| e.len()).collect();
 
-    for _ in 0..iterations {
+    for _ in 0..max_iterations {
         let mut new_scores = vec![0.0; n];
 
         for (i, edge_list) in edges.iter().enumerate() {
@@ -243,7 +244,18 @@ fn pagerank(
             new_scores[i] = damping * new_scores[i] + (1.0 - damping) * personalization[i];
         }
 
+        // Check convergence: L1 norm of score change
+        let delta: f64 = scores
+            .iter()
+            .zip(new_scores.iter())
+            .map(|(old, new)| (old - new).abs())
+            .sum();
+
         scores = new_scores;
+
+        if delta < convergence_threshold {
+            break;
+        }
     }
 
     scores
