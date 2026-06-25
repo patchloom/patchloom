@@ -2,14 +2,23 @@
 
 #![cfg_attr(not(feature = "cli"), allow(dead_code))]
 
+/// Command completed successfully.
 pub const SUCCESS: u8 = 0;
+/// Unrecoverable error (I/O failure, invalid arguments, etc.).
 pub const FAILURE: u8 = 1;
+/// Write command detected pending changes (`--check` mode).
 pub const CHANGES_DETECTED: u8 = 2;
+/// Search or replace found zero matches.
 pub const NO_MATCHES: u8 = 3;
+/// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
+/// Multiple candidates matched and the command could not pick one.
 pub const AMBIGUOUS: u8 = 5;
+/// A `validate` step failed (tx lifecycle).
 pub const VALIDATION_FAILED: u8 = 6;
+/// Strict-mode rollback triggered by a failed `format` or `validate` step.
 pub const ROLLBACK: u8 = 7;
+/// Patch merge produced conflict markers.
 pub const CONFLICTS: u8 = 8;
 /// Tx operation staging failure (`error_kind`: `operation_failed`).
 pub const OPERATION_FAILED: u8 = 9;
