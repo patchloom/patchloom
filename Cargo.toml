@@ -35,7 +35,7 @@ cli = ["files", "dep:clap", "dep:clap_complete", "dep:anstream", "dep:ec4rs"]
 # files: pure file helpers + walker for library search (enables ignore/globset without full CLI)
 files = ["dep:ignore", "dep:globset"]
 # MCP server support: adds tokio async runtime, rmcp protocol, and JSON Schema.
-mcp = ["rmcp", "tokio", "schemars"]
+mcp = ["rmcp", "tokio"]
 # Streamable HTTP transport for MCP server (adds axum, axum-server, tokio-util).
 mcp-http = [
     "mcp",
@@ -97,7 +97,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "ma
 axum = { version = "0.8", features = ["http1", "tokio"], default-features = false, optional = true }
 axum-server = { version = "0.7", features = ["tls-rustls"], default-features = false, optional = true }
 tokio-util = { version = "0.7", optional = true }
-schemars = { version = "1", optional = true }
+schemars = "1"
 tree-sitter-lib = { package = "tree-sitter", version = "0.26", optional = true }
 tree-sitter-language = { version = "0.1", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }

@@ -22,7 +22,22 @@
 //! assert!(prompt.contains("replace"));
 //! ```
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+/// Generate a JSON Schema `Value` from a `schemars::JsonSchema` type,
+/// stripping top-level `$schema` and `title` to match the compact format
+/// expected by `OperationSchema::parameters`.
+fn schema_from<T: JsonSchema>() -> serde_json::Value {
+    let generator = schemars::generate::SchemaSettings::default().into_generator();
+    let root = generator.into_root_schema_for::<T>();
+    let mut v = serde_json::to_value(root).expect("schema serialization");
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("$schema");
+        obj.remove("title");
+    }
+    v
+}
 
 /// The current intent format version. Consumers check this at startup to
 /// detect breaking changes across patchloom releases.
@@ -96,6 +111,338 @@ pub struct OperationSchema {
     pub examples: Vec<OperationExample>,
 }
 
+// ---------------------------------------------------------------------------
+// Schema-only param structs (derive JsonSchema for machine-generated schemas).
+// These types are never instantiated; they exist solely for `schema_from::<T>()`.
+// ---------------------------------------------------------------------------
+#[allow(dead_code)]
+mod schema_types {
+    use schemars::JsonSchema;
+
+    #[derive(JsonSchema)]
+    pub(super) struct ReplaceSchema {
+        /// File path (relative to working directory).
+        path: String,
+        /// Text to find.
+        from: String,
+        /// Replacement text.
+        to: String,
+        /// Matching mode.
+        mode: Option<ReplaceMode>,
+        /// Replace only the Nth match (1-based).
+        #[schemars(range(min = 1))]
+        nth: Option<u32>,
+        /// Case-insensitive matching.
+        case_insensitive: Option<bool>,
+        /// Enable multiline matching (dot matches newlines in regex mode).
+        multiline: Option<bool>,
+        /// Do not error if no matches found.
+        if_exists: Option<bool>,
+        /// Replace the entire line containing each match.
+        whole_line: Option<bool>,
+        /// Restrict matching to a line range (e.g. '10:50'). Requires whole_line.
+        range: Option<String>,
+        /// Match only at word boundaries (\b). Prevents partial matches inside identifiers.
+        word_boundary: Option<bool>,
+        /// Glob pattern to filter files (e.g. '*.rs'). Replaces path for multi-file operations.
+        glob: Option<String>,
+        /// Insert this text before the matched text instead of replacing it.
+        insert_before: Option<String>,
+        /// Insert this text after the matched text instead of replacing it.
+        insert_after: Option<String>,
+        /// Context line(s) before the target for anchor-based fallback matching when exact match fails.
+        before_context: Option<String>,
+        /// Context line(s) after the target for anchor-based fallback matching when exact match fails.
+        after_context: Option<String>,
+    }
+
+    #[derive(JsonSchema)]
+    #[schemars(rename_all = "lowercase")]
+    pub(super) enum ReplaceMode {
+        Literal,
+        Regex,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct FileAppendSchema {
+        /// File path.
+        path: String,
+        /// Content to append.
+        content: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct FileCreateSchema {
+        /// File path.
+        path: String,
+        /// Content to write.
+        content: String,
+        /// Overwrite if file exists.
+        force: Option<bool>,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct FileDeleteSchema {
+        /// File path.
+        path: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct FileRenameSchema {
+        /// Source file path.
+        from: String,
+        /// Destination file path.
+        to: String,
+        /// Overwrite destination if it exists.
+        force: Option<bool>,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct TidyFixSchema {
+        /// File path.
+        path: String,
+        /// Ensure file ends with a newline.
+        ensure_final_newline: Option<bool>,
+        /// Remove trailing whitespace from every line.
+        trim_trailing_whitespace: Option<bool>,
+        /// Line ending normalization mode.
+        normalize_eol: Option<TidyEolMode>,
+    }
+
+    #[derive(JsonSchema)]
+    #[schemars(rename_all = "lowercase")]
+    pub(super) enum TidyEolMode {
+        Lf,
+        Crlf,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocSetSchema {
+        /// File path.
+        path: String,
+        /// Selector path (e.g., 'database.host', 'items[0].name').
+        selector: String,
+        /// The value to set (any JSON type).
+        value: serde_json::Value,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocDeleteSchema {
+        /// File path.
+        path: String,
+        /// Selector path.
+        selector: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocMergeSchema {
+        /// File path.
+        path: String,
+        /// Object to deep-merge into the document root.
+        value: serde_json::Value,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocArraySchema {
+        /// File path.
+        path: String,
+        /// Selector pointing to the target array.
+        selector: String,
+        /// Value to append or prepend.
+        value: serde_json::Value,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocMoveSchema {
+        /// File path.
+        path: String,
+        /// Source selector.
+        from: String,
+        /// Destination selector.
+        to: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocEnsureSchema {
+        /// File path.
+        path: String,
+        /// Selector path.
+        selector: String,
+        /// Value to set if missing.
+        value: serde_json::Value,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocUpdateSchema {
+        /// File path.
+        path: String,
+        /// Selector with predicate (e.g., 'items[name=foo]').
+        selector: String,
+        /// Fields to merge into matching elements.
+        value: serde_json::Value,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct DocDeleteWhereSchema {
+        /// File path.
+        path: String,
+        /// Selector pointing to the target array.
+        selector: String,
+        /// key=value predicate.
+        predicate: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct MdReplaceSectionSchema {
+        /// File path.
+        path: String,
+        /// Heading text (without # prefix).
+        heading: String,
+        /// New section body.
+        content: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct MdUpsertBulletSchema {
+        /// File path.
+        path: String,
+        /// Heading text.
+        heading: String,
+        /// Full bullet text (e.g., '- New item').
+        bullet: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct MdTableAppendSchema {
+        /// File path.
+        path: String,
+        /// Heading above the target table.
+        heading: String,
+        /// Table row in markdown format (e.g., '| col1 | col2 |').
+        row: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct MdInsertSchema {
+        /// File path.
+        path: String,
+        /// Heading text.
+        heading: String,
+        /// Content to insert.
+        content: String,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct MdMoveSectionSchema {
+        /// Source file containing the section.
+        path: String,
+        /// Heading of the section to move.
+        heading: String,
+        /// Destination file (omit for same-file reorder).
+        to: Option<String>,
+        /// Insert before this heading.
+        before: Option<String>,
+        /// Insert after this heading.
+        after: Option<String>,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct PatchApplySchema {
+        /// Unified diff text.
+        diff: String,
+        /// Behavior when context is stale.
+        on_stale: Option<PatchOnStale>,
+        /// Allow conflict markers in output.
+        allow_conflicts: Option<bool>,
+    }
+
+    #[derive(JsonSchema)]
+    #[schemars(rename_all = "lowercase")]
+    pub(super) enum PatchOnStale {
+        Fail,
+        Merge,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct SearchSchema {
+        /// Path to search in.
+        path: String,
+        /// Pattern to search for.
+        pattern: String,
+        /// Treat pattern as a literal string.
+        literal: Option<bool>,
+        /// Use regex mode.
+        regex: Option<bool>,
+        /// Case-insensitive matching.
+        case_insensitive: Option<bool>,
+        /// Enable multiline matching.
+        multiline: Option<bool>,
+        /// Show lines that do NOT match.
+        invert_match: Option<bool>,
+        /// Lines of context around matches.
+        context: Option<u32>,
+        /// Lines of context before each match.
+        before_context: Option<u32>,
+        /// Lines of context after each match.
+        after_context: Option<u32>,
+        /// Glob include patterns.
+        globs: Option<Vec<String>>,
+        /// Max detailed results (0 = unlimited).
+        max_results: Option<u32>,
+        /// Exclude glob patterns.
+        exclude_patterns: Option<Vec<String>>,
+        /// Custom ignore filenames (e.g. .blineignore).
+        custom_ignore_filenames: Option<Vec<String>>,
+        /// Fail if match count differs.
+        assert_count: Option<u32>,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct ReadSchema {
+        /// File path.
+        path: String,
+        /// Line range (e.g., '10:25').
+        lines: Option<String>,
+    }
+
+    #[derive(JsonSchema)]
+    pub(super) struct PathOnlySchema {
+        /// File path.
+        path: String,
+    }
+
+    #[cfg(feature = "ast")]
+    #[derive(JsonSchema)]
+    pub(super) struct AstRenameSchema {
+        /// File path (relative to working directory).
+        path: String,
+        /// Current identifier name.
+        old_name: String,
+        /// New identifier name.
+        new_name: String,
+        /// Language hint (e.g. 'rust', 'python'). Auto-detected from extension if omitted.
+        lang: Option<String>,
+    }
+
+    #[cfg(feature = "ast")]
+    #[derive(JsonSchema)]
+    pub(super) struct AstReplaceSchema {
+        /// File path (relative to working directory).
+        path: String,
+        /// Symbol name to scope the replacement to.
+        symbol: String,
+        /// Text to find within the symbol body.
+        from: String,
+        /// Replacement text.
+        to: String,
+        /// Use regex mode for the from pattern.
+        regex: Option<bool>,
+        /// Language hint. Auto-detected from extension if omitted.
+        lang: Option<String>,
+    }
+}
+use schema_types::*;
+
 /// Return the complete registry of all patchloom operations with schemas.
 pub fn operation_schemas() -> Vec<OperationSchema> {
     let mut ops = weak_tier_schemas();
@@ -109,28 +456,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "replace".into(),
             description: "Replace text in a file using literal string matching.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "from", "to"],
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative to working directory)."},
-                    "from": {"type": "string", "description": "Text to find."},
-                    "to": {"type": "string", "description": "Replacement text."},
-                    "mode": {"type": "string", "enum": ["literal", "regex"], "default": "literal"},
-                    "nth": {"type": "integer", "minimum": 1, "description": "Replace only the Nth match (1-based)."},
-                    "case_insensitive": {"type": "boolean", "default": false},
-                    "multiline": {"type": "boolean", "default": false},
-                    "if_exists": {"type": "boolean", "default": false, "description": "Do not error if no matches found."},
-                    "whole_line": {"type": "boolean", "default": false, "description": "Replace the entire line containing each match."},
-                    "range": {"type": "string", "description": "Restrict matching to a line range (e.g. '10:50'). Requires whole_line."},
-                    "word_boundary": {"type": "boolean", "default": false, "description": "Match only at word boundaries (\\b). Prevents partial matches inside identifiers."},
-                    "glob": {"type": "string", "description": "Glob pattern to filter files (e.g. '*.rs'). Replaces path for multi-file operations."},
-                    "insert_before": {"type": "string", "description": "Insert this text before the matched text instead of replacing it."},
-                    "insert_after": {"type": "string", "description": "Insert this text after the matched text instead of replacing it."},
-                    "before_context": {"type": "string", "description": "Context line(s) before the target for anchor-based fallback matching when exact match fails."},
-                    "after_context": {"type": "string", "description": "Context line(s) after the target for anchor-based fallback matching when exact match fails."}
-                }
-            }),
+            parameters: schema_from::<ReplaceSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Replace a function name".into(),
@@ -140,14 +466,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "file.append".into(),
             description: "Append content to an existing file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "content"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<FileAppendSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Append a test function to a test file".into(),
@@ -157,15 +476,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "file.create".into(),
             description: "Create a new file with specified content.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "content"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                    "force": {"type": "boolean", "default": false, "description": "Overwrite if file exists."}
-                }
-            }),
+            parameters: schema_from::<FileCreateSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Create a new config file".into(),
@@ -175,13 +486,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "file.delete".into(),
             description: "Delete a file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<FileDeleteSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Delete a temporary file".into(),
@@ -191,15 +496,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "file.rename".into(),
             description: "Rename (move) a file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["from", "to"],
-                "properties": {
-                    "from": {"type": "string", "description": "Source file path."},
-                    "to": {"type": "string", "description": "Destination file path."},
-                    "force": {"type": "boolean", "default": false}
-                }
-            }),
+            parameters: schema_from::<FileRenameSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Rename a file".into(),
@@ -209,16 +506,7 @@ fn weak_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "tidy.fix".into(),
             description: "Normalize whitespace, line endings, and final newline in a file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "ensure_final_newline": {"type": "boolean"},
-                    "trim_trailing_whitespace": {"type": "boolean"},
-                    "normalize_eol": {"type": "string", "enum": ["lf", "crlf"]}
-                }
-            }),
+            parameters: schema_from::<TidyFixSchema>(),
             min_tier: Tier::Weak,
             examples: vec![OperationExample {
                 description: "Fix whitespace in a file".into(),
@@ -233,15 +521,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.set".into(),
             description: "Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string", "description": "Selector path (e.g., 'database.host', 'items[0].name')."},
-                    "value": {"description": "The value to set (any JSON type)."}
-                }
-            }),
+            parameters: schema_from::<DocSetSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -253,14 +533,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.delete".into(),
             description: "Delete a key at a selector path in a JSON, YAML, or TOML file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<DocDeleteSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -272,14 +545,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.merge".into(),
             description: "Deep-merge a JSON object into the root of a document.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "value": {"type": "object", "description": "Object to deep-merge into the document root."}
-                }
-            }),
+            parameters: schema_from::<DocMergeSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -291,15 +557,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.append".into(),
             description: "Append a value to an array at a selector path.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string"},
-                    "value": {"description": "Value to append."}
-                }
-            }),
+            parameters: schema_from::<DocArraySchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -311,15 +569,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.move".into(),
             description: "Move a value from one selector path to another within the same file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "from", "to"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "from": {"type": "string", "description": "Source selector."},
-                    "to": {"type": "string", "description": "Destination selector."}
-                }
-            }),
+            parameters: schema_from::<DocMoveSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -331,15 +581,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.ensure".into(),
             description: "Set a value only if the selector path does not already exist.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string"},
-                    "value": {"description": "Value to set if missing."}
-                }
-            }),
+            parameters: schema_from::<DocEnsureSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -351,15 +593,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "md.replace_section".into(),
             description: "Replace the body of a markdown section identified by heading.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading", "content"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "heading": {"type": "string", "description": "Heading text (without # prefix)."},
-                    "content": {"type": "string", "description": "New section body."}
-                }
-            }),
+            parameters: schema_from::<MdReplaceSectionSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -371,15 +605,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "md.upsert_bullet".into(),
             description: "Insert or update a bullet point under a markdown heading.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading", "bullet"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "heading": {"type": "string"},
-                    "bullet": {"type": "string", "description": "Full bullet text (e.g., '- New item')."}
-                }
-            }),
+            parameters: schema_from::<MdUpsertBulletSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -391,15 +617,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "md.table_append".into(),
             description: "Append a row to a markdown table under a heading.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading", "row"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "heading": {"type": "string"},
-                    "row": {"type": "string", "description": "Table row in markdown format (e.g., '| col1 | col2 |')."}
-                }
-            }),
+            parameters: schema_from::<MdTableAppendSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -411,47 +629,21 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "md.insert_after_heading".into(),
             description: "Insert content immediately after a markdown heading.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading", "content"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "heading": {"type": "string"},
-                    "content": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<MdInsertSchema>(),
             min_tier: Tier::Medium,
             examples: vec![],
         },
         OperationSchema {
             name: "md.insert_before_heading".into(),
             description: "Insert content immediately before a markdown heading.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading", "content"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "heading": {"type": "string"},
-                    "content": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<MdInsertSchema>(),
             min_tier: Tier::Medium,
             examples: vec![],
         },
         OperationSchema {
             name: "md.move_section".into(),
             description: "Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "heading"],
-                "properties": {
-                    "path": {"type": "string", "description": "Source file containing the section."},
-                    "heading": {"type": "string", "description": "Heading of the section to move."},
-                    "to": {"type": "string", "description": "Destination file (omit for same-file reorder)."},
-                    "before": {"type": "string", "description": "Insert before this heading."},
-                    "after": {"type": "string", "description": "Insert after this heading."}
-                }
-            }),
+            parameters: schema_from::<MdMoveSectionSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -467,15 +659,7 @@ fn medium_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "patch.apply".into(),
             description: "Apply a unified diff patch to one or more files. Supports three-way merge on stale context.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["diff"],
-                "properties": {
-                    "diff": {"type": "string", "description": "Unified diff text."},
-                    "on_stale": {"type": "string", "enum": ["fail", "merge"], "default": "fail"},
-                    "allow_conflicts": {"type": "boolean", "default": false}
-                }
-            }),
+            parameters: schema_from::<PatchApplySchema>(),
             min_tier: Tier::Medium,
             examples: vec![],
         },
@@ -487,112 +671,49 @@ fn strong_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "doc.prepend".into(),
             description: "Prepend a value to the beginning of an array at a selector path.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string"},
-                    "value": {"description": "Value to prepend."}
-                }
-            }),
+            parameters: schema_from::<DocArraySchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "doc.update".into(),
             description: "Update all array elements matching a predicate with new values.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "value"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string", "description": "Selector with predicate (e.g., 'items[name=foo]')."},
-                    "value": {"type": "object", "description": "Fields to merge into matching elements."}
-                }
-            }),
+            parameters: schema_from::<DocUpdateSchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "doc.delete_where".into(),
             description: "Delete array elements matching a predicate.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "selector", "predicate"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "selector": {"type": "string"},
-                    "predicate": {"type": "string", "description": "key=value predicate."}
-                }
-            }),
+            parameters: schema_from::<DocDeleteWhereSchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "search".into(),
             description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores (parity with library SearchOptions for Bline): literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results, before_context/after_context.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "pattern"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "pattern": {"type": "string"},
-                    "literal": {"type": "boolean", "default": false},
-                    "regex": {"type": "boolean", "default": false},
-                    "case_insensitive": {"type": "boolean", "default": false},
-                    "multiline": {"type": "boolean", "default": false},
-                    "invert_match": {"type": "boolean", "default": false},
-                    "context": {"type": "integer"},
-                    "before_context": {"type": "integer"},
-                    "after_context": {"type": "integer"},
-                    "globs": {"type": "array", "items": {"type": "string"}, "default": []},
-                    "max_results": {"type": "integer", "default": 0},
-                    "exclude_patterns": {"type": "array", "items": {"type": "string"}, "default": []},
-                    "custom_ignore_filenames": {"type": "array", "items": {"type": "string"}, "default": []},
-                    "assert_count": {"type": "integer", "description": "Fail if match count differs."}
-                }
-            }),
+            parameters: schema_from::<SearchSchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "read".into(),
             description: "Read file contents with optional line range.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": {"type": "string"},
-                    "lines": {"type": "string", "description": "Line range (e.g., '10:25')."}
-                }
-            }),
+            parameters: schema_from::<ReadSchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "md.dedupe_headings".into(),
             description: "Remove duplicate markdown headings in a file.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<PathOnlySchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
         OperationSchema {
             name: "md.lint_agents".into(),
             description: "Lint an AGENTS.md file for common issues.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": {"type": "string"}
-                }
-            }),
+            parameters: schema_from::<PathOnlySchema>(),
             min_tier: Tier::Strong,
             examples: vec![],
         },
@@ -601,16 +722,7 @@ fn strong_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "ast.rename".into(),
             description: "AST-aware rename: rename identifiers skipping strings and comments.".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "old_name", "new_name"],
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative to working directory)."},
-                    "old_name": {"type": "string", "description": "Current identifier name."},
-                    "new_name": {"type": "string", "description": "New identifier name."},
-                    "lang": {"type": "string", "description": "Language hint (e.g. 'rust', 'python'). Auto-detected from extension if omitted."}
-                }
-            }),
+            parameters: schema_from::<AstRenameSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -623,18 +735,7 @@ fn strong_tier_schemas() -> Vec<OperationSchema> {
         OperationSchema {
             name: "ast.replace".into(),
             description: "Replace text within a specific symbol's body (AST-scoped).".into(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "required": ["path", "symbol", "from", "to"],
-                "properties": {
-                    "path": {"type": "string", "description": "File path (relative to working directory)."},
-                    "symbol": {"type": "string", "description": "Symbol name to scope the replacement to."},
-                    "from": {"type": "string", "description": "Text to find within the symbol body."},
-                    "to": {"type": "string", "description": "Replacement text."},
-                    "regex": {"type": "boolean", "default": false, "description": "Use regex mode for the from pattern."},
-                    "lang": {"type": "string", "description": "Language hint. Auto-detected from extension if omitted."}
-                }
-            }),
+            parameters: schema_from::<AstReplaceSchema>(),
             min_tier: Tier::Medium,
             examples: vec![
                 OperationExample {
@@ -652,29 +753,7 @@ fn strong_tier_schemas() -> Vec<OperationSchema> {
 /// writes in a transaction. Agents using `patchloom schema` can discover these
 /// to build complete tx plans.
 pub fn plan_write_policy_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "description": "Write policy applied to all operations in the plan. Each field is optional; omitted fields inherit from CLI flags or project config.",
-        "properties": {
-            "ensure_final_newline": {
-                "type": "boolean",
-                "description": "Ensure every written file ends with a newline."
-            },
-            "normalize_eol": {
-                "type": "string",
-                "enum": ["keep", "lf", "crlf"],
-                "description": "Line ending normalization mode."
-            },
-            "trim_trailing_whitespace": {
-                "type": "boolean",
-                "description": "Remove trailing whitespace from every line."
-            },
-            "collapse_blanks": {
-                "type": "boolean",
-                "description": "Collapse consecutive blank lines into a single blank line."
-            }
-        }
-    })
+    schema_from::<crate::write::WritePolicyOverride>()
 }
 
 /// Get operations available at a given capability tier (includes all lower tiers).

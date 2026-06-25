@@ -73,8 +73,7 @@ impl Default for WritePolicy {
 /// Each field is optional; only `Some` values override the base [`WritePolicy`].
 /// Used by `.patchloom.toml` config, tx plan `write_policy`, and any context
 /// that needs to partially override write transformations.
-#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize)]
-#[cfg_attr(feature = "mcp", derive(schemars::JsonSchema))]
+#[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct WritePolicyOverride {
