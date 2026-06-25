@@ -148,308 +148,288 @@ pub struct OperationSchema {
     pub examples: Vec<OperationExample>,
 }
 
+/// Static metadata for each operation: (name, description, tier, examples).
+///
+/// The `parameters` field is derived at runtime from `plan::Operation` via
+/// `operation_variant_schema()`. This table holds only the human-authored
+/// metadata that cannot be derived: description text, capability tier, and
+/// example invocations.
+///
+/// Operations are listed in tier order (weak, medium, strong) to match the
+/// output order of `operation_schemas()`.
+struct OpMeta {
+    name: &'static str,
+    description: &'static str,
+    tier: Tier,
+    examples: &'static [(&'static str, &'static str)],
+}
+
+// Example tuples: (description, JSON args as string).
+// Using &str avoids runtime serde_json::json!() allocation in the static table;
+// parsing happens lazily in operation_schemas().
+
+const OPERATION_REGISTRY: &[OpMeta] = &[
+    // --- Weak tier ---
+    OpMeta {
+        name: "replace",
+        description: "Replace text in a file using literal string matching.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Replace a function name",
+            r###"{"op":"replace","path":"src/main.rs","from":"old_name","to":"new_name"}"###,
+        )],
+    },
+    OpMeta {
+        name: "file.append",
+        description: "Append content to an existing file.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Append a test function to a test file",
+            r###"{"op":"file.append","path":"tests/test.rs","content":"#[test]\nfn new_test() {}\n"}"###,
+        )],
+    },
+    OpMeta {
+        name: "file.create",
+        description: "Create a new file with specified content.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Create a new config file",
+            r###"{"op":"file.create","path":"config.json","content":"{\"version\": \"1.0\"}"}"###,
+        )],
+    },
+    OpMeta {
+        name: "file.delete",
+        description: "Delete a file.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Delete a temporary file",
+            r###"{"op":"file.delete","path":"tmp/scratch.txt"}"###,
+        )],
+    },
+    OpMeta {
+        name: "file.rename",
+        description: "Rename (move) a file.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Rename a file",
+            r###"{"op":"file.rename","from":"old.txt","to":"new.txt"}"###,
+        )],
+    },
+    OpMeta {
+        name: "tidy.fix",
+        description: "Normalize whitespace, line endings, and final newline in a file.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Fix whitespace in a file",
+            r###"{"op":"tidy.fix","path":"src/main.rs","ensure_final_newline":true,"trim_trailing_whitespace":true}"###,
+        )],
+    },
+    // --- Medium tier ---
+    OpMeta {
+        name: "doc.set",
+        description: "Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Update a version in package.json",
+            r###"{"op":"doc.set","path":"package.json","selector":"version","value":"2.0.0"}"###,
+        )],
+    },
+    OpMeta {
+        name: "doc.delete",
+        description: "Delete a key at a selector path in a JSON, YAML, or TOML file.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Remove a deprecated config key",
+            r###"{"op":"doc.delete","path":"config.json","selector":"deprecated_key"}"###,
+        )],
+    },
+    OpMeta {
+        name: "doc.merge",
+        description: "Deep-merge a JSON object into the root of a document.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add database config",
+            r###"{"op":"doc.merge","path":"config.yaml","value":{"database":{"host":"localhost","port":5432}}}"###,
+        )],
+    },
+    OpMeta {
+        name: "doc.append",
+        description: "Append a value to an array at a selector path.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add an item to a list",
+            r###"{"op":"doc.append","path":"data.json","selector":"items","value":"new_item"}"###,
+        )],
+    },
+    OpMeta {
+        name: "doc.move",
+        description: "Move a value from one selector path to another within the same file.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Rename a config key",
+            r###"{"op":"doc.move","path":"config.json","from":"old_key","to":"new_key"}"###,
+        )],
+    },
+    OpMeta {
+        name: "doc.ensure",
+        description: "Set a value only if the selector path does not already exist.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Ensure a default config value exists",
+            r###"{"op":"doc.ensure","path":"config.json","selector":"timeout","value":30}"###,
+        )],
+    },
+    OpMeta {
+        name: "md.replace_section",
+        description: "Replace the body of a markdown section identified by heading.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Update the install section of README",
+            r###"{"op":"md.replace_section","path":"README.md","heading":"## Installation","content":"Run `npm install`.\n"}"###,
+        )],
+    },
+    OpMeta {
+        name: "md.upsert_bullet",
+        description: "Insert or update a bullet point under a markdown heading.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add a changelog entry",
+            r###"{"op":"md.upsert_bullet","path":"CHANGELOG.md","heading":"## Changes","bullet":"- Added new feature"}"###,
+        )],
+    },
+    OpMeta {
+        name: "md.table_append",
+        description: "Append a row to a markdown table under a heading.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add a row to an API table",
+            r###"{"op":"md.table_append","path":"README.md","heading":"## API","row":"| GET | /health | Health check |"}"###,
+        )],
+    },
+    OpMeta {
+        name: "md.insert_after_heading",
+        description: "Insert content immediately after a markdown heading.",
+        tier: Tier::Medium,
+        examples: &[],
+    },
+    OpMeta {
+        name: "md.insert_before_heading",
+        description: "Insert content immediately before a markdown heading.",
+        tier: Tier::Medium,
+        examples: &[],
+    },
+    OpMeta {
+        name: "md.move_section",
+        description: "Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.",
+        tier: Tier::Medium,
+        examples: &[
+            (
+                "Reorder within same file",
+                r###"{"op":"md.move_section","path":"README.md","heading":"## FAQ","before":"## License"}"###,
+            ),
+            (
+                "Move section to another file",
+                r###"{"op":"md.move_section","path":"spec.md","heading":"## Appendix E","to":"investigation.md","after":"## Layer 4"}"###,
+            ),
+        ],
+    },
+    OpMeta {
+        name: "patch.apply",
+        description: "Apply a unified diff patch to one or more files. Supports three-way merge on stale context.",
+        tier: Tier::Medium,
+        examples: &[],
+    },
+    // --- Strong tier ---
+    OpMeta {
+        name: "doc.prepend",
+        description: "Prepend a value to the beginning of an array at a selector path.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "doc.update",
+        description: "Update all array elements matching a predicate with new values.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "doc.delete_where",
+        description: "Delete array elements matching a predicate.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "search",
+        description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores (parity with library SearchOptions for Bline): literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results, before_context/after_context.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "read",
+        description: "Read file contents with optional line range.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "md.dedupe_headings",
+        description: "Remove duplicate markdown headings in a file.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+    OpMeta {
+        name: "md.lint_agents",
+        description: "Lint an AGENTS.md file for common issues.",
+        tier: Tier::Strong,
+        examples: &[],
+    },
+];
+
+/// AST operation metadata, compiled only when the `ast` feature is enabled.
+#[cfg(feature = "ast")]
+const AST_OPERATION_REGISTRY: &[OpMeta] = &[
+    OpMeta {
+        name: "ast.rename",
+        description: "AST-aware rename: rename identifiers skipping strings and comments.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Rename a struct",
+            r###"{"op":"ast.rename","path":"src/lib.rs","old_name":"OldStruct","new_name":"NewStruct"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.replace",
+        description: "Replace text within a specific symbol's body (AST-scoped).",
+        tier: Tier::Medium,
+        examples: &[(
+            "Replace a constant inside a function",
+            r###"{"op":"ast.replace","path":"src/config.rs","symbol":"default_timeout","from":"30","to":"60"}"###,
+        )],
+    },
+];
+
 /// Return the complete registry of all patchloom operations with schemas.
 pub fn operation_schemas() -> Vec<OperationSchema> {
-    let mut ops = weak_tier_schemas();
-    ops.append(&mut medium_tier_schemas());
-    ops.append(&mut strong_tier_schemas());
-    ops
-}
+    let mut all: Vec<&OpMeta> = OPERATION_REGISTRY.iter().collect();
+    #[cfg(feature = "ast")]
+    all.extend(AST_OPERATION_REGISTRY.iter());
 
-fn weak_tier_schemas() -> Vec<OperationSchema> {
-    vec![
-        OperationSchema {
-            name: "replace".into(),
-            description: "Replace text in a file using literal string matching.".into(),
-            parameters: operation_variant_schema("replace"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Replace a function name".into(),
-                args: serde_json::json!({"op": "replace", "path": "src/main.rs", "from": "old_name", "to": "new_name"}),
-            }],
-        },
-        OperationSchema {
-            name: "file.append".into(),
-            description: "Append content to an existing file.".into(),
-            parameters: operation_variant_schema("file.append"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Append a test function to a test file".into(),
-                args: serde_json::json!({"op": "file.append", "path": "tests/test.rs", "content": "#[test]\nfn new_test() {}\n"}),
-            }],
-        },
-        OperationSchema {
-            name: "file.create".into(),
-            description: "Create a new file with specified content.".into(),
-            parameters: operation_variant_schema("file.create"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Create a new config file".into(),
-                args: serde_json::json!({"op": "file.create", "path": "config.json", "content": "{\"version\": \"1.0\"}"}),
-            }],
-        },
-        OperationSchema {
-            name: "file.delete".into(),
-            description: "Delete a file.".into(),
-            parameters: operation_variant_schema("file.delete"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Delete a temporary file".into(),
-                args: serde_json::json!({"op": "file.delete", "path": "tmp/scratch.txt"}),
-            }],
-        },
-        OperationSchema {
-            name: "file.rename".into(),
-            description: "Rename (move) a file.".into(),
-            parameters: operation_variant_schema("file.rename"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Rename a file".into(),
-                args: serde_json::json!({"op": "file.rename", "from": "old.txt", "to": "new.txt"}),
-            }],
-        },
-        OperationSchema {
-            name: "tidy.fix".into(),
-            description: "Normalize whitespace, line endings, and final newline in a file.".into(),
-            parameters: operation_variant_schema("tidy.fix"),
-            min_tier: Tier::Weak,
-            examples: vec![OperationExample {
-                description: "Fix whitespace in a file".into(),
-                args: serde_json::json!({"op": "tidy.fix", "path": "src/main.rs", "ensure_final_newline": true, "trim_trailing_whitespace": true}),
-            }],
-        },
-    ]
-}
-
-fn medium_tier_schemas() -> Vec<OperationSchema> {
-    vec![
-        OperationSchema {
-            name: "doc.set".into(),
-            description: "Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.".into(),
-            parameters: operation_variant_schema("doc.set"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Update a version in package.json".into(),
-                    args: serde_json::json!({"op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "doc.delete".into(),
-            description: "Delete a key at a selector path in a JSON, YAML, or TOML file.".into(),
-            parameters: operation_variant_schema("doc.delete"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Remove a deprecated config key".into(),
-                    args: serde_json::json!({"op": "doc.delete", "path": "config.json", "selector": "deprecated_key"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "doc.merge".into(),
-            description: "Deep-merge a JSON object into the root of a document.".into(),
-            parameters: operation_variant_schema("doc.merge"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Add database config".into(),
-                    args: serde_json::json!({"op": "doc.merge", "path": "config.yaml", "value": {"database": {"host": "localhost", "port": 5432}}}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "doc.append".into(),
-            description: "Append a value to an array at a selector path.".into(),
-            parameters: operation_variant_schema("doc.append"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Add an item to a list".into(),
-                    args: serde_json::json!({"op": "doc.append", "path": "data.json", "selector": "items", "value": "new_item"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "doc.move".into(),
-            description: "Move a value from one selector path to another within the same file.".into(),
-            parameters: operation_variant_schema("doc.move"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Rename a config key".into(),
-                    args: serde_json::json!({"op": "doc.move", "path": "config.json", "from": "old_key", "to": "new_key"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "doc.ensure".into(),
-            description: "Set a value only if the selector path does not already exist.".into(),
-            parameters: operation_variant_schema("doc.ensure"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Ensure a default config value exists".into(),
-                    args: serde_json::json!({"op": "doc.ensure", "path": "config.json", "selector": "timeout", "value": 30}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "md.replace_section".into(),
-            description: "Replace the body of a markdown section identified by heading.".into(),
-            parameters: operation_variant_schema("md.replace_section"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Update the install section of README".into(),
-                    args: serde_json::json!({"op": "md.replace_section", "path": "README.md", "heading": "## Installation", "content": "Run `npm install`.\n"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "md.upsert_bullet".into(),
-            description: "Insert or update a bullet point under a markdown heading.".into(),
-            parameters: operation_variant_schema("md.upsert_bullet"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Add a changelog entry".into(),
-                    args: serde_json::json!({"op": "md.upsert_bullet", "path": "CHANGELOG.md", "heading": "## Changes", "bullet": "- Added new feature"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "md.table_append".into(),
-            description: "Append a row to a markdown table under a heading.".into(),
-            parameters: operation_variant_schema("md.table_append"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Add a row to an API table".into(),
-                    args: serde_json::json!({"op": "md.table_append", "path": "README.md", "heading": "## API", "row": "| GET | /health | Health check |"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "md.insert_after_heading".into(),
-            description: "Insert content immediately after a markdown heading.".into(),
-            parameters: operation_variant_schema("md.insert_after_heading"),
-            min_tier: Tier::Medium,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "md.insert_before_heading".into(),
-            description: "Insert content immediately before a markdown heading.".into(),
-            parameters: operation_variant_schema("md.insert_before_heading"),
-            min_tier: Tier::Medium,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "md.move_section".into(),
-            description: "Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.".into(),
-            parameters: operation_variant_schema("md.move_section"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Reorder within same file".into(),
-                    args: serde_json::json!({"op": "md.move_section", "path": "README.md", "heading": "## FAQ", "before": "## License"}),
-                },
-                OperationExample {
-                    description: "Move section to another file".into(),
-                    args: serde_json::json!({"op": "md.move_section", "path": "spec.md", "heading": "## Appendix E", "to": "investigation.md", "after": "## Layer 4"}),
-                },
-            ],
-        },
-        OperationSchema {
-            name: "patch.apply".into(),
-            description: "Apply a unified diff patch to one or more files. Supports three-way merge on stale context.".into(),
-            parameters: operation_variant_schema("patch.apply"),
-            min_tier: Tier::Medium,
-            examples: vec![],
-        },
-    ]
-}
-
-fn strong_tier_schemas() -> Vec<OperationSchema> {
-    vec![
-        OperationSchema {
-            name: "doc.prepend".into(),
-            description: "Prepend a value to the beginning of an array at a selector path.".into(),
-            parameters: operation_variant_schema("doc.prepend"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "doc.update".into(),
-            description: "Update all array elements matching a predicate with new values.".into(),
-            parameters: operation_variant_schema("doc.update"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "doc.delete_where".into(),
-            description: "Delete array elements matching a predicate.".into(),
-            parameters: operation_variant_schema("doc.delete_where"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "search".into(),
-            description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores (parity with library SearchOptions for Bline): literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results, before_context/after_context.".into(),
-            parameters: operation_variant_schema("search"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "read".into(),
-            description: "Read file contents with optional line range.".into(),
-            parameters: operation_variant_schema("read"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "md.dedupe_headings".into(),
-            description: "Remove duplicate markdown headings in a file.".into(),
-            parameters: operation_variant_schema("md.dedupe_headings"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        OperationSchema {
-            name: "md.lint_agents".into(),
-            description: "Lint an AGENTS.md file for common issues.".into(),
-            parameters: operation_variant_schema("md.lint_agents"),
-            min_tier: Tier::Strong,
-            examples: vec![],
-        },
-        // --- AST operations (feature-gated) ---
-        #[cfg(feature = "ast")]
-        OperationSchema {
-            name: "ast.rename".into(),
-            description: "AST-aware rename: rename identifiers skipping strings and comments.".into(),
-            parameters: operation_variant_schema("ast.rename"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Rename a struct".into(),
-                    args: serde_json::json!({"op": "ast.rename", "path": "src/lib.rs", "old_name": "OldStruct", "new_name": "NewStruct"}),
-                },
-            ],
-        },
-        #[cfg(feature = "ast")]
-        OperationSchema {
-            name: "ast.replace".into(),
-            description: "Replace text within a specific symbol's body (AST-scoped).".into(),
-            parameters: operation_variant_schema("ast.replace"),
-            min_tier: Tier::Medium,
-            examples: vec![
-                OperationExample {
-                    description: "Replace a constant inside a function".into(),
-                    args: serde_json::json!({"op": "ast.replace", "path": "src/config.rs", "symbol": "default_timeout", "from": "30", "to": "60"}),
-                },
-            ],
-        },
-    ]
+    all.into_iter()
+        .map(|meta| OperationSchema {
+            name: meta.name.into(),
+            description: meta.description.into(),
+            parameters: operation_variant_schema(meta.name),
+            min_tier: meta.tier,
+            examples: meta
+                .examples
+                .iter()
+                .map(|(desc, json)| OperationExample {
+                    description: (*desc).into(),
+                    args: serde_json::from_str(json)
+                        .unwrap_or_else(|e| panic!("bad example JSON for {}: {e}", meta.name)),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// JSON Schema for plan-level `write_policy` envelope fields.
