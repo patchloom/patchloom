@@ -1,13 +1,9 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
+use crate::ops::search::{self as ops_search, SearchMatch, SearchResults};
 use anyhow::bail;
 use clap::Args;
-use memchr::memchr_iter;
-use memchr::memmem;
-use regex::Regex;
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::sync::Arc;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -68,30 +64,6 @@ pub struct SearchArgs {
     pub max_results: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct SearchMatch {
-    #[serde(serialize_with = "serialize_arc_str")]
-    path: Arc<str>,
-    /// 1-based line number of the match.
-    line: usize,
-    /// 1-based byte offset from the start of the line to the match start.
-    ///
-    /// This is a **byte** offset, not a character or grapheme offset. For
-    /// ASCII text (one byte per char), column equals the character position.
-    /// For multi-byte UTF-8, the byte offset may exceed the character count.
-    /// When no match position is available (e.g. inverted match), defaults to 1.
-    column: usize,
-    text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context_before: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context_after: Option<Vec<String>>,
-}
-
-fn serialize_arc_str<S: serde::Serializer>(s: &Arc<str>, ser: S) -> Result<S::Ok, S::Error> {
-    ser.serialize_str(s)
-}
-
 #[derive(Debug, Serialize)]
 struct SearchOutput {
     ok: bool,
@@ -114,247 +86,6 @@ struct SearchAssertCountOutput {
     assert_count: SearchAssertCount,
 }
 
-pub(crate) struct SearchResults {
-    matches: Vec<SearchMatch>,
-    pub(crate) file_match_counts: BTreeMap<Arc<str>, usize>,
-}
-
-impl SearchResults {
-    #[cfg(feature = "mcp")]
-    pub(crate) fn has_matches(&self) -> bool {
-        !self.matches.is_empty()
-    }
-}
-
-/// Matcher abstraction: either a compiled regex or a memchr literal finder.
-enum Matcher {
-    Regex(Regex),
-    Literal(Box<memmem::Finder<'static>>),
-}
-
-impl Matcher {
-    /// Find the first match in `text`, returning (start, end) byte offsets.
-    fn find(&self, text: &str) -> Option<(usize, usize)> {
-        match self {
-            Matcher::Regex(re) => re.find(text).map(|m| (m.start(), m.end())),
-            Matcher::Literal(finder) => {
-                let start = finder.find(text.as_bytes())?;
-                Some((start, start + finder.needle().len()))
-            }
-        }
-    }
-
-    /// Iterate all matches in `text` (for multiline mode).
-    fn find_iter_positions(&self, text: &str) -> Vec<(usize, usize)> {
-        match self {
-            Matcher::Regex(re) => re.find_iter(text).map(|m| (m.start(), m.end())).collect(),
-            Matcher::Literal(finder) => {
-                let bytes = text.as_bytes();
-                let mut positions = Vec::new();
-                let needle_len = finder.needle().len();
-                let mut start = 0;
-                while let Some(pos) = finder.find(&bytes[start..]) {
-                    positions.push((start + pos, start + pos + needle_len));
-                    start += pos + needle_len;
-                }
-                positions
-            }
-        }
-    }
-
-    /// Count matches in `text`, optionally stopping after the first match.
-    fn count_matches(&self, text: &str, stop_after_first: bool) -> usize {
-        match self {
-            Matcher::Regex(re) => {
-                if stop_after_first {
-                    usize::from(re.find(text).is_some())
-                } else {
-                    re.find_iter(text).count()
-                }
-            }
-            Matcher::Literal(finder) => {
-                let bytes = text.as_bytes();
-                if stop_after_first {
-                    return usize::from(finder.find(bytes).is_some());
-                }
-                let needle_len = finder.needle().len();
-                let mut count = 0;
-                let mut start = 0;
-                while let Some(pos) = finder.find(&bytes[start..]) {
-                    count += 1;
-                    start += pos + needle_len;
-                }
-                count
-            }
-        }
-    }
-}
-
-/// Build the right matcher for the search arguments.
-fn build_matcher(args: &SearchArgs) -> anyhow::Result<Matcher> {
-    // Use memchr for literal, case-sensitive, non-multiline searches.
-    if args.literal && !args.case_insensitive && !args.multiline {
-        return Ok(Matcher::Literal(Box::new(
-            memmem::Finder::new(args.pattern.as_bytes()).into_owned(),
-        )));
-    }
-
-    let pattern = if args.literal {
-        regex::escape(&args.pattern)
-    } else {
-        args.pattern.clone()
-    };
-    let re = if args.multiline || args.case_insensitive {
-        regex::RegexBuilder::new(&pattern)
-            .dot_matches_new_line(args.multiline)
-            .case_insensitive(args.case_insensitive)
-            .build()?
-    } else {
-        Regex::new(&pattern)?
-    };
-    Ok(Matcher::Regex(re))
-}
-
-/// Per-file search result collected from parallel threads.
-struct FileResult {
-    path_str: Arc<str>,
-    matches: Vec<SearchMatch>,
-    count: usize,
-}
-
-/// Compute a 1-based (line, column) pair from a byte offset into content.
-///
-/// `newline_offsets` is a list of byte positions where `\n` appears.
-/// `start` is the byte offset of the match. Returns a 1-based line number
-/// and a 1-based byte column within that line.
-fn line_and_column_for_offset(newline_offsets: &[usize], start: usize) -> (usize, usize) {
-    let line_index = newline_offsets.partition_point(|&offset| offset < start);
-    let line_start = if line_index == 0 {
-        0
-    } else {
-        newline_offsets[line_index - 1] + 1
-    };
-    (line_index + 1, start - line_start + 1)
-}
-
-/// Search a single file and return matches/counts.
-fn search_one_file(
-    path: &std::path::Path,
-    matcher: &Matcher,
-    args: &SearchArgs,
-    quiet: bool,
-    cwd: &std::path::Path,
-) -> Option<FileResult> {
-    let content = crate::files::read_text_file_logged(path, "search", quiet)?;
-
-    let count_only = args.count || args.files_with_matches;
-    let display = crate::files::relative_display(path, cwd);
-    let path_str: Arc<str> = Arc::from(display.to_string_lossy().as_ref());
-    let mut file_matches: Vec<SearchMatch> = Vec::new();
-    let mut count = 0usize;
-
-    if args.multiline {
-        if count_only {
-            count = matcher.count_matches(
-                &content,
-                args.files_with_matches && args.assert_count.is_none(),
-            );
-        } else {
-            let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
-            for (start, end) in matcher.find_iter_positions(&content) {
-                count += 1;
-                let (line, column) = line_and_column_for_offset(&newline_offsets, start);
-                file_matches.push(SearchMatch {
-                    path: path_str.clone(),
-                    line,
-                    column,
-                    text: content[start..end].to_string(),
-                    context_before: None,
-                    context_after: None,
-                });
-            }
-        }
-    } else if count_only {
-        // Fast path: no need to collect lines into a Vec for random access.
-        for line in content.lines() {
-            let found = matcher.find(line);
-            let is_match = if args.invert_match {
-                found.is_none()
-            } else {
-                found.is_some()
-            };
-            if is_match {
-                count += 1;
-                if args.files_with_matches && args.assert_count.is_none() {
-                    break;
-                }
-            }
-        }
-    } else {
-        let ctx_before = args.before_context.or(args.context).unwrap_or(0);
-        let ctx_after = args.after_context.or(args.context).unwrap_or(0);
-        let has_ctx = ctx_before > 0 || ctx_after > 0;
-
-        if has_ctx {
-            let lines: Vec<&str> = content.lines().collect();
-            for (i, line) in lines.iter().copied().enumerate() {
-                let found = matcher.find(line);
-                let is_match = if args.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-                if !is_match {
-                    continue;
-                }
-                count += 1;
-                let column = found.map_or(1, |(s, _)| s + 1);
-                let start = i.saturating_sub(ctx_before);
-                let end = (i + 1 + ctx_after).min(lines.len());
-                file_matches.push(SearchMatch {
-                    path: path_str.clone(),
-                    line: i + 1,
-                    column,
-                    text: line.to_string(),
-                    context_before: Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
-                    context_after: Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
-                });
-            }
-        } else {
-            for (i, line) in content.lines().enumerate() {
-                let found = matcher.find(line);
-                let is_match = if args.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-                if !is_match {
-                    continue;
-                }
-                count += 1;
-                file_matches.push(SearchMatch {
-                    path: path_str.clone(),
-                    line: i + 1,
-                    column: found.map_or(1, |(s, _)| s + 1),
-                    text: line.to_string(),
-                    context_before: None,
-                    context_after: None,
-                });
-            }
-        }
-    }
-
-    if count > 0 {
-        Some(FileResult {
-            path_str,
-            matches: file_matches,
-            count,
-        })
-    } else {
-        None
-    }
-}
-
 pub(crate) fn collect_matches(
     args: &SearchArgs,
     global: &GlobalFlags,
@@ -367,42 +98,39 @@ pub(crate) fn collect_matches(
     );
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let matcher = build_matcher(args)?;
+    let matcher = ops_search::build_matcher(
+        &args.pattern,
+        args.literal,
+        args.case_insensitive,
+        args.multiline,
+    )?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let count_only = args.count || args.files_with_matches;
 
     // Process files in parallel (#167).
     let cwd_ref = &cwd;
-    let file_results: Vec<FileResult> =
+    let search_params = ops_search::SearchFileParams {
+        multiline: args.multiline,
+        invert_match: args.invert_match,
+        count_only,
+        files_with_matches: args.files_with_matches,
+        assert_count: args.assert_count,
+        before_context: args.before_context,
+        after_context: args.after_context,
+        context: args.context,
+        quiet: global.quiet,
+    };
+    let file_results =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            search_one_file(path, &matcher, args, global.quiet, cwd_ref)
+            ops_search::search_one_file(path, &matcher, &search_params, cwd_ref)
         });
 
-    // Merge parallel results.
-    let total_matches: usize = file_results.iter().map(|fr| fr.matches.len()).sum();
-    let mut all_matches: Vec<SearchMatch> = Vec::with_capacity(total_matches);
-    let mut file_match_counts: BTreeMap<Arc<str>, usize> = BTreeMap::new();
-    for fr in file_results {
-        file_match_counts.insert(fr.path_str, fr.count);
-        all_matches.extend(fr.matches);
-    }
-
-    if !count_only {
-        all_matches.sort_unstable_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
-    }
-
-    // Apply max_results after full collection + sort (for deterministic "first N" by path/line).
-    // Only for detailed match output (not count/files_with modes). Matches library capping.
-    // assert_count and count modes see the full collection (see run() and design in #821 plan).
-    if args.max_results > 0 && !count_only {
-        all_matches.truncate(args.max_results);
-    }
-
-    Ok(SearchResults {
-        matches: all_matches,
-        file_match_counts,
-    })
+    Ok(ops_search::merge_file_results(
+        file_results,
+        count_only,
+        args.max_results,
+    ))
 }
 
 pub(crate) fn format_results(
@@ -758,10 +486,22 @@ mod tests {
     #[test]
     fn line_and_column_for_offset_maps_multiline_positions() {
         let newline_offsets = vec![2, 5];
-        assert_eq!(line_and_column_for_offset(&newline_offsets, 0), (1, 1));
-        assert_eq!(line_and_column_for_offset(&newline_offsets, 2), (1, 3));
-        assert_eq!(line_and_column_for_offset(&newline_offsets, 3), (2, 1));
-        assert_eq!(line_and_column_for_offset(&newline_offsets, 6), (3, 1));
+        assert_eq!(
+            ops_search::line_and_column_for_offset(&newline_offsets, 0),
+            (1, 1)
+        );
+        assert_eq!(
+            ops_search::line_and_column_for_offset(&newline_offsets, 2),
+            (1, 3)
+        );
+        assert_eq!(
+            ops_search::line_and_column_for_offset(&newline_offsets, 3),
+            (2, 1)
+        );
+        assert_eq!(
+            ops_search::line_and_column_for_offset(&newline_offsets, 6),
+            (3, 1)
+        );
     }
 
     #[test]
