@@ -1282,8 +1282,8 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn plan_normalize_eol_invalid_value_returns_error() {
-        let result = crate::tx::plan_normalize_eol("bogus");
+    fn parse_eol_mode_invalid_value_returns_error() {
+        let result = crate::write::parse_eol_mode("bogus");
         let msg = result
             .expect_err("invalid eol value should fail")
             .to_string();

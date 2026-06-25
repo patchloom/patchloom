@@ -6,12 +6,14 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+use crate::write::WritePolicyOverride;
+
 /// Project-level configuration loaded from `.patchloom.toml`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ProjectConfig {
-    pub write_policy: WritePolicy,
+    pub write_policy: WritePolicyOverride,
     pub exclude: Exclude,
     pub output: Output,
     pub tx: TxConfig,
@@ -22,16 +24,6 @@ pub struct ProjectConfig {
 #[non_exhaustive]
 pub struct TxConfig {
     pub strict: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
-pub struct WritePolicy {
-    pub ensure_final_newline: Option<bool>,
-    pub normalize_eol: Option<String>,
-    pub trim_trailing_whitespace: Option<bool>,
-    pub collapse_blanks: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -292,7 +284,7 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_sets_defaults() {
         let config = ProjectConfig {
-            write_policy: WritePolicy {
+            write_policy: WritePolicyOverride {
                 ensure_final_newline: Some(true),
                 normalize_eol: Some("lf".into()),
                 trim_trailing_whitespace: Some(true),
@@ -327,9 +319,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_cli_flags_win() {
         let config = ProjectConfig {
-            write_policy: WritePolicy {
+            write_policy: WritePolicyOverride {
                 ensure_final_newline: Some(true),
-                ..WritePolicy::default()
+                ..WritePolicyOverride::default()
             },
             exclude: Exclude {
                 globs: vec!["config_glob".into()],
@@ -382,9 +374,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_unknown_eol_value_ignored() {
         let config = ProjectConfig {
-            write_policy: WritePolicy {
+            write_policy: WritePolicyOverride {
                 normalize_eol: Some("CRLF".into()), // uppercase: not recognized
-                ..WritePolicy::default()
+                ..WritePolicyOverride::default()
             },
             ..ProjectConfig::default()
         };
@@ -402,9 +394,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_crlf_eol() {
         let config = ProjectConfig {
-            write_policy: WritePolicy {
+            write_policy: WritePolicyOverride {
                 normalize_eol: Some("crlf".into()),
-                ..WritePolicy::default()
+                ..WritePolicyOverride::default()
             },
             ..ProjectConfig::default()
         };
