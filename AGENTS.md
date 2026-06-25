@@ -78,7 +78,10 @@ src/
                        generator, and inline Completions command
   cmd/append.rs        Append content to an existing file
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
-  cmd/mcp.rs           MCP server (feature-gated): exposes patchloom operations as structured tool calls
+  cmd/mcp/mod.rs       MCP server (feature-gated): 19 auto-generated tools via MCP_TOOL_REGISTRY +
+                       13 hand-written #[tool] handlers, dynamic registration via ToolRoute::new_dyn()
+  cmd/mcp/params.rs    Parameter structs for hand-written MCP tool handlers only; simple tools use
+                       Operation variant schemas directly via operation_variant_schema()
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
   cmd/replace.rs       Literal/regex string replacement with diff preview, --nth, -i, atomic write
   cmd/delete.rs        Delete a file (with --apply/--check modes)
@@ -101,8 +104,10 @@ src/
   cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
   config.rs            Project config file (.patchloom.toml) loading and merging
   backup.rs            Backup session management for undo safety net
-  schema.rs            Intent format spec: OperationSchema, Tier, operation_schemas(),
-                       operations_for_tier(), system_prompt_for_tier(), INTENT_FORMAT_VERSION
+  schema.rs            Intent format spec: OperationSchema, Tier, OPERATION_REGISTRY (metadata table),
+                       operation_variant_schema() (extract single variant JSON Schema from Operation),
+                       operation_schemas(), operations_for_tier(), system_prompt_for_tier(),
+                       INTENT_FORMAT_VERSION
   fallback.rs          Multi-strategy fallback chain: EditError, EditErrorKind, validate_edit(),
                        find_similar_targets(), anchor_match(), resolve_with_fallback()
   selector/mod.rs      Re-exports selector parser and evaluator
@@ -252,20 +257,41 @@ Command::<Name>(args) => <name>::run(args, &global),
 
 ## Adding a new MCP tool
 
-MCP tools live in `src/cmd/mcp.rs` behind the `mcp` feature gate. To add a new tool:
+MCP tools live in `src/cmd/mcp/mod.rs` behind the `mcp` feature gate. There are two paths depending on whether the tool maps 1:1 to an existing `Operation` variant.
 
-1. **Define a params struct** with `Deserialize` and `schemars::JsonSchema`:
+### Path A: Auto-generated tool (1:1 Operation mapping)
+
+If the new tool directly maps to a single `plan::Operation` variant with no custom logic:
+
+1. **Add an entry to `MCP_TOOL_REGISTRY`** in `src/cmd/mcp/mod.rs`:
 
 ```rust
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct NewToolParams {
-    /// File path (relative to working directory).
-    pub path: String,
-    // ... other fields
-}
+McpToolMeta {
+    tool_name: "new_tool",
+    op_name: "new_op",  // must match the Operation variant's serde name
+    description: "Short description. Example: {\"path\": \"file.txt\", ...}",
+    has_strict: true,   // true if the tool should accept a `strict` parameter
+    validations: &[FieldValidation::Path("path")],  // field validations
+},
 ```
 
-2. **Add a handler method** in the `#[tool_router] impl PatchloomService` block:
+The input schema is auto-derived from the `Operation` variant via `operation_variant_schema()`. The handler is `handle_simple_op()`, which injects the `op` discriminator, validates fields, and deserializes into `Operation`.
+
+2. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
+
+3. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
+
+4. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
+
+5. Run `make sync-patchloom-md && make update-readme && make check`.
+
+### Path B: Custom hand-written tool (complex logic)
+
+If the tool needs custom validation, multi-operation plans, or read-only CLI delegation:
+
+1. **Define a params struct** in `src/cmd/mcp/params.rs` with `Deserialize` and `schemars::JsonSchema`.
+
+2. **Add a handler method** in the `#[tool_router] impl PatchloomService` block in `src/cmd/mcp/mod.rs`:
 
 ```rust
 #[tool(description = "Short description of what the tool does.")]
@@ -273,30 +299,20 @@ async fn new_tool(
     &self,
     Parameters(p): Parameters<NewToolParams>,
 ) -> Result<CallToolResult, McpError> {
-    validate_path_contained(&p.path)?;
-    // For write tools: build an Operation and call execute_plan() (pass guard for PathGuard support, #755)
-    execute_plan(
-        make_plan(vec![Operation::Variant { /* fields */ }]),
-        &self.cwd,
-        None, // or Some(&guard)
-    )
+    self.check_path(&p.path)?;
+    // For write tools: build an Operation and call execute_plan()
     // For read-only tools: call run_readonly_command()
 }
 ```
 
-3. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
-
-4. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
-
-5. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
-
-6. Run `make sync-patchloom-md && make update-readme && make check`.
+3. Follow steps 2-5 from Path A above.
 
 **PR body requirement (see #819):** When opening the PR for this MCP tool work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Follow-up changes after base merges commonly miss this; edit the PR body explicitly.
 
 ## Removing an MCP tool
 
-1. **Remove the handler method and params struct** from `src/cmd/mcp.rs`.
+1. **For auto-generated tools:** Remove the `McpToolMeta` entry from `MCP_TOOL_REGISTRY` in `src/cmd/mcp/mod.rs`.
+   **For custom tools:** Remove the handler method from `src/cmd/mcp/mod.rs` and the params struct from `src/cmd/mcp/params.rs`.
 
 2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected count.
 
