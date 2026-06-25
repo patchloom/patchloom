@@ -1995,3 +1995,119 @@ async fn test_mcp_doc_query_has_without_selector_returns_error() {
     );
     client.cancel().await.unwrap();
 }
+
+/// Regression test for #895: doc_set via MCP must create intermediate YAML
+/// keys without corrupting the document structure.
+#[tokio::test]
+async fn test_mcp_doc_set_yaml_deep_nested_path_creation() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.yaml"), "existing: value\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+
+    // Set a deeply nested path that requires creating intermediate keys
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "config.yaml",
+            "selector": "level1.level2.level3",
+            "value": "deep_value"
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_set deep nested should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_set ok field: {val}");
+
+    // Verify the file is valid YAML and has the correct structure
+    let content = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content)
+        .unwrap_or_else(|e| panic!("YAML parse failed after doc_set: {e}\ncontent:\n{content}"));
+    assert_eq!(
+        parsed["existing"], "value",
+        "doc_set clobbered existing key: {content}"
+    );
+    assert_eq!(
+        parsed["level1"]["level2"]["level3"], "deep_value",
+        "doc_set did not create nested path: {content}"
+    );
+
+    // Round-trip: read back the value via doc_get to verify MCP consistency
+    let (is_error2, val2) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({
+            "path": "config.yaml",
+            "selector": "level1.level2.level3"
+        }),
+    )
+    .await;
+    assert!(!is_error2, "doc_get should succeed: {val2}");
+    assert_eq!(
+        val2, "deep_value",
+        "doc_get returned wrong value after doc_set: {val2}"
+    );
+
+    client.cancel().await.unwrap();
+}
+
+/// Regression test for #895: doc_set via MCP on YAML with multiple sequential
+/// nested writes must preserve all previous writes.
+#[tokio::test]
+async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("app.yaml"), "app:\n  name: test\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+
+    // First write: set a nested config value
+    let (err1, v1) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "app.yaml",
+            "selector": "app.database.host",
+            "value": "localhost"
+        }),
+    )
+    .await;
+    assert!(!err1, "first doc_set should succeed: {v1}");
+
+    // Second write: set another nested config value in the same subtree
+    let (err2, v2) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "app.yaml",
+            "selector": "app.database.port",
+            "value": 5432
+        }),
+    )
+    .await;
+    assert!(!err2, "second doc_set should succeed: {v2}");
+
+    // Verify both writes and the original data are all present
+    let content = fs::read_to_string(dir.path().join("app.yaml")).unwrap();
+    let parsed: serde_json::Value = serde_yaml_ng::from_str(&content)
+        .unwrap_or_else(|e| panic!("YAML parse failed: {e}\ncontent:\n{content}"));
+    assert_eq!(
+        parsed["app"]["name"], "test",
+        "original key clobbered: {content}"
+    );
+    assert_eq!(
+        parsed["app"]["database"]["host"], "localhost",
+        "first nested write lost: {content}"
+    );
+    assert_eq!(
+        parsed["app"]["database"]["port"], 5432,
+        "second nested write lost: {content}"
+    );
+
+    client.cancel().await.unwrap();
+}

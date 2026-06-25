@@ -484,13 +484,11 @@ pub fn parse_plan_auto(
 ) -> anyhow::Result<Plan> {
     let fmt = format_hint.or_else(|| {
         path.and_then(|p| {
-            if p.ends_with(".yaml") || p.ends_with(".yml") {
-                Some("yaml")
-            } else if p.ends_with(".toml") {
-                Some("toml")
-            } else {
-                None
-            }
+            crate::ops::doc::detect_format(p).ok().map(|f| match f {
+                crate::ops::doc::FileFormat::Yaml => "yaml",
+                crate::ops::doc::FileFormat::Toml => "toml",
+                crate::ops::doc::FileFormat::Json => "json",
+            })
         })
     });
     match fmt {
