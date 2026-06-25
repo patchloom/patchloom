@@ -277,6 +277,7 @@ This is safe; the next `--apply` run will create a fresh backup directory.
 | 6 | Validation failed |
 | 7 | Rollback (transaction failed and was rolled back) |
 | 8 | Patch merge conflicts detected |
+| 9 | Tx operation staging failure |
 
 ## Next steps
 
