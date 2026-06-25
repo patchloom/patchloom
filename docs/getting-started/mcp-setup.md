@@ -109,6 +109,17 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `batch_replace` | Replace the same text across multiple files atomically |
 | `batch_tidy` | Fix whitespace in multiple files atomically |
 | `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits; equivalent to CLI `tx`). Supports inline plan or plan_path. |
+| `ast_list` | List symbol definitions (functions, classes, structs, enums, methods) in a file or directory using tree-sitter (20 languages). Filter by kind. |
+| `ast_read` | Read a specific symbol's source code by name from a file using tree-sitter. |
+| `ast_rename` | Rename identifiers across files using AST-aware renaming (skips strings and comments). |
+| `ast_validate` | Validate syntax of source files using tree-sitter. Returns parse errors with line numbers. |
+| `ast_search` | Structural search using tree-sitter queries. Supports S-expression syntax and code patterns with meta-variables. |
+| `ast_refs` | Find all references to a symbol across files. Distinguishes definitions from references. |
+| `ast_deps` | Extract import/dependency statements from source files (Rust, Python, JS/TS, Go, Java, C/C++, Ruby, PHP). |
+| `ast_map` | Generate a ranked repository map using PageRank over the symbol reference graph. Token-budget-aware output. |
+| `ast_diff` | Structural diff between two versions of a file. Shows added, removed, and modified symbols. |
+| `ast_impact` | Transitive impact analysis: trace the reference graph to find all dependents of a symbol. |
+| `ast_replace` | Replace text only within a specific symbol's body using tree-sitter scoping. |
 
 ## How MCP mode differs from CLI mode
 

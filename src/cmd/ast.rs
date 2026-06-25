@@ -1032,7 +1032,7 @@ pub fn get_git_file_content(
     git_ref: &str,
 ) -> anyhow::Result<String> {
     let output = std::process::Command::new("git")
-        .args(["show", &format!("{git_ref}:{file_path}")])
+        .args(["show", "--", &format!("{git_ref}:{file_path}")])
         .current_dir(cwd)
         .output()?;
 

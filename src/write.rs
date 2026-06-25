@@ -341,7 +341,9 @@ pub fn policy_from_flags(
         false
     };
 
+    #[allow(unused_mut)]
     let mut indent_style: Option<IndentStyle> = None;
+    #[allow(unused_mut)]
     let mut indent_size: Option<usize> = None;
 
     let (efn, eol, ttw) = if respect_ec {

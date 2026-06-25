@@ -2172,3 +2172,230 @@ async fn test_mcp_sequential_writes_same_file_no_data_loss() {
 
     client.cancel().await.unwrap();
 }
+
+// --- AST MCP tool tests ---
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_list_returns_symbols() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "pub fn greet() {}\nstruct Config;\nenum Color { Red }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "ast_list", serde_json::json!({"path": "lib.rs"})).await;
+    assert!(!is_error, "ast_list should succeed: {val}");
+    let symbols = val.as_array().expect("ast_list should return array");
+    let names: Vec<&str> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert!(names.contains(&"greet"), "should find greet: {names:?}");
+    assert!(names.contains(&"Config"), "should find Config: {names:?}");
+    assert!(names.contains(&"Color"), "should find Color: {names:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_list_kind_filter() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "pub fn greet() {}\nstruct Config;\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_list",
+        serde_json::json!({"path": "lib.rs", "kind": "function"}),
+    )
+    .await;
+    assert!(!is_error, "ast_list with kind filter should succeed: {val}");
+    let symbols = val.as_array().expect("ast_list should return array");
+    let names: Vec<&str> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert!(names.contains(&"greet"), "should find greet: {names:?}");
+    assert!(
+        !names.contains(&"Config"),
+        "should NOT find Config with function filter: {names:?}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_read_returns_source() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("main.rs"),
+        "fn target() {\n    let x = 42;\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_read",
+        serde_json::json!({"path": "main.rs", "symbol": "target"}),
+    )
+    .await;
+    assert!(!is_error, "ast_read should succeed: {val}");
+    assert_eq!(val["symbol"], "target", "symbol name: {val}");
+    let content = val["content"].as_str().expect("content should be string");
+    assert!(
+        content.contains("let x = 42"),
+        "should contain function body: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_read_not_found() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.rs"), "fn existing() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, _val) = call_tool_value(
+        &client,
+        "ast_read",
+        serde_json::json!({"path": "main.rs", "symbol": "nonexistent"}),
+    )
+    .await;
+    assert!(is_error, "ast_read with missing symbol should fail");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_validate_clean() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.rs"), "fn valid() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_validate",
+        serde_json::json!({"path": "ok.rs"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "ast_validate should succeed on valid code: {val}"
+    );
+    // ast_validate returns an array of file results
+    let results = val.as_array().expect("ast_validate should return array");
+    assert!(
+        results.iter().all(|r| r["valid"] == true),
+        "valid code should pass validation: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_validate_syntax_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.rs"), "fn broken( {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_validate",
+        serde_json::json!({"path": "bad.rs"}),
+    )
+    .await;
+    // ast_validate returns success with errors in the response body
+    assert!(!is_error, "ast_validate should not be a tool error: {val}");
+    let results = val.as_array().expect("ast_validate should return array");
+    assert!(
+        results.iter().any(|r| r["valid"] == false),
+        "broken code should fail validation: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_search_finds_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn first() { let x = 1; }\nfn second() { let y = 2; }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    // Use tree-sitter S-expression query for function_item nodes
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_search",
+        serde_json::json!({"path": "lib.rs", "query": "(function_item) @fn"}),
+    )
+    .await;
+    assert!(!is_error, "ast_search should succeed: {val}");
+    let matches = val.as_array().expect("ast_search should return array");
+    assert!(
+        matches.len() >= 2,
+        "should find at least 2 function_item matches: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_rename_applies() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn old_name() {}\nfn caller() { old_name(); }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_rename",
+        serde_json::json!({"path": "lib.rs", "old_name": "old_name", "new_name": "new_name"}),
+    )
+    .await;
+    assert!(!is_error, "ast_rename should succeed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("new_name"),
+        "file should contain renamed symbol: {content}"
+    );
+    assert!(
+        !content.contains("old_name"),
+        "old name should be gone: {content}"
+    );
+    client.cancel().await.unwrap();
+}
