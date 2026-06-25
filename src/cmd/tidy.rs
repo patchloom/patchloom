@@ -143,14 +143,9 @@ fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
             issue_count: issues.len(),
             issues: issues.to_vec(),
         };
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&output).unwrap_or_default()
-        );
-    } else if global.jsonl {
-        for issue in issues {
-            println!("{}", serde_json::to_string(issue).unwrap_or_default());
-        }
+        let _ = global.emit_json(&output);
+    } else if let Ok(true) = global.emit_json_items(issues) {
+        // emitted per-item JSONL
     } else {
         for issue in issues {
             if let Some(line) = issue.line {
@@ -283,14 +278,9 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         files: fix_files,
                         diff: diff_text,
                     };
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&output).unwrap_or_default()
-                    );
+                    let _ = global.emit_json(&output);
                 } else {
-                    for f in &fix_files {
-                        println!("{}", serde_json::to_string(f).unwrap_or_default());
-                    }
+                    let _ = global.emit_json_items(&fix_files);
                 }
             }
 

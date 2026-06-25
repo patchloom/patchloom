@@ -232,13 +232,14 @@ fn apply_or_preview(
     global: &GlobalFlags,
     cwd: &std::path::Path,
     status_msg: &str,
+    backup: Option<&mut BackupSession>,
 ) -> anyhow::Result<PreviewAction> {
     let display_path = path.strip_prefix(cwd).unwrap_or(path);
     if global.apply {
-        let mut backup = BackupSession::new(cwd)?;
-        backup.save_before_write(path)?;
+        if let Some(b) = backup {
+            b.save_before_write(path)?;
+        }
         crate::write::atomic_write(path, new_content, &Default::default())?;
-        backup.finalize()?;
         if !global.quiet {
             eprintln!("{}: {status_msg}", display_path.display());
         }
@@ -284,6 +285,13 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
 
+    // Single backup session for all files (batched, not per-file).
+    let mut backup = if global.apply {
+        Some(BackupSession::new(&cwd)?)
+    } else {
+        None
+    };
+
     for path in &paths {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
         let source = std::fs::read_to_string(path)?;
@@ -322,7 +330,15 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         total_replacements += count;
         files_changed += 1;
         let msg = format!("{} replacement{}", count, if count == 1 { "" } else { "s" });
-        apply_or_preview(path, &source, &new_content, global, &cwd, &msg)?;
+        apply_or_preview(
+            path,
+            &source,
+            &new_content,
+            global,
+            &cwd,
+            &msg,
+            backup.as_mut(),
+        )?;
     }
 
     if global.json || global.jsonl {
@@ -332,6 +348,10 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             "replacements": total_replacements,
         });
         global.emit_json(&obj)?;
+    }
+
+    if let Some(b) = backup {
+        b.finalize()?;
     }
 
     if total_replacements == 0 {
@@ -791,7 +811,23 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if result.replacements == 1 { "" } else { "s" },
         args.symbol,
     );
-    apply_or_preview(&target, &source, &result.content, global, &cwd, &msg)?;
+    let mut backup = if global.apply {
+        Some(BackupSession::new(&cwd)?)
+    } else {
+        None
+    };
+    apply_or_preview(
+        &target,
+        &source,
+        &result.content,
+        global,
+        &cwd,
+        &msg,
+        backup.as_mut(),
+    )?;
+    if let Some(b) = backup {
+        b.finalize()?;
+    }
     if global.apply {
         crate::write::run_format_command(global, &cwd)?;
     }
@@ -988,31 +1024,12 @@ fn collect_source_files(
     dir: &std::path::Path,
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    let mut paths = Vec::new();
-    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-
-    let walker = ignore::WalkBuilder::new(dir)
-        .hidden(true)
-        .git_ignore(true)
-        .build();
-
-    for entry in walker {
-        let entry = entry?;
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        let lang = Language::from_path(path);
-        if !lang.has_grammar() {
-            continue;
-        }
-        if !crate::files::matches_glob(path, glob_matcher.as_ref()) {
-            continue;
-        }
-        paths.push(path.to_path_buf());
-    }
-    paths.sort();
-    Ok(paths)
+    let dir_str = dir.to_string_lossy().into_owned();
+    let mut all_paths = crate::collect_file_paths_opts(&[dir_str], global, true, None)?;
+    // Filter to files with a tree-sitter grammar.
+    all_paths.retain(|p| Language::from_path(p).has_grammar());
+    all_paths.sort();
+    Ok(all_paths)
 }
 
 fn print_symbols_human(path: &str, symbols: &[&SymbolDef]) {
@@ -1159,8 +1176,16 @@ mod tests {
         std::fs::write(&f, original).unwrap();
 
         let global = GlobalFlags::default();
-        let action =
-            apply_or_preview(&f, original, new_content, &global, dir.path(), "renamed").unwrap();
+        let action = apply_or_preview(
+            &f,
+            original,
+            new_content,
+            &global,
+            dir.path(),
+            "renamed",
+            None,
+        )
+        .unwrap();
         assert_eq!(action, PreviewAction::Diffed);
     }
 
@@ -1172,7 +1197,8 @@ mod tests {
         std::fs::write(&f, content).unwrap();
 
         let global = GlobalFlags::default();
-        let action = apply_or_preview(&f, content, content, &global, dir.path(), "no-op").unwrap();
+        let action =
+            apply_or_preview(&f, content, content, &global, dir.path(), "no-op", None).unwrap();
         assert_eq!(action, PreviewAction::Unchanged);
     }
 
@@ -1194,6 +1220,7 @@ mod tests {
             &global,
             dir.path(),
             "tested",
+            None,
         )
         .unwrap();
         assert_eq!(action, PreviewAction::Checked);
@@ -1211,8 +1238,18 @@ mod tests {
             apply: true,
             ..GlobalFlags::default()
         };
-        let action =
-            apply_or_preview(&f, original, new_content, &global, dir.path(), "applied").unwrap();
+        let mut backup = BackupSession::new(dir.path()).unwrap();
+        let action = apply_or_preview(
+            &f,
+            original,
+            new_content,
+            &global,
+            dir.path(),
+            "applied",
+            Some(&mut backup),
+        )
+        .unwrap();
+        backup.finalize().unwrap();
         assert_eq!(action, PreviewAction::Applied);
         // Verify the file was actually written.
         let on_disk = std::fs::read_to_string(&f).unwrap();
