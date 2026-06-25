@@ -560,15 +560,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         !results.matches.is_empty()
     };
     if !has_matches {
-        if global.json {
-            let payload = SearchOutput {
-                ok: true,
-                match_count: 0,
-                file_count: 0,
-                matches: vec![],
-            };
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-        }
+        let payload = SearchOutput {
+            ok: true,
+            match_count: 0,
+            file_count: 0,
+            matches: vec![],
+        };
+        global.emit_json(&payload)?;
         if global.show_status() {
             let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
             let path_desc = if paths.is_empty() {
