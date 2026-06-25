@@ -29,6 +29,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.6.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.5.0...patchloom-v0.6.0) (2026-06-25)
+
+
+### Features
+
+* expose AST via MCP, broaden test coverage, add config/EditorConfig/fuzz improvements ([#924](https://github.com/patchloom/patchloom/issues/924)) ([58ae131](https://github.com/patchloom/patchloom/commit/58ae131a3b092cdbd66e48108d8302a03f0a7ccf))
+
+
+### Bug Fixes
+
+* add concurrent-write warnings to MCP tool descriptions ([#908](https://github.com/patchloom/patchloom/issues/908)) ([1546eff](https://github.com/patchloom/patchloom/commit/1546eff4278b9824cfa77d08c289be599958f7e0)), closes [#892](https://github.com/patchloom/patchloom/issues/892)
+* address 5 structural audit findings ([#887](https://github.com/patchloom/patchloom/issues/887)) ([17e7fd0](https://github.com/patchloom/patchloom/commit/17e7fd01d6e69baaf6a379aa5a8bec44547f1812))
+* AST improvements ([#927](https://github.com/patchloom/patchloom/issues/927)-[#931](https://github.com/patchloom/patchloom/issues/931)) ([#932](https://github.com/patchloom/patchloom/issues/932)) ([9b49126](https://github.com/patchloom/patchloom/commit/9b49126e27557ca4ca9c654899897145ce6a1f46)), closes [#928](https://github.com/patchloom/patchloom/issues/928) [#929](https://github.com/patchloom/patchloom/issues/929) [#930](https://github.com/patchloom/patchloom/issues/930)
+* AST MCP test coverage, docs, param validation, and git arg guard ([#925](https://github.com/patchloom/patchloom/issues/925)) ([513808b](https://github.com/patchloom/patchloom/commit/513808bd6c57d198e48c36b388ec82e5cfe230b9))
+* ast WritePolicy + confirm support, replace JSONL no-match ([#913](https://github.com/patchloom/patchloom/issues/913)) ([1bc2e20](https://github.com/patchloom/patchloom/commit/1bc2e208ae8a373e809fd2f09fe3c356fce1d4e8))
+* exit_code_to_result uses fallback for all exit codes; rename stale test ([#941](https://github.com/patchloom/patchloom/issues/941)) ([1e54c90](https://github.com/patchloom/patchloom/commit/1e54c90284c197e95b30b91bcf45e5891ac770e1)), closes [#939](https://github.com/patchloom/patchloom/issues/939) [#940](https://github.com/patchloom/patchloom/issues/940)
+* flatten includes empty arrays and empty objects ([#897](https://github.com/patchloom/patchloom/issues/897)) ([be2093a](https://github.com/patchloom/patchloom/commit/be2093a2f178c042d723dfc594a9ebb7eb873c5c)), closes [#894](https://github.com/patchloom/patchloom/issues/894)
+* git arg guard, ast_rename no-op guard, 6 new AST MCP tests, ref docs ([#926](https://github.com/patchloom/patchloom/issues/926)) ([cdd9f98](https://github.com/patchloom/patchloom/commit/cdd9f98b638ece648aa089689b3ede30c05ca5c9))
+* make release notes cleanup non-fatal (continue-on-error) ([#874](https://github.com/patchloom/patchloom/issues/874)) ([a18d65e](https://github.com/patchloom/patchloom/commit/a18d65e25c833c1339db4bc1e71be380626bdac4))
+* preserve idempotent delete semantics in tx engine ([#889](https://github.com/patchloom/patchloom/issues/889)) ([39a5b87](https://github.com/patchloom/patchloom/commit/39a5b875444c0eb9e8c055a8b83bdd0ce17a944c))
+* remove release PR body editor that broke v0.5.0 release ([#873](https://github.com/patchloom/patchloom/issues/873)) ([6749e89](https://github.com/patchloom/patchloom/commit/6749e8904fd708afd97d0972f8b7567ba08317e4))
+* tx validation gaps, search --jsonl no-match, YAML MCP tests ([#907](https://github.com/patchloom/patchloom/issues/907)) ([327f2a6](https://github.com/patchloom/patchloom/commit/327f2a6fa4b89cdddca4ecf40b9d7a160d9baac4))
+* validate delete_where predicates and extract DocMutation dispatch ([#888](https://github.com/patchloom/patchloom/issues/888)) ([b2b5d00](https://github.com/patchloom/patchloom/commit/b2b5d00c05d9a6cf413c89d93ff2574e7d5f4868))
+
+
+### Performance Improvements
+
+* MCP parallelism, tree cache, spawn_blocking; test: PageRank + unsupported lang ([#938](https://github.com/patchloom/patchloom/issues/938)) ([fa6fa29](https://github.com/patchloom/patchloom/commit/fa6fa293f77a6d612dde34c5a523705047a5ca71))
+
 ## [0.5.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.4.0...patchloom-v0.5.0) (2026-06-24)
 
 
