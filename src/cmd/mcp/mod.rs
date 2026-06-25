@@ -1587,6 +1587,229 @@ mod tests {
         client.cancel().await.unwrap();
     }
 
+    /// Verify that every field in each MCP params struct corresponds to a field
+    /// in the matching `plan::Operation` variant (and vice versa).
+    ///
+    /// This catches drift when a field is added to `Operation` but forgotten in
+    /// the MCP params, or vice versa. Allowed exceptions are listed explicitly
+    /// (e.g., `strict` exists only in MCP params, `glob` only in Operation).
+    #[test]
+    fn mcp_params_fields_match_operation_variants() {
+        use crate::schema::operation_variant_schema;
+
+        fn schema_keys_for<T: schemars::JsonSchema>() -> std::collections::BTreeSet<String> {
+            let generator = schemars::generate::SchemaSettings::default().into_generator();
+            let root = generator.into_root_schema_for::<T>();
+            let v = serde_json::to_value(root).unwrap();
+            v.get("properties")
+                .and_then(|p| p.as_object())
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default()
+        }
+
+        fn op_schema_keys(op_name: &str) -> std::collections::BTreeSet<String> {
+            let schema = operation_variant_schema(op_name);
+            schema
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default()
+        }
+
+        // (Operation serde name, MCP params type keys, allowed MCP-only fields, allowed Operation-only fields)
+        struct Check {
+            op_name: &'static str,
+            mcp_keys: std::collections::BTreeSet<String>,
+            mcp_only_allowed: &'static [&'static str],
+            op_only_allowed: &'static [&'static str],
+        }
+
+        let checks = vec![
+            Check {
+                op_name: "replace",
+                mcp_keys: schema_keys_for::<ReplaceParams>(),
+                mcp_only_allowed: &["strict", "regex"],
+                // `glob` and `mode` are Operation-only (MCP uses `path` always, `regex` bool instead of mode string)
+                op_only_allowed: &["glob", "mode"],
+            },
+            Check {
+                op_name: "doc.set",
+                mcp_keys: schema_keys_for::<DocSetParams>(),
+                mcp_only_allowed: &["strict"],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.delete",
+                mcp_keys: schema_keys_for::<DocDeleteParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.merge",
+                mcp_keys: schema_keys_for::<DocMergeParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.append",
+                mcp_keys: schema_keys_for::<DocArrayParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.ensure",
+                mcp_keys: schema_keys_for::<DocEnsureParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.update",
+                mcp_keys: schema_keys_for::<DocUpdateParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.move",
+                mcp_keys: schema_keys_for::<DocMoveParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "doc.delete_where",
+                mcp_keys: schema_keys_for::<DocDeleteWhereParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "file.create",
+                mcp_keys: schema_keys_for::<CreateFileParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "file.append",
+                mcp_keys: schema_keys_for::<AppendFileParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "file.delete",
+                mcp_keys: schema_keys_for::<DeleteFileParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "file.rename",
+                mcp_keys: schema_keys_for::<FileRenameParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "tidy.fix",
+                mcp_keys: schema_keys_for::<TidyParams>(),
+                mcp_only_allowed: &[],
+                // Operation has granular control fields; MCP is always fix-all
+                op_only_allowed: &[
+                    "ensure_final_newline",
+                    "trim_trailing_whitespace",
+                    "normalize_eol",
+                ],
+            },
+            Check {
+                op_name: "patch.apply",
+                mcp_keys: schema_keys_for::<PatchParams>(),
+                mcp_only_allowed: &["strict"],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.replace_section",
+                mcp_keys: schema_keys_for::<MdReplaceSectionParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.upsert_bullet",
+                mcp_keys: schema_keys_for::<MdUpsertBulletParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.table_append",
+                mcp_keys: schema_keys_for::<MdTableAppendParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.insert_after_heading",
+                mcp_keys: schema_keys_for::<MdInsertParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.move_section",
+                mcp_keys: schema_keys_for::<MdMoveSectionParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "md.lint_agents",
+                mcp_keys: schema_keys_for::<MdLintAgentsParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "read",
+                mcp_keys: schema_keys_for::<ReadFileParams>(),
+                mcp_only_allowed: &[],
+                op_only_allowed: &[],
+            },
+            Check {
+                op_name: "search",
+                mcp_keys: schema_keys_for::<SearchParams>(),
+                // MCP search has extra display-only fields not in Operation;
+                // `literal` is the MCP name for Operation's `regex` (inverted semantics)
+                mcp_only_allowed: &["paths", "files_with_matches", "count", "literal"],
+                // `path` (singular) vs MCP `paths` (plural); `regex` vs MCP `literal`
+                op_only_allowed: &["path", "regex"],
+            },
+        ];
+
+        let mut errors = Vec::new();
+        for check in &checks {
+            let op_keys = op_schema_keys(check.op_name);
+            let mcp_only_allowed: std::collections::BTreeSet<&str> =
+                check.mcp_only_allowed.iter().copied().collect();
+            let op_only_allowed: std::collections::BTreeSet<&str> =
+                check.op_only_allowed.iter().copied().collect();
+
+            // Fields in MCP params but not in Operation
+            for key in &check.mcp_keys {
+                if !op_keys.contains(key) && !mcp_only_allowed.contains(key.as_str()) {
+                    errors.push(format!(
+                        "{}: MCP param '{}' not in Operation (add to op_only_allowed if intentional)",
+                        check.op_name, key
+                    ));
+                }
+            }
+
+            // Fields in Operation but not in MCP params
+            for key in &op_keys {
+                if !check.mcp_keys.contains(key) && !op_only_allowed.contains(key.as_str()) {
+                    errors.push(format!(
+                        "{}: Operation field '{}' not in MCP params (add to mcp_only_allowed if intentional)",
+                        check.op_name, key
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            errors.is_empty(),
+            "MCP params / Operation field drift detected:\n  {}",
+            errors.join("\n  ")
+        );
+    }
+
     // Path containment unit tests (validate_path_contained, validate_path_resolved)
     // have been moved to crate::containment::tests. The MCP-level integration test
     // `mcp_path_traversal_rejected_via_protocol` above verifies the end-to-end
