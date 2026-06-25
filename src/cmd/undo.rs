@@ -45,20 +45,17 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.list {
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if global.json {
-                println!("[]");
+            if global.json || global.jsonl {
+                let empty: Vec<()> = vec![];
+                global.emit_json(&empty)?;
             } else if global.show_status() {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
         }
 
-        if global.json {
-            println!("{}", serde_json::to_string_pretty(&sessions)?);
-        } else if global.jsonl {
-            for session in &sessions {
-                println!("{}", serde_json::to_string(session)?);
-            }
+        if global.json || global.jsonl {
+            global.emit_json_items(&sessions)?;
         } else if !global.quiet {
             for s in &sessions {
                 let file_count = s.entries.len();

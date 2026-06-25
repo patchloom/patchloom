@@ -137,17 +137,13 @@ fn emit_patch_files_output(
     results: &[PatchFileResult],
 ) -> anyhow::Result<()> {
     if global.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&PatchFilesOutput {
-                ok,
-                files: results.to_vec(),
-            })?
-        );
+        let output = PatchFilesOutput {
+            ok,
+            files: results.to_vec(),
+        };
+        global.emit_json(&output)?;
     } else if global.jsonl {
-        for r in results {
-            println!("{}", serde_json::to_string(r)?);
-        }
+        global.emit_json_items(results)?;
     }
     Ok(())
 }
