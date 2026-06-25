@@ -2399,3 +2399,221 @@ async fn test_mcp_ast_rename_applies() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_refs_finds_references() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn helper() {}\nfn main() { helper(); helper(); }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_refs",
+        serde_json::json!({"path": "lib.rs", "symbol": "helper"}),
+    )
+    .await;
+    assert!(!is_error, "ast_refs should succeed: {val}");
+    let binding = val.to_string();
+    let text = val.as_str().unwrap_or(&binding);
+    assert!(
+        text.contains("helper"),
+        "should contain references to helper: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_deps_extracts_imports() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("main.rs"),
+        "use std::collections::HashMap;\nuse std::io;\nfn main() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "ast_deps", serde_json::json!({"path": "main.rs"})).await;
+    assert!(!is_error, "ast_deps should succeed: {val}");
+    let binding = val.to_string();
+    let text = val.as_str().unwrap_or(&binding);
+    assert!(
+        text.contains("std::collections::HashMap") || text.contains("HashMap"),
+        "should contain HashMap import: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_map_returns_ranked_symbols() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir(&src).unwrap();
+    fs::write(
+        src.join("lib.rs"),
+        "pub fn core_fn() {}\npub fn caller() { core_fn(); }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_map",
+        serde_json::json!({"path": "src", "max_tokens": 1024}),
+    )
+    .await;
+    assert!(!is_error, "ast_map should succeed: {val}");
+    let binding = val.to_string();
+    let text = val.as_str().unwrap_or(&binding);
+    assert!(
+        text.contains("core_fn") || text.contains("caller"),
+        "map should contain symbol names: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_diff_detects_changes() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    // Set up a git repo with a committed file, then modify it
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn original() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "lib.rs"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    // Now modify the file (add a new function)
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn original() {}\nfn added() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_diff",
+        serde_json::json!({"path": "lib.rs", "from": "HEAD"}),
+    )
+    .await;
+    assert!(!is_error, "ast_diff should succeed: {val}");
+    let binding = val.to_string();
+    let text = val.as_str().unwrap_or(&binding);
+    assert!(
+        text.contains("added"),
+        "diff should detect the new function: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_impact_traces_dependents() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir(&src).unwrap();
+    fs::write(
+        src.join("lib.rs"),
+        "pub fn base() {}\npub fn mid() { base(); }\npub fn top() { mid(); }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_impact",
+        serde_json::json!({"path": "src", "symbol": "base", "depth": 2}),
+    )
+    .await;
+    assert!(!is_error, "ast_impact should succeed: {val}");
+    let binding = val.to_string();
+    let text = val.as_str().unwrap_or(&binding);
+    assert!(
+        text.contains("mid"),
+        "impact should include mid as a dependent of base: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_replace_within_symbol() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn target() { let val = 42; }\nfn other() { let val = 99; }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_replace",
+        serde_json::json!({
+            "path": "lib.rs",
+            "symbol": "target",
+            "from": "42",
+            "to": "100"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_replace should succeed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("100"),
+        "target function should have 100: {content}"
+    );
+    assert!(
+        content.contains("99"),
+        "other function should still have 99: {content}"
+    );
+    client.cancel().await.unwrap();
+}

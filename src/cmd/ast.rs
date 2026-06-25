@@ -1031,8 +1031,11 @@ pub fn get_git_file_content(
     file_path: &str,
     git_ref: &str,
 ) -> anyhow::Result<String> {
+    if git_ref.starts_with('-') {
+        anyhow::bail!("invalid git ref: must not start with '-'");
+    }
     let output = std::process::Command::new("git")
-        .args(["show", "--", &format!("{git_ref}:{file_path}")])
+        .args(["show", &format!("{git_ref}:{file_path}")])
         .current_dir(cwd)
         .output()?;
 

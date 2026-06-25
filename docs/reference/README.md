@@ -374,8 +374,8 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 <!-- ref:command:ast -->
 ## `ast`
 
-- **What it does:** AST-aware operations on source code using tree-sitter grammars (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation).
-- **Use when:** You need to list, read, rename, or validate symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed.
+- **What it does:** AST-aware operations on source code using tree-sitter grammars (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation), `search` (structural queries), `refs` (find references), `deps` (extract imports), `map` (ranked repo map via PageRank), `diff` (structural diff vs git refs), `impact` (transitive impact analysis), `replace` (scoped text replacement within a symbol).
+- **Use when:** You need to list, read, rename, validate, search, or analyze symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed, and for impact analysis before refactoring.
 - **Prefer instead:** Use `replace --word-boundary` for quick identifier renames when AST precision is not required. Use a language server (LSP) when cross-file type-aware rename is needed.
 - **Related:** [`replace`](#replace), [`search`](#search)
 
