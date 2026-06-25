@@ -17,6 +17,9 @@
 | Create, append, rename, or delete a file | `create_file`, `append_file`, `move_file`, `delete_file` |
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
+| List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |
+| Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |
+| Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)

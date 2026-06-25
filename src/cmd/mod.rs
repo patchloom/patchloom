@@ -225,7 +225,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
              | Create, append, rename, or delete a file | `create_file`, `append_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
-             | Search across files | `search_files` |\n\n",
+             | Search across files | `search_files` |\n\
+             | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |\n\
+             | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
+             | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\n",
         );
     }
     if show_cli {
