@@ -76,7 +76,6 @@ fn test_contributing_make_targets_table_covers_key_targets() {
         "make integration-test",
         "make clippy",
         "make update-readme",
-        "cargo check --all-targets",
     ] {
         assert!(
             contributing.contains(&format!("| `{target}`")),

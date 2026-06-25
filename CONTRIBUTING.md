@@ -27,6 +27,8 @@ make check
 
 ### Useful make targets
 
+This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENTS.md).
+
 | Command | What it does |
 |---------|-------------|
 | `make fmt` | Run `cargo fmt --all` |
@@ -39,7 +41,6 @@ make check
 | `make check-fast` | Fast check (skips doc verification) |
 | `make update-readme` | Update README.md rounded test count |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
-| `cargo check --all-targets` | Type-check all targets without building |
 
 ## Adding a new command
 
