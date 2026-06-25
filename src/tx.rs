@@ -941,13 +941,19 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     let (path, mutation) = op_to_doc_mutation(op);
     let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
         .map_err(path_err(path))?;
-    let label = op_label(op);
+
+    // Delete and DeleteWhere are idempotent: a no-match is not an error
+    // (the old code silently discarded the bool/count return value).
+    // Update is strict: no-match means the selector was wrong.
+    let strict_no_match = matches!(op, Operation::DocUpdate { .. });
 
     match apply_doc_mutation(root, mutation).map_err(path_err(path))? {
         MutationResult::Applied | MutationResult::AlreadyExists => Ok(()),
-        MutationResult::NoMatch => {
+        MutationResult::NoMatch if strict_no_match => {
+            let label = op_label(op);
             anyhow::bail!("{path}: {label} matched nothing");
         }
+        MutationResult::NoMatch => Ok(()),
         MutationResult::TypeError(msg) => {
             anyhow::bail!("{path}: {msg}");
         }
