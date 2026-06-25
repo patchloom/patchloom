@@ -8577,8 +8577,9 @@ mod tx_tests {
         .unwrap();
 
         let res = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), Some(&guard));
-        assert!(res.is_err(), "guard should reject before any apply");
-        let msg = res.unwrap_err().to_string();
+        let msg = res
+            .expect_err("guard should reject before any apply")
+            .to_string();
         assert!(
             msg.contains("path rejected by workspace guard") || msg.contains("Escaped"),
             "unexpected error: {msg}"

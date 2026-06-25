@@ -683,7 +683,6 @@ mod tests {
     fn resolve_with_fallback_structured_error() {
         let content = "fn alpha() {}\nfn beta() {}\n";
         let result = resolve_with_fallback(content, "fn completely_unrelated_xyz()", None, None);
-        assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind, EditErrorKind::NoMatch);
         assert!(err.message.contains("target not found"));

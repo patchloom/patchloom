@@ -1284,8 +1284,9 @@ mod tests {
     #[test]
     fn plan_normalize_eol_invalid_value_returns_error() {
         let result = crate::tx::plan_normalize_eol("bogus");
-        assert!(result.is_err(), "invalid eol value should fail");
-        let msg = result.unwrap_err().to_string();
+        let msg = result
+            .expect_err("invalid eol value should fail")
+            .to_string();
         assert!(
             msg.contains("invalid normalize_eol"),
             "error should name the field: {msg}"

@@ -642,8 +642,9 @@ mod tests {
         let dir = make_test_dir();
         let args = make_args("", vec![dir.path().to_string_lossy().into_owned()]);
         let result = run(args, &GlobalFlags::test_default());
-        assert!(result.is_err(), "empty pattern should be rejected");
-        let msg = result.unwrap_err().to_string();
+        let msg = result
+            .expect_err("empty pattern should be rejected")
+            .to_string();
         assert!(
             msg.contains("must not be empty"),
             "error should mention empty pattern: {msg}"

@@ -191,7 +191,6 @@ mod tests {
     fn run_with_timeout_kills_on_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
         let result = run_with_timeout("sleep 60", 1, dir.path());
-        assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("timed out"),
