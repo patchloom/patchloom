@@ -1,0 +1,551 @@
+use super::*;
+
+#[test]
+fn version_compatibility() {
+    assert!(is_compatible_version("1"));
+    assert!(!is_compatible_version("0"));
+    assert!(!is_compatible_version("2"));
+}
+
+#[test]
+fn tier_ordering() {
+    assert!(Tier::Weak < Tier::Medium);
+    assert!(Tier::Medium < Tier::Strong);
+}
+
+#[test]
+fn tier_parse_roundtrip() {
+    for tier in [Tier::Weak, Tier::Medium, Tier::Strong] {
+        let s = tier.to_string();
+        let parsed: Tier = s.parse().unwrap();
+        assert_eq!(parsed, tier);
+    }
+}
+
+#[test]
+fn tier_parse_case_insensitive() {
+    assert_eq!("WEAK".parse::<Tier>().unwrap(), Tier::Weak);
+    assert_eq!("Medium".parse::<Tier>().unwrap(), Tier::Medium);
+    assert_eq!("STRONG".parse::<Tier>().unwrap(), Tier::Strong);
+}
+
+#[test]
+fn tier_parse_invalid() {
+    assert!("unknown".parse::<Tier>().is_err());
+}
+
+#[test]
+fn operation_schemas_non_empty() {
+    let schemas = operation_schemas();
+    assert!(!schemas.is_empty());
+    // Every schema must have a name, description, and valid JSON parameters.
+    for schema in &schemas {
+        assert!(!schema.name.is_empty(), "schema name is empty");
+        assert!(
+            !schema.description.is_empty(),
+            "schema {}: description is empty",
+            schema.name
+        );
+        assert!(
+            schema.parameters.is_object(),
+            "schema {}: parameters is not an object",
+            schema.name
+        );
+    }
+}
+
+#[test]
+fn operation_schemas_have_unique_names() {
+    let schemas = operation_schemas();
+    let mut names: Vec<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
+    names.sort();
+    let original_len = names.len();
+    names.dedup();
+    assert_eq!(names.len(), original_len, "duplicate operation names found");
+}
+
+#[test]
+fn weak_tier_returns_subset() {
+    let all = operation_schemas();
+    let weak = operations_for_tier(Tier::Weak);
+    assert!(
+        weak.len() < all.len(),
+        "weak should be a proper subset of all"
+    );
+    for op in &weak {
+        assert_eq!(
+            op.min_tier,
+            Tier::Weak,
+            "weak tier should only contain weak ops, got {:?} for {}",
+            op.min_tier,
+            op.name
+        );
+    }
+}
+
+#[test]
+fn medium_tier_includes_weak() {
+    let weak = operations_for_tier(Tier::Weak);
+    let medium = operations_for_tier(Tier::Medium);
+    assert!(medium.len() >= weak.len());
+    let weak_names: Vec<&str> = weak.iter().map(|o| o.name.as_str()).collect();
+    for name in &weak_names {
+        assert!(
+            medium.iter().any(|o| o.name == *name),
+            "medium tier should include weak op: {name}"
+        );
+    }
+}
+
+#[test]
+fn strong_tier_returns_all() {
+    let all = operation_schemas();
+    let strong = operations_for_tier(Tier::Strong);
+    assert_eq!(
+        strong.len(),
+        all.len(),
+        "strong tier should include all operations"
+    );
+}
+
+#[test]
+fn weak_tier_has_expected_ops() {
+    let weak = operations_for_tier(Tier::Weak);
+    let names: Vec<&str> = weak.iter().map(|o| o.name.as_str()).collect();
+    assert!(names.contains(&"replace"), "weak tier must include replace");
+    assert!(
+        names.contains(&"file.create"),
+        "weak tier must include file.create"
+    );
+    assert!(
+        names.contains(&"file.delete"),
+        "weak tier must include file.delete"
+    );
+    assert!(
+        names.contains(&"tidy.fix"),
+        "weak tier must include tidy.fix"
+    );
+}
+
+#[test]
+fn medium_tier_has_expected_ops() {
+    let medium = operations_for_tier(Tier::Medium);
+    let names: Vec<&str> = medium.iter().map(|o| o.name.as_str()).collect();
+    assert!(
+        names.contains(&"doc.set"),
+        "medium tier must include doc.set"
+    );
+    assert!(
+        names.contains(&"md.replace_section"),
+        "medium tier must include md.replace_section"
+    );
+    assert!(
+        names.contains(&"doc.merge"),
+        "medium tier must include doc.merge"
+    );
+}
+
+#[test]
+fn strong_tier_has_expected_ops() {
+    let strong = operations_for_tier(Tier::Strong);
+    let names: Vec<&str> = strong.iter().map(|o| o.name.as_str()).collect();
+    assert!(names.contains(&"search"), "strong tier must include search");
+    assert!(
+        names.contains(&"doc.delete_where"),
+        "strong tier must include doc.delete_where"
+    );
+}
+
+#[test]
+fn system_prompt_for_weak_tier() {
+    let prompt = system_prompt_for_tier(Tier::Weak);
+    assert!(prompt.contains("tier: weak"));
+    assert!(prompt.contains("replace"));
+    assert!(prompt.contains("file.create"));
+    // Should NOT contain medium/strong ops.
+    assert!(!prompt.contains("## `doc.set`"));
+    assert!(!prompt.contains("## `search`"));
+}
+
+#[test]
+fn system_prompt_for_strong_tier() {
+    let prompt = system_prompt_for_tier(Tier::Strong);
+    assert!(prompt.contains("tier: strong"));
+    assert!(prompt.contains("replace"));
+    assert!(prompt.contains("doc.set"));
+    assert!(prompt.contains("search"));
+}
+
+#[test]
+fn plan_write_policy_schema_has_all_fields() {
+    let schema = plan_write_policy_schema();
+    let props = schema.get("properties").unwrap().as_object().unwrap();
+    assert!(props.contains_key("ensure_final_newline"));
+    assert!(props.contains_key("normalize_eol"));
+    assert!(props.contains_key("trim_trailing_whitespace"));
+    assert!(props.contains_key("collapse_blanks"));
+}
+
+#[test]
+fn system_prompt_includes_write_policy() {
+    let prompt = system_prompt_for_tier(Tier::Strong);
+    assert!(prompt.contains("write_policy"));
+    assert!(prompt.contains("collapse_blanks"));
+    assert!(prompt.contains("ensure_final_newline"));
+}
+
+#[test]
+fn system_prompt_includes_version() {
+    let prompt = system_prompt_for_tier(Tier::Medium);
+    assert!(prompt.contains(&format!("format version: {INTENT_FORMAT_VERSION}")));
+}
+
+#[test]
+fn schemas_have_required_fields() {
+    let schemas = operation_schemas();
+    for schema in &schemas {
+        let required = schema.parameters.get("required");
+        assert!(
+            required.is_some(),
+            "schema {}: must have 'required' field",
+            schema.name
+        );
+    }
+}
+
+#[test]
+fn operation_examples_include_op_field() {
+    for schema in operation_schemas() {
+        for ex in &schema.examples {
+            let op = ex
+                .args
+                .get("op")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "schema {} example {:?}: missing 'op' field",
+                        schema.name, ex.description
+                    )
+                });
+            assert_eq!(
+                op, schema.name,
+                "schema {} example {:?}: op must match operation name",
+                schema.name, ex.description
+            );
+        }
+    }
+}
+
+#[test]
+fn operation_schema_serializes_to_json() {
+    let schemas = operation_schemas();
+    let json = serde_json::to_string_pretty(&schemas).unwrap();
+    assert!(!json.is_empty());
+    // Roundtrip: deserialize back.
+    let deserialized: Vec<OperationSchema> = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.len(), schemas.len());
+}
+
+/// Verify that every field accepted by `plan::Operation` for a given op
+/// name has a corresponding entry in the hand-written schema `properties`.
+/// This catches drift when new fields are added to the serde-based
+/// `Operation` enum but not to the JSON Schema export.
+#[test]
+fn schema_properties_cover_plan_operation_fields() {
+    use crate::plan::Operation;
+
+    // Build representative Operation values for each schema op name.
+    // Only the field names matter; values are dummies.
+    let mut ops: Vec<(&str, Operation)> = vec![
+        (
+            "replace",
+            Operation::Replace {
+                glob: Some("*.rs".into()),
+                path: Some("f.rs".into()),
+                mode: Some("literal".into()),
+                from: "a".into(),
+                to: Some("b".into()),
+                nth: Some(1),
+                insert_before: Some("x".into()),
+                insert_after: Some("y".into()),
+                case_insensitive: false,
+                multiline: false,
+                if_exists: false,
+                whole_line: false,
+                range: Some("1:10".into()),
+                word_boundary: false,
+                before_context: Some("ctx".into()),
+                after_context: Some("ctx".into()),
+            },
+        ),
+        (
+            "file.create",
+            Operation::FileCreate {
+                path: "f".into(),
+                content: "c".into(),
+                force: Some(true),
+            },
+        ),
+        (
+            "file.append",
+            Operation::FileAppend {
+                path: "f".into(),
+                content: "c".into(),
+            },
+        ),
+        ("file.delete", Operation::FileDelete { path: "f".into() }),
+        (
+            "file.rename",
+            Operation::FileRename {
+                from: "a".into(),
+                to: "b".into(),
+                force: true,
+            },
+        ),
+        (
+            "tidy.fix",
+            Operation::TidyFix {
+                path: "f".into(),
+                ensure_final_newline: Some(true),
+                trim_trailing_whitespace: Some(true),
+                normalize_eol: Some("lf".into()),
+            },
+        ),
+        (
+            "doc.set",
+            Operation::DocSet {
+                path: "f".into(),
+                selector: "s".into(),
+                value: serde_json::json!("v"),
+            },
+        ),
+        (
+            "doc.delete",
+            Operation::DocDelete {
+                path: "f".into(),
+                selector: "s".into(),
+            },
+        ),
+        (
+            "doc.merge",
+            Operation::DocMerge {
+                path: "f".into(),
+                value: serde_json::json!({}),
+            },
+        ),
+        (
+            "doc.append",
+            Operation::DocAppend {
+                path: "f".into(),
+                selector: "s".into(),
+                value: serde_json::json!([]),
+            },
+        ),
+        (
+            "doc.prepend",
+            Operation::DocPrepend {
+                path: "f".into(),
+                selector: "s".into(),
+                value: serde_json::json!([]),
+            },
+        ),
+        (
+            "doc.update",
+            Operation::DocUpdate {
+                path: "f".into(),
+                selector: "s".into(),
+                value: serde_json::json!({}),
+            },
+        ),
+        (
+            "doc.move",
+            Operation::DocMove {
+                path: "f".into(),
+                from: "a".into(),
+                to: "b".into(),
+            },
+        ),
+        (
+            "doc.ensure",
+            Operation::DocEnsure {
+                path: "f".into(),
+                selector: "s".into(),
+                value: serde_json::json!(1),
+            },
+        ),
+        (
+            "doc.delete_where",
+            Operation::DocDeleteWhere {
+                path: "f".into(),
+                selector: "s".into(),
+                predicate: "p".into(),
+            },
+        ),
+        (
+            "md.replace_section",
+            Operation::MdReplaceSection {
+                path: "f".into(),
+                heading: "h".into(),
+                content: "c".into(),
+            },
+        ),
+        (
+            "md.insert_after_heading",
+            Operation::MdInsertAfterHeading {
+                path: "f".into(),
+                heading: "h".into(),
+                content: "c".into(),
+            },
+        ),
+        (
+            "md.insert_before_heading",
+            Operation::MdInsertBeforeHeading {
+                path: "f".into(),
+                heading: "h".into(),
+                content: "c".into(),
+            },
+        ),
+        (
+            "md.upsert_bullet",
+            Operation::MdUpsertBullet {
+                path: "f".into(),
+                heading: "h".into(),
+                bullet: "b".into(),
+            },
+        ),
+        (
+            "md.table_append",
+            Operation::MdTableAppend {
+                path: "f".into(),
+                heading: "h".into(),
+                row: "r".into(),
+            },
+        ),
+        (
+            "md.move_section",
+            Operation::MdMoveSection {
+                path: "f".into(),
+                heading: "h".into(),
+                to: None,
+                before: None,
+                after: None,
+            },
+        ),
+        (
+            "md.dedupe_headings",
+            Operation::MdDedupeHeadings { path: "f".into() },
+        ),
+        (
+            "md.lint_agents",
+            Operation::MdLintAgents { path: "f".into() },
+        ),
+        (
+            "patch.apply",
+            Operation::PatchApply {
+                diff: "d".into(),
+                on_stale: Default::default(),
+                allow_conflicts: false,
+            },
+        ),
+        (
+            "search",
+            Operation::Search {
+                path: "f".into(),
+                pattern: "p".into(),
+                regex: false,
+                case_insensitive: false,
+                multiline: false,
+                invert_match: false,
+                context: None,
+                before_context: None,
+                after_context: None,
+                assert_count: None,
+                literal: false,
+                globs: vec![],
+                max_results: 0,
+                exclude_patterns: vec![],
+                custom_ignore_filenames: vec![],
+            },
+        ),
+        (
+            "read",
+            Operation::Read {
+                path: "f".into(),
+                lines: None,
+            },
+        ),
+    ];
+
+    #[cfg(feature = "ast")]
+    {
+        ops.push((
+            "ast.rename",
+            Operation::AstRename {
+                path: "f.rs".into(),
+                old_name: "old".into(),
+                new_name: "new".into(),
+                lang: None,
+            },
+        ));
+        ops.push((
+            "ast.replace",
+            Operation::AstReplace {
+                path: "f.rs".into(),
+                symbol: "s".into(),
+                from: "a".into(),
+                to: "b".into(),
+                regex: false,
+                lang: None,
+            },
+        ));
+    }
+
+    let schemas = operation_schemas();
+    let schema_map: std::collections::HashMap<&str, &OperationSchema> =
+        schemas.iter().map(|s| (s.name.as_str(), s)).collect();
+
+    let mut missing: Vec<String> = Vec::new();
+
+    for (op_name, op_value) in &ops {
+        let schema = match schema_map.get(op_name) {
+            Some(s) => s,
+            None => {
+                missing.push(format!("{op_name}: no schema found"));
+                continue;
+            }
+        };
+        let props = schema
+            .parameters
+            .get("properties")
+            .and_then(|v| v.as_object())
+            .unwrap_or_else(|| panic!("schema {op_name}: parameters.properties is not an object"));
+
+        // Serialize the Operation to get its field names.
+        let serialized = serde_json::to_value(op_value).unwrap();
+        let obj = serialized.as_object().unwrap();
+        for key in obj.keys() {
+            if key == "op" {
+                continue; // tag field, not a parameter
+            }
+            if !props.contains_key(key) {
+                missing.push(format!(
+                    "{op_name}: plan.rs field '{key}' missing from schema properties"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "schema/plan drift detected:\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+// Static assertion: types must be Send + Sync.
+const _: () = {
+    fn _assert<T: Send + Sync>() {}
+    let _ = _assert::<Tier>;
+    let _ = _assert::<OperationSchema>;
+    let _ = _assert::<OperationExample>;
+};
