@@ -94,16 +94,16 @@ impl std::fmt::Display for ReplaceValidationError {
                 ReplaceModeError::MissingMode => {
                     write!(
                         f,
-                        "one of to, insert_before, or insert_after must be provided"
+                        "one of 'to', 'insert_before', or 'insert_after' must be provided"
                     )
                 }
                 ReplaceModeError::BothInsertModes => {
-                    write!(f, "insert_before and insert_after cannot be combined")
+                    write!(f, "'insert_before' and 'insert_after' cannot be combined")
                 }
                 ReplaceModeError::ToWithInsert => {
                     write!(
                         f,
-                        "to cannot be combined with insert_before or insert_after"
+                        "'to' cannot be combined with 'insert_before' or 'insert_after'"
                     )
                 }
             },
@@ -530,7 +530,7 @@ mod tests {
             assert!(
                 ReplaceValidationError::Mode(ReplaceModeError::MissingMode)
                     .to_string()
-                    .contains("to, insert_before, or insert_after")
+                    .contains("'to', 'insert_before', or 'insert_after'")
             );
         }
 

@@ -4078,7 +4078,7 @@ fn test_tx_json_output_on_replace_missing_mode_parse_error() {
     assert_eq!(json["error_kind"], "parse_error");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("parse_error"));
-    assert!(error.contains("one of to, insert_before, or insert_after must be provided"));
+    assert!(error.contains("one of 'to', 'insert_before', or 'insert_after' must be provided"));
 }
 
 #[test]
@@ -4117,7 +4117,7 @@ fn test_tx_json_output_on_replace_conflict_parse_error() {
     assert_eq!(json["error_kind"], "parse_error");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("parse_error"));
-    assert!(error.contains("insert_before and insert_after cannot be combined"));
+    assert!(error.contains("'insert_before' and 'insert_after' cannot be combined"));
 }
 
 #[test]

@@ -780,7 +780,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "replace: one of to, insert_before, or insert_after must be provided"
+            "replace: one of 'to', 'insert_before', or 'insert_after' must be provided"
         );
     }
 
@@ -802,7 +802,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "replace: insert_before and insert_after cannot be combined"
+            "replace: 'insert_before' and 'insert_after' cannot be combined"
         );
     }
 
@@ -838,7 +838,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "replace: to cannot be combined with insert_before or insert_after"
+            "replace: 'to' cannot be combined with 'insert_before' or 'insert_after'"
         );
     }
 

@@ -669,7 +669,7 @@ fn test_replace_insert_before_and_to_conflict() {
         .assert()
         .code(1)
         .stderr(predicate::str::contains(
-            "to cannot be combined with insert_before or insert_after",
+            "'to' cannot be combined with 'insert_before' or 'insert_after'",
         ));
 }
 
