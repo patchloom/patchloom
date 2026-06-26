@@ -101,18 +101,28 @@ pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
     }
 }
 
-/// If `content` is non-empty and does not already end with `\n`, append one.
-/// Empty content is returned unchanged.
+/// If `content` is non-empty and does not already end with the appropriate
+/// line terminator for `eol`, append one.  Empty content is returned unchanged.
+///
+/// The terminator depends on `eol`:
+/// - `Lf` / `Keep` => `\n`
+/// - `Crlf`        => `\r\n`
+/// - `Cr`          => `\r`
 ///
 /// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
-pub fn ensure_final_newline(content: &str) -> std::borrow::Cow<'_, str> {
+pub fn ensure_final_newline(content: &str, eol: EolMode) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;
-    if content.is_empty() || content.ends_with('\n') {
+    let (suffix, already_ok) = match eol {
+        EolMode::Cr => ("\r", content.ends_with('\r')),
+        EolMode::Crlf => ("\r\n", content.ends_with("\r\n")),
+        EolMode::Lf | EolMode::Keep => ("\n", content.ends_with('\n')),
+    };
+    if content.is_empty() || already_ok {
         Cow::Borrowed(content)
     } else {
-        let mut s = String::with_capacity(content.len() + 1);
+        let mut s = String::with_capacity(content.len() + suffix.len());
         s.push_str(content);
-        s.push('\n');
+        s.push_str(suffix);
         Cow::Owned(s)
     }
 }
@@ -327,7 +337,7 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
     }
 
     if policy.ensure_final_newline
-        && let Cow::Owned(new) = ensure_final_newline(&s)
+        && let Cow::Owned(new) = ensure_final_newline(&s, policy.normalize_eol)
     {
         s = Cow::Owned(new);
     }
@@ -520,17 +530,55 @@ mod tests {
 
     #[test]
     fn ensure_final_newline_adds_when_missing() {
-        assert_eq!(ensure_final_newline("hello"), "hello\n");
+        assert_eq!(ensure_final_newline("hello", EolMode::Keep), "hello\n");
     }
 
     #[test]
     fn ensure_final_newline_empty_stays_empty() {
-        assert_eq!(ensure_final_newline(""), "");
+        assert_eq!(ensure_final_newline("", EolMode::Keep), "");
     }
 
     #[test]
     fn ensure_final_newline_no_double_add() {
-        assert_eq!(ensure_final_newline("hello\n"), "hello\n");
+        assert_eq!(ensure_final_newline("hello\n", EolMode::Keep), "hello\n");
+    }
+
+    #[test]
+    fn ensure_final_newline_cr_mode_appends_cr() {
+        assert_eq!(ensure_final_newline("hello\r", EolMode::Cr), "hello\r");
+        assert_eq!(ensure_final_newline("hello", EolMode::Cr), "hello\r");
+    }
+
+    #[test]
+    fn ensure_final_newline_cr_mode_does_not_append_lf() {
+        // Content ending with \r should NOT get a \n appended
+        let result = ensure_final_newline("line1\rline2\r", EolMode::Cr);
+        assert!(result.ends_with('\r'));
+        assert!(!result.ends_with('\n'));
+    }
+
+    #[test]
+    fn ensure_final_newline_crlf_mode_appends_crlf() {
+        assert_eq!(
+            ensure_final_newline("hello\r\n", EolMode::Crlf),
+            "hello\r\n"
+        );
+        assert_eq!(ensure_final_newline("hello", EolMode::Crlf), "hello\r\n");
+    }
+
+    #[test]
+    fn ensure_final_newline_crlf_mode_bare_lf_gets_crlf() {
+        // Content ending with bare \n should get \r\n appended (not kept as-is)
+        assert_eq!(
+            ensure_final_newline("hello\n", EolMode::Crlf),
+            "hello\n\r\n"
+        );
+    }
+
+    #[test]
+    fn ensure_final_newline_lf_mode_unchanged() {
+        assert_eq!(ensure_final_newline("hello", EolMode::Lf), "hello\n");
+        assert_eq!(ensure_final_newline("hello\n", EolMode::Lf), "hello\n");
     }
 
     #[test]
@@ -913,6 +961,42 @@ mod tests {
         let input = "a\n\n\nb\n";
         let result = apply_policy(input, &policy);
         assert_eq!(result, "a\n\nb\n");
+    }
+
+    #[test]
+    fn apply_policy_cr_mode_final_newline_is_cr() {
+        let policy = WritePolicy {
+            ensure_final_newline: true,
+            normalize_eol: EolMode::Cr,
+            ..Default::default()
+        };
+        // Content without a trailing newline: should get \r appended.
+        let result = apply_policy("hello", &policy);
+        assert_eq!(result, "hello\r");
+        assert!(!result.ends_with('\n'), "CR mode must not append \\n");
+    }
+
+    #[test]
+    fn apply_policy_crlf_mode_final_newline_is_crlf() {
+        let policy = WritePolicy {
+            ensure_final_newline: true,
+            normalize_eol: EolMode::Crlf,
+            ..Default::default()
+        };
+        let result = apply_policy("hello", &policy);
+        assert_eq!(result, "hello\r\n");
+    }
+
+    #[test]
+    fn apply_policy_cr_mode_multiline_final_newline() {
+        let policy = WritePolicy {
+            ensure_final_newline: true,
+            normalize_eol: EolMode::Cr,
+            ..Default::default()
+        };
+        // Input has LF line endings; normalize converts to CR, then final \r appended.
+        let result = apply_policy("a\nb", &policy);
+        assert_eq!(result, "a\rb\r");
     }
 
     // -- WritePolicyOverride tests (#980) -----------------------------------
