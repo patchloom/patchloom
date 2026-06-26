@@ -1,10 +1,11 @@
-//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps`.
+//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef, SymbolKind};
 use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
 use crate::exit;
+use anyhow::Context;
 use clap::{Args, Subcommand};
 use std::path::Path;
 
@@ -197,7 +198,8 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.path,
         args.symbol
     );
-    let source = std::fs::read_to_string(&target)?;
+    let source =
+        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?;
     let all_symbols = symbols::extract_symbols(&source, lang);
     let sym = symbols::find_symbol(&all_symbols, &args.symbol)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in {}", args.symbol, args.path))?;
@@ -358,7 +360,8 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     for path in &paths {
         let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
-        let source = std::fs::read_to_string(path)?;
+        let source =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let result = if lang.has_grammar() {
             crate::ast::rename::rename_in_source(&source, &args.old_name, &args.new_name, lang)
         } else {
@@ -886,7 +889,8 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.regex
     );
 
-    let source = std::fs::read_to_string(&target)?;
+    let source =
+        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?;
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
     crate::verbose!("ast replace: lang={lang}, file={}", args.path);
 
@@ -1062,7 +1066,7 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let new_source = if let Some(ref to_ref) = args.to {
         get_git_file_content(&cwd, &args.path, to_ref)?
     } else {
-        std::fs::read_to_string(&target)?
+        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?
     };
 
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);

@@ -238,7 +238,8 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
     for entry in entries {
         let manifest_path = entry.path().join("manifest.json");
         if manifest_path.exists() {
-            let content = std::fs::read_to_string(&manifest_path)?;
+            let content = std::fs::read_to_string(&manifest_path)
+                .with_context(|| format!("reading {}", manifest_path.display()))?;
             if let Ok(manifest) = serde_json::from_str::<Manifest>(&content) {
                 sessions.push(manifest);
             }

@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use anyhow::Context;
 use serde::Serialize;
 
 use super::{Language, parse_source};
@@ -51,7 +52,8 @@ pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result
     if !lang.has_grammar() {
         anyhow::bail!("no grammar available for {lang}");
     }
-    let source = std::fs::read_to_string(path)?;
+    let source =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     validate_source(&source, lang)
         .ok_or_else(|| anyhow::anyhow!("failed to parse {}", path.display()))
 }

@@ -282,3 +282,144 @@ pub fn update_matching(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn segs(path: &str) -> Vec<selector::Segment> {
+        selector::parse(path).unwrap()
+    }
+
+    #[test]
+    fn navigate_mut_key() {
+        let mut root = json!({"a": {"b": 1}});
+        let val = navigate_mut(&mut root, &segs("a.b"), false).unwrap();
+        assert_eq!(val, &json!(1));
+    }
+
+    #[test]
+    fn navigate_mut_index() {
+        let mut root = json!({"items": [10, 20, 30]});
+        let val = navigate_mut(&mut root, &segs("items[1]"), false).unwrap();
+        assert_eq!(val, &json!(20));
+    }
+
+    #[test]
+    fn navigate_mut_missing_key_errors() {
+        let mut root = json!({"a": 1});
+        let result = navigate_mut(&mut root, &segs("b"), false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("key not found"));
+    }
+
+    #[test]
+    fn navigate_mut_create_intermediate() {
+        let mut root = json!({"a": {}});
+        let val = navigate_mut(&mut root, &segs("a.b"), true).unwrap();
+        assert!(val.is_object(), "should create intermediate object");
+    }
+
+    #[test]
+    fn set_at_path_creates_key() {
+        let mut root = json!({"x": {}});
+        set_at_path(&mut root, &segs("x.y"), json!("hello")).unwrap();
+        assert_eq!(root["x"]["y"], json!("hello"));
+    }
+
+    #[test]
+    fn set_at_path_empty_selector_errors() {
+        let mut root = json!({});
+        let result = set_at_path(&mut root, &[], json!(1));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn set_at_path_index_replaces_element() {
+        let mut root = json!({"arr": [1, 2, 3]});
+        set_at_path(&mut root, &segs("arr[1]"), json!(99)).unwrap();
+        assert_eq!(root["arr"][1], json!(99));
+    }
+
+    #[test]
+    fn delete_at_selector_removes_key() {
+        let mut root = json!({"a": 1, "b": 2});
+        let removed = delete_at_selector(&mut root, &segs("b")).unwrap();
+        assert!(removed);
+        assert!(root.get("b").is_none());
+    }
+
+    #[test]
+    fn delete_at_selector_missing_returns_false() {
+        let mut root = json!({"a": 1});
+        let removed = delete_at_selector(&mut root, &segs("z")).unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn delete_at_selector_empty_segments() {
+        let mut root = json!({"a": 1});
+        let removed = delete_at_selector(&mut root, &[]).unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn delete_where_removes_matching_items() {
+        let mut root = json!({"items": [{"name": "a"}, {"name": "b"}, {"name": "a"}]});
+        let count = delete_where(&mut root, &segs("items"), "name=a").unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(root["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_where_invalid_predicate() {
+        let mut root = json!({"items": []});
+        let result = delete_where(&mut root, &segs("items"), "noequalssign");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn delete_where_empty_key_errors() {
+        let mut root = json!({"items": []});
+        let result = delete_where(&mut root, &segs("items"), "=val");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("key is empty"));
+    }
+
+    #[test]
+    fn delete_where_double_equals_errors() {
+        let mut root = json!({"items": []});
+        let result = delete_where(&mut root, &segs("items"), "k==v");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("=="));
+    }
+
+    #[test]
+    fn move_at_path_moves_value() {
+        let mut root = json!({"src": 42, "dst": {}});
+        move_at_path(&mut root, &segs("src"), &segs("dst.moved")).unwrap();
+        assert!(root.get("src").is_none());
+        assert_eq!(root["dst"]["moved"], json!(42));
+    }
+
+    #[test]
+    fn deep_merge_overlays_objects() {
+        let mut base = json!({"a": 1, "b": {"c": 2}});
+        let other = json!({"b": {"d": 3}, "e": 4});
+        deep_merge(&mut base, &other);
+        assert_eq!(base["a"], json!(1));
+        assert_eq!(base["b"]["c"], json!(2));
+        assert_eq!(base["b"]["d"], json!(3));
+        assert_eq!(base["e"], json!(4));
+    }
+
+    #[test]
+    fn update_matching_wildcard() {
+        let mut root = json!({"items": [{"v": 1}, {"v": 2}]});
+        let count = update_matching(&mut root, &segs("items[*].v"), &json!(0));
+        assert_eq!(count, 2);
+        assert_eq!(root["items"][0]["v"], json!(0));
+        assert_eq!(root["items"][1]["v"], json!(0));
+    }
+}

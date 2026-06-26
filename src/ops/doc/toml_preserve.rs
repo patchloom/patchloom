@@ -146,3 +146,109 @@ fn json_to_toml_item(val: &serde_json::Value) -> toml_edit::Item {
         _ => toml_edit::Item::Value(json_to_toml_value(val)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_toml(s: &str) -> toml_edit::DocumentMut {
+        s.parse::<toml_edit::DocumentMut>().unwrap()
+    }
+
+    fn json(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn apply_value_diff_updates_scalar() {
+        let mut doc = parse_toml("key = \"old\"\n");
+        let old = json(r#"{"key": "old"}"#);
+        let new = json(r#"{"key": "new"}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            result.contains("\"new\""),
+            "scalar should be updated: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_removes_deleted_key() {
+        let mut doc = parse_toml("a = 1\nb = 2\n");
+        let old = json(r#"{"a": 1, "b": 2}"#);
+        let new = json(r#"{"a": 1}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            !result.contains("b ="),
+            "removed key should be gone: {result}"
+        );
+        assert!(result.contains("a = 1"));
+    }
+
+    #[test]
+    fn apply_value_diff_adds_new_key() {
+        let mut doc = parse_toml("a = 1\n");
+        let old = json(r#"{"a": 1}"#);
+        let new = json(r#"{"a": 1, "c": 3}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(result.contains("c"), "new key should appear: {result}");
+    }
+
+    #[test]
+    fn apply_value_diff_noop_on_equal() {
+        let original = "key = \"same\"\n";
+        let mut doc = parse_toml(original);
+        let val = json(r#"{"key": "same"}"#);
+        apply_value_diff(doc.as_item_mut(), &val, &val);
+        assert_eq!(doc.to_string(), original);
+    }
+
+    #[test]
+    fn apply_value_diff_same_length_array() {
+        let mut doc = parse_toml("arr = [1, 2, 3]\n");
+        let old = json(r#"{"arr": [1, 2, 3]}"#);
+        let new = json(r#"{"arr": [1, 99, 3]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            result.contains("99"),
+            "array element should be updated: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_different_length_array_replaces() {
+        let mut doc = parse_toml("arr = [1, 2]\n");
+        let old = json(r#"{"arr": [1, 2]}"#);
+        let new = json(r#"{"arr": [1, 2, 3]}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            result.contains("3"),
+            "longer array should be applied: {result}"
+        );
+    }
+
+    #[test]
+    fn json_to_toml_value_handles_null() {
+        let val = json_to_toml_value(&serde_json::Value::Null);
+        assert_eq!(val.as_str(), Some(""), "null should map to empty string");
+    }
+
+    #[test]
+    fn json_to_toml_item_object_becomes_table() {
+        let item = json_to_toml_item(&json(r#"{"k": "v"}"#));
+        assert!(item.is_table(), "object should become a table");
+    }
+
+    #[test]
+    fn json_to_toml_item_array_of_objects_becomes_aot() {
+        let item = json_to_toml_item(&json(r#"[{"a": 1}, {"b": 2}]"#));
+        assert!(
+            item.is_array_of_tables(),
+            "array of objects should become array-of-tables"
+        );
+    }
+}
