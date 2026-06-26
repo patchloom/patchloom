@@ -321,11 +321,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Build the PatchApply operation and route through the engine.
     let op = Operation::PatchApply {
-        diff: diff_text.clone(),
-        on_stale: match apply_options.on_stale {
-            OnStale::Fail => OnStale::Fail,
-            OnStale::Merge => OnStale::Merge,
-        },
+        diff: diff_text,
+        on_stale: apply_options.on_stale,
         allow_conflicts: apply_options.allow_conflicts,
     };
 

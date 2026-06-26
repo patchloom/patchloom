@@ -207,7 +207,8 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             );
 
             if dirty_rel_paths.is_empty() {
-                // No changes: emit structured output and exit.
+                // No changes: emit structured output (matching old behavior)
+                // and exit.
                 emit_tidy_fix_output(global, &[], None)?;
                 return Ok(exit::SUCCESS);
             }
