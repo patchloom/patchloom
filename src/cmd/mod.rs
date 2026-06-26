@@ -78,7 +78,7 @@ pub enum Command {
     // -- Automation (display_order 50-69) --
     /// Execute a multi-operation plan atomically.
     #[command(display_order = 50)]
-    Tx(tx::TxArgs),
+    Tx(crate::tx::TxArgs),
     /// Explain a tx plan in plain English.
     #[command(display_order = 51)]
     Explain(explain::ExplainArgs),
