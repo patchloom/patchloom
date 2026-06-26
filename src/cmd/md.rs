@@ -1,16 +1,12 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{self, DiffResult, unified_diff};
+use crate::cmd::output::WritePhase;
+use crate::cmd::output::execute_via_engine;
 use crate::exit;
-use crate::ops::md::{
-    dedupe_headings_in, find_section, insert_after_heading_in, insert_before_heading_in,
-    lint_agents_content, move_section_in, replace_section_in, table_append_in, upsert_bullet_in,
-};
-use crate::write::policy_from_flags;
+use crate::ops::md::{dedupe_headings_in, find_section, lint_agents_content};
+use crate::plan::Operation;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
-
-use std::path::Path;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -103,7 +99,7 @@ pub enum MdAction {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers: stdin, write policy, mutation driver
+// Helpers
 // ---------------------------------------------------------------------------
 
 fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<String> {
@@ -116,61 +112,58 @@ fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<Str
     }
 }
 
-/// Compare original with policy-applied new content, then diff/check/apply.
-fn read_markdown_file(path: &Path, display_path: &str) -> anyhow::Result<String> {
-    std::fs::read_to_string(path).with_context(|| format!("reading {display_path}"))
+/// JSON output struct for single-file md write operations.
+#[derive(Debug, Serialize)]
+struct MdOutput {
+    ok: bool,
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_changes: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
 }
 
-fn apply_mutation(
-    path: &Path,
-    display_path: &str,
-    original: &str,
-    new_content: &str,
+/// Execute a single md operation through the engine, mapping "not found"
+/// errors to `exit::NO_MATCHES`.
+fn execute_md_op(
+    op: Operation,
     global: &GlobalFlags,
-    cwd: &Path,
+    file: &str,
+    check_msg: &str,
+    apply_msg: &str,
 ) -> anyhow::Result<u8> {
-    let policy = policy_from_flags(global, Some(path));
-    let final_content = crate::write::apply_policy(new_content, &policy);
-    let has_changes = original != final_content;
-
-    // Show diff in default mode (no write flags), explicit --diff, or --confirm.
-    // Skip when --apply or --check is set without --diff.
-    if (!global.apply && !global.check) || global.diff || global.confirm {
-        let d = unified_diff(display_path, original, &final_content);
-        if d.has_changes {
-            let result = DiffResult { diffs: vec![d] };
-            print!(
-                "{}",
-                diff::format_diff_result_colored(&result, global.should_color())
-            );
-        }
-    }
-
-    if global.check && has_changes {
-        #[derive(Serialize)]
-        struct CheckOutput<'a> {
-            ok: bool,
-            path: &'a str,
-            has_changes: bool,
-        }
-        let output = CheckOutput {
+    let file_owned = file.to_string();
+    match execute_via_engine(
+        op,
+        global,
+        |phase, diff| MdOutput {
             ok: true,
-            path: display_path,
-            has_changes: true,
-        };
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("would modify {display_path}");
+            path: file_owned.clone(),
+            has_changes: match phase {
+                WritePhase::Check => Some(true),
+                _ => None,
+            },
+            diff,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
+        },
+        check_msg,
+        apply_msg,
+    ) {
+        Ok(code) => Ok(code),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") {
+                Ok(exit::NO_MATCHES)
+            } else {
+                Err(e)
+            }
         }
-        return Ok(exit::CHANGES_DETECTED);
     }
-
-    if global.apply || (global.confirm && has_changes && global.should_apply()) {
-        let writes = [(path, new_content, &policy)];
-        crate::backup::backup_write_files(cwd, &writes)?;
-        crate::write::run_format_command(global, cwd)?;
-    }
-
-    Ok(exit::SUCCESS)
 }
 
 // ---------------------------------------------------------------------------
@@ -178,13 +171,6 @@ fn apply_mutation(
 // ---------------------------------------------------------------------------
 
 pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let read = |file: &str| read_markdown_file(&cwd.join(file), file);
-    let apply = |file: &str, original: &str, new_content: &str| {
-        let path = cwd.join(file);
-        apply_mutation(&path, file, original, new_content, global, &cwd)
-    };
-
     match args.action {
         MdAction::ReplaceSection {
             file,
@@ -193,11 +179,18 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let replacement = read_content(stdin, &content)?;
-            let original = read(&file)?;
-            match replace_section_in(&original, &heading, &replacement) {
-                Some(new) => apply(&file, &original, &new),
-                None => Ok(exit::NO_MATCHES),
-            }
+            let op = Operation::MdReplaceSection {
+                path: file.clone(),
+                heading: heading.clone(),
+                content: replacement,
+            };
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
         }
 
         MdAction::InsertAfterHeading {
@@ -207,11 +200,18 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let insertion = read_content(stdin, &content)?;
-            let original = read(&file)?;
-            match insert_after_heading_in(&original, &heading, &insertion) {
-                Some(new) => apply(&file, &original, &new),
-                None => Ok(exit::NO_MATCHES),
-            }
+            let op = Operation::MdInsertAfterHeading {
+                path: file.clone(),
+                heading: heading.clone(),
+                content: insertion,
+            };
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
         }
 
         MdAction::InsertBeforeHeading {
@@ -221,11 +221,18 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             let insertion = read_content(stdin, &content)?;
-            let original = read(&file)?;
-            match insert_before_heading_in(&original, &heading, &insertion) {
-                Some(new) => apply(&file, &original, &new),
-                None => Ok(exit::NO_MATCHES),
-            }
+            let op = Operation::MdInsertBeforeHeading {
+                path: file.clone(),
+                heading: heading.clone(),
+                content: insertion,
+            };
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
         }
 
         MdAction::UpsertBullet {
@@ -233,16 +240,30 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             heading,
             bullet,
         } => {
-            let original = read(&file)?;
-            match upsert_bullet_in(&original, &heading, &bullet) {
-                Some(new) => apply(&file, &original, &new),
-                None => Ok(exit::NO_MATCHES),
-            }
+            let op = Operation::MdUpsertBullet {
+                path: file.clone(),
+                heading: heading.clone(),
+                bullet,
+            };
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
         }
 
         MdAction::DedupeHeadings { file } => {
-            let original = read(&file)?;
-            let (new, removed) = dedupe_headings_in(&original);
+            // Pre-read to compute removed headings for side-channel output,
+            // then route the actual write through the engine.
+            let cwd = global.resolve_cwd()?;
+            let path = cwd.join(&file);
+            let original =
+                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
+            let (_new, removed) = dedupe_headings_in(&original);
+
+            // Emit removed headings as side-channel output.
             if !removed.is_empty() {
                 if global.json || global.jsonl {
                     global.emit_json_items(&removed)?;
@@ -252,11 +273,54 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }
                 }
             }
-            apply(&file, &original, &new)
+
+            // Route the write through the engine. Use execute_single directly
+            // to avoid execute_via_engine's JSON emission (which would conflict
+            // with the removed-headings output already emitted above).
+            let op = Operation::MdDedupeHeadings { path: file.clone() };
+            let options = crate::tx::engine::ExecuteOptions { cwd: &cwd, global };
+            let result = crate::tx::engine::execute_single(op, options)?;
+
+            if global.check {
+                return if result.has_changes {
+                    Ok(exit::CHANGES_DETECTED)
+                } else {
+                    Ok(exit::SUCCESS)
+                };
+            }
+
+            if global.apply {
+                result.commit()?;
+                crate::write::run_format_command(global, &cwd)?;
+                return Ok(exit::SUCCESS);
+            }
+
+            // Default / --diff mode: preview diffs.
+            let diffs = result.build_diffs();
+            if !diffs.is_empty() && !global.json && !global.jsonl {
+                let dr = crate::diff::DiffResult {
+                    diffs: diffs.clone(),
+                };
+                print!(
+                    "{}",
+                    crate::diff::format_diff_result_colored(&dr, global.should_color())
+                );
+            }
+
+            // --confirm: apply if user confirms.
+            if global.should_apply() {
+                result.commit()?;
+                crate::write::run_format_command(global, &cwd)?;
+            }
+
+            Ok(exit::SUCCESS)
         }
 
         MdAction::LintAgents { file } => {
-            let content = read(&file)?;
+            let cwd = global.resolve_cwd()?;
+            let path = cwd.join(&file);
+            let content =
+                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             let issues = lint_agents_content(&content);
 
             if global.json || global.jsonl {
@@ -285,16 +349,47 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::TableAppend { file, heading, row } => {
-            let original = read(&file)?;
-            match find_section(&original, &heading) {
+            // Pre-validate: distinguish "heading not found" (NO_MATCHES)
+            // from "no table under heading" (error), which the engine
+            // conflates into a single None.
+            let cwd = global.resolve_cwd()?;
+            let path = cwd.join(&file);
+            let content =
+                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
+            match find_section(&content, &heading) {
                 None => Ok(exit::NO_MATCHES),
                 Some((body_start, body_end)) => {
-                    match table_append_in(&original, body_start, body_end, &row) {
-                        Some(new) => apply(&file, &original, &new),
-                        None => {
-                            anyhow::bail!("no markdown table found under heading {:?}", heading)
-                        }
+                    // Verify a table actually exists under the heading.
+                    if crate::ops::md::table_append_in(&content, body_start, body_end, &row)
+                        .is_none()
+                    {
+                        anyhow::bail!("no markdown table found under heading {:?}", heading);
                     }
+                    let op = Operation::MdTableAppend {
+                        path: file.clone(),
+                        heading: heading.clone(),
+                        row,
+                    };
+                    let file_owned = file.clone();
+                    execute_via_engine(
+                        op,
+                        global,
+                        |phase, diff| MdOutput {
+                            ok: true,
+                            path: file_owned.clone(),
+                            has_changes: match phase {
+                                WritePhase::Check => Some(true),
+                                _ => None,
+                            },
+                            diff,
+                            applied: match phase {
+                                WritePhase::Confirmed(a) => Some(a),
+                                _ => None,
+                            },
+                        },
+                        &format!("would modify {file}"),
+                        &format!("modified {file}"),
+                    )
                 }
             }
         }
@@ -306,45 +401,29 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             before,
             after,
         } => {
-            let position = match (&before, &after) {
-                (Some(b), None) => ("before", b.as_str()),
-                (None, Some(a)) => ("after", a.as_str()),
-                _ => anyhow::bail!("exactly one of --before or --after must be provided"),
-            };
+            // Validate exactly one of --before or --after.
+            if before.is_none() && after.is_none() {
+                anyhow::bail!("exactly one of --before or --after must be provided");
+            }
 
             let dest_file = to.as_deref().unwrap_or(&file);
-            let same_file = to.is_none()
-                || matches!(
-                    (cwd.join(&file).canonicalize(), cwd.join(dest_file).canonicalize()),
-                    (Ok(ref s), Ok(ref d)) if s == d
-                );
-            let source_original = read(&file)?;
-            let dest_original = if same_file {
-                source_original.clone()
+            let (check_msg, apply_msg) = if dest_file != file {
+                (
+                    format!("would modify {file}\nwould modify {dest_file}"),
+                    format!("modified {file}\nmodified {dest_file}"),
+                )
             } else {
-                read(dest_file)?
+                (format!("would modify {file}"), format!("modified {file}"))
             };
 
-            match move_section_in(
-                &source_original,
-                &heading,
-                &dest_original,
-                position,
-                same_file,
-            ) {
-                Some((new_source, new_dest)) => {
-                    if same_file {
-                        apply(&file, &source_original, &new_source)
-                    } else {
-                        // Apply both files. Process both even in --check mode
-                        // so that both files are reported as changed.
-                        let source_code = apply(&file, &source_original, &new_source)?;
-                        let dest_code = apply(dest_file, &dest_original, &new_dest)?;
-                        Ok(source_code.max(dest_code))
-                    }
-                }
-                None => Ok(exit::NO_MATCHES),
-            }
+            let op = Operation::MdMoveSection {
+                path: file.clone(),
+                heading,
+                to,
+                before,
+                after,
+            };
+            execute_md_op(op, global, &file, &check_msg, &apply_msg)
         }
     }
 }
@@ -356,7 +435,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ops::md::{has_dangerous_git_add_dot, strip_inline_code};
+    use crate::ops::md::{find_section, has_dangerous_git_add_dot, strip_inline_code};
     use std::fs;
     use tempfile::TempDir;
 

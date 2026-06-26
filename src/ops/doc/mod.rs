@@ -151,8 +151,13 @@ fn try_preserve_yaml_object(
     }
 
     // Array growth or structure mismatch: try splice.
-    let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
-    if let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)? {
+    // If the CST produced invalid YAML (e.g., duplicated keys from
+    // misinterpreted indentation, #972), serde_yaml_ng will fail to parse
+    // it. In that case, skip the splice and fall through to the caller's
+    // non-preserving fallback instead of propagating the error.
+    if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
+        && let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)?
+    {
         return Ok(Some(spliced));
     }
     Ok(None)
@@ -185,6 +190,7 @@ fn try_preserve_yaml_array(
         && let Some(spliced) =
             yaml_splice::splice_yaml_root_sequence(original_content, old_arr, new_arr)?
         && serde_yaml_ng::from_str::<serde_json::Value>(&spliced).is_ok_and(|v| v == *new_value)
+        && spliced.parse::<yaml_edit::YamlFile>().is_ok()
     {
         return Ok(Some(spliced));
     }
@@ -1051,6 +1057,71 @@ mod tests {
         }
 
         #[test]
+        fn yaml_nested_array_append_produces_yaml_edit_parseable_output() {
+            // Regression for #972: doc_append on a deeply nested array (e.g., K8s
+            // env vars inside a container) could produce YAML with altered indentation.
+            // serde_yaml_ng accepted the result, but yaml_edit (CST parser) rejected it,
+            // causing subsequent doc_set calls to fail with "did not find expected key".
+            //
+            // Uses realistic K8s-style indentation: containers at 8 spaces, entries
+            // at 10 spaces (the exact pattern from the bug report).
+            let yaml = concat!(
+                "apiVersion: apps/v1\n",
+                "kind: Deployment\n",
+                "metadata:\n",
+                "  name: my-app\n",
+                "spec:\n",
+                "  replicas: 1\n",
+                "  template:\n",
+                "    spec:\n",
+                "      containers:\n",
+                "        - name: main\n",
+                "          image: my-app:latest\n",
+                "          env:\n",
+                "            - name: DB_HOST\n",
+                "              value: postgres.default:5432\n",
+                "            - name: API_URL\n",
+                "              valueFrom:\n",
+                "                configMapKeyRef:\n",
+                "                  name: config\n",
+                "                  key: api-url\n",
+                "          resources:\n",
+                "            limits:\n",
+                "              cpu: \"1\"\n",
+                "              memory: 512Mi\n",
+            );
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            // Append a new env var with a URL value (the original bug trigger).
+            new["spec"]["template"]["spec"]["containers"][0]["env"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name": "OTEL_ENDPOINT", "value": "http://otel-collector.monitoring:4317"}));
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            // Must round-trip through serde_yaml_ng.
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(reparsed, new, "serialized YAML must match target: {result}");
+            // Must also be parseable by yaml_edit (the CST library used by doc_set).
+            assert!(
+                result.parse::<yaml_edit::YamlFile>().is_ok(),
+                "result must be parseable by yaml_edit for subsequent doc_set: {result}"
+            );
+            // After the append, a subsequent set on a different path must succeed.
+            // This simulates the #972 scenario: doc_append then doc_set.
+            let mut final_val = new.clone();
+            final_val["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["cpu"] =
+                json!("2");
+            let result2 = serialize_value_preserving(&result, &new, &final_val, &FileFormat::Yaml)
+                .expect("doc_set after doc_append must not fail");
+            let reparsed2: serde_json::Value = serde_yaml_ng::from_str(&result2).unwrap();
+            assert_eq!(
+                reparsed2, final_val,
+                "second operation must produce correct output: {result2}"
+            );
+        }
+
+        #[test]
         fn yaml_sequence_root_mutation_not_lost() {
             let yaml = "- item1\n- item2\n";
             let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
@@ -1091,6 +1162,33 @@ mod tests {
                     .unwrap();
             assert!(result.contains("- a"), "array item '- a' missing: {result}");
             assert!(result.contains("- b"), "array item '- b' missing: {result}");
+        }
+
+        #[test]
+        fn yaml_multi_document_rejected_by_parser() {
+            // Multi-document YAML (--- separated) is rejected by serde_yaml_ng.
+            // This test documents the current behavior: parse_doc returns an error
+            // rather than silently dropping documents.
+            let yaml = "---\nname: first\n---\nname: second\n";
+            let err = parse_doc(yaml, &FileFormat::Yaml).unwrap_err();
+            assert!(
+                err.to_string().contains("more than one document"),
+                "expected multi-document rejection, got: {err}"
+            );
+        }
+
+        #[test]
+        fn yaml_single_document_marker_accepted() {
+            // A single document with an explicit `---` marker is valid and parses fine.
+            let yaml = "---\nname: only\n";
+            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            assert_eq!(val, json!({"name": "only"}));
+
+            let mut new = val.clone();
+            new["name"] = json!("updated");
+            let result = serialize_value_preserving(yaml, &val, &new, &FileFormat::Yaml).unwrap();
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(reparsed, json!({"name": "updated"}));
         }
 
         #[test]
@@ -1480,6 +1578,20 @@ mod tests {
             assert!(needs_yaml_quoting("`backtick"));
             assert!(needs_yaml_quoting("\"quoted"));
             assert!(needs_yaml_quoting("'squoted"));
+            assert!(needs_yaml_quoting("!tag"));
+        }
+
+        #[test]
+        fn yaml_trailing_colon_needs_quoting() {
+            assert!(needs_yaml_quoting("host:"));
+            assert!(needs_yaml_quoting("value:"));
+        }
+
+        #[test]
+        fn yaml_special_floats_need_quoting() {
+            assert!(needs_yaml_quoting(".inf"));
+            assert!(needs_yaml_quoting("-.inf"));
+            assert!(needs_yaml_quoting(".nan"));
         }
 
         #[test]
@@ -1888,6 +2000,58 @@ mod tests {
         #[test]
         fn parse_value_json_object() {
             assert_eq!(parse_value(r#"{"a":1}"#), json!({"a": 1}));
+        }
+
+        // -- parse_value edge cases (#978) -----------------------------------
+
+        #[test]
+        fn parse_value_float() {
+            assert_eq!(parse_value("1.5"), json!(1.5));
+        }
+
+        #[test]
+        fn parse_value_negative_integer() {
+            assert_eq!(parse_value("-42"), json!(-42));
+        }
+
+        #[test]
+        fn parse_value_json_array() {
+            assert_eq!(parse_value("[1,2,3]"), json!([1, 2, 3]));
+        }
+
+        #[test]
+        fn parse_value_json_object_with_spaces() {
+            assert_eq!(parse_value(r#"{"a": 1}"#), json!({"a": 1}));
+        }
+
+        #[test]
+        fn parse_value_quoted_string_with_escapes() {
+            // JSON-escaped inner quotes: the input is a valid JSON string literal.
+            let result = parse_value(r#""hello\"world""#);
+            assert_eq!(result, json!("hello\"world"));
+            assert!(result.is_string());
+        }
+
+        #[test]
+        fn parse_value_plain_string() {
+            let result = parse_value("hello");
+            assert_eq!(result, json!("hello"));
+            assert!(result.is_string());
+        }
+
+        #[test]
+        fn parse_value_true_is_bool() {
+            // "true" is recognized as boolean, not left as a string.
+            let result = parse_value("true");
+            assert_eq!(result, json!(true));
+            assert!(result.is_boolean());
+        }
+
+        #[test]
+        fn parse_value_false_is_bool() {
+            let result = parse_value("false");
+            assert_eq!(result, json!(false));
+            assert!(result.is_boolean());
         }
 
         #[test]

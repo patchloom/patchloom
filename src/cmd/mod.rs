@@ -10,6 +10,7 @@ pub mod init;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod md;
+pub mod output;
 pub mod patch;
 pub mod read;
 pub mod rename;

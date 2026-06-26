@@ -1,12 +1,10 @@
-use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
-use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
-use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
-use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
+use crate::cmd::output::WritePhase;
+use crate::cmd::output::execute_via_engine;
+use crate::plan::Operation;
 use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
-use std::fs;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -41,41 +39,11 @@ struct CreateOutput {
     applied: Option<bool>,
 }
 
-fn create_with_backup(
-    path: &std::path::Path,
-    content: &str,
-    force: bool,
-    cwd: &std::path::Path,
-    policy: &crate::write::WritePolicy,
-) -> anyhow::Result<()> {
-    let mut backup = BackupSession::new(cwd)?;
-    backup.save_before_write(path)?;
-    if force {
-        atomic_write(path, content, policy)?;
-    } else {
-        atomic_create_new(path, content, policy)?;
-    }
-    backup.finalize()?;
-    Ok(())
-}
-
-fn ensure_parent_dirs(path: &std::path::Path) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    Ok(())
-}
-
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-
     if args.content.is_some() && args.stdin {
         bail!("--content and --stdin cannot be combined");
     }
 
-    // Resolve content from --content or --stdin.
     let content = if let Some(ref c) = args.content {
         c.clone()
     } else if args.stdin {
@@ -84,30 +52,27 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("either --content or --stdin must be provided");
     };
 
+    let cwd = global.resolve_cwd()?;
     let path = cwd.join(&args.file);
-
     if path.exists() && !path.is_file() {
         bail!("target is not a file: {}", args.file);
     }
-
-    // For non-write modes, an early exists check is fine (no TOCTOU concern).
-    // The --apply path below uses File::create_new for race-free creation.
     if !global.apply && !global.confirm && !args.force && path.exists() {
         bail!("file already exists: {}", args.file);
     }
 
-    let diff_fn = |color: bool| {
-        let diff = unified_diff(&args.file, "", &content);
-        let diff_result = DiffResult { diffs: vec![diff] };
-        format_diff_result_colored(&diff_result, color)
+    let op = Operation::FileCreate {
+        path: args.file.clone(),
+        content,
+        force: Some(args.force),
     };
 
     let check_msg = format!("would create {}", args.file);
     let apply_msg = format!("created {}", args.file);
 
-    execute_write(
+    execute_via_engine(
+        op,
         global,
-        &cwd,
         |phase, diff| CreateOutput {
             ok: true,
             path: args.file.clone(),
@@ -117,18 +82,8 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 _ => None,
             },
         },
-        Some(&diff_fn),
-        || {
-            let policy = policy_from_flags(global, Some(&path));
-            ensure_parent_dirs(&path)?;
-            create_with_backup(&path, &content, args.force, &cwd, &policy)?;
-            Ok(())
-        },
-        WriteMessages {
-            check: &check_msg,
-            apply: &apply_msg,
-            post_confirm: None,
-        },
+        &check_msg,
+        &apply_msg,
     )
 }
 

@@ -3,7 +3,7 @@
 use similar::TextDiff;
 
 /// Represents the diff for a single file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileDiff {
     /// The file path.
     pub path: String,
@@ -95,6 +95,30 @@ fn format_diff_result_opt(result: &DiffResult, color: bool) -> String {
         }
     }
     output
+}
+
+/// Render a slice of [`FileDiff`]s as plain text (no ANSI color).
+///
+/// Convenience wrapper used by CLI commands that need a diff string
+/// for JSON output.
+#[cfg(feature = "cli")]
+pub(crate) fn render_diffs_plain(diffs: &[FileDiff]) -> String {
+    let result = DiffResult {
+        diffs: diffs.to_vec(),
+    };
+    format_diff_result_colored(&result, false)
+}
+
+/// Render a slice of [`FileDiff`]s with optional ANSI color.
+///
+/// Convenience wrapper used by CLI commands that need colored diff
+/// output for the terminal.
+#[cfg(feature = "cli")]
+pub(crate) fn render_diffs_colored(diffs: &[FileDiff], color: bool) -> String {
+    let result = DiffResult {
+        diffs: diffs.to_vec(),
+    };
+    format_diff_result_colored(&result, color)
 }
 
 #[cfg(test)]

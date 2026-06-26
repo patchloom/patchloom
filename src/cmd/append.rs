@@ -1,12 +1,10 @@
-use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
-use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
-use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
-use crate::write::{atomic_write, policy_from_flags};
-use anyhow::{Context, bail};
+use crate::cmd::output::WritePhase;
+use crate::cmd::output::execute_via_engine;
+use crate::plan::Operation;
+use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
-use std::fs;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -36,10 +34,7 @@ struct AppendOutput {
     applied: Option<bool>,
 }
 
-/// Append content to a file, without writing to stdout.
 pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-
     if args.content.is_some() && args.stdin {
         bail!("--content and --stdin cannot be combined");
     }
@@ -52,8 +47,10 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("either --content or --stdin must be provided");
     };
 
+    // Pre-validation: the engine's FileAppend op checks existence too,
+    // but we validate here for consistent CLI error messages.
+    let cwd = global.resolve_cwd()?;
     let path = cwd.join(&args.file);
-
     if !path.exists() {
         bail!("file does not exist: {}", args.file);
     }
@@ -61,21 +58,17 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("target is not a file: {}", args.file);
     }
 
-    let existing = fs::read_to_string(&path).with_context(|| format!("reading {}", args.file))?;
-    let combined = crate::ops::file::append_content(&existing, &append_content);
-
-    let diff_fn = |color: bool| {
-        let diff = unified_diff(&args.file, &existing, &combined);
-        let dr = DiffResult { diffs: vec![diff] };
-        format_diff_result_colored(&dr, color)
+    let op = Operation::FileAppend {
+        path: args.file.clone(),
+        content: append_content,
     };
 
     let check_msg = format!("would append to {}", args.file);
     let apply_msg = format!("appended to {}", args.file);
 
-    execute_write(
+    execute_via_engine(
+        op,
         global,
-        &cwd,
         |phase, diff| AppendOutput {
             ok: true,
             path: args.file.clone(),
@@ -85,20 +78,8 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 _ => None,
             },
         },
-        Some(&diff_fn),
-        || {
-            let policy = policy_from_flags(global, Some(&path));
-            let mut backup = BackupSession::new(&cwd)?;
-            backup.save_before_write(&path)?;
-            atomic_write(&path, &combined, &policy)?;
-            backup.finalize()?;
-            Ok(())
-        },
-        WriteMessages {
-            check: &check_msg,
-            apply: &apply_msg,
-            post_confirm: None,
-        },
+        &check_msg,
+        &apply_msg,
     )
 }
 

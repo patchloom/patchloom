@@ -897,4 +897,76 @@ mod tests {
         let result = apply_policy(input, &policy);
         assert_eq!(result, "a\n\nb\n");
     }
+
+    // -- WritePolicyOverride tests (#980) -----------------------------------
+
+    #[test]
+    fn write_policy_override_full() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            ensure_final_newline: Some(true),
+            normalize_eol: Some("lf".to_string()),
+            trim_trailing_whitespace: Some(true),
+            collapse_blanks: Some(true),
+            respect_editorconfig: Some(true),
+        };
+        policy.apply_override(&ov).unwrap();
+        assert!(policy.ensure_final_newline);
+        assert!(matches!(policy.normalize_eol, EolMode::Lf));
+        assert!(policy.trim_trailing_whitespace);
+        assert!(policy.collapse_blanks);
+    }
+
+    #[test]
+    fn write_policy_override_partial() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            ensure_final_newline: Some(true),
+            ..Default::default()
+        };
+        policy.apply_override(&ov).unwrap();
+        assert!(policy.ensure_final_newline);
+        // Other fields stay at defaults.
+        assert!(matches!(policy.normalize_eol, EolMode::Keep));
+        assert!(!policy.trim_trailing_whitespace);
+        assert!(!policy.collapse_blanks);
+    }
+
+    #[test]
+    fn write_policy_override_invalid_normalize_eol() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            normalize_eol: Some("invalid".to_string()),
+            ..Default::default()
+        };
+        let err = policy.apply_override(&ov).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid normalize_eol value"),
+            "expected invalid eol error, got: {err}"
+        );
+        // Policy should not have been partially mutated before the error.
+        assert!(matches!(policy.normalize_eol, EolMode::Keep));
+    }
+
+    #[test]
+    fn write_policy_override_lf() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            normalize_eol: Some("lf".to_string()),
+            ..Default::default()
+        };
+        policy.apply_override(&ov).unwrap();
+        assert!(matches!(policy.normalize_eol, EolMode::Lf));
+    }
+
+    #[test]
+    fn write_policy_override_crlf() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            normalize_eol: Some("crlf".to_string()),
+            ..Default::default()
+        };
+        policy.apply_override(&ov).unwrap();
+        assert!(matches!(policy.normalize_eol, EolMode::Crlf));
+    }
 }

@@ -184,6 +184,9 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(without_section.len() + section_text.len() + 2);
                     out.push_str(&without_section[..dest_body_end]);
+                    if !out.ends_with("\n\n") && !out.is_empty() {
+                        out.push('\n');
+                    }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
                         out.push('\n');
@@ -211,6 +214,9 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(dest_content.len() + section_text.len() + 2);
                     out.push_str(&dest_content[..dest_body_end]);
+                    if !out.ends_with("\n\n") && !out.is_empty() {
+                        out.push('\n');
+                    }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
                         out.push('\n');
@@ -296,14 +302,19 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         }
     }
 
-    let mut out = String::with_capacity(content.len() + normalized.len() + 2);
+    let mut out = String::with_capacity(content.len() + normalized.len() + 4);
     out.push_str(&content[..body_end]);
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
     out.push_str(&normalized);
     out.push('\n');
-    out.push_str(&content[body_end..]);
+    // Preserve the blank line separator before the next heading.
+    let remainder = &content[body_end..];
+    if remainder.starts_with('#') && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    out.push_str(remainder);
     Some(out)
 }
 
@@ -726,6 +737,30 @@ mod tests {
         }
 
         #[test]
+        fn upsert_bullet_preserves_blank_line_before_next_heading() {
+            // Regression test for #973: upsert_bullet consumed the blank line
+            // separating the section body from the next heading.
+            let content =
+                "## Section A\n\n- Bullet one\n- Bullet two\n\n## Section B\n\nContent B.\n";
+            let result = upsert_bullet_in(content, "Section A", "- Bullet three").unwrap();
+            assert!(
+                result.contains("- Bullet three\n\n## Section B"),
+                "blank line before next heading must be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_preserves_blank_before_sub_heading() {
+            // #973 variant: subsection headings (###) also need blank line preservation.
+            let content = "### Bug Fixes\n\n- Fix one\n\n### Dependencies\n\nDep content.\n";
+            let result = upsert_bullet_in(content, "Bug Fixes", "- Fix two").unwrap();
+            assert!(
+                result.contains("- Fix two\n\n### Dependencies"),
+                "blank line before sub-heading must be preserved: {result}"
+            );
+        }
+
+        #[test]
         fn dedupe_headings_removes_duplicate() {
             let content = "# Title\nFirst\n# Title\nSecond\n";
             let (result, removed) = dedupe_headings_in(content);
@@ -869,6 +904,401 @@ mod tests {
         fn move_section_missing_target_heading() {
             let content = "# A\nbody\n# B\nbody\n";
             assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_none());
+        }
+    }
+
+    // ── Issue #976: lint helper tests ──────────────────────────────────
+    mod lint_helper_tests {
+        use crate::ops::md::*;
+
+        // ── strip_inline_code ─────────────────────────────────────────
+
+        #[test]
+        fn strip_inline_code_basic() {
+            assert_eq!(strip_inline_code("use `foo` here"), "use  here");
+        }
+
+        #[test]
+        fn strip_inline_code_multiple_spans() {
+            assert_eq!(strip_inline_code("`a` and `b`"), " and ");
+        }
+
+        #[test]
+        fn strip_inline_code_no_backticks_returns_borrowed() {
+            let result = strip_inline_code("no backticks");
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+            assert_eq!(result, "no backticks");
+        }
+
+        #[test]
+        fn strip_inline_code_unmatched_backtick() {
+            assert_eq!(strip_inline_code("before `after"), "before after");
+        }
+
+        #[test]
+        fn strip_inline_code_empty_string() {
+            let result = strip_inline_code("");
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn strip_inline_code_adjacent_backticks() {
+            assert_eq!(strip_inline_code("``"), "");
+        }
+
+        #[test]
+        fn strip_inline_code_only_backtick_content() {
+            assert_eq!(strip_inline_code("`code`"), "");
+        }
+
+        #[test]
+        fn strip_inline_code_text_around_spans() {
+            assert_eq!(strip_inline_code("start `mid` end"), "start  end");
+        }
+
+        // ── has_dangerous_git_add_dot ─────────────────────────────────
+
+        #[test]
+        fn git_add_dot_at_eol() {
+            assert!(has_dangerous_git_add_dot("git add ."));
+        }
+
+        #[test]
+        fn git_add_dot_followed_by_space() {
+            assert!(has_dangerous_git_add_dot("git add . && git commit"));
+        }
+
+        #[test]
+        fn git_add_dot_followed_by_tab() {
+            assert!(has_dangerous_git_add_dot("git add .\tnext"));
+        }
+
+        #[test]
+        fn git_add_dotgitignore_is_safe() {
+            assert!(!has_dangerous_git_add_dot("git add .gitignore"));
+        }
+
+        #[test]
+        fn git_add_dot_slash_is_safe() {
+            assert!(!has_dangerous_git_add_dot("git add ./file"));
+        }
+
+        #[test]
+        fn git_add_dot_mid_line() {
+            assert!(has_dangerous_git_add_dot("run git add . now"));
+        }
+
+        #[test]
+        fn git_add_dot_no_match() {
+            assert!(!has_dangerous_git_add_dot("no match here"));
+        }
+
+        #[test]
+        fn git_add_dot_empty_string() {
+            assert!(!has_dangerous_git_add_dot(""));
+        }
+
+        #[test]
+        fn git_add_dot_multiple_occurrences_first_safe() {
+            // First "git add .gitignore" is safe, second "git add ." is dangerous
+            assert!(has_dangerous_git_add_dot("git add .gitignore && git add ."));
+        }
+
+        #[test]
+        fn git_add_dot_multiple_occurrences_all_safe() {
+            assert!(!has_dangerous_git_add_dot(
+                "git add .gitignore && git add .env"
+            ));
+        }
+    }
+
+    // ── Issue #975: empty section boundary tests ──────────────────────
+    mod empty_section_tests {
+        use crate::ops::md::*;
+
+        #[test]
+        fn find_section_empty_body() {
+            // Heading immediately followed by another heading => empty body
+            let content = "# A\n# B\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(
+                start, end,
+                "empty section should have body_start == body_end"
+            );
+            // The body slice should be empty
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn find_section_empty_body_with_subsection() {
+            // ## level heading immediately after # level => # A body includes ## B
+            // but if both are same level, body is empty
+            let content = "## A\n## B\nB body\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn replace_section_empty_body_inserts_content() {
+            let content = "# A\n# B\n";
+            let result = replace_section_in(content, "A", "new content").unwrap();
+            assert_eq!(result, "# A\nnew content\n# B\n");
+        }
+
+        #[test]
+        fn replace_section_empty_body_with_empty_replacement() {
+            let content = "# A\n# B\n";
+            let result = replace_section_in(content, "A", "").unwrap();
+            assert_eq!(result, "# A\n# B\n");
+        }
+
+        #[test]
+        fn insert_after_heading_empty_section() {
+            let content = "# A\n# B\n";
+            let result = insert_after_heading_in(content, "A", "inserted\n").unwrap();
+            assert_eq!(result, "# A\ninserted\n# B\n");
+        }
+
+        #[test]
+        fn insert_after_heading_empty_section_no_trailing_newline() {
+            let content = "# A\n# B\n";
+            let result = insert_after_heading_in(content, "A", "inserted").unwrap();
+            // Function appends \n when insertion doesn't end with one
+            assert!(result.contains("# A\ninserted\n# B\n"));
+        }
+
+        #[test]
+        fn upsert_bullet_empty_section() {
+            let content = "# A\n# B\n";
+            let result = upsert_bullet_in(content, "A", "- new bullet").unwrap();
+            assert!(
+                result.contains("- new bullet"),
+                "bullet should appear in result: {result}"
+            );
+            assert!(
+                result.contains("# B"),
+                "next heading should be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_empty_section_auto_prefix() {
+            let content = "# A\n# B\n";
+            let result = upsert_bullet_in(content, "A", "item without dash").unwrap();
+            assert!(
+                result.contains("- item without dash"),
+                "auto-prefix should be added: {result}"
+            );
+        }
+
+        #[test]
+        fn find_section_duplicate_headings_returns_first() {
+            let content = "# A\nfirst body\n# B\nmiddle\n# A\nsecond body\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            let body = &content[start..end];
+            assert_eq!(body, "first body\n");
+        }
+
+        #[test]
+        fn find_section_eof_without_trailing_newline() {
+            let content = "# A\ncontent";
+            let (start, end) = find_section(content, "A").unwrap();
+            let body = &content[start..end];
+            assert_eq!(body, "content");
+        }
+
+        #[test]
+        fn find_section_single_heading_no_body_no_newline() {
+            let content = "# A";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(start, end);
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn replace_section_eof_without_trailing_newline() {
+            let content = "# A\nold content";
+            let result = replace_section_in(content, "A", "new content").unwrap();
+            assert_eq!(result, "# A\nnew content\n");
+        }
+
+        #[test]
+        fn insert_after_heading_at_eof() {
+            let content = "# A\nexisting";
+            let result = insert_after_heading_in(content, "A", "inserted\n").unwrap();
+            assert_eq!(result, "# A\ninserted\nexisting");
+        }
+
+        #[test]
+        fn empty_section_three_consecutive_headings() {
+            // Both A and B are empty; C has body
+            let content = "# A\n# B\n# C\nbody\n";
+            let (a_start, a_end) = find_section(content, "A").unwrap();
+            assert_eq!(&content[a_start..a_end], "");
+
+            let (b_start, b_end) = find_section(content, "B").unwrap();
+            assert_eq!(&content[b_start..b_end], "");
+
+            let (c_start, c_end) = find_section(content, "C").unwrap();
+            assert_eq!(&content[c_start..c_end], "body\n");
+        }
+    }
+
+    // ── Issue #974: CRLF handling and mixed bullet styles ─────────────
+    mod crlf_and_bullet_tests {
+        use crate::ops::md::*;
+
+        // ── CRLF handling in table_append_in ──────────────────────────
+
+        #[test]
+        fn table_append_crlf_content_finds_correct_position() {
+            // CRLF content: the byte-offset tracking in table_append_in
+            // must correctly advance past \r\n (2 bytes) per line.
+            let content = "# T\r\n| H |\r\n|---|\r\n| v |\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| new |").unwrap();
+            // The new row must appear after the last data row.
+            assert!(
+                result.contains("| v |\r\n| new |"),
+                "row should be appended after existing data row in CRLF content: {:?}",
+                result
+            );
+            // The content before the insertion should be preserved.
+            assert!(
+                result.contains("| H |\r\n|---|\r\n| v |\r\n"),
+                "original CRLF table should be intact: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn table_append_crlf_header_only() {
+            // Table with only header + separator in CRLF content.
+            let content = "# T\r\n| H |\r\n|---|\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| a |").unwrap();
+            assert!(
+                result.contains("|---|\r\n| a |"),
+                "row should be appended after separator in CRLF content: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn table_append_crlf_multiple_data_rows() {
+            // Multiple data rows with CRLF; new row goes after the last one.
+            let content = "# T\r\n| H |\r\n|---|\r\n| a |\r\n| b |\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| c |").unwrap();
+            assert!(
+                result.contains("| b |\r\n| c |"),
+                "row should be appended after the last data row: {:?}",
+                result
+            );
+        }
+
+        // ── CRLF in parse_headings ────────────────────────────────────
+
+        #[test]
+        fn parse_headings_crlf_strips_carriage_return() {
+            // .lines() strips \r, so heading text should not contain \r.
+            let content = "## Heading One\r\n\r\nBody text.\r\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 1);
+            assert_eq!(headings[0].text, "Heading One");
+            assert!(
+                !headings[0].text.contains('\r'),
+                "heading text must not contain \\r"
+            );
+            assert_eq!(headings[0].level, 2);
+        }
+
+        #[test]
+        fn parse_headings_crlf_multiple_headings() {
+            let content = "# First\r\nBody 1\r\n## Second\r\nBody 2\r\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "First");
+            assert_eq!(headings[1].text, "Second");
+            // Verify section boundaries are correct.
+            assert_eq!(headings[0].line_start, 0);
+            assert_eq!(headings[1].line_start, 2);
+        }
+
+        #[test]
+        fn find_section_crlf_returns_correct_body() {
+            let content = "## Heading One\r\n\r\nBody text.\r\n## Next\r\n";
+            let (start, end) = find_section(content, "Heading One").unwrap();
+            let body = &content[start..end];
+            // Body should include the blank line and body text between headings.
+            assert!(
+                body.contains("Body text."),
+                "body should contain body text: {:?}",
+                body
+            );
+        }
+
+        // ── Mixed bullet styles in upsert_bullet_in ──────────────────
+
+        #[test]
+        fn upsert_bullet_star_prefix_kept_as_is() {
+            // When input starts with "* ", it is kept as-is (not converted to "- ").
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "* new item").unwrap();
+            assert!(
+                result.contains("* new item"),
+                "star-prefixed bullet should be preserved: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_star_dedup_same_style() {
+            // Upserting "* existing item" when body already has "* existing item"
+            // should dedup (same style, same text).
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "* existing item").unwrap();
+            assert_eq!(result, content, "same-style duplicate should be deduped");
+        }
+
+        #[test]
+        fn upsert_bullet_cross_style_dash_into_star_no_dedup() {
+            // Upserting "- existing item" when body has "* existing item":
+            // normalized form is "- existing item" which does NOT match
+            // "* existing item", so it appends (no cross-style dedup).
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "- existing item").unwrap();
+            assert!(
+                result.contains("* existing item") && result.contains("- existing item"),
+                "cross-style bullets should not dedup: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_no_prefix_into_star_content_no_dedup() {
+            // Upserting "existing item" (no prefix) normalizes to "- existing item"
+            // which does not match body's "* existing item".
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "existing item").unwrap();
+            assert!(
+                result.contains("* existing item") && result.contains("- existing item"),
+                "auto-prefixed dash should not dedup against star bullet: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_dash_appends_after_star_items() {
+            // "- new item" appended correctly after existing "* " items.
+            let content = "# List\n\n* alpha\n* beta\n";
+            let result = upsert_bullet_in(content, "List", "- new item").unwrap();
+            assert!(
+                result.contains("* beta\n- new item\n"),
+                "new dash bullet should follow existing star bullets: {:?}",
+                result
+            );
         }
     }
 }
