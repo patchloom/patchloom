@@ -3,7 +3,7 @@ use crate::cli::global::GlobalFlags;
 use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
 use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::write::{atomic_write, policy_from_flags};
-use anyhow::bail;
+use anyhow::{Context, bail};
 use clap::Args;
 use serde::Serialize;
 use std::fs;
@@ -61,7 +61,8 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("target is not a file: {}", args.file);
     }
 
-    let existing = fs::read_to_string(&path)?;
+    let existing = fs::read_to_string(&path)
+        .with_context(|| format!("reading {}", args.file))?;
     let combined = crate::ops::file::append_content(&existing, &append_content);
 
     let diff_fn = |color: bool| {
