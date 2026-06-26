@@ -70,7 +70,7 @@ pub enum Command {
     Md(md::MdArgs),
 
     // -- AST Operations (display_order 40-49) --
-    /// AST-aware operations: list, read, rename, validate.
+    /// AST-aware operations: list, read, rename, validate, search, refs, deps, map, replace, impact, diff.
     #[cfg(feature = "ast")]
     #[command(display_order = 40)]
     Ast(ast::AstArgs),

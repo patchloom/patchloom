@@ -1,4 +1,4 @@
-//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps`.
+//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef, SymbolKind};
