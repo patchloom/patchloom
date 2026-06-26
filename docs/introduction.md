@@ -37,7 +37,7 @@ EOF
 | | `patch` | Preview or apply unified diffs |
 | Structured | `doc` | Parser-backed JSON, YAML, and TOML operations |
 | | `md` | Markdown section-aware operations |
-| Code | `ast` | AST-aware symbol operations via tree-sitter (20 languages) |
+| Code | `ast` | AST-aware symbol operations (20 languages) |
 | Files | `append` | Append content to an existing file |
 | | `create` | Create a new file with content |
 | | `delete` | Delete a file |
