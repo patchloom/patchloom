@@ -459,3 +459,120 @@ pub fn execute_plan_direct(
     let output = build_full_tx_output("success", &mut result, &effective_cwd);
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- lifecycle_failure_msg ----
+
+    #[test]
+    fn lifecycle_failure_msg_no_stderr() {
+        assert_eq!(lifecycle_failure_msg("step failed", ""), "step failed");
+    }
+
+    #[test]
+    fn lifecycle_failure_msg_whitespace_only_stderr() {
+        assert_eq!(
+            lifecycle_failure_msg("step failed", "  \n  "),
+            "step failed"
+        );
+    }
+
+    #[test]
+    fn lifecycle_failure_msg_with_stderr() {
+        let msg = lifecycle_failure_msg("step failed", "  error: bad input\n");
+        assert_eq!(msg, "step failed: error: bad input");
+    }
+
+    // ---- resolve_plan_cwd ----
+
+    #[test]
+    fn resolve_plan_cwd_none() {
+        let base = Path::new("/base/dir");
+        assert_eq!(resolve_plan_cwd(base, None), PathBuf::from("/base/dir"));
+    }
+
+    #[test]
+    fn resolve_plan_cwd_relative() {
+        let base = Path::new("/base/dir");
+        assert_eq!(
+            resolve_plan_cwd(base, Some("sub/path")),
+            PathBuf::from("/base/dir/sub/path")
+        );
+    }
+
+    #[test]
+    fn resolve_plan_cwd_absolute() {
+        let base = Path::new("/base/dir");
+        assert_eq!(
+            resolve_plan_cwd(base, Some("/other/dir")),
+            PathBuf::from("/other/dir")
+        );
+    }
+
+    // ---- CommitError ----
+
+    #[test]
+    fn commit_error_display() {
+        let err = CommitError {
+            message: "write failed".into(),
+            rollback_ok: true,
+            backup_session: None,
+        };
+        assert_eq!(format!("{err}"), "write failed");
+    }
+
+    #[test]
+    fn commit_error_helper() {
+        let err = commit_error("test message");
+        assert_eq!(err.message, "test message");
+        assert!(err.rollback_ok);
+        assert!(err.backup_session.is_none());
+    }
+
+    // ---- RestoreFailGuard ----
+
+    #[test]
+    fn restore_fail_guard_toggles_flag() {
+        // Before engaging, restore should succeed (flag is false).
+        assert!(!FORCE_RESTORE_FAIL.with(|f| f.load(std::sync::atomic::Ordering::SeqCst)));
+
+        {
+            let _guard = RestoreFailGuard::engage();
+            assert!(FORCE_RESTORE_FAIL.with(|f| f.load(std::sync::atomic::Ordering::SeqCst)));
+        }
+
+        // After guard is dropped, flag is reset.
+        assert!(!FORCE_RESTORE_FAIL.with(|f| f.load(std::sync::atomic::Ordering::SeqCst)));
+    }
+
+    // ---- LifecycleError ----
+
+    #[test]
+    fn lifecycle_error_fields() {
+        let err = LifecycleError {
+            message: "validation step 1 failed".into(),
+            kind: "validation_failed",
+        };
+        assert_eq!(err.message, "validation step 1 failed");
+        assert_eq!(err.kind, "validation_failed");
+    }
+
+    // ---- run_lifecycle ----
+
+    #[test]
+    fn run_lifecycle_no_steps() {
+        let plan = Plan {
+            version: crate::plan::SCHEMA_VERSION.to_string(),
+            operations: Vec::new(),
+            format: None,
+            validate: None,
+            cwd: None,
+            strict: None,
+            write_policy: None,
+        };
+        let cwd = Path::new("/tmp");
+        assert!(run_lifecycle(&plan, cwd, cwd).is_none());
+    }
+}

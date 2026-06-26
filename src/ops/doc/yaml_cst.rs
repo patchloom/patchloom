@@ -210,3 +210,260 @@ fn json_to_yaml_mapping(val: &serde_json::Value) -> anyhow::Result<yaml_edit::Ma
     }
     Ok(mapping)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Helper: parse YAML text into a `yaml_edit::Document`, extract its root mapping.
+    fn parse_yaml(text: &str) -> yaml_edit::Document {
+        use std::str::FromStr;
+        yaml_edit::Document::from_str(text).unwrap()
+    }
+
+    /// Round-trip helper: apply a mapping diff and serialize back.
+    fn apply_and_serialize(yaml: &str, old: &serde_json::Value, new: &serde_json::Value) -> String {
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        apply_yaml_mapping_diff(&mapping, old, new).unwrap();
+        doc.to_string()
+    }
+
+    // ---- json_to_yaml_node ----
+
+    /// Helper: insert a json_to_yaml_node result into a pre-existing doc
+    /// and return the serialized text.
+    fn set_and_render(key: &str, val: &serde_json::Value) -> String {
+        let doc = parse_yaml(&format!("{key}: placeholder\n"));
+        let mapping = doc.as_mapping().unwrap();
+        let node = json_to_yaml_node(val).unwrap();
+        mapping.set(key, node);
+        doc.to_string()
+    }
+
+    #[test]
+    fn json_to_yaml_node_scalar() {
+        let text = set_and_render("key", &json!("hello"));
+        assert!(text.contains("hello"));
+    }
+
+    #[test]
+    fn json_to_yaml_node_number() {
+        let text = set_and_render("val", &json!(42));
+        assert!(text.contains("42"));
+    }
+
+    #[test]
+    fn json_to_yaml_node_boolean() {
+        let text = set_and_render("flag", &json!(true));
+        assert!(text.contains("true"));
+    }
+
+    #[test]
+    fn json_to_yaml_node_array() {
+        let text = set_and_render("list", &json!(["a", "b", "c"]));
+        assert!(text.contains("- a"));
+        assert!(text.contains("- b"));
+        assert!(text.contains("- c"));
+    }
+
+    #[test]
+    fn json_to_yaml_node_nested_object() {
+        let text = set_and_render("outer", &json!({"inner": "value"}));
+        assert!(text.contains("inner: value"));
+    }
+
+    // ---- json_to_yaml_mapping ----
+
+    #[test]
+    fn json_to_yaml_mapping_basic() {
+        // json_to_yaml_mapping creates a populated Mapping. Verify by
+        // setting it as a nested value and checking the rendered YAML.
+        let val = json!({"alpha": 1, "beta": "two"});
+        let mapping_node = json_to_yaml_mapping(&val).unwrap();
+        let doc = parse_yaml("outer: placeholder\n");
+        let root = doc.as_mapping().unwrap();
+        root.set("outer", &mapping_node);
+        let text = doc.to_string();
+        assert!(text.contains("alpha"));
+        assert!(text.contains("beta"));
+    }
+
+    #[test]
+    fn json_to_yaml_mapping_non_object_is_empty() {
+        let val = json!("not an object");
+        let mapping = json_to_yaml_mapping(&val).unwrap();
+        // Non-object: returns empty mapping (no keys set).
+        assert!(mapping.get("anything").is_none());
+    }
+
+    // ---- apply_yaml_mapping_diff ----
+
+    #[test]
+    fn mapping_diff_no_change() {
+        let yaml = "key: value\n";
+        let old = json!({"key": "value"});
+        let new = json!({"key": "value"});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert_eq!(result, yaml);
+    }
+
+    #[test]
+    fn mapping_diff_scalar_update() {
+        let yaml = "name: old\n";
+        let old = json!({"name": "old"});
+        let new = json!({"name": "new"});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(result.contains("name: new"));
+    }
+
+    #[test]
+    fn mapping_diff_add_key() {
+        let yaml = "existing: yes\n";
+        let old = json!({"existing": "yes"});
+        let new = json!({"existing": "yes", "added": "here"});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(result.contains("existing: yes"));
+        assert!(result.contains("added: here"));
+    }
+
+    #[test]
+    fn mapping_diff_remove_key() {
+        let yaml = "keep: yes\nremove: me\n";
+        let old = json!({"keep": "yes", "remove": "me"});
+        let new = json!({"keep": "yes"});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(result.contains("keep: yes"));
+        assert!(!result.contains("remove"));
+    }
+
+    #[test]
+    fn mapping_diff_nested_object_update() {
+        let yaml = "parent:\n  child: old\n";
+        let old = json!({"parent": {"child": "old"}});
+        let new = json!({"parent": {"child": "new"}});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(result.contains("child: new"));
+    }
+
+    #[test]
+    fn mapping_diff_type_change() {
+        let yaml = "key: scalar\n";
+        let old = json!({"key": "scalar"});
+        let new = json!({"key": ["array", "now"]});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(result.contains("- array"));
+    }
+
+    // ---- try_remove_subsequence ----
+
+    #[test]
+    fn try_remove_subsequence_simple_tail() {
+        let yaml = "items:\n  - a\n  - b\n  - c\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+
+        let old = vec![json!("a"), json!("b"), json!("c")];
+        let new = vec![json!("a"), json!("b")];
+        assert!(try_remove_subsequence(&seq, &old, &new));
+
+        let result = doc.to_string();
+        assert!(result.contains("- a"));
+        assert!(result.contains("- b"));
+        assert!(!result.contains("- c"));
+    }
+
+    #[test]
+    fn try_remove_subsequence_middle() {
+        let yaml = "items:\n  - x\n  - y\n  - z\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+
+        let old = vec![json!("x"), json!("y"), json!("z")];
+        let new = vec![json!("x"), json!("z")];
+        assert!(try_remove_subsequence(&seq, &old, &new));
+
+        let result = doc.to_string();
+        assert!(result.contains("- x"));
+        assert!(!result.contains("- y"));
+        assert!(result.contains("- z"));
+    }
+
+    #[test]
+    fn try_remove_subsequence_not_subsequence() {
+        let yaml = "items:\n  - a\n  - b\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+
+        let old = vec![json!("a"), json!("b")];
+        let new = vec![json!("c")]; // "c" not in old
+        assert!(!try_remove_subsequence(&seq, &old, &new));
+    }
+
+    // ---- apply_yaml_sequence_diff ----
+
+    #[test]
+    fn sequence_diff_scalar_update() {
+        let yaml = "list:\n  - one\n  - two\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("list").unwrap();
+
+        let old = vec![json!("one"), json!("two")];
+        let new = vec![json!("ONE"), json!("two")];
+        assert!(apply_yaml_sequence_diff(&seq, &old, &new).unwrap());
+
+        let result = doc.to_string();
+        assert!(result.contains("ONE"));
+        assert!(result.contains("two"));
+    }
+
+    #[test]
+    fn sequence_diff_no_change() {
+        let yaml = "list:\n  - a\n  - b\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("list").unwrap();
+
+        let old = vec![json!("a"), json!("b")];
+        let new = vec![json!("a"), json!("b")];
+        assert!(apply_yaml_sequence_diff(&seq, &old, &new).unwrap());
+    }
+
+    // ---- apply_yaml_sequence_resize ----
+
+    #[test]
+    fn sequence_resize_shrink() {
+        let yaml = "items:\n  - a\n  - b\n  - c\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+
+        let old = vec![json!("a"), json!("b"), json!("c")];
+        let new = vec![json!("a"), json!("c")];
+        let new_val = json!(["a", "c"]);
+        assert!(apply_yaml_sequence_resize(
+            &seq, &old, &new, &mapping, "items", &new_val
+        ));
+    }
+
+    #[test]
+    fn sequence_resize_grow_returns_false() {
+        let yaml = "items:\n  - a\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+
+        let old = vec![json!("a")];
+        let new = vec![json!("a"), json!("b")];
+        let new_val = json!(["a", "b"]);
+        // Growth is not handled by CST path, returns false.
+        assert!(!apply_yaml_sequence_resize(
+            &seq, &old, &new, &mapping, "items", &new_val
+        ));
+    }
+}

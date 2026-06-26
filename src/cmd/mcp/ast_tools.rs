@@ -631,3 +631,215 @@ pub(super) fn handle_ast_replace(
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(json)]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::RawContent;
+    use tempfile::TempDir;
+
+    fn make_service(dir: &TempDir) -> PatchloomService {
+        PatchloomService::new(dir.path().to_path_buf(), None).unwrap()
+    }
+
+    /// Extract text from the first Content item in a CallToolResult.
+    fn extract_text(result: &CallToolResult) -> String {
+        match &result.content[0].raw {
+            RawContent::Text(t) => t.text.clone(),
+            other => panic!("expected text content, got {other:?}"),
+        }
+    }
+
+    const RUST_SAMPLE: &str = r#"
+fn greet(name: &str) -> String {
+    format!("Hello, {name}!")
+}
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn origin() -> Self {
+        Point { x: 0.0, y: 0.0 }
+    }
+}
+"#;
+
+    #[test]
+    fn ast_list_single_file() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstListParams {
+            path: "sample.rs".into(),
+            kind: None,
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_list(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("greet"));
+        assert!(text.contains("Point"));
+    }
+
+    #[test]
+    fn ast_list_kind_filter() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstListParams {
+            path: "sample.rs".into(),
+            kind: Some("struct".into()),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_list(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("Point"));
+        assert!(!text.contains("\"greet\""));
+    }
+
+    #[test]
+    fn ast_list_path_not_found() {
+        let dir = TempDir::new().unwrap();
+        let svc = make_service(&dir);
+        let params = AstListParams {
+            path: "nonexistent.rs".into(),
+            kind: None,
+            lang: None,
+        };
+
+        let result = handle_ast_list(&svc, params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ast_read_symbol() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstReadParams {
+            path: "sample.rs".into(),
+            symbol: "greet".into(),
+            context: 0,
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_read(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("greet"));
+        assert!(text.contains("Hello"));
+    }
+
+    #[test]
+    fn ast_read_symbol_not_found() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstReadParams {
+            path: "sample.rs".into(),
+            symbol: "nonexistent_fn".into(),
+            context: 0,
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_read(&svc, params);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ast_validate_valid_file() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("valid.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstValidateParams {
+            path: "valid.rs".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_validate(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("\"valid\": true"));
+    }
+
+    #[test]
+    fn ast_validate_syntax_error() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("bad.rs"), "fn broken( {").unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstValidateParams {
+            path: "bad.rs".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_validate(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("\"valid\": false"));
+    }
+
+    #[test]
+    fn ast_search_finds_pattern() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstSearchParams {
+            path: "sample.rs".into(),
+            query: "(function_item name: (identifier) @name)".into(),
+            pattern: false,
+            lang: Some("rs".into()),
+            max_results: None,
+        };
+
+        let result = handle_ast_search(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("greet"));
+    }
+
+    #[test]
+    fn ast_rename_replaces_symbol() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            old_name: "greet".into(),
+            new_name: "salute".into(),
+            path: "rename.rs".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).unwrap();
+        let text = extract_text(&result);
+        assert!(text.contains("\"ok\": true"));
+
+        let content = std::fs::read_to_string(dir.path().join("rename.rs")).unwrap();
+        assert!(content.contains("salute"));
+        assert!(!content.contains("greet"));
+    }
+
+    #[test]
+    fn ast_rename_same_name_no_match() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            old_name: "greet".into(),
+            new_name: "greet".into(),
+            path: "sample.rs".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).unwrap();
+        assert!(result.is_error.unwrap_or(false));
+    }
+}

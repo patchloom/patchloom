@@ -862,3 +862,213 @@ pub(crate) fn execute_and_collect(
         replace_hint,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    // ---- read_file_content ----
+
+    #[test]
+    fn read_file_content_from_disk() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        let content = read_file_content(&mut pending, &mut existed, &file).unwrap();
+        assert_eq!(content, "hello world");
+        assert!(existed.contains(&file));
+        assert!(pending.contains_key(&file));
+        // Original and current should both be "hello world".
+        let (orig, cur) = &pending[&file];
+        assert_eq!(orig, "hello world");
+        assert_eq!(cur, "hello world");
+    }
+
+    #[test]
+    fn read_file_content_from_pending() {
+        let path = PathBuf::from("/fake/already_loaded.txt");
+        let mut pending = HashMap::new();
+        pending.insert(
+            path.clone(),
+            ("original".to_string(), "modified".to_string()),
+        );
+        let mut existed = HashSet::new();
+
+        let content = read_file_content(&mut pending, &mut existed, &path).unwrap();
+        assert_eq!(content, "modified");
+        // Should not add to existed_before since it was already in pending.
+        assert!(!existed.contains(&path));
+    }
+
+    #[test]
+    fn read_file_content_missing_file_errors() {
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+        let path = PathBuf::from("/nonexistent/file.txt");
+
+        let result = read_file_content(&mut pending, &mut existed, &path);
+        assert!(result.is_err());
+    }
+
+    // ---- read_and_probe ----
+
+    #[test]
+    fn read_and_probe_text_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("text.txt");
+        std::fs::write(&file, "text content").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        assert!(read_and_probe(&mut pending, &mut existed, &file).unwrap());
+        assert!(pending.contains_key(&file));
+    }
+
+    #[test]
+    fn read_and_probe_binary_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("binary.bin");
+        // Write bytes with NUL to trigger binary detection.
+        std::fs::write(&file, b"\x00\x01\x02\x03").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut existed = HashSet::new();
+
+        assert!(!read_and_probe(&mut pending, &mut existed, &file).unwrap());
+        assert!(!pending.contains_key(&file));
+    }
+
+    #[test]
+    fn read_and_probe_already_loaded_skips() {
+        let path = PathBuf::from("/fake/loaded.txt");
+        let mut pending = HashMap::new();
+        pending.insert(path.clone(), ("orig".to_string(), "cur".to_string()));
+        let mut existed = HashSet::new();
+
+        assert!(read_and_probe(&mut pending, &mut existed, &path).unwrap());
+    }
+
+    // ---- update_file_content ----
+
+    #[test]
+    fn update_file_content_existing_entry() {
+        let path = PathBuf::from("/fake/file.txt");
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        pending.insert(path.clone(), ("original".to_string(), "old".to_string()));
+
+        update_file_content(&mut pending, &mut deletions, &path, "new content".into());
+
+        let (orig, cur) = &pending[&path];
+        assert_eq!(orig, "original"); // original preserved
+        assert_eq!(cur, "new content");
+    }
+
+    #[test]
+    fn update_file_content_new_entry() {
+        let path = PathBuf::from("/fake/new_file.txt");
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+
+        update_file_content(&mut pending, &mut deletions, &path, "content".into());
+
+        let (orig, cur) = &pending[&path];
+        assert!(orig.is_empty()); // no original for new files
+        assert_eq!(cur, "content");
+    }
+
+    #[test]
+    fn update_file_content_clears_deletion() {
+        let path = PathBuf::from("/fake/file.txt");
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        deletions.insert(path.clone());
+
+        update_file_content(&mut pending, &mut deletions, &path, "revived".into());
+
+        assert!(!deletions.contains(&path));
+    }
+
+    // ---- path_err ----
+
+    #[test]
+    fn path_err_wraps_message() {
+        let wrapper = path_err("config.yaml");
+        let err = wrapper("invalid key");
+        assert_eq!(format!("{err}"), "config.yaml: invalid key");
+    }
+
+    // ---- op_needs_doc_flush ----
+
+    #[test]
+    fn op_needs_doc_flush_for_replace() {
+        let op = Operation::Replace {
+            path: Some("f.txt".into()),
+            glob: None,
+            mode: None,
+            from: "a".into(),
+            to: Some("b".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+        assert!(op_needs_doc_flush(&op));
+    }
+
+    #[test]
+    fn op_needs_doc_flush_false_for_doc_set() {
+        let op = Operation::DocSet {
+            path: "f.json".into(),
+            selector: "key".into(),
+            value: serde_json::json!("val"),
+        };
+        assert!(!op_needs_doc_flush(&op));
+    }
+
+    #[test]
+    fn op_needs_doc_flush_for_read() {
+        let op = Operation::Read {
+            path: "f.txt".into(),
+            lines: None,
+        };
+        assert!(op_needs_doc_flush(&op));
+    }
+
+    #[test]
+    fn op_needs_doc_flush_for_search() {
+        let op = Operation::Search {
+            path: "src".into(),
+            pattern: "TODO".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+        assert!(op_needs_doc_flush(&op));
+    }
+}
