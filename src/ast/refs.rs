@@ -465,6 +465,24 @@ int main() {
     }
 
     #[test]
+    fn find_all_refs_returns_all_identifiers() {
+        let source = "fn foo() {}\nfn bar() { foo(); }\n";
+        let lang = Language::Rust;
+        let (tree, _) = crate::ast::parse_source(source, lang).expect("parse");
+        let all = find_all_refs_in_source_with_tree(source, &tree, "test.rs");
+        // Should contain both "foo" and "bar" identifiers
+        let names: Vec<&str> = all.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"foo"), "should contain foo, got {names:?}");
+        assert!(names.contains(&"bar"), "should contain bar, got {names:?}");
+        // "foo" should appear at least twice (def + ref from bar)
+        let foo_count = names.iter().filter(|n| **n == "foo").count();
+        assert!(
+            foo_count >= 2,
+            "foo should appear at least twice (def + ref), got {foo_count}"
+        );
+    }
+
+    #[test]
     fn ref_kind_serializes() {
         let json = serde_json::to_string(&RefKind::Definition).unwrap();
         assert_eq!(json, "\"definition\"");
