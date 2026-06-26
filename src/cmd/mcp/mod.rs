@@ -1262,7 +1262,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "List symbol definitions (functions, classes, structs, enums, methods, etc.) in a file or directory using tree-sitter AST parsing. Supports 20 languages. Example: {\"path\": \"src/\"} or {\"path\": \"main.py\", \"kind\": \"function,class\"}"
+        description = "List symbol definitions (functions, classes, structs, enums, methods, etc.) in a file or directory. Supports 20 languages. Example: {\"path\": \"src/\"} or {\"path\": \"main.py\", \"kind\": \"function,class\"}"
     )]
     async fn ast_list(
         &self,
@@ -1274,7 +1274,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Read a specific symbol's source code by name from a file. Uses tree-sitter to find the exact definition. Example: {\"path\": \"src/main.rs\", \"symbol\": \"run\"}"
+        description = "Read a specific symbol's source code by name from a file. Uses AST parsing to find the exact definition. Example: {\"path\": \"src/main.rs\", \"symbol\": \"run\"}"
     )]
     async fn ast_read(
         &self,
@@ -1286,7 +1286,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Uses tree-sitter for semantic accuracy. Example: {\"old_name\": \"process_data\", \"new_name\": \"transform_data\", \"path\": \"src/\"}"
+        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"old_name\": \"process_data\", \"new_name\": \"transform_data\", \"path\": \"src/\"}"
     )]
     async fn ast_rename(
         &self,
@@ -1298,7 +1298,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Validate syntax of source files using tree-sitter. Returns parse errors with line numbers. Supports 20 languages. Example: {\"path\": \"src/main.rs\"}"
+        description = "Validate syntax of source files. Returns parse errors with line numbers. Supports 20 languages. Example: {\"path\": \"src/main.rs\"}"
     )]
     async fn ast_validate(
         &self,
@@ -1310,7 +1310,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Structural search using tree-sitter queries. Use S-expression syntax or set pattern=true for code patterns with meta-variables ($VAR, $$$MULTI). Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
+        description = "Structural search using AST queries. Use S-expression syntax or set pattern=true for code patterns with meta-variables ($VAR, $$$MULTI). Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
     )]
     async fn ast_search(
         &self,
@@ -1322,7 +1322,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Find all references to a symbol across files using tree-sitter AST analysis. Distinguishes definitions from references. Example: {\"symbol\": \"process_data\", \"path\": \"src/\"}"
+        description = "Find all references to a symbol across files using AST analysis. Distinguishes definitions from references. Example: {\"symbol\": \"process_data\", \"path\": \"src/\"}"
     )]
     async fn ast_refs(
         &self,
@@ -1382,7 +1382,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Replace text only within a specific symbol's body using tree-sitter scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"from\": \"unwrap()\", \"to\": \"expect(\\\"parse failed\\\")\"}"
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"from\": \"unwrap()\", \"to\": \"expect(\\\"parse failed\\\")\"}"
     )]
     async fn ast_replace(
         &self,
