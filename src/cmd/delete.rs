@@ -1,6 +1,7 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
-use anyhow::Context;
+use crate::cmd::output::execute_via_engine_no_preview_diffs;
+use crate::cmd::write_dispatch::WritePhase;
+use crate::plan::Operation;
 use clap::Args;
 use serde::Serialize;
 
@@ -23,14 +24,6 @@ struct DeleteOutput {
     applied: bool,
 }
 
-fn delete_with_backup(path: &std::path::Path, cwd: &std::path::Path) -> anyhow::Result<()> {
-    let mut backup = crate::backup::BackupSession::new(cwd)?;
-    backup.save_before_delete(path)?;
-    std::fs::remove_file(path).with_context(|| format!("failed to delete {}", path.display()))?;
-    backup.finalize()?;
-    Ok(())
-}
-
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let path = cwd.join(&args.file);
@@ -42,25 +35,23 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("target is not a file: {}", args.file);
     }
 
+    let op = Operation::FileDelete {
+        path: args.file.clone(),
+    };
+
     let check_msg = format!("would delete {}", args.file);
     let apply_msg = format!("deleted {}", args.file);
-    let post_msg = format!("deleted {}", args.file);
 
-    execute_write(
+    execute_via_engine_no_preview_diffs(
+        op,
         global,
-        &cwd,
         |phase, _diff| DeleteOutput {
             ok: true,
             path: args.file.clone(),
             applied: matches!(phase, WritePhase::Applied | WritePhase::Confirmed(true)),
         },
-        None::<&dyn Fn(bool) -> String>,
-        || delete_with_backup(&path, &cwd),
-        WriteMessages {
-            check: &check_msg,
-            apply: &apply_msg,
-            post_confirm: Some(&post_msg),
-        },
+        &check_msg,
+        &apply_msg,
     )
 }
 

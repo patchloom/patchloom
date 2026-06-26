@@ -3,7 +3,7 @@
 use similar::TextDiff;
 
 /// Represents the diff for a single file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileDiff {
     /// The file path.
     pub path: String,

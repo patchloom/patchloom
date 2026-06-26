@@ -1,8 +1,8 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::execute_via_engine;
 use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
-use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
-use crate::write::{atomic_create_new, atomic_write, policy_from_flags};
+use crate::plan::Operation;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
@@ -29,47 +29,13 @@ pub struct RenameArgs {
 struct RenameOutput {
     ok: bool,
     from: String,
-    to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to: Option<String>,
+    action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RenameValidation {
-    NoOp,
-    Proceed,
-}
-
-fn validate_rename_paths(
-    src: &std::path::Path,
-    dst: &std::path::Path,
-    force: bool,
-    src_label: &str,
-    dst_label: &str,
-) -> anyhow::Result<RenameValidation> {
-    if !src.exists() {
-        anyhow::bail!("source file not found: {src_label}");
-    }
-    if !src.is_file() {
-        anyhow::bail!("source is not a file: {src_label}");
-    }
-    if dst.exists() && !dst.is_file() {
-        anyhow::bail!("destination is not a file: {dst_label}");
-    }
-    if src == dst
-        || matches!(
-            (src.canonicalize(), dst.canonicalize()),
-            (Ok(ref s), Ok(ref d)) if s == d
-        )
-    {
-        return Ok(RenameValidation::NoOp);
-    }
-    if !force && dst.exists() {
-        anyhow::bail!("destination already exists: {dst_label}");
-    }
-    Ok(RenameValidation::Proceed)
 }
 
 pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -77,13 +43,29 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    if validate_rename_paths(&src, &dst, args.force, &args.from, &args.to)?
-        == RenameValidation::NoOp
+    // Pre-validation for CLI-specific checks.
+    if !src.exists() {
+        anyhow::bail!("source file not found: {}", args.from);
+    }
+    if !src.is_file() {
+        anyhow::bail!("source is not a file: {}", args.from);
+    }
+    if dst.exists() && !dst.is_file() {
+        anyhow::bail!("destination is not a file: {}", args.to);
+    }
+
+    // Same-file no-op check.
+    if src == dst
+        || matches!(
+            (src.canonicalize(), dst.canonicalize()),
+            (Ok(ref s), Ok(ref d)) if s == d
+        )
     {
         let output = RenameOutput {
             ok: true,
             from: args.from.clone(),
-            to: args.to.clone(),
+            to: Some(args.to.clone()),
+            action: "renamed".to_string(),
             diff: None,
             applied: None,
         };
@@ -93,55 +75,97 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    // Pre-read source content so the diff closure works after the file is moved.
-    // Returns None for binary files (non-UTF-8).
-    let source_content = fs::read_to_string(&src).ok();
-    let is_binary = source_content.is_none();
+    if !args.force && dst.exists() {
+        anyhow::bail!("destination already exists: {}", args.to);
+    }
 
-    let diff_fn_impl = |color: bool| -> String {
-        if let Some(ref content) = source_content {
-            make_diff_output(&args.from, &args.to, content, color)
-        } else {
-            String::new()
-        }
+    // Binary files can't go through the tx engine (it reads as UTF-8 text).
+    // Use a direct fs::rename (or copy+delete) for binary renames.
+    let is_binary = fs::read_to_string(&src).is_err();
+    if is_binary {
+        return run_binary_rename(&args, global, &cwd, &src, &dst);
+    }
+
+    let op = Operation::FileRename {
+        from: args.from.clone(),
+        to: args.to.clone(),
+        force: args.force,
     };
 
-    let (check_msg, apply_msg, post_msg) = if is_binary {
-        (
-            format!("would rename {} -> {} (binary)", args.from, args.to),
-            format!("renamed {} -> {} (binary)", args.from, args.to),
-            format!("renamed {} -> {}", args.from, args.to),
-        )
-    } else {
-        (
-            format!("would rename {} -> {}", args.from, args.to),
-            format!("renamed {} -> {}", args.from, args.to),
-            format!("renamed {} -> {}", args.from, args.to),
-        )
-    };
+    let check_msg = format!("would rename {} -> {}", args.from, args.to);
+    let apply_msg = format!("renamed {} -> {}", args.from, args.to);
 
-    let policy = policy_from_flags(global, Some(&dst));
-
-    execute_write(
+    execute_via_engine(
+        op,
         global,
-        &cwd,
         |phase, diff| RenameOutput {
             ok: true,
             from: args.from.clone(),
-            to: args.to.clone(),
+            to: Some(args.to.clone()),
+            action: "renamed".to_string(),
             diff,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),
                 _ => None,
             },
         },
-        if is_binary {
-            None
-        } else {
-            Some(&diff_fn_impl as &dyn Fn(bool) -> String)
+        &check_msg,
+        &apply_msg,
+    )
+}
+
+/// Handle binary file renames directly (bypasses the tx engine which only
+/// handles UTF-8 text files).
+fn run_binary_rename(
+    args: &RenameArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    src: &std::path::Path,
+    dst: &std::path::Path,
+) -> anyhow::Result<u8> {
+    // Write policies require reading the file as UTF-8 text, which binary
+    // files don't support. Fail early with a clear error.
+    if global.trim_trailing_whitespace
+        || global.ensure_final_newline
+        || global.normalize_eol.is_some()
+    {
+        anyhow::bail!(
+            "cannot apply write policy to binary file: {}",
+            src.display()
+        );
+    }
+
+    let check_msg = format!("would rename {} -> {} (binary)", args.from, args.to);
+    let apply_msg = format!("renamed {} -> {} (binary)", args.from, args.to);
+    let post_msg = format!("renamed {} -> {}", args.from, args.to);
+
+    execute_write(
+        global,
+        cwd,
+        |phase, _diff| RenameOutput {
+            ok: true,
+            from: args.from.clone(),
+            to: Some(args.to.clone()),
+            action: "renamed".to_string(),
+            diff: None,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
         },
+        None::<&dyn Fn(bool) -> String>,
         || {
-            rename_with_backup(&src, &dst, &args, &policy, &cwd)?;
+            let mut backup = crate::backup::BackupSession::new(cwd)?;
+            backup.save_before_delete(src)?;
+            backup.save_before_write(dst)?;
+            if let Some(parent) = dst.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+            {
+                fs::create_dir_all(parent)?;
+            }
+            rename_or_copy(src, dst)?;
+            backup.finalize()?;
             Ok(())
         },
         WriteMessages {
@@ -150,54 +174,6 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             post_confirm: Some(&post_msg),
         },
     )
-}
-
-fn rename_with_backup(
-    src: &std::path::Path,
-    dst: &std::path::Path,
-    args: &RenameArgs,
-    policy: &crate::write::WritePolicy,
-    cwd: &std::path::Path,
-) -> anyhow::Result<()> {
-    let mut backup = crate::backup::BackupSession::new(cwd)?;
-    backup.save_before_delete(src)?;
-    backup.save_before_write(dst)?;
-    do_rename(src, dst, args, policy)?;
-    backup.finalize()?;
-    Ok(())
-}
-
-/// Perform the actual file rename: create parent dirs, move or transform the
-/// content, and remove the source.
-fn do_rename(
-    src: &std::path::Path,
-    dst: &std::path::Path,
-    args: &RenameArgs,
-    policy: &crate::write::WritePolicy,
-) -> anyhow::Result<()> {
-    if let Some(parent) = dst.parent()
-        && !parent.as_os_str().is_empty()
-        && !parent.exists()
-    {
-        fs::create_dir_all(parent)?;
-    }
-
-    if policy.is_noop() {
-        if args.force || !dst.exists() {
-            rename_or_copy(src, dst)?;
-        } else {
-            anyhow::bail!("destination already exists: {}", args.to);
-        }
-    } else {
-        let content = fs::read_to_string(src).with_context(|| format!("reading {}", args.from))?;
-        if args.force {
-            atomic_write(dst, &content, policy)?;
-        } else {
-            atomic_create_new(dst, &content, policy)?;
-        }
-        fs::remove_file(src).with_context(|| format!("removing source file {}", src.display()))?;
-    }
-    Ok(())
 }
 
 /// Rename a file, falling back to copy+delete when the source and destination
@@ -218,8 +194,7 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
     }
 }
 
-/// Check if an I/O error is a cross-device link error (EXDEV on Unix,
-/// ERROR_NOT_SAME_DEVICE on Windows).
+/// Check if an I/O error is a cross-device link error.
 fn is_cross_device(e: &std::io::Error) -> bool {
     #[cfg(unix)]
     {
@@ -227,7 +202,6 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     }
     #[cfg(windows)]
     {
-        // ERROR_NOT_SAME_DEVICE = 17
         e.raw_os_error() == Some(17)
     }
     #[cfg(not(any(unix, windows)))]
@@ -237,20 +211,10 @@ fn is_cross_device(e: &std::io::Error) -> bool {
     }
 }
 
-fn make_diff_output(from: &str, to: &str, content: &str, color: bool) -> String {
-    let del_diff = unified_diff(from, content, "");
-    let add_diff = unified_diff(to, "", content);
-    let diffs: Vec<_> = [del_diff, add_diff]
-        .into_iter()
-        .filter(|d| d.has_changes)
-        .collect();
-    let result = DiffResult { diffs };
-    format_diff_result_colored(&result, color)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::TempDir;
 
     #[test]

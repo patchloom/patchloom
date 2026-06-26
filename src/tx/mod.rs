@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 
+pub mod engine;
 mod execute;
 mod lifecycle;
 mod output;
