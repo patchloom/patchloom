@@ -1,11 +1,12 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
+use crate::diff::{DiffResult, format_diff_result_colored};
 use crate::exit;
 use crate::ops::patch::{
     ApplyHunksOptions, ApplyHunksResult, ApplyHunksStatus, OnStale, apply_hunks,
     apply_hunks_with_options, parse_patch,
 };
-use crate::write::policy_from_flags;
+use crate::plan::Operation;
+use crate::tx::engine::{ExecuteOptions, execute_single};
 use clap::Args;
 use serde::Serialize;
 
@@ -123,6 +124,21 @@ fn apply_patch_file(
     apply_hunks_with_options(original, hunks, options)
 }
 
+/// Insert a status label (STALE/MERGE FAILED) into the engine's error message
+/// to match the original CLI error format.
+///
+/// Engine format: `"patch apply: path -- hunk N failed: ..."`
+/// CLI format:    `"patch apply: path -- STALE: hunk N failed: ..."`
+fn inject_stale_label(msg: &str, label: &str) -> String {
+    // The engine error contains " -- " as separator. Insert label after it.
+    if let Some(idx) = msg.find(" -- ") {
+        let (prefix, rest) = msg.split_at(idx + 4);
+        format!("{prefix}{label}: {rest}")
+    } else {
+        format!("{msg} ({label})")
+    }
+}
+
 fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
     if global.emit_json(&serde_json::json!({"ok": false, "error": error}))? {
         return Ok(());
@@ -206,15 +222,6 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let cwd = global.resolve_cwd()?;
-    let command_label = if merge_mode {
-        "patch merge"
-    } else {
-        match args.action {
-            PatchAction::Check { .. } => "patch check",
-            PatchAction::Apply { .. } => "patch apply",
-            PatchAction::Merge { .. } => "patch merge",
-        }
-    };
 
     if matches!(args.action, PatchAction::Check { .. }) {
         let mut all_clean = true;
@@ -312,42 +319,41 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         });
     }
 
-    let mut diffs = Vec::new();
-    let mut file_changes = Vec::new();
-    let mut has_conflicts = false;
+    // Build the PatchApply operation and route through the engine.
+    let op = Operation::PatchApply {
+        diff: diff_text.clone(),
+        on_stale: match apply_options.on_stale {
+            OnStale::Fail => OnStale::Fail,
+            OnStale::Merge => OnStale::Merge,
+        },
+        allow_conflicts: apply_options.allow_conflicts,
+    };
 
-    for pf in &patch_files {
-        let file_path = cwd.join(&pf.path);
-        let original = std::fs::read_to_string(&file_path).unwrap_or_default();
-        let applied = match apply_patch_file(&original, &pf.hunks, apply_options) {
-            Ok(a) => a,
-            Err(msg) => {
-                let label = if apply_options.on_stale == OnStale::Merge {
-                    "MERGE FAILED"
-                } else {
-                    "STALE"
-                };
-                let err = format!("{command_label}: {} -- {label}: {msg}", pf.path);
-                emit_error(global, &err)?;
-                return Ok(if msg.contains("conflict") {
-                    exit::CONFLICTS
-                } else {
-                    exit::AMBIGUOUS
-                });
-            }
-        };
-        if applied.status == ApplyHunksStatus::Conflict {
-            has_conflicts = true;
+    let options = ExecuteOptions { cwd: &cwd, global };
+    let result = match execute_single(op, options) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = e.to_string();
+            // Map engine errors to specific exit codes with CLI-style messages.
+            // The engine error from apply_patch_with_loader already includes
+            // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
+            // FAILED label to match the original CLI format.
+            let exit_code = if msg.contains("conflict") {
+                exit::CONFLICTS
+            } else {
+                exit::AMBIGUOUS
+            };
+            // Inject the STALE/MERGE FAILED label between path and error detail.
+            let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
+            let err = inject_stale_label(&msg, label);
+            emit_error(global, &err)?;
+            return Ok(exit_code);
         }
-        diffs.push(unified_diff(&pf.path, &original, &applied.content));
-        file_changes.push((file_path, applied.content));
-    }
+    };
 
-    if has_conflicts && !apply_options.allow_conflicts {
-        return Ok(exit::CONFLICTS);
-    }
-
+    // --check mode: report what would happen, no mutation.
     if global.check {
+        let diffs = result.build_diffs();
         let changed = diffs.iter().filter(|d| d.has_changes).count();
         if changed > 0 {
             if !global.quiet {
@@ -358,21 +364,15 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
+    // --apply mode: commit, then show output.
     if global.apply || global.should_apply() {
-        let policies: Vec<_> = file_changes
-            .iter()
-            .map(|(p, _)| policy_from_flags(global, Some(p.as_path())))
-            .collect();
-        let writes: Vec<_> = file_changes
-            .iter()
-            .zip(&policies)
-            .map(|((p, c), pol)| (p.as_path(), c.as_str(), pol))
-            .collect();
-        crate::backup::backup_write_files(&cwd, &writes)?;
+        result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
         return Ok(exit::SUCCESS);
     }
 
+    // Default / --diff mode: show diff preview.
+    let diffs = result.build_diffs();
     print!(
         "{}",
         format_diff_result_colored(&DiffResult { diffs }, global.should_color())
@@ -412,5 +412,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(code, exit::CONFLICTS);
+    }
+
+    #[test]
+    fn inject_stale_label_inserts_after_separator() {
+        let msg = "patch apply: test.txt -- hunk 1 failed: stale context";
+        let result = inject_stale_label(msg, "STALE");
+        assert_eq!(
+            result,
+            "patch apply: test.txt -- STALE: hunk 1 failed: stale context"
+        );
+    }
+
+    #[test]
+    fn inject_stale_label_fallback_without_separator() {
+        let msg = "some other error";
+        let result = inject_stale_label(msg, "STALE");
+        assert_eq!(result, "some other error (STALE)");
     }
 }

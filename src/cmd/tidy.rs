@@ -1,7 +1,8 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::unified_diff;
 use crate::exit;
-use crate::write::{WritePolicy, apply_policy, atomic_write, policy_from_flags};
+use crate::plan::Operation;
+use crate::tx::engine::{ExecuteOptions, ExecutionResult, execute_operations};
+use crate::write::{apply_policy, policy_from_flags};
 use clap::Args;
 use serde::Serialize;
 use std::path::Path;
@@ -120,7 +121,7 @@ struct TidyCheckOutput {
 }
 
 /// Per-file result for tidy fix structured output.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct TidyFixFileResult {
     path: String,
 }
@@ -176,17 +177,12 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
             let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
 
-            // Parallel read+compute phase: each file is read, checked for
-            // binary content, and has the write policy applied concurrently.
-            struct FixResult {
-                path: std::path::PathBuf,
-                rel_path: String,
-                original: String,
-                fixed: String,
-            }
-
+            // Parallel read+compute phase: identify which files need fixing.
+            // This preserves the performance-critical parallel scan; only
+            // files that actually differ after policy application are
+            // included in the engine execution.
             let quiet = global.quiet;
-            let results: Vec<FixResult> = crate::par_process_files(
+            let dirty_rel_paths: Vec<String> = crate::par_process_files(
                 &fix_file_paths,
                 glob_matcher.as_ref(),
                 &glob_roots,
@@ -206,111 +202,145 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         .unwrap_or(file_path)
                         .to_string_lossy()
                         .to_string();
-                    // Consume fixed before original (fixed borrows original via Cow).
-                    let fixed = fixed.into_owned();
-                    Some(FixResult {
-                        path: file_path.to_owned(),
-                        rel_path,
-                        original,
-                        fixed,
-                    })
+                    Some(rel_path)
                 },
             );
 
-            // Serial output/write phase for ordered, crash-safe writes.
-            let any_changed = !results.is_empty();
-            let mut backup = if global.apply && any_changed {
-                Some(crate::backup::BackupSession::new(&cwd)?)
-            } else {
-                None
-            };
-            if let Some(ref mut b) = backup {
-                for r in &results {
-                    b.save_before_write(&r.path)?;
-                }
-            }
-            for r in &results {
-                if global.check {
-                    if !global.quiet && !global.json && !global.jsonl {
-                        println!("{}", r.rel_path);
-                    }
-                } else if global.apply {
-                    let noop = WritePolicy::default();
-                    atomic_write(&r.path, &r.fixed, &noop)?;
-                } else if !global.quiet && !global.json && !global.jsonl {
-                    let diff = unified_diff(&r.rel_path, &r.original, &r.fixed);
-                    if diff.has_changes {
-                        let result = crate::diff::DiffResult { diffs: vec![diff] };
-                        print!(
-                            "{}",
-                            crate::diff::format_diff_result_colored(&result, global.should_color())
-                        );
-                    }
-                }
+            if dirty_rel_paths.is_empty() {
+                // No changes: emit structured output and exit.
+                emit_tidy_fix_output(global, &[], None)?;
+                return Ok(exit::SUCCESS);
             }
 
-            // Structured JSON/JSONL output for tidy fix.
-            if global.json || global.jsonl {
-                let fix_files: Vec<TidyFixFileResult> = results
-                    .iter()
-                    .map(|r| TidyFixFileResult {
-                        path: r.rel_path.clone(),
-                    })
-                    .collect();
+            // Build one TidyFix operation per dirty file.
+            let eol_str = global.normalize_eol.map(eol_mode_to_str);
+            let ops: Vec<Operation> = dirty_rel_paths
+                .iter()
+                .map(|rel_path| Operation::TidyFix {
+                    path: rel_path.clone(),
+                    ensure_final_newline: Some(global.ensure_final_newline),
+                    trim_trailing_whitespace: Some(global.trim_trailing_whitespace),
+                    normalize_eol: eol_str.map(String::from),
+                })
+                .collect();
 
-                if global.json {
-                    let diff_text = if !global.check && !global.apply && !results.is_empty() {
-                        let mut buf = String::new();
-                        for r in &results {
-                            let d = unified_diff(&r.rel_path, &r.original, &r.fixed);
-                            if d.has_changes {
-                                let dr = crate::diff::DiffResult { diffs: vec![d] };
-                                buf.push_str(&crate::diff::format_diff_result_colored(&dr, false));
-                            }
-                        }
-                        if buf.is_empty() { None } else { Some(buf) }
-                    } else {
-                        None
-                    };
-                    let output = TidyFixOutput {
-                        ok: true,
-                        files_changed: fix_files.len(),
-                        files: fix_files,
-                        diff: diff_text,
-                    };
-                    let _ = global.emit_json(&output);
-                } else {
-                    let _ = global.emit_json_items(&fix_files);
-                }
-            }
+            let options = ExecuteOptions { cwd: &cwd, global };
+            let result = execute_operations(ops, options)?;
 
-            if global.apply {
-                if let Some(b) = backup {
-                    b.finalize()?;
-                }
-                crate::write::run_format_command(global, &cwd)?;
-                Ok(exit::SUCCESS)
-            } else if any_changed {
-                if global.show_status() {
-                    eprintln!("{} file(s) changed", results.len());
-                }
-                // --confirm: prompt after showing diffs, then apply if confirmed.
-                if global.should_apply() {
-                    let noop = WritePolicy::default();
-                    let writes: Vec<_> = results
-                        .iter()
-                        .map(|r| (r.path.as_path(), r.fixed.as_str(), &noop))
-                        .collect();
-                    crate::backup::backup_write_files(&cwd, &writes)?;
-                    crate::write::run_format_command(global, &cwd)?;
-                    return Ok(exit::SUCCESS);
-                }
-                Ok(exit::CHANGES_DETECTED)
-            } else {
-                Ok(exit::SUCCESS)
-            }
+            tidy_fix_output(global, result, &dirty_rel_paths, &cwd)
         }
     }
+}
+
+/// Convert `EolMode` to the string format expected by `Operation::TidyFix`.
+fn eol_mode_to_str(mode: crate::cli::global::EolMode) -> &'static str {
+    match mode {
+        crate::cli::global::EolMode::Lf => "lf",
+        crate::cli::global::EolMode::Crlf => "crlf",
+        crate::cli::global::EolMode::Keep => "keep",
+    }
+}
+
+/// Handle output rendering and commit/check/preview for tidy fix via the engine.
+fn tidy_fix_output(
+    global: &GlobalFlags,
+    result: ExecutionResult,
+    dirty_rel_paths: &[String],
+    cwd: &Path,
+) -> anyhow::Result<u8> {
+    let fix_files: Vec<TidyFixFileResult> = dirty_rel_paths
+        .iter()
+        .map(|p| TidyFixFileResult { path: p.clone() })
+        .collect();
+
+    // --check mode: report what would happen, no mutation.
+    if global.check {
+        emit_tidy_fix_output(global, &fix_files, None)?;
+        if !global.quiet && !global.json && !global.jsonl {
+            for p in dirty_rel_paths {
+                println!("{p}");
+            }
+        }
+        return Ok(exit::CHANGES_DETECTED);
+    }
+
+    // --apply mode: commit, then report.
+    if global.apply {
+        let diffs = result.build_diffs();
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
+
+        let diff_text = if global.diff {
+            Some(render_diffs_plain(&diffs))
+        } else {
+            None
+        };
+        emit_tidy_fix_output(global, &fix_files, diff_text)?;
+        return Ok(exit::SUCCESS);
+    }
+
+    // Default / --diff mode: preview diffs.
+    let diffs = result.build_diffs();
+    let diff_text = if !diffs.is_empty() {
+        Some(render_diffs_plain(&diffs))
+    } else {
+        None
+    };
+
+    emit_tidy_fix_output(global, &fix_files, diff_text)?;
+
+    if !global.json && !global.jsonl && !global.quiet && !diffs.is_empty() {
+        print!(
+            "{}",
+            crate::diff::format_diff_result_colored(
+                &crate::diff::DiffResult {
+                    diffs: diffs.clone()
+                },
+                global.should_color()
+            )
+        );
+    }
+
+    if global.show_status() {
+        eprintln!("{} file(s) changed", dirty_rel_paths.len());
+    }
+
+    // --confirm: prompt after showing diffs, then apply if confirmed.
+    if global.should_apply() {
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
+        return Ok(exit::SUCCESS);
+    }
+
+    Ok(exit::CHANGES_DETECTED)
+}
+
+/// Emit structured JSON/JSONL output for tidy fix.
+fn emit_tidy_fix_output(
+    global: &GlobalFlags,
+    fix_files: &[TidyFixFileResult],
+    diff_text: Option<String>,
+) -> anyhow::Result<()> {
+    if global.json {
+        let output = TidyFixOutput {
+            ok: true,
+            files_changed: fix_files.len(),
+            files: fix_files.to_vec(),
+            diff: diff_text,
+        };
+        let _ = global.emit_json(&output);
+    } else if global.jsonl {
+        let _ = global.emit_json_items(fix_files);
+    }
+    Ok(())
+}
+
+/// Render diffs as a plain (uncolored) string for JSON output.
+fn render_diffs_plain(diffs: &[crate::diff::FileDiff]) -> String {
+    let result = crate::diff::DiffResult {
+        diffs: diffs.to_vec(),
+    };
+    crate::diff::format_diff_result_colored(&result, false)
 }
 
 #[cfg(test)]
@@ -658,5 +688,13 @@ mod tests {
             !sessions.is_empty(),
             "at least one backup session should be created"
         );
+    }
+
+    #[test]
+    fn eol_mode_conversion_round_trips() {
+        use crate::cli::global::EolMode;
+        assert_eq!(eol_mode_to_str(EolMode::Lf), "lf");
+        assert_eq!(eol_mode_to_str(EolMode::Crlf), "crlf");
+        assert_eq!(eol_mode_to_str(EolMode::Keep), "keep");
     }
 }
