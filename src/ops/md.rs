@@ -8,6 +8,10 @@ pub struct HeadingInfo {
     pub level: usize,
     pub text: String,
     pub line_start: usize,
+    /// First line of the section body (after the heading and any underline).
+    /// For ATX headings: `line_start + 1`.
+    /// For setext headings: `line_start + 2` (text line + underline).
+    pub body_line: usize,
     pub line_end: usize,
 }
 
@@ -89,6 +93,7 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
                 level: hashes,
                 text: line[hashes + 1..].to_string(),
                 line_start: idx,
+                body_line: idx + 1,
                 line_end: 0,
             });
             continue;
@@ -112,6 +117,7 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
                         level,
                         text: prev_trimmed.to_string(),
                         line_start: prev_idx,
+                        body_line: idx + 1, // after the underline
                         line_end: 0,
                     });
                 }
@@ -165,8 +171,8 @@ pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
 
     for h in &headings {
         if h.text.trim() == query {
-            let body_start = if h.line_start + 1 < offsets.len() {
-                offsets[h.line_start + 1]
+            let body_start = if h.body_line < offsets.len() {
+                offsets[h.body_line]
             } else {
                 content.len()
             };
@@ -741,15 +747,46 @@ mod tests {
         #[test]
         fn parse_headings_setext_section_operations() {
             // Verify that section-based operations work with setext headings.
-            let content =
-                "Title\n=====\n\nBody of title\n\nSubtitle\n--------\n\nBody of subtitle\n";
+            // Body must NOT include the underline.
+            // Use two h1 setext headings so the first section is bounded.
+            let content = "Title\n=====\n\nBody of title\n\nSubtitle\n=====\n\nBody of subtitle\n";
             let (start, end) = find_section(content, "Title").unwrap();
             let body = &content[start..end];
-            assert!(body.contains("Body of title"), "body: {:?}", body);
+            assert_eq!(body, "\nBody of title\n\n", "Title body: {:?}", body);
 
             let (start2, end2) = find_section(content, "Subtitle").unwrap();
             let body2 = &content[start2..end2];
-            assert!(body2.contains("Body of subtitle"), "body: {:?}", body2);
+            assert_eq!(body2, "\nBody of subtitle\n", "Subtitle body: {:?}", body2);
+        }
+
+        #[test]
+        fn replace_section_setext_preserves_underline() {
+            // Use same-level headings so the section is bounded.
+            let content = "Title\n=====\n\nOld body\n\nNext\n=====\nKeep\n";
+            let result = replace_section_in(content, "Title", "New body").unwrap();
+            assert_eq!(
+                result, "Title\n=====\nNew body\nNext\n=====\nKeep\n",
+                "underline must be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_setext_heading() {
+            let content = "List\n----\n\n- item1\n";
+            let result = upsert_bullet_in(content, "List", "- item2").unwrap();
+            assert!(
+                result.contains("----\n"),
+                "underline must be preserved: {result}"
+            );
+            assert!(
+                result.contains("- item1\n- item2\n"),
+                "bullet should be appended: {result}"
+            );
+            // Underline must NOT appear in the body match
+            assert!(
+                !result.contains("- ----"),
+                "underline must not be treated as bullet content: {result}"
+            );
         }
 
         #[test]
@@ -978,6 +1015,19 @@ mod tests {
         fn section_range_missing() {
             let content = "# A\nbody\n";
             assert!(section_range(content, "Missing").is_none());
+        }
+
+        #[test]
+        fn section_range_setext_includes_text_and_underline() {
+            // Use same-level heading to bound the section.
+            let content = "Title\n=====\nbody\nNext\n=====\nmore\n";
+            let (start, end) = section_range(content, "Title").unwrap();
+            // section_range should include the text line + underline + body
+            assert_eq!(
+                &content[start..end],
+                "Title\n=====\nbody\n",
+                "setext section_range should include text line and underline"
+            );
         }
 
         #[test]

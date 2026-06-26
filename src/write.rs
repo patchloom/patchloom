@@ -144,28 +144,37 @@ pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> 
         }
         EolMode::Crlf => {
             let bytes = content.as_bytes();
-            let has_bare_lf =
-                memchr::memchr_iter(b'\n', bytes).any(|i| i == 0 || bytes[i - 1] != b'\r');
-            if !has_bare_lf {
-                Cow::Borrowed(content)
+            // Check for bare \r (not followed by \n) in addition to bare \n.
+            let has_bare_cr = memchr::memchr_iter(b'\r', bytes)
+                .any(|i| i + 1 >= bytes.len() || bytes[i + 1] != b'\n');
+            if has_bare_cr {
+                // Normalize all line endings to \n first, then convert to \r\n.
+                let lf_first = content.replace("\r\n", "\n").replace('\r', "\n");
+                Cow::Owned(lf_first.replace('\n', "\r\n"))
             } else {
-                // Single-pass: copy slices between \n positions, inserting
-                // \r before bare \n characters.
-                let mut result = String::with_capacity(content.len() + content.len() / 10);
-                let mut last = 0;
-                for i in memchr::memchr_iter(b'\n', bytes) {
-                    if i == 0 || bytes[i - 1] != b'\r' {
-                        result.push_str(&content[last..i]);
-                        result.push_str("\r\n");
-                    } else {
-                        result.push_str(&content[last..=i]);
+                let has_bare_lf =
+                    memchr::memchr_iter(b'\n', bytes).any(|i| i == 0 || bytes[i - 1] != b'\r');
+                if !has_bare_lf {
+                    Cow::Borrowed(content)
+                } else {
+                    // Single-pass: copy slices between \n positions, inserting
+                    // \r before bare \n characters.
+                    let mut result = String::with_capacity(content.len() + content.len() / 10);
+                    let mut last = 0;
+                    for i in memchr::memchr_iter(b'\n', bytes) {
+                        if i == 0 || bytes[i - 1] != b'\r' {
+                            result.push_str(&content[last..i]);
+                            result.push_str("\r\n");
+                        } else {
+                            result.push_str(&content[last..=i]);
+                        }
+                        last = i + 1;
                     }
-                    last = i + 1;
+                    if last < content.len() {
+                        result.push_str(&content[last..]);
+                    }
+                    Cow::Owned(result)
                 }
-                if last < content.len() {
-                    result.push_str(&content[last..]);
-                }
-                Cow::Owned(result)
             }
         }
         EolMode::Cr => {
@@ -596,6 +605,21 @@ mod tests {
     fn normalize_eol_lf_also_strips_bare_cr() {
         // LF mode should convert both \r\n and bare \r to \n.
         assert_eq!(normalize_eol("a\rb\r\nc\n", EolMode::Lf), "a\nb\nc\n");
+    }
+
+    #[test]
+    fn normalize_eol_crlf_converts_bare_cr() {
+        // Bare \r (classic Mac) should become \r\n.
+        assert_eq!(normalize_eol("a\rb\r", EolMode::Crlf), "a\r\nb\r\n");
+    }
+
+    #[test]
+    fn normalize_eol_crlf_mixed_with_bare_cr() {
+        // Mix of bare \r, \r\n, and bare \n should all become \r\n.
+        assert_eq!(
+            normalize_eol("a\rb\r\nc\n", EolMode::Crlf),
+            "a\r\nb\r\nc\r\n"
+        );
     }
 
     #[test]
