@@ -95,7 +95,7 @@ clap_complete = { version = "4", optional = true }
 rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 axum = { version = "0.8", features = ["http1", "tokio"], default-features = false, optional = true }
-axum-server = { version = "0.7", features = ["tls-rustls"], default-features = false, optional = true }
+axum-server = { version = "0.8", features = ["tls-rustls"], default-features = false, optional = true }
 tokio-util = { version = "0.7", optional = true }
 schemars = "1"
 tree-sitter-lib = { package = "tree-sitter", version = "0.26", optional = true }
@@ -126,7 +126,7 @@ libc = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2"
-expectrl = "0.7"
+expectrl = "0.9"
 predicates = "3"
 proptest = "1"
 rcgen = "0.14"
