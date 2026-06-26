@@ -1,13 +1,13 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{self, DiffResult, unified_diff};
+use crate::diff::{self, DiffResult};
 use crate::exit;
 use crate::ops::replace::{
     compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
 };
-use crate::write::policy_from_flags;
+use crate::plan::Operation;
+use crate::tx::engine::{ExecuteOptions, execute_operations};
 use clap::Args;
 use serde::Serialize;
-use std::path::Path;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -97,24 +97,6 @@ struct FileReplacement {
     original: String,
     replaced: String,
     match_count: usize,
-}
-
-/// Build policy+write tuples and write atomically with backup.
-fn apply_replacements(
-    replacements: &[FileReplacement],
-    global: &GlobalFlags,
-    cwd: &Path,
-) -> anyhow::Result<()> {
-    let policies: Vec<_> = replacements
-        .iter()
-        .map(|r| policy_from_flags(global, Some(Path::new(&r.path))))
-        .collect();
-    let writes: Vec<_> = replacements
-        .iter()
-        .zip(&policies)
-        .map(|(r, p)| (Path::new(r.path.as_str()), r.replaced.as_str(), p))
-        .collect();
-    crate::backup::backup_write_files(cwd, &writes)
 }
 
 /// Parse `--range` argument into (start, optional_end). Reuses the line-range
@@ -216,15 +198,6 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
         .collect()
 }
 
-fn make_diff_output(replacements: &[FileReplacement], color: bool) -> String {
-    let diffs: Vec<_> = replacements
-        .iter()
-        .map(|r| unified_diff(&r.display_path, &r.original, &r.replaced))
-        .collect();
-    let diff_result = DiffResult { diffs };
-    diff::format_diff_result_colored(&diff_result, color)
-}
-
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
         "replace: from={:?} regex={} paths={:?}",
@@ -246,6 +219,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let cwd = global.resolve_cwd()?;
+
+    // Phase 1: Parallel file scan to identify files with matches.
     let replacements = collect_replacements(&args, global)?;
 
     if replacements.is_empty() {
@@ -283,6 +258,50 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let file_count = replacements.len();
     let files = make_file_results(&replacements);
 
+    // Phase 2: Build one Operation::Replace per file and execute via tx engine.
+    let mode = if args.regex {
+        Some("regex".to_string())
+    } else {
+        None
+    };
+    let ops: Vec<Operation> = replacements
+        .iter()
+        .map(|r| Operation::Replace {
+            path: Some(r.display_path.clone()),
+            glob: None,
+            mode: mode.clone(),
+            from: args.from.clone(),
+            to: args.to.clone(),
+            nth: args.nth,
+            insert_before: args.insert_before.clone(),
+            insert_after: args.insert_after.clone(),
+            case_insensitive: args.case_insensitive,
+            multiline: args.multiline,
+            if_exists: args.if_exists,
+            whole_line: args.whole_line,
+            range: args.range.clone(),
+            word_boundary: args.word_boundary,
+            before_context: None,
+            after_context: None,
+        })
+        .collect();
+
+    let options = ExecuteOptions { cwd: &cwd, global };
+    let result = execute_operations(ops, options)?;
+
+    // Phase 3: Render output based on mode (check/apply/diff/confirm).
+    replace_output(global, result, &files, total_matches, file_count, &cwd)
+}
+
+/// Handle output rendering and commit/check/preview for replace via the engine.
+fn replace_output(
+    global: &GlobalFlags,
+    result: crate::tx::engine::ExecutionResult,
+    files: &[ReplaceFileResult],
+    total_matches: usize,
+    file_count: usize,
+    cwd: &std::path::Path,
+) -> anyhow::Result<u8> {
     // --check mode: report summary, exit 2 if changes needed.
     if global.check {
         if global.json {
@@ -290,45 +309,45 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 ok: true,
                 match_count: total_matches,
                 file_count,
-                files,
+                files: files.to_vec(),
                 diff: None,
             };
             global.emit_json(&output)?;
-        } else if !global.emit_json_items(&files)? && !global.quiet {
+        } else if !global.emit_json_items(files)? && !global.quiet {
             println!("{total_matches} match(es) in {file_count} file(s)");
-            for f in &files {
+            for f in files {
                 println!("  {}: {} match(es)", f.path, f.match_count);
             }
         }
         return Ok(exit::CHANGES_DETECTED);
     }
 
-    // --apply mode: write changes using atomic_write with write policy.
+    // --apply mode: commit, then report.
     if global.apply {
-        apply_replacements(&replacements, global, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
+        let diffs = result.build_diffs();
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
 
-        let color = global.should_color();
+        let diff_text = if global.diff {
+            Some(render_diffs_plain(&diffs))
+        } else {
+            None
+        };
         if global.json {
-            let diff_text = if global.diff {
-                Some(make_diff_output(&replacements, false))
-            } else {
-                None
-            };
             let output = ReplaceOutput {
                 ok: true,
                 match_count: total_matches,
                 file_count,
-                files,
+                files: files.to_vec(),
                 diff: diff_text,
             };
             global.emit_json(&output)?;
-        } else if !global.emit_json_items(&files)? {
+        } else if !global.emit_json_items(files)? {
             if global.diff {
-                print!("{}", make_diff_output(&replacements, color));
+                print!("{}", render_diffs_colored(&diffs, global.should_color()));
             } else if !global.quiet {
                 println!("replaced {total_matches} match(es) in {file_count} file(s)");
-                for f in &files {
+                for f in files {
                     println!("  {}: {} match(es)", f.path, f.match_count);
                 }
             }
@@ -336,19 +355,25 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    // Default / --diff mode: show unified diff of changes.
-    let color = global.should_color();
+    // Default / --diff mode: preview diffs.
+    let diffs = result.build_diffs();
+    let diff_text = if !diffs.is_empty() {
+        Some(render_diffs_plain(&diffs))
+    } else {
+        None
+    };
+
     if global.json {
         let output = ReplaceOutput {
             ok: true,
             match_count: total_matches,
             file_count,
-            files,
-            diff: Some(make_diff_output(&replacements, false)),
+            files: files.to_vec(),
+            diff: diff_text,
         };
         global.emit_json(&output)?;
-    } else if !global.emit_json_items(&files)? {
-        print!("{}", make_diff_output(&replacements, color));
+    } else if !global.emit_json_items(files)? && !diffs.is_empty() {
+        print!("{}", render_diffs_colored(&diffs, global.should_color()));
     }
     if global.show_status() {
         eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
@@ -356,14 +381,30 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --confirm: prompt after showing diff, then apply if confirmed.
     if global.should_apply() {
-        apply_replacements(&replacements, global, &cwd)?;
-        crate::write::run_format_command(global, &cwd)?;
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }
     }
 
     Ok(exit::SUCCESS)
+}
+
+/// Render diffs as a plain (uncolored) string for JSON output.
+fn render_diffs_plain(diffs: &[crate::diff::FileDiff]) -> String {
+    let result = DiffResult {
+        diffs: diffs.to_vec(),
+    };
+    diff::format_diff_result_colored(&result, false)
+}
+
+/// Render diffs with optional color for terminal output.
+fn render_diffs_colored(diffs: &[crate::diff::FileDiff], color: bool) -> String {
+    let result = DiffResult {
+        diffs: diffs.to_vec(),
+    };
+    diff::format_diff_result_colored(&result, color)
 }
 
 #[cfg(test)]
@@ -498,12 +539,22 @@ mod tests {
             vec![dir.path().to_string_lossy().into_owned()],
         );
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
-        let diff_output = make_diff_output(&replacements, false);
+        assert_eq!(replacements.len(), 1);
 
-        assert!(diff_output.contains("--- a/"));
-        assert!(diff_output.contains("+++ b/"));
-        assert!(diff_output.contains("-old line"));
-        assert!(diff_output.contains("+new line"));
+        // Verify the replacement content produces a valid diff.
+        let diff = crate::diff::unified_diff(
+            &replacements[0].display_path,
+            &replacements[0].original,
+            &replacements[0].replaced,
+        );
+        let diff_str = crate::diff::format_diff_result_colored(
+            &crate::diff::DiffResult { diffs: vec![diff] },
+            false,
+        );
+        assert!(diff_str.contains("--- a/"));
+        assert!(diff_str.contains("+++ b/"));
+        assert!(diff_str.contains("-old line"));
+        assert!(diff_str.contains("+new line"));
     }
 
     #[test]

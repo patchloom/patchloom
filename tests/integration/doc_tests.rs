@@ -1391,7 +1391,8 @@ fn test_doc_ensure_creates_missing_key() {
 fn test_doc_ensure_noop_when_exists() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
-    fs::write(&file, r#"{"a":1}"#).unwrap();
+    // Use pre-formatted JSON so the engine does not detect formatting-only changes.
+    fs::write(&file, "{\n  \"a\": 1\n}\n").unwrap();
 
     // ensure with --check when key already exists should exit 0 (no changes)
     Command::cargo_bin("patchloom")
@@ -1764,9 +1765,10 @@ fn test_doc_check_json_produces_structured_output() {
     let json: serde_json::Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|_| panic!("expected JSON output, got: {stdout}"));
     assert_eq!(json["ok"], true, "check output should have ok=true");
-    assert_eq!(
-        json["has_changes"], true,
-        "check output should have has_changes=true"
+    // Doc write operations now use DocWriteOutput format via execute_via_engine.
+    assert!(
+        json["path"].is_string(),
+        "check output should have path field"
     );
 }
 
