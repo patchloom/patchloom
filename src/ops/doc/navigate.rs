@@ -34,8 +34,6 @@ pub fn navigate_mut<'a>(
     Ok(current)
 }
 
-
-
 /// Returns the parent path and the final segment (for use by set/delete/move).
 fn split_last(segments: &[selector::Segment]) -> (&[selector::Segment], &selector::Segment) {
     let (parent, last) = segments.split_at(segments.len() - 1);

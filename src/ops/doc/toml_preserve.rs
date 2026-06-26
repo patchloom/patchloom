@@ -179,7 +179,10 @@ mod tests {
         let new = json(r#"{"a": 1}"#);
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
-        assert!(!result.contains("b ="), "removed key should be gone: {result}");
+        assert!(
+            !result.contains("b ="),
+            "removed key should be gone: {result}"
+        );
         assert!(result.contains("a = 1"));
     }
 
@@ -209,7 +212,10 @@ mod tests {
         let new = json(r#"{"arr": [1, 99, 3]}"#);
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
-        assert!(result.contains("99"), "array element should be updated: {result}");
+        assert!(
+            result.contains("99"),
+            "array element should be updated: {result}"
+        );
     }
 
     #[test]
@@ -219,7 +225,10 @@ mod tests {
         let new = json(r#"{"arr": [1, 2, 3]}"#);
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
-        assert!(result.contains("3"), "longer array should be applied: {result}");
+        assert!(
+            result.contains("3"),
+            "longer array should be applied: {result}"
+        );
     }
 
     #[test]

@@ -105,8 +105,8 @@ pub fn search_file(
     if !lang.has_grammar() {
         return Ok(Vec::new());
     }
-    let source = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let source =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     search_query(&source, query_str, lang, max_results)
 }
 

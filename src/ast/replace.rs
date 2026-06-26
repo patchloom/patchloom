@@ -104,8 +104,8 @@ pub fn replace_in_symbol_file(
     if !lang.has_grammar() {
         return Ok(None);
     }
-    let source = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let source =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     replace_in_symbol(&source, symbol_name, from, to, regex, lang)
 }
 

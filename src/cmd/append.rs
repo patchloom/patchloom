@@ -61,8 +61,7 @@ pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         bail!("target is not a file: {}", args.file);
     }
 
-    let existing = fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", args.file))?;
+    let existing = fs::read_to_string(&path).with_context(|| format!("reading {}", args.file))?;
     let combined = crate::ops::file::append_content(&existing, &append_content);
 
     let diff_fn = |color: bool| {
