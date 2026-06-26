@@ -1,21 +1,8 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
 use crate::exit;
 use serde::Serialize;
 use std::path::Path;
-
-/// Phase indicator passed to the output constructor so each command can map
-/// it to its own `applied` field semantics.
-#[derive(Debug, Clone, Copy)]
-pub enum WritePhase {
-    /// `--check`: no write performed.
-    Check,
-    /// `--apply`: write was performed.
-    Applied,
-    /// `--confirm` + JSON: conditionally applied (bool = whether user confirmed).
-    Confirmed(bool),
-    /// Default dry-run preview.
-    Preview,
-}
 
 /// Human-readable messages for the write state machine.
 pub struct WriteMessages<'a> {

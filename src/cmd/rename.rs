@@ -1,6 +1,7 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
-use crate::cmd::write_dispatch::{WriteMessages, WritePhase, execute_write};
+use crate::cmd::write_dispatch::{WriteMessages, execute_write};
 use crate::exit;
 use crate::plan::Operation;
 use anyhow::Context;

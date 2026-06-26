@@ -1,6 +1,6 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
-use crate::cmd::write_dispatch::WritePhase;
 use crate::exit;
 use crate::ops::md::{dedupe_headings_in, find_section, lint_agents_content};
 use crate::plan::Operation;

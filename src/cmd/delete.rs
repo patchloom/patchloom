@@ -1,6 +1,6 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine_no_preview_diffs;
-use crate::cmd::write_dispatch::WritePhase;
 use crate::plan::Operation;
 use clap::Args;
 use serde::Serialize;

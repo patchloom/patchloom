@@ -1,4 +1,5 @@
 use crate::cli::global::GlobalFlags;
+use crate::diff::{render_diffs_colored, render_diffs_plain};
 use crate::exit;
 use crate::plan::Operation;
 use crate::tx::engine::{ExecuteOptions, ExecutionResult, execute_operations};
@@ -291,15 +292,7 @@ fn tidy_fix_output(
     emit_tidy_fix_output(global, &fix_files, diff_text)?;
 
     if !global.json && !global.jsonl && !global.quiet && !diffs.is_empty() {
-        print!(
-            "{}",
-            crate::diff::format_diff_result_colored(
-                &crate::diff::DiffResult {
-                    diffs: diffs.clone()
-                },
-                global.should_color()
-            )
-        );
+        print!("{}", render_diffs_colored(&diffs, global.should_color()));
     }
 
     if global.show_status() {
@@ -334,14 +327,6 @@ fn emit_tidy_fix_output(
         let _ = global.emit_json_items(fix_files);
     }
     Ok(())
-}
-
-/// Render diffs as a plain (uncolored) string for JSON output.
-fn render_diffs_plain(diffs: &[crate::diff::FileDiff]) -> String {
-    let result = crate::diff::DiffResult {
-        diffs: diffs.to_vec(),
-    };
-    crate::diff::format_diff_result_colored(&result, false)
 }
 
 #[cfg(test)]

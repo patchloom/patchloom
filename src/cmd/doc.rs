@@ -1,6 +1,6 @@
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
-use crate::cmd::write_dispatch::WritePhase;
 use crate::exit;
 use crate::ops::doc::{detect_format, diff_values, flatten_value, parse_doc, parse_value};
 use crate::plan::Operation;

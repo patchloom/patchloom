@@ -1,5 +1,5 @@
 use crate::cli::global::GlobalFlags;
-use crate::diff::{self, DiffResult};
+use crate::diff::{render_diffs_colored, render_diffs_plain};
 use crate::exit;
 use crate::ops::replace::{
     compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
@@ -389,22 +389,6 @@ fn replace_output(
     }
 
     Ok(exit::SUCCESS)
-}
-
-/// Render diffs as a plain (uncolored) string for JSON output.
-fn render_diffs_plain(diffs: &[crate::diff::FileDiff]) -> String {
-    let result = DiffResult {
-        diffs: diffs.to_vec(),
-    };
-    diff::format_diff_result_colored(&result, false)
-}
-
-/// Render diffs with optional color for terminal output.
-fn render_diffs_colored(diffs: &[crate::diff::FileDiff], color: bool) -> String {
-    let result = DiffResult {
-        diffs: diffs.to_vec(),
-    };
-    diff::format_diff_result_colored(&result, color)
 }
 
 #[cfg(test)]

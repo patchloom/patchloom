@@ -8,11 +8,24 @@
 //! with a single code path shared across all write commands.
 
 use crate::cli::global::GlobalFlags;
-use crate::cmd::write_dispatch::WritePhase;
-use crate::diff::{DiffResult, FileDiff, format_diff_result_colored};
+use crate::diff::{render_diffs_colored, render_diffs_plain};
 use crate::exit;
 use crate::tx::engine::{ExecuteOptions, execute_single};
 use serde::Serialize;
+
+/// Phase indicator passed to the output constructor so each command can map
+/// it to its own `applied` field semantics.
+#[derive(Debug, Clone, Copy)]
+pub enum WritePhase {
+    /// `--check`: no write performed.
+    Check,
+    /// `--apply`: write was performed.
+    Applied,
+    /// `--confirm` + JSON: conditionally applied (bool = whether user confirmed).
+    Confirmed(bool),
+    /// Default dry-run preview.
+    Preview,
+}
 
 /// Execute a single operation through the engine and render output based
 /// on the global flags (check/apply/diff/confirm modes).
@@ -136,22 +149,6 @@ fn execute_via_engine_inner<T: Serialize>(
     }
 
     Ok(exit::SUCCESS)
-}
-
-/// Render diffs as a plain (uncolored) string for JSON output.
-fn render_diffs_plain(diffs: &[FileDiff]) -> String {
-    let result = DiffResult {
-        diffs: diffs.to_vec(),
-    };
-    format_diff_result_colored(&result, false)
-}
-
-/// Render diffs with optional color for terminal output.
-fn render_diffs_colored(diffs: &[FileDiff], color: bool) -> String {
-    let result = DiffResult {
-        diffs: diffs.to_vec(),
-    };
-    format_diff_result_colored(&result, color)
 }
 
 #[cfg(test)]
