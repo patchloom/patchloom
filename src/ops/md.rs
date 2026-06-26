@@ -906,4 +906,242 @@ mod tests {
             assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_none());
         }
     }
+
+    // ── Issue #976: lint helper tests ──────────────────────────────────
+    mod lint_helper_tests {
+        use crate::ops::md::*;
+
+        // ── strip_inline_code ─────────────────────────────────────────
+
+        #[test]
+        fn strip_inline_code_basic() {
+            assert_eq!(strip_inline_code("use `foo` here"), "use  here");
+        }
+
+        #[test]
+        fn strip_inline_code_multiple_spans() {
+            assert_eq!(strip_inline_code("`a` and `b`"), " and ");
+        }
+
+        #[test]
+        fn strip_inline_code_no_backticks_returns_borrowed() {
+            let result = strip_inline_code("no backticks");
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+            assert_eq!(result, "no backticks");
+        }
+
+        #[test]
+        fn strip_inline_code_unmatched_backtick() {
+            assert_eq!(strip_inline_code("before `after"), "before after");
+        }
+
+        #[test]
+        fn strip_inline_code_empty_string() {
+            let result = strip_inline_code("");
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn strip_inline_code_adjacent_backticks() {
+            assert_eq!(strip_inline_code("``"), "");
+        }
+
+        #[test]
+        fn strip_inline_code_only_backtick_content() {
+            assert_eq!(strip_inline_code("`code`"), "");
+        }
+
+        #[test]
+        fn strip_inline_code_text_around_spans() {
+            assert_eq!(strip_inline_code("start `mid` end"), "start  end");
+        }
+
+        // ── has_dangerous_git_add_dot ─────────────────────────────────
+
+        #[test]
+        fn git_add_dot_at_eol() {
+            assert!(has_dangerous_git_add_dot("git add ."));
+        }
+
+        #[test]
+        fn git_add_dot_followed_by_space() {
+            assert!(has_dangerous_git_add_dot("git add . && git commit"));
+        }
+
+        #[test]
+        fn git_add_dot_followed_by_tab() {
+            assert!(has_dangerous_git_add_dot("git add .\tnext"));
+        }
+
+        #[test]
+        fn git_add_dotgitignore_is_safe() {
+            assert!(!has_dangerous_git_add_dot("git add .gitignore"));
+        }
+
+        #[test]
+        fn git_add_dot_slash_is_safe() {
+            assert!(!has_dangerous_git_add_dot("git add ./file"));
+        }
+
+        #[test]
+        fn git_add_dot_mid_line() {
+            assert!(has_dangerous_git_add_dot("run git add . now"));
+        }
+
+        #[test]
+        fn git_add_dot_no_match() {
+            assert!(!has_dangerous_git_add_dot("no match here"));
+        }
+
+        #[test]
+        fn git_add_dot_empty_string() {
+            assert!(!has_dangerous_git_add_dot(""));
+        }
+
+        #[test]
+        fn git_add_dot_multiple_occurrences_first_safe() {
+            // First "git add .gitignore" is safe, second "git add ." is dangerous
+            assert!(has_dangerous_git_add_dot("git add .gitignore && git add ."));
+        }
+
+        #[test]
+        fn git_add_dot_multiple_occurrences_all_safe() {
+            assert!(!has_dangerous_git_add_dot(
+                "git add .gitignore && git add .env"
+            ));
+        }
+    }
+
+    // ── Issue #975: empty section boundary tests ──────────────────────
+    mod empty_section_tests {
+        use crate::ops::md::*;
+
+        #[test]
+        fn find_section_empty_body() {
+            // Heading immediately followed by another heading => empty body
+            let content = "# A\n# B\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(
+                start, end,
+                "empty section should have body_start == body_end"
+            );
+            // The body slice should be empty
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn find_section_empty_body_with_subsection() {
+            // ## level heading immediately after # level => # A body includes ## B
+            // but if both are same level, body is empty
+            let content = "## A\n## B\nB body\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn replace_section_empty_body_inserts_content() {
+            let content = "# A\n# B\n";
+            let result = replace_section_in(content, "A", "new content").unwrap();
+            assert_eq!(result, "# A\nnew content\n# B\n");
+        }
+
+        #[test]
+        fn replace_section_empty_body_with_empty_replacement() {
+            let content = "# A\n# B\n";
+            let result = replace_section_in(content, "A", "").unwrap();
+            assert_eq!(result, "# A\n# B\n");
+        }
+
+        #[test]
+        fn insert_after_heading_empty_section() {
+            let content = "# A\n# B\n";
+            let result = insert_after_heading_in(content, "A", "inserted\n").unwrap();
+            assert_eq!(result, "# A\ninserted\n# B\n");
+        }
+
+        #[test]
+        fn insert_after_heading_empty_section_no_trailing_newline() {
+            let content = "# A\n# B\n";
+            let result = insert_after_heading_in(content, "A", "inserted").unwrap();
+            // Function appends \n when insertion doesn't end with one
+            assert!(result.contains("# A\ninserted\n# B\n"));
+        }
+
+        #[test]
+        fn upsert_bullet_empty_section() {
+            let content = "# A\n# B\n";
+            let result = upsert_bullet_in(content, "A", "- new bullet").unwrap();
+            assert!(
+                result.contains("- new bullet"),
+                "bullet should appear in result: {result}"
+            );
+            assert!(
+                result.contains("# B"),
+                "next heading should be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_empty_section_auto_prefix() {
+            let content = "# A\n# B\n";
+            let result = upsert_bullet_in(content, "A", "item without dash").unwrap();
+            assert!(
+                result.contains("- item without dash"),
+                "auto-prefix should be added: {result}"
+            );
+        }
+
+        #[test]
+        fn find_section_duplicate_headings_returns_first() {
+            let content = "# A\nfirst body\n# B\nmiddle\n# A\nsecond body\n";
+            let (start, end) = find_section(content, "A").unwrap();
+            let body = &content[start..end];
+            assert_eq!(body, "first body\n");
+        }
+
+        #[test]
+        fn find_section_eof_without_trailing_newline() {
+            let content = "# A\ncontent";
+            let (start, end) = find_section(content, "A").unwrap();
+            let body = &content[start..end];
+            assert_eq!(body, "content");
+        }
+
+        #[test]
+        fn find_section_single_heading_no_body_no_newline() {
+            let content = "# A";
+            let (start, end) = find_section(content, "A").unwrap();
+            assert_eq!(start, end);
+            assert_eq!(&content[start..end], "");
+        }
+
+        #[test]
+        fn replace_section_eof_without_trailing_newline() {
+            let content = "# A\nold content";
+            let result = replace_section_in(content, "A", "new content").unwrap();
+            assert_eq!(result, "# A\nnew content\n");
+        }
+
+        #[test]
+        fn insert_after_heading_at_eof() {
+            let content = "# A\nexisting";
+            let result = insert_after_heading_in(content, "A", "inserted\n").unwrap();
+            assert_eq!(result, "# A\ninserted\nexisting");
+        }
+
+        #[test]
+        fn empty_section_three_consecutive_headings() {
+            // Both A and B are empty; C has body
+            let content = "# A\n# B\n# C\nbody\n";
+            let (a_start, a_end) = find_section(content, "A").unwrap();
+            assert_eq!(&content[a_start..a_end], "");
+
+            let (b_start, b_end) = find_section(content, "B").unwrap();
+            assert_eq!(&content[b_start..b_end], "");
+
+            let (c_start, c_end) = find_section(content, "C").unwrap();
+            assert_eq!(&content[c_start..c_end], "body\n");
+        }
+    }
 }
