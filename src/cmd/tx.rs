@@ -1671,4 +1671,154 @@ mod tests {
         let msg = err.to_string();
         assert_eq!(msg, "config.toml: key not found");
     }
+
+    #[test]
+    fn tx_yaml_plan_format() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("test_file.txt");
+        let plan_yaml = format!(
+            "version: \"1\"\noperations:\n  - op: file.create\n    path: \"{}\"\n    content: \"hello from yaml plan\"\n",
+            portable_path_str(&target)
+        );
+        let plan_file = dir.path().join("plan.yaml");
+        fs::write(&plan_file, &plan_yaml).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS, "YAML plan should succeed");
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "hello from yaml plan",
+            "file should contain content from YAML plan"
+        );
+    }
+
+    #[test]
+    fn tx_toml_plan_format() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("test_file.txt");
+        let plan_toml = format!(
+            "version = \"1\"\n\n[[operations]]\nop = \"file.create\"\npath = \"{}\"\ncontent = \"hello from toml plan\"\n",
+            portable_path_str(&target)
+        );
+        let plan_file = dir.path().join("plan.toml");
+        fs::write(&plan_file, &plan_toml).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS, "TOML plan should succeed");
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "hello from toml plan",
+            "file should contain content from TOML plan"
+        );
+    }
+
+    #[test]
+    fn tx_strict_rollback_removes_created_file() {
+        let dir = TempDir::new().unwrap();
+        let created = dir.path().join("new_file.txt");
+
+        // Operation 1: create a new file (succeeds).
+        // Operation 2: read a nonexistent file (fails).
+        // Strict mode should roll back the created file.
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "strict": true,
+  "operations": [
+    {{"op": "file.create", "path": "{}", "content": "should be rolled back"}},
+    {{"op": "read", "path": "nonexistent-file.txt"}}
+  ]
+}}"#,
+            portable_path_str(&created)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::OPERATION_FAILED,
+            "strict plan with failing op should fail"
+        );
+        assert!(
+            !created.exists(),
+            "created file should be removed after rollback"
+        );
+    }
+
+    #[test]
+    fn tx_strict_rollback_restores_deleted_file() {
+        let dir = TempDir::new().unwrap();
+        let victim = dir.path().join("victim.txt");
+        fs::write(&victim, "precious content").unwrap();
+
+        // Operation 1: delete victim.txt (succeeds).
+        // Operation 2: read a nonexistent file (fails).
+        // Strict mode should restore the deleted file.
+        let plan = format!(
+            r#"{{
+  "version": "1",
+  "strict": true,
+  "operations": [
+    {{"op": "file.delete", "path": "{}"}},
+    {{"op": "read", "path": "nonexistent-file.txt"}}
+  ]
+}}"#,
+            portable_path_str(&victim)
+        );
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, &plan).unwrap();
+
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::OPERATION_FAILED,
+            "strict plan with failing op should fail"
+        );
+        assert!(
+            victim.exists(),
+            "deleted file should be restored after rollback"
+        );
+        assert_eq!(
+            fs::read_to_string(&victim).unwrap(),
+            "precious content",
+            "restored file should have original content"
+        );
+    }
 }
