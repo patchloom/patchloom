@@ -683,8 +683,7 @@ mod tests {
             None,
             None,
         );
-        assert!(result.is_ok());
-        let r = result.unwrap();
+        let r = result.expect("similarity fallback should succeed");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
     }
 
@@ -708,8 +707,7 @@ mod tests {
             Some("fn setup() {}"),
             Some("fn cleanup() {}"),
         );
-        assert!(result.is_ok());
-        let r = result.unwrap();
+        let r = result.expect("anchor fallback should succeed");
         assert_eq!(r.strategy, MatchStrategy::Anchor);
     }
 
@@ -827,8 +825,7 @@ mod tests {
             Some("fn header() {}"),
             Some("fn footer() {}"),
         );
-        assert!(result.is_ok(), "multi-line anchor should succeed");
-        let r = result.unwrap();
+        let r = result.expect("multi-line anchor should succeed");
         assert_eq!(r.strategy, MatchStrategy::Anchor);
         assert!(r.matched_text.contains("proccess_data"));
         assert!(r.matched_text.contains("x + 1"));
