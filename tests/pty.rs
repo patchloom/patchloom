@@ -10,7 +10,8 @@
 //! These tests MUST run serially (`--test-threads=1`) because concurrent
 //! PTY allocation can cause timeouts. The Makefile target handles this.
 
-use expectrl::{Eof, Session};
+use expectrl::session::OsSession;
+use expectrl::{Eof, Expect};
 use std::fs;
 use std::process::Command;
 use std::time::Duration;
@@ -27,8 +28,8 @@ fn patchloom_cmd(cwd: &std::path::Path) -> Command {
 }
 
 /// Spawn a PTY session with a generous timeout for CI reliability.
-fn spawn_pty(cmd: Command) -> Session {
-    let mut session = Session::spawn(cmd).expect("failed to spawn PTY session");
+fn spawn_pty(cmd: Command) -> OsSession {
+    let mut session = OsSession::spawn(cmd).expect("failed to spawn PTY session");
     session.set_expect_timeout(Some(Duration::from_secs(10)));
     session
 }
