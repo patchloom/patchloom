@@ -2014,7 +2014,7 @@ mod tests {
 
     #[test]
     fn validate_content_size_accepts_small() {
-        assert!(validate_content_size("field", "hello").is_ok());
+        validate_content_size("field", "hello").unwrap();
     }
 
     #[test]
@@ -2028,7 +2028,7 @@ mod tests {
 
     #[test]
     fn validate_param_size_accepts_small() {
-        assert!(validate_param_size("selector", "a.b.c").is_ok());
+        validate_param_size("selector", "a.b.c").unwrap();
     }
 
     #[test]
@@ -2041,7 +2041,7 @@ mod tests {
 
     #[test]
     fn validate_batch_size_accepts_small() {
-        assert!(validate_batch_size("files", 5).is_ok());
+        validate_batch_size("files", 5).unwrap();
     }
 
     #[test]
@@ -2054,13 +2054,13 @@ mod tests {
     #[test]
     fn validate_json_depth_accepts_shallow() {
         let val = serde_json::json!({"a": {"b": "c"}});
-        assert!(validate_json_depth("value", &val).is_ok());
+        validate_json_depth("value", &val).unwrap();
     }
 
     #[test]
     fn validate_json_depth_accepts_scalar() {
         let val = serde_json::json!("hello");
-        assert!(validate_json_depth("value", &val).is_ok());
+        validate_json_depth("value", &val).unwrap();
     }
 
     #[test]

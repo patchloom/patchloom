@@ -323,17 +323,17 @@ mod tests {
 
         #[test]
         fn validate_mode_valid_to_only() {
-            assert!(validate_replace_mode(true, false, false).is_ok());
+            validate_replace_mode(true, false, false).unwrap();
         }
 
         #[test]
         fn validate_mode_valid_insert_before_only() {
-            assert!(validate_replace_mode(false, true, false).is_ok());
+            validate_replace_mode(false, true, false).unwrap();
         }
 
         #[test]
         fn validate_mode_valid_insert_after_only() {
-            assert!(validate_replace_mode(false, false, true).is_ok());
+            validate_replace_mode(false, false, true).unwrap();
         }
 
         #[test]
