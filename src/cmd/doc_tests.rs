@@ -1,0 +1,690 @@
+use super::*;
+use std::fs;
+use tempfile::TempDir;
+
+/// Helper: write a file into a temp directory and return its path.
+fn write_file(dir: &TempDir, name: &str, content: &str) -> String {
+    let path = dir.path().join(name);
+    fs::write(&path, content).unwrap();
+    path.to_str().unwrap().to_string()
+}
+
+// -- get ----------------------------------------------------------------
+
+#[test]
+fn get_returns_value_from_json() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello", "count": 42}"#);
+    let action = DocAction::Get {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "hello");
+}
+
+#[test]
+fn get_returns_value_from_yaml() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.yaml", "name: hello\ncount: 42\n");
+    let action = DocAction::Get {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "hello");
+}
+
+#[test]
+fn get_returns_value_from_toml() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.toml", "name = \"hello\"\ncount = 42\n");
+    let action = DocAction::Get {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "hello");
+}
+
+// -- has ----------------------------------------------------------------
+
+#[test]
+fn has_returns_true_for_existing_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Has {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "true");
+}
+
+#[test]
+fn has_returns_false_for_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Has {
+        file: path,
+        selector: "missing".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "false");
+}
+
+// -- keys ---------------------------------------------------------------
+
+#[test]
+fn keys_lists_object_keys() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(
+        &dir,
+        "test.json",
+        r#"{"scripts": {"build": "tsc", "lint": "eslint", "test": "jest"}}"#,
+    );
+    let action = DocAction::Keys {
+        file: path,
+        selector: "scripts".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let keys: Vec<&str> = output.split('\n').collect();
+    assert_eq!(keys.len(), 3);
+    assert!(keys.contains(&"build"));
+    assert!(keys.contains(&"lint"));
+    assert!(keys.contains(&"test"));
+}
+
+// -- len ----------------------------------------------------------------
+
+#[test]
+fn len_counts_array_elements() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"items": [1, 2, 3, 4, 5]}"#);
+    let action = DocAction::Len {
+        file: path,
+        selector: "items".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "5");
+}
+
+// -- missing selector ---------------------------------------------------
+
+#[test]
+fn get_missing_selector_returns_exit_3() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Get {
+        file: path,
+        selector: "nonexistent".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::NO_MATCHES);
+    assert!(output.is_empty());
+}
+
+// -- parse_value --------------------------------------------------------
+
+#[test]
+fn parse_value_bare_string() {
+    assert_eq!(parse_value("hello"), serde_json::json!("hello"));
+}
+
+#[test]
+fn parse_value_integer() {
+    assert_eq!(parse_value("42"), serde_json::json!(42));
+}
+
+#[test]
+fn parse_value_bool() {
+    assert_eq!(parse_value("true"), serde_json::json!(true));
+}
+
+#[test]
+fn parse_value_null() {
+    assert_eq!(parse_value("null"), serde_json::Value::Null);
+}
+
+#[test]
+fn parse_value_json_object() {
+    let v = parse_value(r#"{"a":1}"#);
+    assert_eq!(v, serde_json::json!({"a": 1}));
+}
+
+// -- Helper to run a doc write action through run() -------------------
+
+fn run_doc(action: DocAction, global: &GlobalFlags) -> anyhow::Result<u8> {
+    run(
+        DocArgs {
+            action,
+            write: Default::default(),
+        },
+        global,
+    )
+}
+
+// -- set ----------------------------------------------------------------
+
+#[test]
+fn set_creates_new_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Set {
+        file: path.clone(),
+        selector: "age".into(),
+        value: "42".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["age"], serde_json::json!(42));
+}
+
+#[test]
+fn set_updates_existing_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Set {
+        file: path.clone(),
+        selector: "name".into(),
+        value: "world".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["name"], serde_json::json!("world"));
+}
+
+// -- delete -------------------------------------------------------------
+
+#[test]
+fn delete_removes_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello", "age": 42}"#);
+    let action = DocAction::Delete {
+        file: path.clone(),
+        selector: "age".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(val.get("age").is_none());
+}
+
+// -- delete-where -------------------------------------------------------
+
+#[test]
+fn delete_where_removes_matching_items() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(
+        &dir,
+        "test.json",
+        r#"{"users": [{"name": "alice"}, {"name": "bob"}, {"name": "carol"}]}"#,
+    );
+    let action = DocAction::DeleteWhere {
+        file: path.clone(),
+        selector: "users".into(),
+        predicate: "name=bob".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let arr = val["users"].as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert_eq!(arr[0]["name"], serde_json::json!("alice"));
+    assert_eq!(arr[1]["name"], serde_json::json!("carol"));
+}
+
+#[test]
+fn delete_where_no_match_is_idempotent() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(
+        &dir,
+        "test.json",
+        r#"{"users": [{"name": "alice"}, {"name": "bob"}]}"#,
+    );
+    let action = DocAction::DeleteWhere {
+        file: path,
+        selector: "users".into(),
+        predicate: "name=nobody".into(),
+    };
+    let global = GlobalFlags::test_with_cwd(dir.path());
+    // Engine treats delete-where no-match as success (idempotent).
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+}
+
+#[test]
+fn delete_where_removes_multiple_matches() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(
+        &dir,
+        "test.json",
+        r#"{"items": [{"status": "done"}, {"status": "pending"}, {"status": "done"}]}"#,
+    );
+    let action = DocAction::DeleteWhere {
+        file: path.clone(),
+        selector: "items".into(),
+        predicate: "status=done".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let arr = val["items"].as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["status"], serde_json::json!("pending"));
+}
+
+#[test]
+fn delete_missing_key_is_idempotent() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Delete {
+        file: path,
+        selector: "nonexistent".into(),
+    };
+    let global = GlobalFlags::test_with_cwd(dir.path());
+    // Engine treats delete no-match as success (idempotent).
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+}
+
+// -- append / prepend ---------------------------------------------------
+
+#[test]
+fn append_adds_to_array() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"items": [1, 2, 3]}"#);
+    let action = DocAction::Append {
+        file: path.clone(),
+        selector: "items".into(),
+        value: "4".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["items"], serde_json::json!([1, 2, 3, 4]));
+}
+
+#[test]
+fn prepend_adds_to_beginning_of_array() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"items": [1, 2, 3]}"#);
+    let action = DocAction::Prepend {
+        file: path.clone(),
+        selector: "items".into(),
+        value: "0".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["items"], serde_json::json!([0, 1, 2, 3]));
+}
+
+// -- merge --------------------------------------------------------------
+
+#[test]
+fn deep_merge_depth_guard_caps_recursion() {
+    use crate::ops::doc::deep_merge;
+    // Build a JSON tree nested 200 levels deep (exceeds MAX_MERGE_DEPTH of 128).
+    // The guard stops recursing at depth 128 and overwrites with the
+    // remaining subtree, preventing stack overflow on adversarial input.
+    let mut base = serde_json::json!(null);
+    let mut other = serde_json::json!({"leaf": true});
+    for _ in 0..200 {
+        other = serde_json::json!({"nested": other});
+    }
+    deep_merge(&mut base, &other);
+    // Verify the result is a valid object (not a crash) and the
+    // top-level structure was preserved.
+    assert!(base.is_object());
+    assert!(
+        base.get("nested").is_some(),
+        "top-level 'nested' key must exist"
+    );
+    // Walk down to verify nesting was preserved (not just top level).
+    let mut cursor = &base;
+    for _ in 0..10 {
+        cursor = cursor
+            .get("nested")
+            .expect("nesting should be at least 10 levels deep");
+    }
+    assert!(cursor.is_object());
+}
+
+#[test]
+fn merge_combines_objects() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Merge {
+        file: path.clone(),
+        stdin: false,
+        value: Some(r#"{"age": 42}"#.into()),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["name"], serde_json::json!("hello"));
+    assert_eq!(val["age"], serde_json::json!(42));
+}
+
+// -- ensure -------------------------------------------------------------
+
+#[test]
+fn ensure_is_idempotent() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "original"}"#);
+    // Ensure on an existing key should not overwrite.
+    let action = DocAction::Ensure {
+        file: path.clone(),
+        selector: "name".into(),
+        value: "overwritten".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    // Value should remain "original" (not overwritten).
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["name"], serde_json::json!("original"));
+}
+
+#[test]
+fn ensure_creates_missing_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Ensure {
+        file: path.clone(),
+        selector: "age".into(),
+        value: "30".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["age"], serde_json::json!(30));
+    assert_eq!(val["name"], serde_json::json!("hello"));
+}
+
+// -- move ---------------------------------------------------------------
+
+#[test]
+fn move_renames_key() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"old_name": "value"}"#);
+    let action = DocAction::Move {
+        file: path.clone(),
+        from: "old_name".into(),
+        to: "new_name".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["new_name"], serde_json::json!("value"));
+    assert!(val.get("old_name").is_none());
+}
+
+// -- apply writes file --------------------------------------------------
+
+#[test]
+fn set_with_apply_writes_file() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Set {
+        file: path.clone(),
+        selector: "name".into(),
+        value: "world".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["name"], serde_json::json!("world"));
+}
+
+// -- check mode ---------------------------------------------------------
+
+#[test]
+fn set_with_check_reports_changes() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Set {
+        file: path,
+        selector: "name".into(),
+        value: "world".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.check = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::CHANGES_DETECTED);
+}
+
+#[test]
+fn diff_detects_added_removed_changed() {
+    let dir = TempDir::new().unwrap();
+    let a = write_file(
+        &dir,
+        "a.json",
+        r#"{"name":"old","version":1,"removed":true}"#,
+    );
+    let b = write_file(
+        &dir,
+        "b.json",
+        r#"{"name":"new","version":1,"added":"yes"}"#,
+    );
+    let action = DocAction::Diff {
+        file_a: a,
+        file_b: b,
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert!(output.contains("~ name"), "should show changed: {output}");
+    assert!(
+        output.contains("- removed"),
+        "should show removed: {output}"
+    );
+    assert!(output.contains("+ added"), "should show added: {output}");
+    assert!(
+        !output.contains("version"),
+        "unchanged key should not appear: {output}"
+    );
+}
+
+#[test]
+fn diff_identical_files() {
+    let dir = TempDir::new().unwrap();
+    let a = write_file(&dir, "a.json", r#"{"k":1}"#);
+    let b = write_file(&dir, "b.json", r#"{"k":1}"#);
+    let action = DocAction::Diff {
+        file_a: a,
+        file_b: b,
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "identical\n");
+}
+
+// -- error path tests ---------------------------------------------------
+
+#[test]
+fn keys_on_scalar_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Keys {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::FAILURE);
+    assert!(output.contains("not an object"));
+}
+
+#[test]
+fn len_on_scalar_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Len {
+        file: path,
+        selector: "name".into(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::FAILURE);
+    assert!(output.contains("not an array or object"));
+}
+
+#[test]
+fn len_counts_object_keys() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"a": 1, "b": 2, "c": 3}"#);
+    let action = DocAction::Len {
+        file: path,
+        selector: String::new(),
+    };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(output, "3");
+}
+
+#[test]
+fn append_to_non_array_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Append {
+        file: path,
+        selector: "name".into(),
+        value: "42".into(),
+    };
+    let global = GlobalFlags::test_with_cwd(dir.path());
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::FAILURE);
+}
+
+#[test]
+fn prepend_to_non_array_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+    let action = DocAction::Prepend {
+        file: path,
+        selector: "name".into(),
+        value: "42".into(),
+    };
+    let global = GlobalFlags::test_with_cwd(dir.path());
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::FAILURE);
+}
+
+// -- flatten ------------------------------------------------------------
+
+#[test]
+fn set_apply_creates_backup_session() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"version": "1.0"}"#);
+    let action = DocAction::Set {
+        file: path.clone(),
+        selector: "version".into(),
+        value: "\"2.0\"".into(),
+    };
+    let mut global = GlobalFlags::test_with_cwd(dir.path());
+    global.apply = true;
+    let code = run_doc(action, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let backup_dir = dir.path().join(".patchloom/backups");
+    assert!(
+        backup_dir.exists(),
+        "backup directory should exist after doc set --apply"
+    );
+    let sessions: Vec<_> = fs::read_dir(&backup_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    assert!(
+        !sessions.is_empty(),
+        "at least one backup session should be created"
+    );
+}
+
+#[test]
+fn flatten_enumerates_leaf_paths() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(
+        &dir,
+        "test.json",
+        r#"{"a":1,"b":{"c":2,"d":3},"e":[10,20]}"#,
+    );
+    let action = DocAction::Flatten { file: path };
+    let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert!(output.contains("a = 1"), "missing a: {output}");
+    assert!(output.contains("b.c = 2"), "missing b.c: {output}");
+    assert!(output.contains("b.d = 3"), "missing b.d: {output}");
+    assert!(output.contains("e[0] = 10"), "missing e[0]: {output}");
+    assert!(output.contains("e[1] = 20"), "missing e[1]: {output}");
+}
+
+#[test]
+fn flatten_includes_empty_arrays() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"tags":[],"name":"foo","items":[1]}"#);
+    let action = DocAction::Flatten { file: path };
+    let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["tags"], serde_json::json!([]));
+    assert_eq!(parsed["name"], serde_json::json!("foo"));
+    assert_eq!(parsed["items[0]"], serde_json::json!(1));
+}
+
+#[test]
+fn flatten_includes_empty_objects() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"config":{},"name":"bar"}"#);
+    let action = DocAction::Flatten { file: path };
+    let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["config"], serde_json::json!({}));
+    assert_eq!(parsed["name"], serde_json::json!("bar"));
+}
+
+#[test]
+fn flatten_includes_nested_empty_containers() {
+    let dir = TempDir::new().unwrap();
+    let path = write_file(&dir, "test.json", r#"{"a":{"b":[],"c":{}},"d":[1]}"#);
+    let action = DocAction::Flatten { file: path };
+    let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(parsed["a.b"], serde_json::json!([]));
+    assert_eq!(parsed["a.c"], serde_json::json!({}));
+    assert_eq!(parsed["d[0]"], serde_json::json!(1));
+}
