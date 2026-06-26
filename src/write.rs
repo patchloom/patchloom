@@ -19,13 +19,8 @@ pub enum EolMode {
     Lf,
     /// Normalize to CRLF.
     Crlf,
-}
-
-/// Indentation style read from EditorConfig.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IndentStyle {
-    Space,
-    Tab,
+    /// Normalize to CR (classic Mac).
+    Cr,
 }
 
 /// Controls which transformations are applied before writing a file.
@@ -34,8 +29,6 @@ pub struct WritePolicy {
     pub normalize_eol: EolMode,
     pub trim_trailing_whitespace: bool,
     pub collapse_blanks: bool,
-    pub indent_style: Option<IndentStyle>,
-    pub indent_size: Option<usize>,
 }
 
 impl WritePolicy {
@@ -46,8 +39,6 @@ impl WritePolicy {
             && matches!(self.normalize_eol, EolMode::Keep)
             && !self.trim_trailing_whitespace
             && !self.collapse_blanks
-            && self.indent_style.is_none()
-            && self.indent_size.is_none()
     }
 
     /// Apply an override, setting only the fields that are `Some`.
@@ -75,8 +66,6 @@ impl Default for WritePolicy {
             normalize_eol: EolMode::Keep,
             trim_trailing_whitespace: false,
             collapse_blanks: false,
-            indent_style: None,
-            indent_size: None,
         }
     }
 }
@@ -102,9 +91,12 @@ pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
     match mode {
         "lf" => Ok(EolMode::Lf),
         "crlf" => Ok(EolMode::Crlf),
+        "cr" => Ok(EolMode::Cr),
         "keep" => Ok(EolMode::Keep),
         _ => {
-            anyhow::bail!("invalid normalize_eol value '{mode}': expected 'lf', 'crlf', or 'keep'")
+            anyhow::bail!(
+                "invalid normalize_eol value '{mode}': expected 'lf', 'crlf', 'cr', or 'keep'"
+            )
         }
     }
 }
@@ -128,8 +120,9 @@ pub fn ensure_final_newline(content: &str) -> std::borrow::Cow<'_, str> {
 /// Normalize line endings according to `mode`.
 ///
 /// - `Keep`  – return content unchanged.
-/// - `Lf`    – replace every `\r\n` with `\n`.
+/// - `Lf`    – replace every `\r\n` with `\n`, and every bare `\r` with `\n`.
 /// - `Crlf`  – replace every lone `\n` (not preceded by `\r`) with `\r\n`.
+/// - `Cr`    – replace every `\r\n` with `\r`, and every bare `\n` with `\r`.
 ///
 /// Returns `Cow::Borrowed` when no change is needed, avoiding allocation.
 /// CRLF mode uses a single-pass scan with `memchr` instead of two
@@ -139,10 +132,14 @@ pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> 
     match mode {
         EolMode::Keep => Cow::Borrowed(content),
         EolMode::Lf => {
-            if memchr::memmem::find(content.as_bytes(), b"\r\n").is_none() {
+            let bytes = content.as_bytes();
+            let has_cr = memchr::memchr(b'\r', bytes).is_some();
+            if !has_cr {
                 Cow::Borrowed(content)
             } else {
-                Cow::Owned(content.replace("\r\n", "\n"))
+                // Replace \r\n with \n, then any remaining bare \r with \n.
+                let without_crlf = content.replace("\r\n", "\n");
+                Cow::Owned(without_crlf.replace('\r', "\n"))
             }
         }
         EolMode::Crlf => {
@@ -169,6 +166,17 @@ pub fn normalize_eol(content: &str, mode: EolMode) -> std::borrow::Cow<'_, str> 
                     result.push_str(&content[last..]);
                 }
                 Cow::Owned(result)
+            }
+        }
+        EolMode::Cr => {
+            let bytes = content.as_bytes();
+            let has_lf = memchr::memchr(b'\n', bytes).is_some();
+            if !has_lf {
+                Cow::Borrowed(content)
+            } else {
+                // Replace \r\n with \r, then any remaining bare \n with \r.
+                let without_crlf = content.replace("\r\n", "\r");
+                Cow::Owned(without_crlf.replace('\n', "\r"))
             }
         }
     }
@@ -341,11 +349,6 @@ pub fn policy_from_flags(
         false
     };
 
-    #[allow(unused_mut)]
-    let mut indent_style: Option<IndentStyle> = None;
-    #[allow(unused_mut)]
-    let mut indent_size: Option<usize> = None;
-
     let (efn, eol, ttw) = if respect_ec {
         #[cfg(feature = "cli")]
         if let Some(p) = file_path {
@@ -370,7 +373,7 @@ pub fn policy_from_flags(
                     new_eol = Some(match val {
                         ec4rs::property::EndOfLine::Lf => EolMode::Lf,
                         ec4rs::property::EndOfLine::CrLf => EolMode::Crlf,
-                        ec4rs::property::EndOfLine::Cr => EolMode::Keep,
+                        ec4rs::property::EndOfLine::Cr => EolMode::Cr,
                     });
                 }
 
@@ -380,21 +383,6 @@ pub fn policy_from_flags(
                         props.get::<ec4rs::property::TrimTrailingWs>()
                 {
                     new_ttw = true;
-                }
-
-                // indent_style
-                if let Ok(val) = props.get::<ec4rs::property::IndentStyle>() {
-                    indent_style = Some(match val {
-                        ec4rs::property::IndentStyle::Tabs => IndentStyle::Tab,
-                        ec4rs::property::IndentStyle::Spaces => IndentStyle::Space,
-                    });
-                }
-
-                // indent_size
-                if let Ok(ec4rs::property::IndentSize::Value(n)) =
-                    props.get::<ec4rs::property::IndentSize>()
-                {
-                    indent_size = Some(n);
                 }
 
                 (new_efn, new_eol, new_ttw)
@@ -417,8 +405,6 @@ pub fn policy_from_flags(
         normalize_eol: eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: ttw,
         collapse_blanks: global.collapse_blanks,
-        indent_style,
-        indent_size,
     }
 }
 
@@ -581,6 +567,43 @@ mod tests {
     }
 
     #[test]
+    fn normalize_eol_cr_converts_lf() {
+        assert_eq!(normalize_eol("a\nb\n", EolMode::Cr), "a\rb\r");
+    }
+
+    #[test]
+    fn normalize_eol_cr_converts_crlf() {
+        assert_eq!(normalize_eol("a\r\nb\r\n", EolMode::Cr), "a\rb\r");
+    }
+
+    #[test]
+    fn normalize_eol_cr_mixed_input() {
+        assert_eq!(normalize_eol("a\r\nb\nc\r\n", EolMode::Cr), "a\rb\rc\r");
+    }
+
+    #[test]
+    fn normalize_eol_cr_already_correct_returns_borrowed() {
+        use std::borrow::Cow;
+        let content = "a\rb\r";
+        let result = normalize_eol(content, EolMode::Cr);
+        assert!(
+            matches!(result, Cow::Borrowed(_)),
+            "all-CR content should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
+    fn normalize_eol_lf_also_strips_bare_cr() {
+        // LF mode should convert both \r\n and bare \r to \n.
+        assert_eq!(normalize_eol("a\rb\r\nc\n", EolMode::Lf), "a\nb\nc\n");
+    }
+
+    #[test]
+    fn parse_eol_mode_cr() {
+        assert!(matches!(parse_eol_mode("cr").unwrap(), EolMode::Cr));
+    }
+
+    #[test]
     fn trim_trailing_whitespace_removes_spaces() {
         let result = trim_trailing_whitespace("hello   \nworld\t\n");
         assert_eq!(result, "hello\nworld\n");
@@ -704,52 +727,22 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cli")]
-    fn policy_from_flags_editorconfig_reads_indent_properties() {
+    fn policy_from_flags_editorconfig_cr() {
         let dir = tempfile::tempdir().unwrap();
         let ec_path = dir.path().join(".editorconfig");
-        fs::write(
-            &ec_path,
-            "root = true\n\n[*]\nindent_style = space\nindent_size = 4\n",
-        )
-        .unwrap();
+        fs::write(&ec_path, "root = true\n\n[*]\nend_of_line = cr\n").unwrap();
 
-        let file = dir.path().join("test.rs");
-        fs::write(&file, "fn main() {}\n").unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "content\n").unwrap();
 
         let mut global = test_global_flags();
         global.respect_editorconfig = true;
 
         let policy = policy_from_flags(&global, Some(&file));
-        assert_eq!(policy.indent_style, Some(IndentStyle::Space));
-        assert_eq!(policy.indent_size, Some(4));
-    }
-
-    #[test]
-    #[cfg(feature = "cli")]
-    fn policy_from_flags_editorconfig_tab_indent() {
-        let dir = tempfile::tempdir().unwrap();
-        let ec_path = dir.path().join(".editorconfig");
-        fs::write(&ec_path, "root = true\n\n[*]\nindent_style = tab\n").unwrap();
-
-        let file = dir.path().join("test.go");
-        fs::write(&file, "package main\n").unwrap();
-
-        let mut global = test_global_flags();
-        global.respect_editorconfig = true;
-
-        let policy = policy_from_flags(&global, Some(&file));
-        assert_eq!(policy.indent_style, Some(IndentStyle::Tab));
-        assert_eq!(policy.indent_size, None);
-    }
-
-    #[test]
-    #[cfg(feature = "cli")]
-    fn policy_from_flags_no_editorconfig_indent_is_none() {
-        let global = test_global_flags();
-
-        let policy = policy_from_flags(&global, None);
-        assert_eq!(policy.indent_style, None);
-        assert_eq!(policy.indent_size, None);
+        assert!(
+            matches!(policy.normalize_eol, EolMode::Cr),
+            "end_of_line = cr should map to EolMode::Cr"
+        );
     }
 
     #[test]
@@ -968,5 +961,16 @@ mod tests {
         };
         policy.apply_override(&ov).unwrap();
         assert!(matches!(policy.normalize_eol, EolMode::Crlf));
+    }
+
+    #[test]
+    fn write_policy_override_cr() {
+        let mut policy = WritePolicy::default();
+        let ov = WritePolicyOverride {
+            normalize_eol: Some("cr".to_string()),
+            ..Default::default()
+        };
+        policy.apply_override(&ov).unwrap();
+        assert!(matches!(policy.normalize_eol, EolMode::Cr));
     }
 }

@@ -45,28 +45,83 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
     })
 }
 
+/// Check if a line is a setext underline (`===` for h1, `---` for h2).
+/// Returns `Some(level)` if the line is a valid setext underline.
+/// CommonMark: the underline must be at least one `=` or `-` character,
+/// optionally preceded by up to 3 spaces and followed by trailing spaces.
+fn setext_underline_level(line: &str) -> Option<usize> {
+    let stripped = line.trim_start_matches(' ');
+    let indent = line.len() - stripped.len();
+    if indent > 3 {
+        return None;
+    }
+    let trimmed = stripped.trim_end();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.bytes().all(|b| b == b'=') {
+        Some(1)
+    } else if trimmed.bytes().all(|b| b == b'-') {
+        Some(2)
+    } else {
+        None
+    }
+}
+
 pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
     let mut headings = Vec::new();
     let total_lines = content.lines().count();
 
-    for (idx, line) in non_fenced_lines(content) {
-        if !line.starts_with('#') {
+    // Collect non-fenced lines into a vec so we can look ahead.
+    let nf_lines: Vec<(usize, &str)> = non_fenced_lines(content).collect();
+
+    for (pos, &(idx, line)) in nf_lines.iter().enumerate() {
+        // ATX heading: starts with #
+        if line.starts_with('#') {
+            let hashes = line.bytes().take_while(|&b| b == b'#').count();
+            if hashes > 6 || hashes >= line.len() {
+                continue;
+            }
+            if line.as_bytes()[hashes] != b' ' {
+                continue;
+            }
+            headings.push(HeadingInfo {
+                level: hashes,
+                text: line[hashes + 1..].to_string(),
+                line_start: idx,
+                line_end: 0,
+            });
             continue;
         }
-        let hashes = line.bytes().take_while(|&b| b == b'#').count();
-        if hashes > 6 || hashes >= line.len() {
-            continue;
+
+        // Setext heading: current line is the underline, previous
+        // non-fenced line is the heading text.
+        if let Some(level) = setext_underline_level(line)
+            && pos > 0
+        {
+            let (prev_idx, prev_line) = nf_lines[pos - 1];
+            // The text line must be non-empty and on the line
+            // immediately before the underline.
+            let prev_trimmed = prev_line.trim();
+            if !prev_trimmed.is_empty() && idx == prev_idx + 1 {
+                // Avoid treating the underline's text line as a
+                // heading if it was already parsed as an ATX heading.
+                let already_atx = headings.last().is_some_and(|h| h.line_start == prev_idx);
+                if !already_atx {
+                    headings.push(HeadingInfo {
+                        level,
+                        text: prev_trimmed.to_string(),
+                        line_start: prev_idx,
+                        line_end: 0,
+                    });
+                }
+            }
         }
-        if line.as_bytes()[hashes] != b' ' {
-            continue;
-        }
-        headings.push(HeadingInfo {
-            level: hashes,
-            text: line[hashes + 1..].to_string(),
-            line_start: idx,
-            line_end: 0,
-        });
     }
+
+    // Sort headings by line_start in case setext headings were
+    // interleaved with ATX headings (unlikely but safe).
+    headings.sort_by_key(|h| h.line_start);
 
     for i in 0..headings.len() {
         let lvl = headings[i].level;
@@ -285,19 +340,33 @@ pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -
     None
 }
 
+/// Strip a bullet prefix (`- `, `* `, `+ `) from a trimmed line,
+/// returning the text content for style-independent comparison.
+fn strip_bullet_prefix(s: &str) -> &str {
+    if s.starts_with("- ") || s.starts_with("* ") || s.starts_with("+ ") {
+        &s[2..]
+    } else {
+        s
+    }
+}
+
 pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
     let (body_start, body_end) = find_section(content, heading)?;
     let body = &content[body_start..body_end];
 
     let trimmed = bullet.trim();
-    let normalized = if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
-        trimmed.to_string()
-    } else {
-        format!("- {trimmed}")
-    };
+    let normalized =
+        if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
+            trimmed.to_string()
+        } else {
+            format!("- {trimmed}")
+        };
 
+    // Dedup across bullet styles: compare text content without prefix.
+    let new_text = strip_bullet_prefix(&normalized);
     for line in body.lines() {
-        if line.trim() == normalized {
+        let existing_text = strip_bullet_prefix(line.trim());
+        if existing_text == new_text {
             return Some(content.to_string());
         }
     }
@@ -628,6 +697,86 @@ mod tests {
         }
 
         #[test]
+        fn parse_headings_setext_h1() {
+            let content = "Title\n=====\n\nSome content\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 1);
+            assert_eq!(headings[0].level, 1);
+            assert_eq!(headings[0].text, "Title");
+            assert_eq!(headings[0].line_start, 0);
+        }
+
+        #[test]
+        fn parse_headings_setext_h2() {
+            let content = "Subtitle\n--------\n\nMore content\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 1);
+            assert_eq!(headings[0].level, 2);
+            assert_eq!(headings[0].text, "Subtitle");
+            assert_eq!(headings[0].line_start, 0);
+        }
+
+        #[test]
+        fn parse_headings_setext_mixed_with_atx() {
+            let content = "Title\n=====\n\nSome content\n\n## ATX Heading\n\nMore text\n\nSubtitle\n--------\n\nEnd\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 3);
+            assert_eq!(headings[0].text, "Title");
+            assert_eq!(headings[0].level, 1);
+            assert_eq!(headings[1].text, "ATX Heading");
+            assert_eq!(headings[1].level, 2);
+            assert_eq!(headings[2].text, "Subtitle");
+            assert_eq!(headings[2].level, 2);
+        }
+
+        #[test]
+        fn parse_headings_setext_inside_fenced_code_block_ignored() {
+            let content = "# Real\n```\nFake\n====\n```\n## Also Real\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "Real");
+            assert_eq!(headings[1].text, "Also Real");
+        }
+
+        #[test]
+        fn parse_headings_setext_section_operations() {
+            // Verify that section-based operations work with setext headings.
+            let content =
+                "Title\n=====\n\nBody of title\n\nSubtitle\n--------\n\nBody of subtitle\n";
+            let (start, end) = find_section(content, "Title").unwrap();
+            let body = &content[start..end];
+            assert!(body.contains("Body of title"), "body: {:?}", body);
+
+            let (start2, end2) = find_section(content, "Subtitle").unwrap();
+            let body2 = &content[start2..end2];
+            assert!(body2.contains("Body of subtitle"), "body: {:?}", body2);
+        }
+
+        #[test]
+        fn parse_headings_setext_single_char_underline() {
+            // CommonMark allows a single = or - as an underline.
+            let content = "H1\n=\n\nH2\n-\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].level, 1);
+            assert_eq!(headings[0].text, "H1");
+            assert_eq!(headings[1].level, 2);
+            assert_eq!(headings[1].text, "H2");
+        }
+
+        #[test]
+        fn parse_headings_setext_not_triggered_by_blank_preceding_line() {
+            // A --- after a blank line is a thematic break, not a setext heading.
+            let content = "Some text\n\n---\n\nMore text\n";
+            let headings = parse_headings(content);
+            assert!(
+                headings.is_empty(),
+                "thematic break should not create a heading: {:?}",
+                headings
+            );
+        }
+
+        #[test]
         fn parse_headings_ignores_invalid() {
             let content = "#nospace\n##also\n# Valid\n###### Six\n####### Seven\n";
             let headings = parse_headings(content);
@@ -904,6 +1053,72 @@ mod tests {
         fn move_section_missing_target_heading() {
             let content = "# A\nbody\n# B\nbody\n";
             assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_none());
+        }
+
+        #[test]
+        fn move_section_self_move_before_returns_none() {
+            // Moving section A to before itself: after removing A, the
+            // destination heading no longer exists, so the move returns None.
+            let content = "# A\na body\n# B\nb body\n";
+            let result = move_section_in(content, "A", content, ("before", "A"), true);
+            assert!(
+                result.is_none(),
+                "self-move (before self) should return None: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn move_section_self_move_after_returns_none() {
+            // Moving section A to after itself: same issue.
+            let content = "# A\na body\n# B\nb body\n";
+            let result = move_section_in(content, "A", content, ("after", "A"), true);
+            assert!(
+                result.is_none(),
+                "self-move (after self) should return None: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn move_section_preserves_sub_headings() {
+            let content = "# A\n## A1\na1 content\n## A2\na2 content\n# B\nb content\n";
+            let (result, _) = move_section_in(content, "A", content, ("after", "B"), true).unwrap();
+            // A should now come after B, with both sub-headings preserved.
+            let b_pos = result.find("# B").unwrap();
+            let a_pos = result.find("# A").unwrap();
+            assert!(b_pos < a_pos, "A should be after B");
+            assert!(
+                result.contains("## A1\na1 content"),
+                "sub-heading A1 should be preserved: {result}"
+            );
+            assert!(
+                result.contains("## A2\na2 content"),
+                "sub-heading A2 should be preserved: {result}"
+            );
+            assert!(
+                result.contains("b content"),
+                "B body should be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn move_section_cross_file_preserves_sub_headings() {
+            let source = "# A\n## A1\na1 content\n## A2\na2 content\n# B\nb content\n";
+            let dest = "# X\nx content\n# Y\ny content\n";
+            let (new_src, new_dst) =
+                move_section_in(source, "A", dest, ("before", "Y"), false).unwrap();
+            // Source should no longer have A or its sub-headings.
+            assert!(!new_src.contains("# A"));
+            assert!(!new_src.contains("## A1"));
+            assert!(!new_src.contains("## A2"));
+            assert!(new_src.contains("# B\nb content"));
+            // Dest should have A with its sub-headings before Y.
+            let a_pos = new_dst.find("# A").unwrap();
+            let y_pos = new_dst.find("# Y").unwrap();
+            assert!(a_pos < y_pos);
+            assert!(new_dst.contains("## A1\na1 content"));
+            assert!(new_dst.contains("## A2\na2 content"));
         }
     }
 
@@ -1263,28 +1478,44 @@ mod tests {
         }
 
         #[test]
-        fn upsert_bullet_cross_style_dash_into_star_no_dedup() {
+        fn upsert_bullet_cross_style_dash_into_star_dedup() {
             // Upserting "- existing item" when body has "* existing item":
-            // normalized form is "- existing item" which does NOT match
-            // "* existing item", so it appends (no cross-style dedup).
+            // cross-style dedup should recognize them as the same item.
             let content = "# List\n\n* existing item\n";
             let result = upsert_bullet_in(content, "List", "- existing item").unwrap();
-            assert!(
-                result.contains("* existing item") && result.contains("- existing item"),
-                "cross-style bullets should not dedup: {:?}",
-                result
+            assert_eq!(result, content, "cross-style bullets should dedup");
+        }
+
+        #[test]
+        fn upsert_bullet_no_prefix_into_star_content_dedup() {
+            // Upserting "existing item" (no prefix) normalizes to "- existing item"
+            // which should dedup against body's "* existing item".
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "existing item").unwrap();
+            assert_eq!(
+                result, content,
+                "auto-prefixed dash should dedup against star bullet"
             );
         }
 
         #[test]
-        fn upsert_bullet_no_prefix_into_star_content_no_dedup() {
-            // Upserting "existing item" (no prefix) normalizes to "- existing item"
-            // which does not match body's "* existing item".
-            let content = "# List\n\n* existing item\n";
-            let result = upsert_bullet_in(content, "List", "existing item").unwrap();
+        fn upsert_bullet_plus_prefix_dedup_against_dash() {
+            let content = "# List\n\n- existing item\n";
+            let result = upsert_bullet_in(content, "List", "+ existing item").unwrap();
+            assert_eq!(
+                result, content,
+                "plus-prefixed bullet should dedup against dash"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_plus_prefix_preserved() {
+            // When inserting a new bullet with +, the prefix is kept.
+            let content = "# List\n\n- other item\n";
+            let result = upsert_bullet_in(content, "List", "+ brand new").unwrap();
             assert!(
-                result.contains("* existing item") && result.contains("- existing item"),
-                "auto-prefixed dash should not dedup against star bullet: {:?}",
+                result.contains("+ brand new"),
+                "plus-prefixed bullet should be preserved: {:?}",
                 result
             );
         }
