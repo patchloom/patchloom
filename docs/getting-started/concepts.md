@@ -44,7 +44,7 @@ These modes are mutually exclusive. Patchloom is safe by default: nothing is wri
 A write policy controls transformations applied to all content before it reaches disk:
 
 - `--ensure-final-newline` -- non-empty files always end with `\n`
-- `--normalize-eol <lf|crlf>` -- standardize line endings
+- `--normalize-eol <lf|crlf|cr>` -- standardize line endings
 - `--trim-trailing-whitespace` -- remove trailing spaces on every line
 - `--respect-editorconfig` -- read policy from `.editorconfig` if present
 
