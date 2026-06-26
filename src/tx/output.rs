@@ -250,3 +250,232 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ---- describe_exit_status ----
+
+    #[test]
+    fn describe_exit_status_code_zero() {
+        use std::process::Command;
+        let status = Command::new("true").status().unwrap();
+        assert_eq!(describe_exit_status(status), "exit code 0");
+    }
+
+    #[test]
+    fn describe_exit_status_code_nonzero() {
+        use std::process::Command;
+        let status = Command::new("false").status().unwrap();
+        assert_eq!(describe_exit_status(status), "exit code 1");
+    }
+
+    // ---- describe_lifecycle_cwd ----
+
+    #[test]
+    fn describe_lifecycle_cwd_same() {
+        let cwd = Path::new("/tmp/project");
+        assert_eq!(describe_lifecycle_cwd(cwd, cwd), ".");
+    }
+
+    #[test]
+    fn describe_lifecycle_cwd_subdir() {
+        let base = Path::new("/tmp/project");
+        let sub = Path::new("/tmp/project/src/lib");
+        assert_eq!(describe_lifecycle_cwd(base, sub), "src/lib");
+    }
+
+    // ---- format_error_with_backup_hint ----
+
+    #[test]
+    fn format_error_without_backup() {
+        assert_eq!(format_error_with_backup_hint("oops", None), "oops");
+    }
+
+    #[test]
+    fn format_error_with_backup() {
+        let msg = format_error_with_backup_hint("oops", Some("20260101T120000"));
+        assert!(msg.contains("backup session 20260101T120000"));
+        assert!(msg.contains("patchloom undo"));
+    }
+
+    // ---- build_error_output ----
+
+    #[test]
+    fn build_error_output_fields() {
+        let out = build_error_output("parse_error", "parse_error", "bad plan", None);
+        assert!(!out.ok);
+        assert_eq!(out.status, "error");
+        assert_eq!(out.error_kind.as_deref(), Some("parse_error"));
+        assert!(out.error.as_ref().unwrap().contains("bad plan"));
+        assert_eq!(out.files_changed, 0);
+        assert!(out.backup_session.is_none());
+    }
+
+    #[test]
+    fn build_error_output_with_backup() {
+        let out = build_error_output("rollback", "rollback", "fail", Some("ts123"));
+        assert_eq!(out.backup_session.as_deref(), Some("ts123"));
+        assert!(out.error.as_ref().unwrap().contains("patchloom undo"));
+    }
+
+    // ---- exit_code_from_tx_output ----
+
+    fn ok_output(status: &str) -> TxOutput {
+        TxOutput {
+            ok: true,
+            status: status.to_string(),
+            files_changed: 0,
+            files_created: 0,
+            files_deleted: 0,
+            changes: Vec::new(),
+            reads: Vec::new(),
+            searches: Vec::new(),
+            lints: Vec::new(),
+            error_kind: None,
+            error: None,
+            backup_session: None,
+        }
+    }
+
+    fn err_output(kind: &str) -> TxOutput {
+        TxOutput {
+            ok: false,
+            status: "error".to_string(),
+            files_changed: 0,
+            files_created: 0,
+            files_deleted: 0,
+            changes: Vec::new(),
+            reads: Vec::new(),
+            searches: Vec::new(),
+            lints: Vec::new(),
+            error_kind: Some(kind.to_string()),
+            error: Some("test error".to_string()),
+            backup_session: None,
+        }
+    }
+
+    #[test]
+    fn exit_code_success() {
+        assert_eq!(
+            exit_code_from_tx_output(&ok_output("success")),
+            exit::SUCCESS
+        );
+    }
+
+    #[test]
+    fn exit_code_ok_no_matches() {
+        assert_eq!(
+            exit_code_from_tx_output(&ok_output("no_matches")),
+            exit::NO_MATCHES
+        );
+    }
+
+    #[test]
+    fn exit_code_error_kinds() {
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("no_matches")),
+            exit::NO_MATCHES
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("parse_error")),
+            exit::PARSE_ERROR
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("rollback")),
+            exit::ROLLBACK
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("rollback_failed")),
+            exit::FAILURE
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("validation_failed")),
+            exit::VALIDATION_FAILED
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("format_failed")),
+            exit::VALIDATION_FAILED
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("operation_failed")),
+            exit::OPERATION_FAILED
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("unknown_kind")),
+            exit::FAILURE
+        );
+    }
+
+    // ---- build_tx_output ----
+
+    #[test]
+    fn build_tx_output_classifies_changes() {
+        let cwd = Path::new("/project");
+        let existed = HashSet::from([PathBuf::from("/project/existing.txt")]);
+        let deletions = HashSet::from([PathBuf::from("/project/removed.txt")]);
+        let changes = vec![
+            (
+                PathBuf::from("/project/existing.txt"),
+                "old".to_string(),
+                "new".to_string(),
+            ),
+            (
+                PathBuf::from("/project/brand_new.txt"),
+                String::new(),
+                "content".to_string(),
+            ),
+            (
+                PathBuf::from("/project/removed.txt"),
+                "was here".to_string(),
+                String::new(),
+            ),
+        ];
+
+        let out = build_tx_output("success", true, &changes, &deletions, &existed, cwd);
+        assert!(out.ok);
+        assert_eq!(out.files_changed, 1); // existing.txt modified
+        assert_eq!(out.files_created, 1); // brand_new.txt
+        assert_eq!(out.files_deleted, 1); // removed.txt
+        assert_eq!(out.changes.len(), 3);
+
+        let actions: Vec<&str> = out.changes.iter().map(|c| c.action.as_str()).collect();
+        assert!(actions.contains(&"modified"));
+        assert!(actions.contains(&"created"));
+        assert!(actions.contains(&"deleted"));
+    }
+
+    #[test]
+    fn build_tx_output_empty_changes() {
+        let cwd = Path::new("/project");
+        let out = build_tx_output("success", true, &[], &HashSet::new(), &HashSet::new(), cwd);
+        assert_eq!(out.files_changed, 0);
+        assert_eq!(out.files_created, 0);
+        assert_eq!(out.files_deleted, 0);
+        assert!(out.changes.is_empty());
+    }
+
+    // ---- TxOutput serde round-trip ----
+
+    #[test]
+    fn tx_output_serde_round_trip() {
+        let out = ok_output("success");
+        let json = serde_json::to_string(&out).unwrap();
+        let parsed: TxOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.ok, out.ok);
+        assert_eq!(parsed.status, out.status);
+    }
+
+    #[test]
+    fn tx_output_skips_empty_optional_fields() {
+        let out = ok_output("success");
+        let json = serde_json::to_string(&out).unwrap();
+        // Empty reads/searches/lints should be omitted
+        assert!(!json.contains("\"reads\""));
+        assert!(!json.contains("\"searches\""));
+        assert!(!json.contains("\"lints\""));
+        assert!(!json.contains("\"error\""));
+    }
+}

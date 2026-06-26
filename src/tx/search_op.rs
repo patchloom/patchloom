@@ -207,3 +207,456 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tx::execute::{CachedDoc, TxState};
+    use crate::tx::output::{TxLintResult, TxReadResult, TxSearchResult};
+    use std::collections::{HashMap, HashSet};
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_tx_state<'a>(
+        pending: &'a mut HashMap<PathBuf, (String, String)>,
+        deletions: &'a mut HashSet<PathBuf>,
+        existed_before: &'a mut HashSet<PathBuf>,
+        doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
+        reads: &'a mut Vec<TxReadResult>,
+        searches: &'a mut Vec<TxSearchResult>,
+        lints: &'a mut Vec<TxLintResult>,
+        cwd: &'a Path,
+    ) -> TxState<'a> {
+        TxState {
+            pending,
+            deletions,
+            existed_before,
+            doc_cache,
+            tx_reads: reads,
+            tx_searches: searches,
+            tx_lints: lints,
+            replace_hint: None,
+            cwd,
+            quiet: true,
+            structured: false,
+        }
+    }
+
+    fn search_op(path: &str, pattern: &str) -> Operation {
+        Operation::Search {
+            path: path.into(),
+            pattern: pattern.into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn search_literal_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "line one\nline two\nline three\n").unwrap();
+
+        let op = search_op("test.txt", "two");
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches.len(), 1);
+        assert_eq!(searches[0].match_count, 1);
+        assert_eq!(searches[0].matches[0].line, 2);
+    }
+
+    #[test]
+    fn search_no_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world\n").unwrap();
+
+        let op = search_op("test.txt", "nonexistent");
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 0);
+    }
+
+    #[test]
+    fn search_regex_mode() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "foo123\nbar456\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: r"\d+".into(),
+            regex: true,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 2);
+    }
+
+    #[test]
+    fn search_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "Hello World\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "hello".into(),
+            regex: false,
+            case_insensitive: true,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 1);
+    }
+
+    #[test]
+    fn search_invert_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "keep\nskip this\nkeep too\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "skip".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: true,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 2); // "keep" and "keep too"
+    }
+
+    #[test]
+    fn search_assert_count_mismatch_errors() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "one match\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "match".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: Some(5), // expect 5 but only 1 exists
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let result = execute_search_op(&op, &mut tx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("assert_count"));
+    }
+
+    #[test]
+    fn search_literal_and_regex_combined_errors() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "content").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "x".into(),
+            regex: true,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: true,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let result = execute_search_op(&op, &mut tx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn search_with_context() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "ccc".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: Some(1),
+            after_context: Some(1),
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        let m = &searches[0].matches[0];
+        assert_eq!(m.line, 3);
+        assert_eq!(m.context_before, vec!["bbb"]);
+        assert_eq!(m.context_after, vec!["ddd"]);
+    }
+
+    #[test]
+    fn search_max_results_cap() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "aaa\naaa\naaa\naaa\naaa\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "aaa".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 2,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 2);
+        assert_eq!(searches[0].matches.len(), 2);
+    }
+}

@@ -191,3 +191,333 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         anyhow::bail!("replace operation requires either 'path' or 'glob'");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plan::Operation;
+    use crate::tx::execute::{CachedDoc, TxState};
+    use crate::tx::output::{TxLintResult, TxReadResult, TxSearchResult};
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_tx_state<'a>(
+        pending: &'a mut HashMap<PathBuf, (String, String)>,
+        deletions: &'a mut HashSet<PathBuf>,
+        existed_before: &'a mut HashSet<PathBuf>,
+        doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
+        reads: &'a mut Vec<TxReadResult>,
+        searches: &'a mut Vec<TxSearchResult>,
+        lints: &'a mut Vec<TxLintResult>,
+        cwd: &'a Path,
+    ) -> TxState<'a> {
+        TxState {
+            pending,
+            deletions,
+            existed_before,
+            doc_cache,
+            tx_reads: reads,
+            tx_searches: searches,
+            tx_lints: lints,
+            replace_hint: None,
+            cwd,
+            quiet: true,
+            structured: false,
+        }
+    }
+
+    #[test]
+    fn replace_literal_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: None,
+            from: "hello".into(),
+            to: Some("goodbye".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(pending[&file].1, "goodbye world");
+    }
+
+    #[test]
+    fn replace_no_match_returns_zero() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: None,
+            from: "nonexistent".into(),
+            to: Some("replacement".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn replace_regex_mode() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "foo123bar").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: Some("regex".into()),
+            from: r"\d+".into(),
+            to: Some("NUM".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(pending[&file].1, "fooNUMbar");
+    }
+
+    #[test]
+    fn replace_case_insensitive() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "Hello World").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: None,
+            from: "hello".into(),
+            to: Some("hi".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: true,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(pending[&file].1, "hi World");
+    }
+
+    #[test]
+    fn replace_missing_path_and_glob_errors() {
+        let dir = TempDir::new().unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: None,
+            mode: None,
+            from: "x".into(),
+            to: Some("y".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let result = execute_replace_op(&op, &mut tx);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("'path' or 'glob'"));
+    }
+
+    #[test]
+    fn replace_glob_matches_files() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "old value").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "old value").unwrap();
+        std::fs::write(dir.path().join("c.rs"), "old value").unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*.txt".into()),
+            mode: None,
+            from: "old".into(),
+            to: Some("new".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 2); // a.txt and b.txt matched
+        // c.rs should not be modified
+        assert!(!pending.contains_key(&dir.path().join("c.rs")));
+    }
+}

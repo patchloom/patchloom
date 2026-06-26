@@ -103,3 +103,137 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
         total_lines,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- parse_line_range ----
+
+    #[test]
+    fn parse_single_line() {
+        assert_eq!(parse_line_range("5").unwrap(), (5, Some(5)));
+    }
+
+    #[test]
+    fn parse_colon_range() {
+        assert_eq!(parse_line_range("3:7").unwrap(), (3, Some(7)));
+    }
+
+    #[test]
+    fn parse_dash_range() {
+        assert_eq!(parse_line_range("10-20").unwrap(), (10, Some(20)));
+    }
+
+    #[test]
+    fn parse_zero_start_errors() {
+        assert!(parse_line_range("0").is_err());
+        assert!(parse_line_range("0:5").is_err());
+    }
+
+    #[test]
+    fn parse_end_before_start_errors() {
+        assert!(parse_line_range("10:5").is_err());
+    }
+
+    #[test]
+    fn parse_missing_start_errors() {
+        assert!(parse_line_range(":5").is_err());
+    }
+
+    #[test]
+    fn parse_missing_end_errors() {
+        assert!(parse_line_range("5:").is_err());
+    }
+
+    #[test]
+    fn parse_non_numeric_errors() {
+        assert!(parse_line_range("abc").is_err());
+        assert!(parse_line_range("1:abc").is_err());
+    }
+
+    #[test]
+    fn parse_same_start_end() {
+        assert_eq!(parse_line_range("1:1").unwrap(), (1, Some(1)));
+    }
+
+    #[test]
+    fn parse_negative_dash_is_not_range() {
+        // A leading dash is not a separator, so "-5" should fail as invalid number.
+        assert!(parse_line_range("-5").is_err());
+    }
+
+    // ---- select_lines ----
+
+    #[test]
+    fn select_single_line() {
+        let content = "aaa\nbbb\nccc\n";
+        let result = select_lines(content, (2, Some(2)));
+        assert_eq!(result.content, "bbb");
+        assert_eq!(result.start_line, 2);
+        assert_eq!(result.end_line, 2);
+        assert_eq!(result.total_lines, 3);
+    }
+
+    #[test]
+    fn select_range() {
+        let content = "line1\nline2\nline3\nline4\n";
+        let result = select_lines(content, (2, Some(3)));
+        assert_eq!(result.content, "line2\nline3");
+        assert_eq!(result.start_line, 2);
+        assert_eq!(result.end_line, 3);
+    }
+
+    #[test]
+    fn select_last_line_preserves_trailing_newline() {
+        let content = "aaa\nbbb\nccc\n";
+        let result = select_lines(content, (3, Some(3)));
+        assert_eq!(result.content, "ccc\n");
+        assert_eq!(result.end_line, 3);
+    }
+
+    #[test]
+    fn select_all_lines() {
+        let content = "a\nb\nc\n";
+        let result = select_lines(content, (1, None));
+        assert_eq!(result.content, "a\nb\nc\n");
+        assert_eq!(result.start_line, 1);
+        assert_eq!(result.end_line, 3);
+    }
+
+    #[test]
+    fn select_empty_content() {
+        let result = select_lines("", (1, Some(1)));
+        assert_eq!(result, SelectedLines::empty(0));
+    }
+
+    #[test]
+    fn select_start_beyond_total() {
+        let content = "one\ntwo\n";
+        let result = select_lines(content, (10, Some(20)));
+        assert_eq!(result, SelectedLines::empty(2));
+    }
+
+    #[test]
+    fn select_start_zero_returns_empty() {
+        let content = "one\ntwo\n";
+        let result = select_lines(content, (0, Some(1)));
+        assert_eq!(result, SelectedLines::empty(2));
+    }
+
+    #[test]
+    fn select_end_clamped_to_total() {
+        let content = "a\nb\nc\n";
+        let result = select_lines(content, (2, Some(100)));
+        assert_eq!(result.content, "b\nc\n");
+        assert_eq!(result.end_line, 3);
+    }
+
+    #[test]
+    fn select_no_trailing_newline() {
+        let content = "alpha\nbeta";
+        let result = select_lines(content, (1, Some(2)));
+        // No trailing newline in source, so none added.
+        assert_eq!(result.content, "alpha\nbeta");
+    }
+}
