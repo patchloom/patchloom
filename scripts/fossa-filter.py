@@ -50,6 +50,7 @@ LLVM_EXCEPTION_CRATES = {
     "cc",
     "compiler_builtins",
     "wasi",
+    "wasip2",
     "wit-bindgen-core",
     "wit-bindgen-rust",
     "wit-bindgen-rust-macro",

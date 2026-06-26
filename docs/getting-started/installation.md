@@ -16,8 +16,8 @@ cargo install patchloom
 
 ## From GitHub Releases
 
-Pre-built binaries for Linux (x64, ARM64), macOS (x64, ARM64), and Windows
-(x64) are available on the
+Pre-built binaries for Linux (x64, ARM64, musl), macOS (x64, ARM64), and
+Windows (x64, ARM64) are available on the
 [Releases](https://github.com/patchloom/patchloom/releases/latest) page.
 Download the archive for your platform, extract, and place `patchloom` on
 your PATH.
@@ -68,13 +68,13 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 
 ```toml
 [dependencies]
-patchloom = { version = "0.4", default-features = false }
+patchloom = { default-features = false }
 ```
 
 To add AST support without CLI/MCP:
 
 ```toml
-patchloom = { version = "0.4", default-features = false, features = ["ast"] }
+patchloom = { default-features = false, features = ["ast"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API
