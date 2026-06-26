@@ -63,6 +63,73 @@ fn test_tx_replace_whole_line_in_plan() {
     );
 }
 
+// -- whole_line CR/CRLF tests (#999) ----------------------------------------
+
+#[test]
+fn test_tx_replace_whole_line_cr_endings_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    // Write raw bytes to avoid any line-ending conversion.
+    fs::write(&file, b"alpha\rbeta match\rgamma\r").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "match",
+            "to": "replaced line",
+            "whole_line": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let got = fs::read(&file).unwrap();
+    assert_eq!(got, b"alpha\rreplaced line\rgamma\r");
+}
+
+#[test]
+fn test_tx_replace_whole_line_crlf_preserves_endings() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, b"alpha\r\nbeta match\r\ngamma\r\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "from": "match",
+            "to": "replaced line",
+            "whole_line": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let got = fs::read(&file).unwrap();
+    assert_eq!(got, b"alpha\r\nreplaced line\r\ngamma\r\n");
+}
+
 // ---------------------------------------------------------------------------
 // doc
 // ---------------------------------------------------------------------------
