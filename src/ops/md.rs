@@ -1144,4 +1144,161 @@ mod tests {
             assert_eq!(&content[c_start..c_end], "body\n");
         }
     }
+
+    // ── Issue #974: CRLF handling and mixed bullet styles ─────────────
+    mod crlf_and_bullet_tests {
+        use crate::ops::md::*;
+
+        // ── CRLF handling in table_append_in ──────────────────────────
+
+        #[test]
+        fn table_append_crlf_content_finds_correct_position() {
+            // CRLF content: the byte-offset tracking in table_append_in
+            // must correctly advance past \r\n (2 bytes) per line.
+            let content = "# T\r\n| H |\r\n|---|\r\n| v |\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| new |").unwrap();
+            // The new row must appear after the last data row.
+            assert!(
+                result.contains("| v |\r\n| new |"),
+                "row should be appended after existing data row in CRLF content: {:?}",
+                result
+            );
+            // The content before the insertion should be preserved.
+            assert!(
+                result.contains("| H |\r\n|---|\r\n| v |\r\n"),
+                "original CRLF table should be intact: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn table_append_crlf_header_only() {
+            // Table with only header + separator in CRLF content.
+            let content = "# T\r\n| H |\r\n|---|\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| a |").unwrap();
+            assert!(
+                result.contains("|---|\r\n| a |"),
+                "row should be appended after separator in CRLF content: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn table_append_crlf_multiple_data_rows() {
+            // Multiple data rows with CRLF; new row goes after the last one.
+            let content = "# T\r\n| H |\r\n|---|\r\n| a |\r\n| b |\r\n";
+            let (start, end) = find_section(content, "T").unwrap();
+            let result = table_append_in(content, start, end, "| c |").unwrap();
+            assert!(
+                result.contains("| b |\r\n| c |"),
+                "row should be appended after the last data row: {:?}",
+                result
+            );
+        }
+
+        // ── CRLF in parse_headings ────────────────────────────────────
+
+        #[test]
+        fn parse_headings_crlf_strips_carriage_return() {
+            // .lines() strips \r, so heading text should not contain \r.
+            let content = "## Heading One\r\n\r\nBody text.\r\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 1);
+            assert_eq!(headings[0].text, "Heading One");
+            assert!(
+                !headings[0].text.contains('\r'),
+                "heading text must not contain \\r"
+            );
+            assert_eq!(headings[0].level, 2);
+        }
+
+        #[test]
+        fn parse_headings_crlf_multiple_headings() {
+            let content = "# First\r\nBody 1\r\n## Second\r\nBody 2\r\n";
+            let headings = parse_headings(content);
+            assert_eq!(headings.len(), 2);
+            assert_eq!(headings[0].text, "First");
+            assert_eq!(headings[1].text, "Second");
+            // Verify section boundaries are correct.
+            assert_eq!(headings[0].line_start, 0);
+            assert_eq!(headings[1].line_start, 2);
+        }
+
+        #[test]
+        fn find_section_crlf_returns_correct_body() {
+            let content = "## Heading One\r\n\r\nBody text.\r\n## Next\r\n";
+            let (start, end) = find_section(content, "Heading One").unwrap();
+            let body = &content[start..end];
+            // Body should include the blank line and body text between headings.
+            assert!(
+                body.contains("Body text."),
+                "body should contain body text: {:?}",
+                body
+            );
+        }
+
+        // ── Mixed bullet styles in upsert_bullet_in ──────────────────
+
+        #[test]
+        fn upsert_bullet_star_prefix_kept_as_is() {
+            // When input starts with "* ", it is kept as-is (not converted to "- ").
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "* new item").unwrap();
+            assert!(
+                result.contains("* new item"),
+                "star-prefixed bullet should be preserved: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_star_dedup_same_style() {
+            // Upserting "* existing item" when body already has "* existing item"
+            // should dedup (same style, same text).
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "* existing item").unwrap();
+            assert_eq!(result, content, "same-style duplicate should be deduped");
+        }
+
+        #[test]
+        fn upsert_bullet_cross_style_dash_into_star_no_dedup() {
+            // Upserting "- existing item" when body has "* existing item":
+            // normalized form is "- existing item" which does NOT match
+            // "* existing item", so it appends (no cross-style dedup).
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "- existing item").unwrap();
+            assert!(
+                result.contains("* existing item") && result.contains("- existing item"),
+                "cross-style bullets should not dedup: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_no_prefix_into_star_content_no_dedup() {
+            // Upserting "existing item" (no prefix) normalizes to "- existing item"
+            // which does not match body's "* existing item".
+            let content = "# List\n\n* existing item\n";
+            let result = upsert_bullet_in(content, "List", "existing item").unwrap();
+            assert!(
+                result.contains("* existing item") && result.contains("- existing item"),
+                "auto-prefixed dash should not dedup against star bullet: {:?}",
+                result
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_dash_appends_after_star_items() {
+            // "- new item" appended correctly after existing "* " items.
+            let content = "# List\n\n* alpha\n* beta\n";
+            let result = upsert_bullet_in(content, "List", "- new item").unwrap();
+            assert!(
+                result.contains("* beta\n- new item\n"),
+                "new dash bullet should follow existing star bullets: {:?}",
+                result
+            );
+        }
+    }
 }
