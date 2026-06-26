@@ -210,15 +210,15 @@ pub fn trim_trailing_whitespace(content: &str) -> std::borrow::Cow<'_, str> {
 
     // Fast check: scan for any trailing whitespace before a newline or at EOF.
     let bytes = content.as_bytes();
-    let has_trailing = memchr::memchr_iter(b'\n', bytes).any(|i| {
-        let prev = if i > 0 && bytes[i - 1] == b'\r' {
-            i.wrapping_sub(2)
-        } else {
-            i.wrapping_sub(1)
-        };
+    let has_trailing = memchr::memchr2_iter(b'\r', b'\n', bytes).any(|i| {
+        // Skip the \n of a \r\n pair (already handled at the \r position).
+        if bytes[i] == b'\n' && i > 0 && bytes[i - 1] == b'\r' {
+            return false;
+        }
+        let prev = i.wrapping_sub(1);
         prev < bytes.len() && matches!(bytes[prev], b' ' | b'\t')
     }) || (!content.is_empty()
-        && !content.ends_with('\n')
+        && !matches!(bytes[bytes.len() - 1], b'\r' | b'\n')
         && matches!(bytes[bytes.len() - 1], b' ' | b'\t'));
 
     if !has_trailing {
@@ -229,19 +229,21 @@ pub fn trim_trailing_whitespace(content: &str) -> std::borrow::Cow<'_, str> {
     let mut rest = content;
 
     while !rest.is_empty() {
-        // Find the next line-ending sequence.
-        if let Some(pos) = rest.find('\n') {
-            // Check for CRLF.
-            let (line, ending, advance) = if pos > 0 && rest.as_bytes()[pos - 1] == b'\r' {
-                (&rest[..pos - 1], "\r\n", pos + 1)
-            } else {
+        // Find the next line-ending sequence (\n, \r\n, or bare \r).
+        let rest_bytes = rest.as_bytes();
+        if let Some(pos) = memchr::memchr2(b'\r', b'\n', rest_bytes) {
+            let (line, ending, advance) = if rest_bytes[pos] == b'\n' {
                 (&rest[..pos], "\n", pos + 1)
+            } else if pos + 1 < rest_bytes.len() && rest_bytes[pos + 1] == b'\n' {
+                (&rest[..pos], "\r\n", pos + 2)
+            } else {
+                (&rest[..pos], "\r", pos + 1)
             };
             result.push_str(line.trim_end_matches([' ', '\t']));
             result.push_str(ending);
             rest = &rest[advance..];
         } else {
-            // Last line without a trailing newline.
+            // Last line without a trailing line ending.
             result.push_str(rest.trim_end_matches([' ', '\t']));
             break;
         }
@@ -262,13 +264,23 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
     // Quick scan: look for two consecutive line endings with only whitespace between.
     let mut prev_blank = false;
     let mut needs_collapse = false;
-    for line in content.lines() {
+    let mut scan = content.as_bytes();
+    while let Some(pos) = memchr::memchr2(b'\r', b'\n', scan) {
+        let end = if scan[pos] == b'\n' {
+            pos + 1
+        } else if pos + 1 < scan.len() && scan[pos + 1] == b'\n' {
+            pos + 2
+        } else {
+            pos + 1
+        };
+        let line = &content[content.len() - scan.len()..content.len() - scan.len() + pos];
         let is_blank = line.trim().is_empty();
         if is_blank && prev_blank {
             needs_collapse = true;
             break;
         }
         prev_blank = is_blank;
+        scan = &scan[end..];
     }
 
     if !needs_collapse {
@@ -280,13 +292,17 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
     let mut rest = content;
 
     while !rest.is_empty() {
-        if let Some(pos) = rest.find('\n') {
-            let line_with_ending = &rest[..=pos];
-            let line_content = if pos > 0 && rest.as_bytes()[pos - 1] == b'\r' {
-                &rest[..pos - 1]
+        let rest_bytes = rest.as_bytes();
+        if let Some(pos) = memchr::memchr2(b'\r', b'\n', rest_bytes) {
+            let end = if rest_bytes[pos] == b'\n' {
+                pos + 1
+            } else if pos + 1 < rest_bytes.len() && rest_bytes[pos + 1] == b'\n' {
+                pos + 2
             } else {
-                &rest[..pos]
+                pos + 1
             };
+            let line_content = &rest[..pos];
+            let line_with_ending = &rest[..end];
             let is_blank = line_content.trim().is_empty();
             if is_blank && prev_blank {
                 // Skip this consecutive blank line.
@@ -294,7 +310,7 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
                 result.push_str(line_with_ending);
             }
             prev_blank = is_blank;
-            rest = &rest[pos + 1..];
+            rest = &rest[end..];
         } else {
             // Last line without trailing newline.
             let is_blank = rest.trim().is_empty();
@@ -1080,5 +1096,103 @@ mod tests {
         };
         policy.apply_override(&ov).unwrap();
         assert!(matches!(policy.normalize_eol, EolMode::Cr));
+    }
+
+    // -- CR line ending support tests (#996) --------------------------------
+
+    #[test]
+    fn trim_trailing_whitespace_cr_endings() {
+        let result = trim_trailing_whitespace("hello   \rworld\t\r");
+        assert_eq!(result, "hello\rworld\r");
+        assert!(matches!(result, std::borrow::Cow::Owned(_)));
+    }
+
+    #[test]
+    fn trim_trailing_whitespace_cr_clean_returns_borrowed() {
+        let result = trim_trailing_whitespace("hello\rworld\r");
+        assert_eq!(result, "hello\rworld\r");
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "clean CR content should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
+    fn trim_trailing_whitespace_cr_mixed_whitespace() {
+        // Tabs and spaces before CR endings.
+        let result = trim_trailing_whitespace("a \t\rb  \r");
+        assert_eq!(result, "a\rb\r");
+    }
+
+    #[test]
+    fn trim_trailing_whitespace_cr_no_trailing_newline() {
+        // Last line with trailing whitespace, no line ending.
+        let result = trim_trailing_whitespace("hello\rworld  ");
+        assert_eq!(result, "hello\rworld");
+    }
+
+    #[test]
+    fn collapse_blanks_cr_endings() {
+        let input = "line1\r\r\r\rline2\r\r\rline3\r";
+        let result = collapse_blanks(input);
+        assert_eq!(result, "line1\r\rline2\r\rline3\r");
+    }
+
+    #[test]
+    fn collapse_blanks_cr_no_change_returns_borrowed() {
+        let input = "line1\r\rline2\rline3\r";
+        let result = collapse_blanks(input);
+        assert_eq!(result, input);
+        assert!(
+            matches!(result, std::borrow::Cow::Borrowed(_)),
+            "no-change CR content should return Cow::Borrowed"
+        );
+    }
+
+    #[test]
+    fn collapse_blanks_crlf_endings() {
+        let input = "line1\r\n\r\n\r\n\r\nline2\r\n";
+        let result = collapse_blanks(input);
+        assert_eq!(result, "line1\r\n\r\nline2\r\n");
+    }
+
+    #[test]
+    fn collapse_blanks_cr_whitespace_only_lines_are_blank() {
+        let input = "line1\r  \r\t\r\rline2\r";
+        let result = collapse_blanks(input);
+        // "  " and "\t" and "" are all blank; three consecutive blanks become one.
+        assert_eq!(result, "line1\r  \rline2\r");
+    }
+
+    #[test]
+    fn apply_policy_cr_mode_collapse_blanks() {
+        let policy = WritePolicy {
+            collapse_blanks: true,
+            normalize_eol: EolMode::Cr,
+            ..Default::default()
+        };
+        // Input with LF endings; after normalize_eol they become CR.
+        // Then collapse_blanks must still detect and collapse consecutive blank lines.
+        let input = "a\n\n\nb\n";
+        let result = apply_policy(input, &policy);
+        assert_eq!(result, "a\r\rb\r");
+    }
+
+    #[test]
+    fn apply_policy_cr_mode_trim_and_collapse() {
+        let policy = WritePolicy {
+            trim_trailing_whitespace: true,
+            collapse_blanks: true,
+            normalize_eol: EolMode::Cr,
+            ensure_final_newline: true,
+        };
+        // Full pipeline: trim trailing ws, normalize to CR, collapse blanks, ensure final \r.
+        let input = "hello  \n\n\nworld\t\n";
+        let result = apply_policy(input, &policy);
+        // After trim: "hello\n\n\nworld\n"
+        // After CR normalize: "hello\r\r\rworld\r"
+        // After collapse: "hello\r\rworld\r"
+        // After final newline: already ends with \r
+        assert_eq!(result, "hello\r\rworld\r");
     }
 }
