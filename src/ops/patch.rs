@@ -922,4 +922,459 @@ mod tests {
             let _ = apply_hunks("original\n", &hunks);
         }
     }
+
+    // ── merge / conflict path tests ──────────────────────────────
+    mod merge_tests {
+        use crate::ops::patch::*;
+
+        /// Helper: build a hunk with prefix context, removes, adds, suffix context.
+        fn make_hunk(
+            old_start: usize,
+            prefix: &[&str],
+            removes: &[&str],
+            adds: &[&str],
+            suffix: &[&str],
+        ) -> Hunk {
+            let mut lines = Vec::new();
+            for s in prefix {
+                lines.push(PatchLine::Context(s.to_string()));
+            }
+            for s in removes {
+                lines.push(PatchLine::Remove(s.to_string()));
+            }
+            for s in adds {
+                lines.push(PatchLine::Add(s.to_string()));
+            }
+            for s in suffix {
+                lines.push(PatchLine::Context(s.to_string()));
+            }
+            let old_count = prefix.len() + removes.len() + suffix.len();
+            let new_count = prefix.len() + adds.len() + suffix.len();
+            Hunk {
+                old_start,
+                old_count,
+                new_start: old_start,
+                new_count,
+                lines,
+            }
+        }
+
+        /// Shorthand: `&[&str]` → `Vec<String>`.
+        fn s(strings: &[&str]) -> Vec<String> {
+            strings.iter().map(|s| s.to_string()).collect()
+        }
+
+        // ── merge_three_way_lines ────────────────────────────────
+
+        #[test]
+        fn merge_three_way_lines_theirs_wins() {
+            // ours == base for the differing line → take theirs
+            let base = s(&["same", "base_val", "same"]);
+            let ours = s(&["same", "base_val", "same"]);
+            let theirs = s(&["same", "theirs_val", "same"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["same", "theirs_val", "same"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_lines_ours_wins_theirs_unchanged() {
+            // theirs == base, ours changed → take ours
+            let base = s(&["A", "base", "C"]);
+            let ours = s(&["A", "ours", "C"]);
+            let theirs = s(&["A", "base", "C"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["A", "ours", "C"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_lines_ours_wins_same_change() {
+            // ours == theirs (both changed identically) → take ours, no conflict
+            let base = s(&["X"]);
+            let ours = s(&["Z"]);
+            let theirs = s(&["Z"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["Z"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_lines_conflict() {
+            // base, ours, theirs all differ → conflict markers
+            let base = s(&["base"]);
+            let ours = s(&["ours"]);
+            let theirs = s(&["theirs"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result.len(), 5);
+            assert_eq!(result[0], super::super::CONFLICT_OURS);
+            assert_eq!(result[1], "ours");
+            assert_eq!(result[2], super::super::CONFLICT_SEP);
+            assert_eq!(result[3], "theirs");
+            assert_eq!(result[4], super::super::CONFLICT_THEIRS);
+            assert_eq!(conflicts.len(), 1);
+            assert_eq!(conflicts[0].start_line, 1);
+            assert_eq!(conflicts[0].end_line, 5);
+        }
+
+        #[test]
+        fn merge_three_way_lines_all_unchanged() {
+            // all three identical → no change, no conflict
+            let base = s(&["A", "B"]);
+            let ours = s(&["A", "B"]);
+            let theirs = s(&["A", "B"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["A", "B"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_lines_mixed_wins() {
+            // Line 1: ours changed, theirs unchanged → ours wins
+            // Line 2: ours unchanged, theirs changed → theirs wins
+            let base = s(&["B1", "B2"]);
+            let ours = s(&["O1", "B2"]);
+            let theirs = s(&["B1", "T2"]);
+            let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["O1", "T2"]));
+            assert!(conflicts.is_empty());
+        }
+
+        // ── merge_three_way_block ────────────────────────────────
+
+        #[test]
+        fn merge_three_way_block_theirs_wins() {
+            // ours == base (unchanged), theirs adds a line → take theirs
+            let base = s(&["A", "B"]);
+            let ours = s(&["A", "B"]);
+            let theirs = s(&["A", "B", "C"]);
+            let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["A", "B", "C"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_block_ours_wins() {
+            // theirs == base (unchanged), ours adds a line → take ours
+            let base = s(&["A", "B"]);
+            let ours = s(&["A", "B", "new"]);
+            let theirs = s(&["A", "B"]);
+            let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["A", "B", "new"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_block_ours_equals_theirs() {
+            // ours == theirs, both differ from base → take ours, no conflict
+            let base = s(&["old"]);
+            let ours = s(&["new1", "new2"]);
+            let theirs = s(&["new1", "new2"]);
+            let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+            assert_eq!(result, s(&["new1", "new2"]));
+            assert!(conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_three_way_block_conflict() {
+            // All three differ (different lengths) → block conflict with markers
+            let base = s(&["B1", "B2"]);
+            let ours = s(&["O1", "O2", "O3"]);
+            let theirs = s(&["T1", "T2", "T3", "T4"]);
+            let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+            assert_eq!(result[0], super::super::CONFLICT_OURS);
+            assert_eq!(result[1], "O1");
+            assert_eq!(result[2], "O2");
+            assert_eq!(result[3], "O3");
+            assert_eq!(result[4], super::super::CONFLICT_SEP);
+            assert_eq!(result[5], "T1");
+            assert_eq!(result[6], "T2");
+            assert_eq!(result[7], "T3");
+            assert_eq!(result[8], "T4");
+            assert_eq!(result[9], super::super::CONFLICT_THEIRS);
+            assert_eq!(result.len(), 10);
+            assert_eq!(conflicts.len(), 1);
+            assert_eq!(conflicts[0].start_line, 1);
+            assert_eq!(conflicts[0].end_line, 10);
+        }
+
+        // ── find_match_global ────────────────────────────────────
+
+        #[test]
+        fn find_match_global_finds_at_start() {
+            let haystack: Vec<&str> = vec!["A", "B", "C", "D"];
+            let needle: Vec<&str> = vec!["A", "B"];
+            assert_eq!(super::super::find_match_global(&haystack, &needle), Some(0));
+        }
+
+        #[test]
+        fn find_match_global_finds_in_middle() {
+            let haystack: Vec<&str> = vec!["X", "A", "B", "Y"];
+            let needle: Vec<&str> = vec!["A", "B"];
+            assert_eq!(super::super::find_match_global(&haystack, &needle), Some(1));
+        }
+
+        #[test]
+        fn find_match_global_finds_at_end() {
+            let haystack: Vec<&str> = vec!["X", "Y", "A", "B"];
+            let needle: Vec<&str> = vec!["A", "B"];
+            assert_eq!(super::super::find_match_global(&haystack, &needle), Some(2));
+        }
+
+        #[test]
+        fn find_match_global_empty_needle() {
+            let haystack: Vec<&str> = vec!["A", "B"];
+            let needle: Vec<&str> = vec![];
+            assert_eq!(super::super::find_match_global(&haystack, &needle), Some(0));
+        }
+
+        #[test]
+        fn find_match_global_no_match() {
+            let haystack: Vec<&str> = vec!["A", "B", "C"];
+            let needle: Vec<&str> = vec!["X", "Y"];
+            assert_eq!(super::super::find_match_global(&haystack, &needle), None);
+        }
+
+        // ── locate_by_context_anchors ────────────────────────────
+
+        #[test]
+        fn locate_by_context_anchors_prefix_only() {
+            // Hunk has prefix context but no suffix → locates via prefix
+            let hunk = Hunk {
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 3,
+                lines: vec![
+                    PatchLine::Context("ctx1".into()),
+                    PatchLine::Context("ctx2".into()),
+                    PatchLine::Remove("old".into()),
+                    PatchLine::Add("new".into()),
+                ],
+            };
+            let haystack: Vec<&str> = vec!["ctx1", "ctx2", "modified"];
+            let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+            assert_eq!(result, Some(0));
+        }
+
+        #[test]
+        fn locate_by_context_anchors_suffix_only() {
+            // Hunk has suffix context but no prefix → locates via suffix
+            let hunk = Hunk {
+                old_start: 1,
+                old_count: 2,
+                new_start: 1,
+                new_count: 2,
+                lines: vec![
+                    PatchLine::Remove("old".into()),
+                    PatchLine::Add("new".into()),
+                    PatchLine::Context("suffix".into()),
+                ],
+            };
+            let haystack: Vec<&str> = vec!["modified", "suffix"];
+            let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+            assert_eq!(result, Some(0));
+        }
+
+        #[test]
+        fn locate_by_context_anchors_both() {
+            // Hunk has both prefix and suffix context
+            let hunk = Hunk {
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 3,
+                lines: vec![
+                    PatchLine::Context("prefix".into()),
+                    PatchLine::Remove("old".into()),
+                    PatchLine::Add("new".into()),
+                    PatchLine::Context("suffix".into()),
+                ],
+            };
+            let haystack: Vec<&str> = vec!["prefix", "modified", "suffix"];
+            let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+            assert_eq!(result, Some(0));
+        }
+
+        #[test]
+        fn locate_by_context_anchors_no_context_returns_none() {
+            // Hunk has no context lines at all → cannot locate
+            let hunk = Hunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Remove("old".into()),
+                    PatchLine::Add("new".into()),
+                ],
+            };
+            let haystack: Vec<&str> = vec!["modified"];
+            let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+            assert_eq!(result, None);
+        }
+
+        // ── merge_hunks ─────────────────────────────────────────
+
+        #[test]
+        fn merge_hunks_clean_apply() {
+            // ours region matches old_refs exactly → direct apply, no three-way
+            let ours = "ctx1\nold\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+            let result = merge_hunks(ours, &hunks).unwrap();
+            assert_eq!(result.content, "ctx1\nnew\nctx2\n");
+            assert!(result.conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_hunks_three_way_conflict() {
+            // ours modified the same line differently from theirs → conflict
+            let ours = "ctx1\nours_modified\nctx2\n";
+            let hunks = vec![make_hunk(
+                1,
+                &["ctx1"],
+                &["base_val"],
+                &["theirs_val"],
+                &["ctx2"],
+            )];
+            let result = merge_hunks(ours, &hunks).unwrap();
+            assert!(!result.conflicts.is_empty());
+            assert!(result.content.contains(super::super::CONFLICT_OURS));
+            assert!(result.content.contains("ours_modified"));
+            assert!(result.content.contains("theirs_val"));
+            assert!(result.content.contains(super::super::CONFLICT_THEIRS));
+        }
+
+        #[test]
+        fn merge_hunks_three_way_clean() {
+            // ours changed one line, theirs changed a different line → clean merge
+            let ours = "ctx1\nours_val\nchange_this\nctx2\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 4,
+                new_start: 1,
+                new_count: 4,
+                lines: vec![
+                    PatchLine::Context("ctx1".into()),
+                    PatchLine::Remove("keep_this".into()),
+                    PatchLine::Remove("change_this".into()),
+                    PatchLine::Add("keep_this".into()),
+                    PatchLine::Add("patched".into()),
+                    PatchLine::Context("ctx2".into()),
+                ],
+            }];
+            let result = merge_hunks(ours, &hunks).unwrap();
+            // Line 2: ours changed "keep_this" → "ours_val" (theirs kept it) → ours wins
+            // Line 3: ours kept "change_this" (theirs changed it) → theirs wins → "patched"
+            assert_eq!(result.content, "ctx1\nours_val\npatched\nctx2\n");
+            assert!(result.conflicts.is_empty());
+        }
+
+        #[test]
+        fn merge_hunks_preserves_final_newline() {
+            let ours = "ctx1\nold\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+            let result = merge_hunks(ours, &hunks).unwrap();
+            assert!(result.content.ends_with('\n'));
+        }
+
+        #[test]
+        fn merge_hunks_no_final_newline() {
+            let ours = "ctx1\nold\nctx2";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+            let result = merge_hunks(ours, &hunks).unwrap();
+            assert!(!result.content.ends_with('\n'));
+            assert_eq!(result.content, "ctx1\nnew\nctx2");
+        }
+
+        // ── apply_hunks_with_options ─────────────────────────────
+
+        #[test]
+        fn apply_with_options_merge_clean() {
+            // Content matches perfectly → Clean status even in Merge mode
+            let ours = "ctx1\nold\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+            let opts = ApplyHunksOptions {
+                on_stale: OnStale::Merge,
+                allow_conflicts: false,
+            };
+            let result = apply_hunks_with_options(ours, &hunks, opts).unwrap();
+            assert_eq!(result.status, ApplyHunksStatus::Clean);
+            assert_eq!(result.content, "ctx1\nnew\nctx2\n");
+            assert!(result.conflicts.is_empty());
+        }
+
+        #[test]
+        fn apply_with_options_merge_merged() {
+            // Stale context but merge succeeds without conflicts → Merged
+            let ours = "ctx1\nours_val\nchange_this\nctx2\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 4,
+                new_start: 1,
+                new_count: 4,
+                lines: vec![
+                    PatchLine::Context("ctx1".into()),
+                    PatchLine::Remove("keep_this".into()),
+                    PatchLine::Remove("change_this".into()),
+                    PatchLine::Add("keep_this".into()),
+                    PatchLine::Add("patched".into()),
+                    PatchLine::Context("ctx2".into()),
+                ],
+            }];
+            let opts = ApplyHunksOptions {
+                on_stale: OnStale::Merge,
+                allow_conflicts: false,
+            };
+            let result = apply_hunks_with_options(ours, &hunks, opts).unwrap();
+            assert_eq!(result.status, ApplyHunksStatus::Merged);
+            assert!(result.conflicts.is_empty());
+            assert_eq!(result.content, "ctx1\nours_val\npatched\nctx2\n");
+        }
+
+        #[test]
+        fn apply_with_options_merge_conflict_allowed() {
+            // Stale content, conflicting merge, allow_conflicts = true → Conflict
+            let ours = "ctx1\nours_mod\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["base"], &["theirs"], &["ctx2"])];
+            let opts = ApplyHunksOptions {
+                on_stale: OnStale::Merge,
+                allow_conflicts: true,
+            };
+            let result = apply_hunks_with_options(ours, &hunks, opts).unwrap();
+            assert_eq!(result.status, ApplyHunksStatus::Conflict);
+            assert!(!result.conflicts.is_empty());
+            assert!(result.content.contains(super::super::CONFLICT_OURS));
+            assert!(result.content.contains("ours_mod"));
+            assert!(result.content.contains("theirs"));
+            assert!(result.content.contains(super::super::CONFLICT_THEIRS));
+        }
+
+        #[test]
+        fn apply_with_options_merge_conflict_disallowed() {
+            // Stale content, conflicting merge, allow_conflicts = false → Err
+            let ours = "ctx1\nours_mod\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["base"], &["theirs"], &["ctx2"])];
+            let opts = ApplyHunksOptions {
+                on_stale: OnStale::Merge,
+                allow_conflicts: false,
+            };
+            let result = apply_hunks_with_options(ours, &hunks, opts);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("conflict"));
+        }
+
+        #[test]
+        fn apply_with_options_fail_on_stale() {
+            // OnStale::Fail with stale content → Err
+            let ours = "ctx1\nmodified\nctx2\n";
+            let hunks = vec![make_hunk(1, &["ctx1"], &["original"], &["new"], &["ctx2"])];
+            let opts = ApplyHunksOptions {
+                on_stale: OnStale::Fail,
+                allow_conflicts: false,
+            };
+            let result = apply_hunks_with_options(ours, &hunks, opts);
+            assert!(result.is_err());
+        }
+    }
 }
