@@ -31,7 +31,6 @@ struct RenameOutput {
     from: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     to: Option<String>,
-    action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +64,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
-            action: "renamed".to_string(),
+
             diff: None,
             applied: None,
         };
@@ -102,7 +101,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
-            action: "renamed".to_string(),
+
             diff,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),
@@ -146,7 +145,7 @@ fn run_binary_rename(
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
-            action: "renamed".to_string(),
+
             diff: None,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),

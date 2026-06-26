@@ -109,32 +109,7 @@ pub fn execute_single(
     op: Operation,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
-    let plan = Plan {
-        version: SCHEMA_VERSION.to_string(),
-        operations: vec![op],
-        format: None,
-        validate: None,
-        cwd: None,
-        strict: None,
-        write_policy: None,
-    };
-
-    let cwd = options.cwd.to_path_buf();
-    let result = super::execute_and_collect(&plan, &cwd, options.global, true, true)?;
-
-    let has_changes = !result.no_effective_changes;
-    let exit_code = if result.replace_no_matches {
-        exit::NO_MATCHES
-    } else {
-        exit::SUCCESS
-    };
-
-    Ok(ExecutionResult {
-        exec_result: result,
-        exit_code,
-        has_changes,
-        cwd,
-    })
+    execute_plan_inner(vec![op], options)
 }
 
 /// Execute multiple operations through the unified engine.
@@ -143,6 +118,14 @@ pub fn execute_single(
 /// atomicity (all succeed or none are committed).
 #[allow(dead_code)] // Public API for library embedders
 pub fn execute_operations(
+    operations: Vec<Operation>,
+    options: ExecuteOptions<'_>,
+) -> anyhow::Result<ExecutionResult> {
+    execute_plan_inner(operations, options)
+}
+
+/// Shared implementation for single-op and multi-op execution.
+fn execute_plan_inner(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
