@@ -15,7 +15,7 @@ Patchloom has 22 commands:
 - **status** -- uncommitted change summary from git
 - **tx** -- atomic multi-operation transactions
 - **batch** -- line-oriented multi-operation format (delegates to tx engine)
-- **ast** -- AST-aware operations (list, read, rename, validate) using tree-sitter
+- **ast** -- AST-aware operations (list, read, rename, validate) across 20 languages
 - **completions** -- shell completion generation
 - **agent-rules** -- print end-user agent documentation for patchloom
 - **schema** -- export operation schemas with tier filtering and system prompts

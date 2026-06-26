@@ -19,7 +19,7 @@ pub enum AstCommand {
     Rename(RenameArgs),
     /// Validate syntax of source files.
     Validate(ValidateArgs),
-    /// Structural search using tree-sitter queries.
+    /// Structural search using AST queries.
     Search(SearchArgs),
     /// Find all references to a symbol across files.
     Refs(RefsArgs),
