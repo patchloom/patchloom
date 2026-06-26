@@ -273,12 +273,21 @@ pub fn replace_whole_lines<'a>(
     while !rest.is_empty() {
         line_num += 1;
 
-        // Find line boundary.
-        let (line_content, line_with_ending, advance) = if let Some(pos) = rest.find('\n') {
-            (&rest[..pos], &rest[..=pos], pos + 1)
-        } else {
-            (rest, rest, rest.len())
-        };
+        // Find line boundary (\n, \r\n, or bare \r).
+        let rest_bytes = rest.as_bytes();
+        let (line_content, ending, advance) =
+            if let Some(pos) = memchr::memchr2(b'\r', b'\n', rest_bytes) {
+                if rest_bytes[pos] == b'\n' {
+                    (&rest[..pos], "\n", pos + 1)
+                } else if pos + 1 < rest_bytes.len() && rest_bytes[pos + 1] == b'\n' {
+                    (&rest[..pos], "\r\n", pos + 2)
+                } else {
+                    (&rest[..pos], "\r", pos + 1)
+                }
+            } else {
+                (rest, "", rest.len())
+            };
+        let line_with_ending = &rest[..advance];
 
         // Check range restriction.
         let in_range = match range {
@@ -336,15 +345,11 @@ pub fn replace_whole_lines<'a>(
             caps.expand(to, &mut expanded);
             result.push_str(&expanded);
             // Preserve the original line ending.
-            if line_with_ending.len() > line_content.len() {
-                result.push('\n');
-            }
+            result.push_str(ending);
         } else {
             // Literal match: replacement is used as-is.
             result.push_str(to);
-            if line_with_ending.len() > line_content.len() {
-                result.push('\n');
-            }
+            result.push_str(ending);
         }
 
         rest = &rest[advance..];
@@ -809,6 +814,131 @@ mod tests {
             let (result, count) = replace_whole_lines(content, "ccc", "", None, None, None);
             assert_eq!(count, 1);
             assert_eq!(&*result, "aaa\nbbb\n");
+        }
+
+        // -- CR/CRLF line ending tests (#999) ──────────────────────────
+
+        #[test]
+        fn whole_lines_cr_endings_literal() {
+            let content = "aaa\rbbb\rccc\r";
+            let (result, count) = replace_whole_lines(content, "bbb", "REPLACED", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\rREPLACED\rccc\r");
+        }
+
+        #[test]
+        fn whole_lines_cr_endings_delete() {
+            let content = "aaa\rbbb\rccc\rbbb\reee\r";
+            let (result, count) = replace_whole_lines(content, "bbb", "", None, None, None);
+            assert_eq!(count, 2);
+            assert_eq!(&*result, "aaa\rccc\reee\r");
+        }
+
+        #[test]
+        fn whole_lines_cr_no_match_returns_borrowed() {
+            let content = "aaa\rbbb\rccc\r";
+            let (result, count) = replace_whole_lines(content, "zzz", "", None, None, None);
+            assert_eq!(count, 0);
+            assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
+        }
+
+        #[test]
+        fn whole_lines_crlf_preserves_ending() {
+            let content = "aaa\r\nbbb\r\nccc\r\n";
+            let (result, count) = replace_whole_lines(content, "bbb", "REPLACED", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\r\nREPLACED\r\nccc\r\n");
+        }
+
+        #[test]
+        fn whole_lines_crlf_delete() {
+            let content = "aaa\r\nbbb\r\nccc\r\n";
+            let (result, count) = replace_whole_lines(content, "bbb", "", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\r\nccc\r\n");
+        }
+
+        #[test]
+        fn whole_lines_crlf_line_content_excludes_cr() {
+            // Verify that line_content does NOT include the \r from CRLF,
+            // so exact-match patterns work without trailing \r.
+            let content = "hello\r\nworld\r\n";
+            let (result, count) =
+                replace_whole_lines(content, "hello", "MATCHED", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "MATCHED\r\nworld\r\n");
+        }
+
+        #[test]
+        fn whole_lines_crlf_regex_dollar_matches() {
+            // Regex $ should match at end of line_content (before \r\n),
+            // not fail because \r is included in line_content.
+            let re = compile_replace_regex(r"hello$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\r\nworld\r\n";
+            let (result, count) =
+                replace_whole_lines(content, "", "MATCHED", Some(&re), None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "MATCHED\r\nworld\r\n");
+        }
+
+        #[test]
+        fn whole_lines_cr_regex_capture_groups() {
+            let re = compile_replace_regex(r"v(\d+)", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "name=foo\rv3\rrelease=true\r";
+            let (result, count) =
+                replace_whole_lines(content, "", "v${1}00", Some(&re), None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "name=foo\rv300\rrelease=true\r");
+        }
+
+        #[test]
+        fn whole_lines_cr_last_line_no_ending() {
+            let content = "aaa\rbbb\rccc";
+            let (result, count) = replace_whole_lines(content, "ccc", "", None, None, None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\rbbb\r");
+        }
+
+        #[test]
+        fn whole_lines_mixed_endings_each_preserved() {
+            // Lines with different endings: LF, CRLF, CR, no-ending.
+            let content = "aaa\nbbb\r\nccc\rddd";
+            let (result, count) = replace_whole_lines(content, "aaa", "A", None, None, None);
+            assert_eq!(count, 1);
+            // Only the first line is replaced; its \n ending is preserved.
+            assert_eq!(&*result, "A\nbbb\r\nccc\rddd");
+
+            let (result2, count2) = replace_whole_lines(content, "bbb", "B", None, None, None);
+            assert_eq!(count2, 1);
+            // Second line replaced; its \r\n ending is preserved.
+            assert_eq!(&*result2, "aaa\nB\r\nccc\rddd");
+
+            let (result3, count3) = replace_whole_lines(content, "ccc", "C", None, None, None);
+            assert_eq!(count3, 1);
+            // Third line replaced; its \r ending is preserved.
+            assert_eq!(&*result3, "aaa\nbbb\r\nC\rddd");
+        }
+
+        #[test]
+        fn whole_lines_cr_range_restriction() {
+            let content = "aaa\rbbb\rccc\rbbb\reee\r";
+            // Range 1:3 means lines 1-3. Second bbb is on line 4.
+            let (result, count) =
+                replace_whole_lines(content, "bbb", "", None, None, Some((1, Some(3))));
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\rccc\rbbb\reee\r");
+        }
+
+        #[test]
+        fn whole_lines_cr_nth() {
+            let content = "aaa\rbbb\rccc\rbbb\reee\r";
+            let (result, count) = replace_whole_lines(content, "bbb", "", None, Some(2), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aaa\rbbb\rccc\reee\r");
         }
     }
 }
