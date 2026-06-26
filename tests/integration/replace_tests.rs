@@ -265,7 +265,7 @@ fn test_replace_range_requires_whole_line() {
         .arg(file.to_str().unwrap())
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("--range requires --whole-line"));
+        .stderr(predicate::str::contains("range requires whole_line"));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -669,7 +669,7 @@ fn test_replace_insert_before_and_to_conflict() {
         .assert()
         .code(1)
         .stderr(predicate::str::contains(
-            "--to cannot be combined with --insert-before",
+            "'to' cannot be combined with 'insert_before' or 'insert_after'",
         ));
 }
 

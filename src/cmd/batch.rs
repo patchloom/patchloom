@@ -460,7 +460,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let tmp = tempfile::NamedTempFile::new()?;
     std::fs::write(tmp.path(), &plan_json)?;
 
-    let tx_args = crate::cmd::tx::TxArgs {
+    let tx_args = crate::tx::TxArgs {
         plan: tmp
             .path()
             .to_str()

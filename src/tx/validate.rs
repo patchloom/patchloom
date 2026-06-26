@@ -1,4 +1,4 @@
-use crate::ops::replace::{ReplaceModeError, validate_replace_mode};
+use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
 use crate::plan::{Operation, Plan};
 
 /// Short label for an operation, used in error messages.
@@ -49,38 +49,17 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             multiline,
             range,
             ..
-        } => {
-            if from.is_empty() {
-                anyhow::bail!("replace operation requires a non-empty search pattern");
-            }
-            if *nth == Some(0) {
-                anyhow::bail!("replace nth is 1-based; use 1 for the first occurrence");
-            }
-            if *whole_line && *multiline {
-                anyhow::bail!("replace: whole_line and multiline cannot be combined");
-            }
-            if range.is_some() && !*whole_line {
-                anyhow::bail!("replace: range requires whole_line=true");
-            }
-            match validate_replace_mode(
-                to.is_some(),
-                insert_before.is_some(),
-                insert_after.is_some(),
-            ) {
-                Ok(()) => Ok(()),
-                Err(ReplaceModeError::MissingMode) => {
-                    anyhow::bail!(
-                        "replace operation requires one of to, insert_before, or insert_after"
-                    )
-                }
-                Err(ReplaceModeError::BothInsertModes) => {
-                    anyhow::bail!("insert_before and insert_after cannot both be set")
-                }
-                Err(ReplaceModeError::ToWithInsert) => {
-                    anyhow::bail!("to cannot be combined with insert_before or insert_after")
-                }
-            }
-        }
+        } => validate_replace_args(&ReplaceValidationParams {
+            pattern: from,
+            has_to: to.is_some(),
+            has_insert_before: insert_before.is_some(),
+            has_insert_after: insert_after.is_some(),
+            nth: *nth,
+            whole_line: *whole_line,
+            multiline: *multiline,
+            has_range: range.is_some(),
+        })
+        .map_err(|e| anyhow::anyhow!("replace: {e}")),
         // Exhaustive match ensures the compiler flags new variants that may
         // need validation constraints.
         Operation::DocSet { .. }
@@ -174,8 +153,7 @@ mod tests {
         let op = replace_op(true, true, None);
         let err = validate_operation(&op).unwrap_err();
         assert!(
-            err.to_string()
-                .contains("whole_line and multiline cannot be combined"),
+            err.to_string().contains("whole_line and multiline"),
             "unexpected error: {err}"
         );
     }
@@ -185,7 +163,7 @@ mod tests {
         let op = replace_op(false, false, Some("10:50"));
         let err = validate_operation(&op).unwrap_err();
         assert!(
-            err.to_string().contains("range requires whole_line=true"),
+            err.to_string().contains("range requires whole_line"),
             "unexpected error: {err}"
         );
     }
@@ -224,7 +202,7 @@ mod tests {
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(
-            err.to_string().contains("non-empty search pattern"),
+            err.to_string().contains("search pattern must not be empty"),
             "unexpected error: {err}"
         );
     }
@@ -237,7 +215,7 @@ mod tests {
         }
         let err = validate_operation(&op).unwrap_err();
         assert!(
-            err.to_string().contains("nth is 1-based"),
+            err.to_string().contains("nth must be >= 1"),
             "unexpected error: {err}"
         );
     }

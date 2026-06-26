@@ -3,38 +3,12 @@ use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::plan::{self, Plan};
 use crate::tx::{
-    CommitError, TxExecResult, TxOutput, build_error_output, build_full_tx_output,
+    CommitError, TxArgs, TxExecResult, TxOutput, build_error_output, build_full_tx_output,
     format_error_with_backup_hint, run_lifecycle,
 };
 use crate::write::run_format_command;
 
-use clap::Args;
-
 use std::path::{Path, PathBuf};
-
-#[cfg_attr(not(feature = "cli"), allow(dead_code))]
-#[derive(Debug, Args)]
-#[non_exhaustive]
-#[command(after_help = "\
-EXAMPLES:
-  patchloom tx plan.json
-  patchloom tx plan.json --apply
-  patchloom tx plan.yaml --check --json")]
-pub struct TxArgs {
-    // ref:tx-mode:plan-stdin
-    /// Path to a plan file (JSON/YAML/TOML), or `-` for stdin.
-    pub plan: String,
-    // ref:tx-mode:plan-yaml
-    /// Plan format when reading from stdin (json, yaml, toml). Auto-detected from file extension otherwise.
-    #[arg(long)]
-    pub plan_format: Option<String>,
-    /// Disable strict rollback on format/validate failure.
-    #[arg(long)]
-    pub no_strict: bool,
-
-    #[command(flatten)]
-    pub write: crate::cli::global::WriteFlags,
-}
 
 // ---------------------------------------------------------------------------
 // Diff output helper
@@ -806,7 +780,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "replace operation requires one of to, insert_before, or insert_after"
+            "replace: one of 'to', 'insert_before', or 'insert_after' must be provided"
         );
     }
 
@@ -828,7 +802,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "insert_before and insert_after cannot both be set"
+            "replace: 'insert_before' and 'insert_after' cannot be combined"
         );
     }
 
@@ -864,7 +838,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "to cannot be combined with insert_before or insert_after"
+            "replace: 'to' cannot be combined with 'insert_before' or 'insert_after'"
         );
     }
 
@@ -958,8 +932,8 @@ mod tests {
 
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
-            err.to_string().contains("non-empty search pattern"),
-            "expected 'non-empty search pattern' error, got: {}",
+            err.to_string().contains("search pattern must not be empty"),
+            "expected 'search pattern must not be empty' error, got: {}",
             err
         );
     }
