@@ -1377,4 +1377,172 @@ mod tests {
             assert!(result.is_err());
         }
     }
+
+    // ── fuzz boundary and edge case tests ────────────────────────
+    mod fuzz_and_edge_tests {
+        use crate::ops::patch::*;
+
+        #[test]
+        fn fuzz_at_maximum_boundary_delta_3() {
+            // "target" is at 0-indexed line 4 (line 5 in 1-indexed).
+            // Hunk says old_start=2, so expected = 2-1 = 1 (0-indexed).
+            // Delta needed: |4 - 1| = 3, exactly FUZZ_RANGE. Should match.
+            let original = "a\nb\nc\nd\ntarget\nf\n";
+            let hunks = vec![Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Remove("target".into()),
+                    PatchLine::Add("TARGET".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\nb\nc\nd\nTARGET\nf\n");
+        }
+
+        #[test]
+        fn fuzz_beyond_boundary_delta_4_fails() {
+            // "target" is at 0-indexed line 5 (line 6 in 1-indexed).
+            // Hunk says old_start=2, so expected = 2-1 = 1 (0-indexed).
+            // Delta needed: |5 - 1| = 4, beyond FUZZ_RANGE=3. Should fail.
+            let original = "a\nb\nc\nd\ne\ntarget\nf\n";
+            let hunks = vec![Hunk {
+                old_start: 2,
+                old_count: 1,
+                new_start: 2,
+                new_count: 1,
+                lines: vec![
+                    PatchLine::Remove("target".into()),
+                    PatchLine::Add("TARGET".into()),
+                ],
+            }];
+            assert!(apply_hunks(original, &hunks).is_err());
+        }
+
+        #[test]
+        fn two_hunks_both_requiring_fuzz() {
+            // Line layout (0-indexed): 0=a, 1=b, 2=x, 3=c, 4=d, 5=y, 6=e
+            // Hunk 1: old_start=1, expected=0, "x" is at index 2. Delta=2 (within fuzz).
+            // Hunk 2: old_start=4, expected=3+offset(0)=3, "y" is at index 5. Delta=2.
+            let original = "a\nb\nx\nc\nd\ny\ne\n";
+            let hunks = vec![
+                Hunk {
+                    old_start: 1,
+                    old_count: 1,
+                    new_start: 1,
+                    new_count: 1,
+                    lines: vec![PatchLine::Remove("x".into()), PatchLine::Add("X".into())],
+                },
+                Hunk {
+                    old_start: 4,
+                    old_count: 1,
+                    new_start: 4,
+                    new_count: 1,
+                    lines: vec![PatchLine::Remove("y".into()), PatchLine::Add("Y".into())],
+                },
+            ];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, "a\nb\nX\nc\nd\nY\ne\n");
+        }
+
+        #[test]
+        fn hunk_removes_all_lines() {
+            let original = "a\nb\nc\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 0,
+                lines: vec![
+                    PatchLine::Remove("a".into()),
+                    PatchLine::Remove("b".into()),
+                    PatchLine::Remove("c".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            // All lines removed; join_lines on empty vec returns "".
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn context_only_hunk_is_noop() {
+            // All lines are Context, no Add or Remove. Content should not change.
+            let original = "line1\nline2\nline3\n";
+            let hunks = vec![Hunk {
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 3,
+                lines: vec![
+                    PatchLine::Context("line1".into()),
+                    PatchLine::Context("line2".into()),
+                    PatchLine::Context("line3".into()),
+                ],
+            }];
+            let result = apply_hunks(original, &hunks).unwrap();
+            assert_eq!(result, original);
+        }
+
+        #[test]
+        fn parse_patch_with_diff_git_headers() {
+            let diff = "\
+diff --git a/src/hello.rs b/src/hello.rs
+index 1234567..abcdefg 100644
+--- a/src/hello.rs
++++ b/src/hello.rs
+@@ -1,3 +1,3 @@
+ fn main() {
+-    println!(\"hello\");
++    println!(\"Hello, world!\");
+ }
+";
+            let files = parse_patch(diff).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].path, "src/hello.rs");
+            assert_eq!(files[0].hunks.len(), 1);
+            assert_eq!(files[0].hunks[0].old_start, 1);
+            assert_eq!(files[0].hunks[0].old_count, 3);
+            assert_eq!(files[0].hunks[0].new_count, 3);
+            assert_eq!(files[0].hunks[0].lines.len(), 4);
+            assert_eq!(
+                files[0].hunks[0].lines[0],
+                PatchLine::Context("fn main() {".into())
+            );
+            assert_eq!(
+                files[0].hunks[0].lines[1],
+                PatchLine::Remove("    println!(\"hello\");".into())
+            );
+            assert_eq!(
+                files[0].hunks[0].lines[2],
+                PatchLine::Add("    println!(\"Hello, world!\");".into())
+            );
+            assert_eq!(files[0].hunks[0].lines[3], PatchLine::Context("}".into()));
+        }
+
+        #[test]
+        fn parse_patch_skips_no_newline_marker() {
+            // The "\ No newline at end of file" marker must be silently skipped.
+            let diff = "\
+--- a/file.txt
++++ b/file.txt
+@@ -1,2 +1,2 @@
+ keep
+-old
++new
+\\ No newline at end of file
+";
+            let files = parse_patch(diff).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].hunks[0].lines.len(), 3);
+            // Only Context("keep"), Remove("old"), Add("new") -- marker not present
+            assert_eq!(
+                files[0].hunks[0].lines[0],
+                PatchLine::Context("keep".into())
+            );
+            assert_eq!(files[0].hunks[0].lines[1], PatchLine::Remove("old".into()));
+            assert_eq!(files[0].hunks[0].lines[2], PatchLine::Add("new".into()));
+        }
+    }
 }
