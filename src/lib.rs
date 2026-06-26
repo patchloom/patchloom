@@ -21,13 +21,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.5", default-features = false }
+//! patchloom = { version = "0.6", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.5", default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.6", default-features = false, features = ["ast"] }
 //! ```
 //!
 //! (Update the version number in these examples when the next release-please
