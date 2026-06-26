@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
-use super::refs::{RefKind, find_refs_in_source_with_tree};
+use super::refs::{RefKind, find_all_refs_in_source_with_tree};
 use super::symbols::extract_symbols;
 
 /// A node in the impact tree.
@@ -47,98 +47,86 @@ pub fn compute_impact(
     let mut visited = HashSet::new();
     visited.insert(symbol_name.to_string());
 
-    // Cache parsed symbols per file to avoid O(N * parse_cost) re-parsing
-    // when multiple references exist in the same file.
-    let mut symbol_cache: HashMap<String, Vec<super::symbols::SymbolDef>> = HashMap::new();
+    // Build a global reverse dependency map in a single pass over all files.
+    // For each identifier reference found in the AST, record which symbol
+    // contains it. This turns the per-depth O(files) scan into O(1) lookups.
+    let mut reverse_deps: HashMap<String, Vec<ReverseRef>> = HashMap::new();
 
-    // Pre-parse all files once; reuse trees for all symbol lookups.
-    let tree_cache: HashMap<String, tree_sitter_lib::Tree> = file_data
-        .iter()
-        .filter_map(|(_, display, source, lang)| {
-            let (tree, _) = super::parse_source(source, *lang)?;
-            Some(((*display).to_string(), tree))
-        })
-        .collect();
+    for (_, display, source, lang) in &file_data {
+        // Parse tree (needed for ref extraction).
+        let Some((tree, _)) = super::parse_source(source, *lang) else {
+            continue;
+        };
 
-    find_dependents(
-        symbol_name,
-        &file_data,
-        max_depth,
-        1,
-        &mut visited,
-        &mut symbol_cache,
-        &tree_cache,
-    )
+        // Extract symbols for containment lookup.
+        let symbols = extract_symbols(source, *lang);
+
+        // Collect all identifier references in this file.
+        let all_refs = find_all_refs_in_source_with_tree(source, &tree, display);
+
+        for (ref_name, sym_ref) in all_refs {
+            if sym_ref.kind != RefKind::Reference {
+                continue;
+            }
+            let containing = find_containing_in(&symbols, sym_ref.line);
+            let dependent_name = containing.unwrap_or_else(|| format!("<{}>", display));
+            reverse_deps.entry(ref_name).or_default().push(ReverseRef {
+                symbol: dependent_name,
+                file: sym_ref.file,
+                line: sym_ref.line,
+                context: sym_ref.context,
+            });
+        }
+    }
+
+    find_dependents(symbol_name, &reverse_deps, max_depth, 1, &mut visited)
+}
+
+/// A reference edge in the reverse dependency map.
+struct ReverseRef {
+    /// The symbol that contains the reference (the dependent).
+    symbol: String,
+    /// File where the reference occurs.
+    file: String,
+    /// 1-based line number.
+    line: usize,
+    /// The source line (trimmed).
+    context: String,
 }
 
 fn find_dependents(
     symbol_name: &str,
-    file_data: &[(&Path, &str, String, Language)],
+    reverse_deps: &HashMap<String, Vec<ReverseRef>>,
     max_depth: usize,
     current_depth: usize,
     visited: &mut HashSet<String>,
-    symbol_cache: &mut HashMap<String, Vec<super::symbols::SymbolDef>>,
-    tree_cache: &HashMap<String, tree_sitter_lib::Tree>,
 ) -> Vec<ImpactNode> {
     let mut results = Vec::new();
 
-    for (_, display, source, lang) in file_data {
-        let key = (*display).to_string();
-        let refs = if let Some(tree) = tree_cache.get(&key) {
-            find_refs_in_source_with_tree(source, symbol_name, tree, display)
-        } else {
-            // Fallback: parse on the fly (should not happen with pre-built cache)
-            super::refs::find_refs_in_source(source, symbol_name, *lang, display)
-        };
-        if refs.is_empty() {
-            continue;
-        }
+    if let Some(refs) = reverse_deps.get(symbol_name) {
+        for r in refs {
+            if visited.contains(&r.symbol) {
+                continue;
+            }
+            visited.insert(r.symbol.clone());
 
-        // Parse symbols once per file, cache the result.
-        let key = (*display).to_string();
-        if !symbol_cache.contains_key(&key) {
-            symbol_cache.insert(key.clone(), extract_symbols(source, *lang));
-        }
-
-        // Collect dependent names before recursing to avoid overlapping
-        // mutable borrows on `symbol_cache`.
-        let pending: Vec<_> = refs
-            .iter()
-            .filter(|r| r.kind == RefKind::Reference)
-            .filter_map(|r| {
-                let symbols = symbol_cache
-                    .get(&key)
-                    .expect("symbol_cache entry inserted before recursion");
-                let containing = find_containing_in(symbols, r.line);
-                let name = containing.unwrap_or_else(|| format!("<{}>", display));
-                if visited.contains(&name) {
-                    return None;
-                }
-                visited.insert(name.clone());
-                Some((name, r.file.clone(), r.line, r.context.clone()))
-            })
-            .collect();
-
-        for (dependent_name, file, line, context) in pending {
             let dependents = if current_depth < max_depth {
                 find_dependents(
-                    &dependent_name,
-                    file_data,
+                    &r.symbol,
+                    reverse_deps,
                     max_depth,
                     current_depth + 1,
                     visited,
-                    symbol_cache,
-                    tree_cache,
                 )
             } else {
                 Vec::new()
             };
 
             results.push(ImpactNode {
-                symbol: dependent_name,
-                file,
-                line,
-                context,
+                symbol: r.symbol.clone(),
+                file: r.file.clone(),
+                line: r.line,
+                context: r.context.clone(),
                 dependents,
             });
         }

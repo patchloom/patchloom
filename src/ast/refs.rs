@@ -113,6 +113,22 @@ pub fn find_refs_in_source_with_tree(
     refs
 }
 
+/// Find ALL identifier references in source (unfiltered by name).
+///
+/// Returns `(identifier_name, SymbolRef)` pairs for every identifier node
+/// in the AST. Used by impact analysis to build a reverse dependency map
+/// in a single pass instead of re-scanning per symbol.
+pub fn find_all_refs_in_source_with_tree(
+    source: &str,
+    tree: &tree_sitter_lib::Tree,
+    file_path: &str,
+) -> Vec<(String, SymbolRef)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut refs = Vec::new();
+    collect_all_refs(tree.root_node(), source, &lines, file_path, &mut refs);
+    refs
+}
+
 /// Find refs across multiple files.
 pub fn find_refs_in_file(
     path: &Path,
@@ -171,6 +187,55 @@ fn collect_refs(
     if cursor.goto_first_child() {
         loop {
             collect_refs(cursor.node(), source, symbol_name, lines, file_path, refs);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+fn collect_all_refs(
+    node: tree_sitter_lib::Node,
+    source: &str,
+    lines: &[&str],
+    file_path: &str,
+    refs: &mut Vec<(String, SymbolRef)>,
+) {
+    if SKIP_KINDS.contains(&node.kind()) {
+        return;
+    }
+
+    if IDENTIFIER_KINDS.contains(&node.kind())
+        && let Ok(text) = node.utf8_text(source.as_bytes())
+    {
+        let line = node.start_position().row + 1;
+        let context = lines
+            .get(node.start_position().row)
+            .unwrap_or(&"")
+            .trim()
+            .to_string();
+
+        let kind = if is_definition_site(node) {
+            RefKind::Definition
+        } else {
+            RefKind::Reference
+        };
+
+        refs.push((
+            text.to_string(),
+            SymbolRef {
+                file: file_path.to_string(),
+                line,
+                context,
+                kind,
+            },
+        ));
+    }
+
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            collect_all_refs(cursor.node(), source, lines, file_path, refs);
             if !cursor.goto_next_sibling() {
                 break;
             }
