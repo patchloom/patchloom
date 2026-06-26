@@ -2002,6 +2002,58 @@ mod tests {
             assert_eq!(parse_value(r#"{"a":1}"#), json!({"a": 1}));
         }
 
+        // -- parse_value edge cases (#978) -----------------------------------
+
+        #[test]
+        fn parse_value_float() {
+            assert_eq!(parse_value("1.5"), json!(1.5));
+        }
+
+        #[test]
+        fn parse_value_negative_integer() {
+            assert_eq!(parse_value("-42"), json!(-42));
+        }
+
+        #[test]
+        fn parse_value_json_array() {
+            assert_eq!(parse_value("[1,2,3]"), json!([1, 2, 3]));
+        }
+
+        #[test]
+        fn parse_value_json_object_with_spaces() {
+            assert_eq!(parse_value(r#"{"a": 1}"#), json!({"a": 1}));
+        }
+
+        #[test]
+        fn parse_value_quoted_string_with_escapes() {
+            // JSON-escaped inner quotes: the input is a valid JSON string literal.
+            let result = parse_value(r#""hello\"world""#);
+            assert_eq!(result, json!("hello\"world"));
+            assert!(result.is_string());
+        }
+
+        #[test]
+        fn parse_value_plain_string() {
+            let result = parse_value("hello");
+            assert_eq!(result, json!("hello"));
+            assert!(result.is_string());
+        }
+
+        #[test]
+        fn parse_value_true_is_bool() {
+            // "true" is recognized as boolean, not left as a string.
+            let result = parse_value("true");
+            assert_eq!(result, json!(true));
+            assert!(result.is_boolean());
+        }
+
+        #[test]
+        fn parse_value_false_is_bool() {
+            let result = parse_value("false");
+            assert_eq!(result, json!(false));
+            assert!(result.is_boolean());
+        }
+
         #[test]
         fn flatten_value_nested() {
             let val = json!({"a": {"b": 1}, "c": [2, 3]});

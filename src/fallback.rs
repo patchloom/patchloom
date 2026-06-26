@@ -852,6 +852,51 @@ mod tests {
         );
     }
 
+    // -- anchor_match and resolve_with_fallback edge cases (#978) -----------
+
+    #[test]
+    fn anchor_match_after_only_context() {
+        // after_context without before_context hits the code path where
+        // before_context is None but after_context is checked.
+        let content = "fn setup() {}\nfn proccess_data(x: i32) {}\nfn cleanup() {}\n";
+        let result = anchor_match(
+            content,
+            "fn process_data(x: i32) {}",
+            None,
+            Some("fn cleanup() {}"),
+        );
+        let r = result.expect("after-only context should find anchor match");
+        assert_eq!(r.strategy, MatchStrategy::Anchor);
+        assert!(r.matched_text.contains("proccess_data"));
+    }
+
+    #[test]
+    fn anchor_match_multiple_candidates_returns_first() {
+        // Target appears (fuzzily) twice; anchor_match returns the first match.
+        let content = "fn header() {}\nfn proccess(x: i32) {}\nfn middle() {}\nfn proccess(y: bool) {}\nfn footer() {}\n";
+        let result = anchor_match(
+            content,
+            "fn process(x: i32) {}",
+            Some("fn header() {}"),
+            Some("fn middle() {}"),
+        );
+        let r = result.expect("should match first candidate");
+        assert_eq!(r.strategy, MatchStrategy::Anchor);
+        // The first candidate contains "x: i32", not "y: bool".
+        assert!(
+            r.matched_text.contains("x: i32"),
+            "should match first occurrence, got: {}",
+            r.matched_text
+        );
+    }
+
+    #[test]
+    fn resolve_with_fallback_empty_content() {
+        let result = resolve_with_fallback("", "fn hello()", None, None);
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, EditErrorKind::NoMatch);
+    }
+
     // Static assertions: types must be Send + Sync.
     const _: () = {
         fn _assert<T: Send + Sync>() {}
