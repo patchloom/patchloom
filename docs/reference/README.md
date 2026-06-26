@@ -58,7 +58,7 @@ These flags shape how written content is normalized before it reaches disk.
 <!-- ref:write-flag:normalize-eol -->
 ### `--normalize-eol`
 
-- **What it does:** Normalizes written line endings to `keep`, `lf`, or `crlf`.
+- **What it does:** Normalizes written line endings to `keep`, `lf`, `crlf`, or `cr`.
 - **Use when:** A repo or downstream tool expects a specific line ending convention.
 - **Prefer instead:** Use `--respect-editorconfig` when the repo already declares the desired convention there.
 
@@ -819,7 +819,7 @@ Use these when newline and whitespace correctness is the main concern.
 
 - **What it does:** Applies newline, EOL, and whitespace normalization across all pending writes in the plan.
 - **Use when:** Every write in the transaction should share the same normalization policy.
-- **Fields:** Supports `ensure_final_newline` (bool), `normalize_eol` (`keep`, `lf`, or `crlf`), `trim_trailing_whitespace` (bool), and `collapse_blanks` (bool).
+- **Fields:** Supports `ensure_final_newline` (bool), `normalize_eol` (`keep`, `lf`, `crlf`, or `cr`), `trim_trailing_whitespace` (bool), and `collapse_blanks` (bool).
 - **Precedence:** Patchloom starts from the invocation's per-file write policy, including CLI flags and any `--respect-editorconfig` values, then overrides only the keys set here.
 - **Prefer instead:** Use CLI write flags when one invocation needs defaults, but the plan itself should stay generic.
 
