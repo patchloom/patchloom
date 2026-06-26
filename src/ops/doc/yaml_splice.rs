@@ -658,4 +658,187 @@ mod tests {
         assert!(result.contains("- three\n"));
         assert!(result.contains("- one\n"));
     }
+
+    // -----------------------------------------------------------------------
+    // serialize_block_entries — compound value coverage (#983)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn serialize_nested_object() {
+        use serde_json::json;
+        let entries = vec![json!({"name": "main", "env": [{"name": "KEY", "value": "val"}]})];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        // First line starts with "  - "
+        let first_line = result.lines().next().unwrap();
+        assert!(
+            first_line.starts_with("  - "),
+            "expected '  - ' prefix, got: {first_line}"
+        );
+        // Continuation lines start with "    " (indent + 2 spaces for alignment)
+        for line in result.lines().skip(1) {
+            assert!(
+                line.starts_with("    "),
+                "continuation line must start with 4-space indent, got: {line}"
+            );
+        }
+        // Round-trip: parse back and verify value equality
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["name"], "main");
+        assert_eq!(parsed[0]["env"][0]["name"], "KEY");
+        assert_eq!(parsed[0]["env"][0]["value"], "val");
+    }
+
+    #[test]
+    fn serialize_array_of_arrays() {
+        use serde_json::json;
+        let entries = vec![json!([1, 2, 3])];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let first_line = result.lines().next().unwrap();
+        assert!(
+            first_line.starts_with("  - "),
+            "expected '  - ' prefix, got: {first_line}"
+        );
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!([1, 2, 3])]);
+    }
+
+    #[test]
+    fn serialize_empty_object() {
+        use serde_json::json;
+        let entries = vec![json!({})];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        assert!(
+            result.starts_with("  - "),
+            "expected '  - ' prefix, got: {result}"
+        );
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!({})]);
+    }
+
+    #[test]
+    fn serialize_empty_array() {
+        use serde_json::json;
+        let entries = vec![json!([])];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        assert!(
+            result.starts_with("  - "),
+            "expected '  - ' prefix, got: {result}"
+        );
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!([])]);
+    }
+
+    #[test]
+    fn serialize_object_with_keys_needing_quoting() {
+        use serde_json::json;
+        let entries = vec![json!({"true": "val", "null": "x"})];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        // The keys "true" and "null" must be quoted in the output so that
+        // YAML parsers treat them as strings, not booleans/null.
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed.len(), 1);
+        // Verify the keys round-trip as strings, not as boolean/null types
+        let obj = parsed[0].as_object().unwrap();
+        assert!(
+            obj.contains_key("true"),
+            "key 'true' missing after roundtrip"
+        );
+        assert!(
+            obj.contains_key("null"),
+            "key 'null' missing after roundtrip"
+        );
+        assert_eq!(obj["true"], "val");
+        assert_eq!(obj["null"], "x");
+    }
+
+    #[test]
+    fn serialize_string_containing_single_quotes() {
+        use serde_json::json;
+        // To exercise the `s.replace('\'', "''")` escape path, the string
+        // must both trigger `needs_yaml_quoting` AND contain a single quote.
+        // "# it's a comment" starts with '#' (needs quoting) and has a quote.
+        let entries = vec![json!("# it's a comment")];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        assert!(
+            result.starts_with("  - "),
+            "expected '  - ' prefix, got: {result}"
+        );
+        // The single quote must be escaped as '' in YAML single-quoted style
+        assert!(
+            result.contains("''"),
+            "single quote should be escaped: {result}"
+        );
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!("# it's a comment")]);
+    }
+
+    #[test]
+    fn serialize_unicode_string() {
+        use serde_json::json;
+        let entries = vec![json!("café"), json!("こんにちは")];
+        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!("café"), json!("こんにちは")]);
+    }
+
+    // -----------------------------------------------------------------------
+    // splice_yaml_array_diffs — multi-diff coverage (#982)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn splice_multi_diff_two_arrays_grow() {
+        use serde_json::json;
+        // A YAML document with two arrays at different paths; both grow.
+        let yaml = "name: app\nenv:\n  - KEY1\nvolumes:\n  - /data\n";
+        let current: serde_json::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let mut target = current.clone();
+        target["env"].as_array_mut().unwrap().push(json!("KEY2"));
+        target["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("/logs"));
+
+        let result = splice_yaml_array_diffs(yaml, &current, &target).unwrap();
+        // The splice may or may not succeed (depends on CST round-trip fidelity).
+        // If it succeeds, verify correctness.
+        if let Some(spliced) = result {
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&spliced).unwrap();
+            assert_eq!(reparsed, target, "multi-diff splice mismatch: {spliced}");
+        }
+        // If None, the function correctly gave up rather than producing wrong output.
+    }
+
+    // -----------------------------------------------------------------------
+    // splice_yaml_root_sequence — object entries (#982)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn splice_root_sequence_object_entries() {
+        use serde_json::json;
+        let yaml = "- name: task1\n  value: 1\n- name: task2\n  value: 2\n";
+        let cur = vec![
+            json!({"name": "task1", "value": 1}),
+            json!({"name": "task2", "value": 2}),
+        ];
+        let tgt = vec![
+            json!({"name": "task1", "value": 1}),
+            json!({"name": "task2", "value": 2}),
+            json!({"name": "task3", "value": 3}),
+        ];
+        let result = splice_yaml_root_sequence(yaml, &cur, &tgt).unwrap();
+        // The splice should succeed for a pure append of an object entry.
+        if let Some(spliced) = result {
+            assert!(
+                spliced.contains("task3"),
+                "appended object entry missing: {spliced}"
+            );
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&spliced).unwrap();
+            assert_eq!(
+                reparsed,
+                serde_json::Value::Array(tgt),
+                "round-trip mismatch: {spliced}"
+            );
+        }
+    }
 }

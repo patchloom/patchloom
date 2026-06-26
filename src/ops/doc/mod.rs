@@ -1165,6 +1165,33 @@ mod tests {
         }
 
         #[test]
+        fn yaml_multi_document_rejected_by_parser() {
+            // Multi-document YAML (--- separated) is rejected by serde_yaml_ng.
+            // This test documents the current behavior: parse_doc returns an error
+            // rather than silently dropping documents.
+            let yaml = "---\nname: first\n---\nname: second\n";
+            let err = parse_doc(yaml, &FileFormat::Yaml).unwrap_err();
+            assert!(
+                err.to_string().contains("more than one document"),
+                "expected multi-document rejection, got: {err}"
+            );
+        }
+
+        #[test]
+        fn yaml_single_document_marker_accepted() {
+            // A single document with an explicit `---` marker is valid and parses fine.
+            let yaml = "---\nname: only\n";
+            let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            assert_eq!(val, json!({"name": "only"}));
+
+            let mut new = val.clone();
+            new["name"] = json!("updated");
+            let result = serialize_value_preserving(yaml, &val, &new, &FileFormat::Yaml).unwrap();
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(reparsed, json!({"name": "updated"}));
+        }
+
+        #[test]
         fn yaml_sequence_root_noop_preserves_content() {
             let yaml = "- item1\n- item2\n";
             let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
