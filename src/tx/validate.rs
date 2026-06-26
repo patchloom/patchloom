@@ -193,13 +193,13 @@ mod tests {
     #[test]
     fn replace_range_with_whole_line_accepted() {
         let op = replace_op(true, false, Some("10:50"));
-        assert!(validate_operation(&op).is_ok());
+        validate_operation(&op).unwrap();
     }
 
     #[test]
     fn replace_whole_line_without_multiline_accepted() {
         let op = replace_op(true, false, None);
-        assert!(validate_operation(&op).is_ok());
+        validate_operation(&op).unwrap();
     }
 
     #[test]

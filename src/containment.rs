@@ -449,7 +449,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         fs::write(dir.path().join("file.txt"), "ok").unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-        assert!(guard.check_path("file.txt").is_ok());
+        guard.check_path("file.txt").unwrap();
     }
 
     #[test]
@@ -459,7 +459,7 @@ mod tests {
         fs::write(dir.path().join("Cargo.toml"), "ok").unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
         // src/../Cargo.toml stays within workspace
-        assert!(guard.check_path("src/../Cargo.toml").is_ok());
+        guard.check_path("src/../Cargo.toml").unwrap();
     }
 
     #[test]
@@ -480,7 +480,7 @@ mod tests {
         )
         .unwrap();
         let abs = dir.path().join("inside.txt");
-        assert!(guard.check_path(abs.to_str().unwrap()).is_ok());
+        guard.check_path(abs.to_str().unwrap()).unwrap();
     }
 
     /// Return an absolute path string that is guaranteed outside any temp dir.
@@ -542,7 +542,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
         // Empty string resolves to cwd itself, which is contained.
-        assert!(guard.check_path("").is_ok());
+        guard.check_path("").unwrap();
     }
 
     #[test]
@@ -565,7 +565,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("foo")).unwrap();
         fs::write(dir.path().join("foo/bar.json"), "{}").unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-        assert!(guard.check_path("./foo/bar.json").is_ok());
+        guard.check_path("./foo/bar.json").unwrap();
     }
 
     #[cfg(unix)]
@@ -681,7 +681,7 @@ mod tests {
         // create it
         std::fs::write(&tmp_file, "ok").unwrap();
         let res = guard.check_path(tmp_file.to_str().unwrap());
-        assert!(res.is_ok());
+        res.unwrap();
         // clean
         let _ = std::fs::remove_file(&tmp_file);
     }
@@ -708,7 +708,7 @@ mod tests {
         // should allow temp
         let temp = std::env::temp_dir().join("patchloom_builder_test.txt");
         std::fs::write(&temp, "ok").unwrap();
-        assert!(guard.check_path(temp.to_str().unwrap()).is_ok());
+        guard.check_path(temp.to_str().unwrap()).unwrap();
         let _ = std::fs::remove_file(&temp);
     }
 
@@ -768,7 +768,7 @@ mod tests {
         .unwrap();
         let temp = std::env::temp_dir().join("patchloom_awtd_std.txt");
         std::fs::write(&temp, "ok").unwrap();
-        assert!(guard.check_path(temp.to_str().unwrap()).is_ok());
+        guard.check_path(temp.to_str().unwrap()).unwrap();
         let _ = std::fs::remove_file(&temp);
     }
 
@@ -786,7 +786,7 @@ mod tests {
         let tmp_path = format!("/tmp/patchloom_781_awtd_{}.txt", std::process::id());
         let _ = std::fs::remove_file(&tmp_path);
         std::fs::write(&tmp_path, "data").unwrap();
-        assert!(guard.check_path(&tmp_path).is_ok());
+        guard.check_path(&tmp_path).unwrap();
         let _ = std::fs::remove_file(&tmp_path);
     }
 
