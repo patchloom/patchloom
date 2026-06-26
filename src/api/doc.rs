@@ -9,8 +9,8 @@ use anyhow::{Context, bail};
 
 use crate::containment::PathGuard;
 use crate::ops;
+use crate::ops::doc::query::{QueryResult, query_get, query_has};
 use crate::ops::doc::{DocMutation, MutationResult};
-use crate::selector;
 use crate::write::WritePolicy;
 
 use super::{ApplyMode, EditResult, build_edit_result, write_if_apply};
@@ -140,28 +140,17 @@ pub fn doc_merge(
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
     let doc = load_doc(path)?;
 
-    let segments = selector::parse_anyhow(selector)?;
-    let result = selector::eval(&doc.value, &segments);
-    match result.len() {
-        0 => bail!("selector '{}' matched nothing", selector),
-        1 => Ok(result
-            .into_iter()
-            .next()
-            .expect("len==1 guarantees element")
-            .clone()),
-        _ => Ok(serde_json::Value::Array(
-            result.into_iter().cloned().collect(),
-        )),
+    match query_get(&doc.value, selector)? {
+        QueryResult::NoMatch => bail!("selector '{}' matched nothing", selector),
+        QueryResult::Values(vals) if vals.len() == 1 => Ok(vals.into_iter().next().unwrap()),
+        QueryResult::Values(vals) => Ok(serde_json::Value::Array(vals)),
     }
 }
 
 /// Check whether a selector path exists in a JSON, YAML, or TOML file.
 pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
     let doc = load_doc(path)?;
-
-    let segments = selector::parse_anyhow(selector)?;
-    let result = selector::eval(&doc.value, &segments);
-    Ok(!result.is_empty())
+    query_has(&doc.value, selector)
 }
 
 /// Append a value to an array at a selector path.

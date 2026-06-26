@@ -5,7 +5,6 @@ use crate::ops::doc::{
     DocMutation, FileFormat, MutationResult, apply_doc_mutation, detect_format, diff_values,
     flatten_value, parse_doc, parse_value, serialize_value_preserving,
 };
-use crate::selector;
 use crate::write;
 use crate::write::policy_from_flags;
 use anyhow::Context;
@@ -523,21 +522,22 @@ pub(crate) fn execute_with_mode(
     output_mode: OutputMode,
 ) -> anyhow::Result<(String, u8)> {
     match action {
-        DocAction::Get { file, selector } => {
+        DocAction::Get { file, selector } | DocAction::Select { file, selector } => {
             let root = load_file(file)?;
-            let sel = selector::parse_anyhow(selector)?;
-            let results = selector::eval(&root, &sel);
-            if results.is_empty() {
-                return Ok((String::new(), exit::NO_MATCHES));
+            match crate::ops::doc::query::query_get(&root, selector)? {
+                crate::ops::doc::query::QueryResult::NoMatch => {
+                    Ok((String::new(), exit::NO_MATCHES))
+                }
+                crate::ops::doc::query::QueryResult::Values(vals) => {
+                    let refs: Vec<&serde_json::Value> = vals.iter().collect();
+                    Ok((format_values(&refs, output_mode)?, exit::SUCCESS))
+                }
             }
-            Ok((format_values(&results, output_mode)?, exit::SUCCESS))
         }
 
         DocAction::Has { file, selector } => {
             let root = load_file(file)?;
-            let sel = selector::parse_anyhow(selector)?;
-            let results = selector::eval(&root, &sel);
-            let found = !results.is_empty();
+            let found = crate::ops::doc::query::query_has(&root, selector)?;
             let output = match output_mode {
                 OutputMode::Text => found.to_string(),
                 OutputMode::Json => serde_json::to_string_pretty(&found)?,
@@ -548,14 +548,15 @@ pub(crate) fn execute_with_mode(
 
         DocAction::Keys { file, selector } => {
             let root = load_file(file)?;
-            let sel = selector::parse_anyhow(selector)?;
-            let results = selector::eval(&root, &sel);
-            if results.is_empty() {
-                return Ok((String::new(), exit::NO_MATCHES));
-            }
-            match results[0].as_object() {
-                Some(obj) => {
-                    let keys: Vec<&str> = obj.keys().map(std::string::String::as_str).collect();
+            match crate::ops::doc::query::query_keys(&root, selector)? {
+                crate::ops::doc::query::QueryKeysResult::NoMatch => {
+                    Ok((String::new(), exit::NO_MATCHES))
+                }
+                crate::ops::doc::query::QueryKeysResult::NotAnObject => Ok((
+                    format!("doc keys: target at '{selector}' is not an object"),
+                    exit::FAILURE,
+                )),
+                crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
                         OutputMode::Text => keys.join("\n"),
                         OutputMode::Json => serde_json::to_string_pretty(&keys)?,
@@ -567,49 +568,28 @@ pub(crate) fn execute_with_mode(
                     };
                     Ok((output, exit::SUCCESS))
                 }
-                None => Ok((
-                    format!("doc keys: target at '{selector}' is not an object"),
-                    exit::FAILURE,
-                )),
             }
         }
 
         DocAction::Len { file, selector } => {
             let root = load_file(file)?;
-            let sel = selector::parse_anyhow(selector)?;
-            let results = selector::eval(&root, &sel);
-            if results.is_empty() {
-                return Ok((String::new(), exit::NO_MATCHES));
-            }
-            let target = results[0];
-            let len = target
-                .as_array()
-                .map(|a| a.len())
-                .or_else(|| target.as_object().map(|o| o.len()));
-            if let Some(len) = len {
-                let output = match output_mode {
-                    OutputMode::Text => len.to_string(),
-                    OutputMode::Json => serde_json::to_string_pretty(&len)?,
-                    OutputMode::Jsonl => serde_json::to_string(&len)?,
-                };
-                Ok((output, exit::SUCCESS))
-            } else {
-                Ok((
+            match crate::ops::doc::query::query_len(&root, selector)? {
+                crate::ops::doc::query::QueryLenResult::NoMatch => {
+                    Ok((String::new(), exit::NO_MATCHES))
+                }
+                crate::ops::doc::query::QueryLenResult::NotArrayOrObject => Ok((
                     format!("doc len: target at '{selector}' is not an array or object"),
                     exit::FAILURE,
-                ))
+                )),
+                crate::ops::doc::query::QueryLenResult::Len(len) => {
+                    let output = match output_mode {
+                        OutputMode::Text => len.to_string(),
+                        OutputMode::Json => serde_json::to_string_pretty(&len)?,
+                        OutputMode::Jsonl => serde_json::to_string(&len)?,
+                    };
+                    Ok((output, exit::SUCCESS))
+                }
             }
-        }
-
-        // Select is read-only: filter and return matching items.
-        DocAction::Select { file, selector } => {
-            let root = load_file(file)?;
-            let sel = selector::parse_anyhow(selector)?;
-            let results = selector::eval(&root, &sel);
-            if results.is_empty() {
-                return Ok((String::new(), exit::NO_MATCHES));
-            }
-            Ok((format_values(&results, output_mode)?, exit::SUCCESS))
         }
 
         DocAction::Flatten { file } => {

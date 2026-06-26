@@ -1,0 +1,239 @@
+//! Pure read-only query functions for JSON/YAML/TOML documents.
+//!
+//! These operate on parsed `serde_json::Value` trees and return
+//! structured results with no IO or formatting. Called by CLI,
+//! MCP, and the public library API.
+
+use crate::selector;
+
+/// Result of a query that targets a selector path.
+///
+/// The caller decides how to format or use the values.
+#[derive(Debug)]
+pub enum QueryResult {
+    /// One or more values matched the selector.
+    Values(Vec<serde_json::Value>),
+    /// The selector matched nothing.
+    NoMatch,
+}
+
+/// Query values at a selector path.
+///
+/// Returns cloned values so the caller owns them.
+pub fn query_get(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryResult> {
+    let segments = selector::parse_anyhow(selector)?;
+    let results = selector::eval(root, &segments);
+    if results.is_empty() {
+        return Ok(QueryResult::NoMatch);
+    }
+    Ok(QueryResult::Values(results.into_iter().cloned().collect()))
+}
+
+/// Check whether a selector path exists.
+pub fn query_has(root: &serde_json::Value, selector: &str) -> anyhow::Result<bool> {
+    let segments = selector::parse_anyhow(selector)?;
+    Ok(!selector::eval(root, &segments).is_empty())
+}
+
+/// Result of a keys query.
+#[derive(Debug)]
+pub enum QueryKeysResult {
+    Keys(Vec<String>),
+    NoMatch,
+    /// The value at the selector is not an object.
+    NotAnObject,
+}
+
+/// Get the keys of an object at a selector path.
+///
+/// When the selector matches multiple values, returns keys of the first match.
+pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryKeysResult> {
+    let segments = selector::parse_anyhow(selector)?;
+    let results = selector::eval(root, &segments);
+    if results.is_empty() {
+        return Ok(QueryKeysResult::NoMatch);
+    }
+    match results[0].as_object() {
+        Some(obj) => Ok(QueryKeysResult::Keys(obj.keys().cloned().collect())),
+        None => Ok(QueryKeysResult::NotAnObject),
+    }
+}
+
+/// Result of a len query.
+#[derive(Debug)]
+pub enum QueryLenResult {
+    Len(usize),
+    NoMatch,
+    /// The value at the selector is not an array or object.
+    NotArrayOrObject,
+}
+
+/// Get the length of an array or object at a selector path.
+///
+/// When the selector matches multiple values, returns the length of the first match.
+pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryLenResult> {
+    let segments = selector::parse_anyhow(selector)?;
+    let results = selector::eval(root, &segments);
+    if results.is_empty() {
+        return Ok(QueryLenResult::NoMatch);
+    }
+    let target = results[0];
+    let len = target
+        .as_array()
+        .map(|a| a.len())
+        .or_else(|| target.as_object().map(|o| o.len()));
+    match len {
+        Some(n) => Ok(QueryLenResult::Len(n)),
+        None => Ok(QueryLenResult::NotArrayOrObject),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_doc() -> serde_json::Value {
+        serde_json::json!({
+            "name": "test",
+            "version": "1.0",
+            "items": [1, 2, 3],
+            "nested": {
+                "key": "value"
+            }
+        })
+    }
+
+    // -- query_get --
+
+    #[test]
+    fn get_existing_key() {
+        let doc = sample_doc();
+        match query_get(&doc, "name").unwrap() {
+            QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!("test")]),
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn get_nested_key() {
+        let doc = sample_doc();
+        match query_get(&doc, "nested.key").unwrap() {
+            QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!("value")]),
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn get_missing_key() {
+        let doc = sample_doc();
+        assert!(matches!(
+            query_get(&doc, "nonexistent").unwrap(),
+            QueryResult::NoMatch
+        ));
+    }
+
+    #[test]
+    fn get_array_element() {
+        let doc = sample_doc();
+        match query_get(&doc, "items[0]").unwrap() {
+            QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!(1)]),
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+    }
+
+    // -- query_has --
+
+    #[test]
+    fn has_existing() {
+        assert!(query_has(&sample_doc(), "name").unwrap());
+    }
+
+    #[test]
+    fn has_missing() {
+        assert!(!query_has(&sample_doc(), "nonexistent").unwrap());
+    }
+
+    #[test]
+    fn has_nested() {
+        assert!(query_has(&sample_doc(), "nested.key").unwrap());
+    }
+
+    // -- query_keys --
+
+    #[test]
+    fn keys_of_object() {
+        let doc = sample_doc();
+        match query_keys(&doc, "nested").unwrap() {
+            QueryKeysResult::Keys(k) => assert_eq!(k, vec!["key"]),
+            other => panic!("expected Keys, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keys_of_root() {
+        let doc = sample_doc();
+        match query_keys(&doc, "").unwrap() {
+            QueryKeysResult::Keys(k) => {
+                assert!(k.contains(&"name".to_string()));
+                assert!(k.contains(&"items".to_string()));
+            }
+            other => panic!("expected Keys, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keys_of_array_returns_not_object() {
+        let doc = sample_doc();
+        assert!(matches!(
+            query_keys(&doc, "items").unwrap(),
+            QueryKeysResult::NotAnObject
+        ));
+    }
+
+    #[test]
+    fn keys_missing_returns_no_match() {
+        let doc = sample_doc();
+        assert!(matches!(
+            query_keys(&doc, "nonexistent").unwrap(),
+            QueryKeysResult::NoMatch
+        ));
+    }
+
+    // -- query_len --
+
+    #[test]
+    fn len_of_array() {
+        let doc = sample_doc();
+        match query_len(&doc, "items").unwrap() {
+            QueryLenResult::Len(n) => assert_eq!(n, 3),
+            other => panic!("expected Len, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn len_of_object() {
+        let doc = sample_doc();
+        match query_len(&doc, "nested").unwrap() {
+            QueryLenResult::Len(n) => assert_eq!(n, 1),
+            other => panic!("expected Len, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn len_of_scalar_returns_not_array_or_object() {
+        let doc = sample_doc();
+        assert!(matches!(
+            query_len(&doc, "name").unwrap(),
+            QueryLenResult::NotArrayOrObject
+        ));
+    }
+
+    #[test]
+    fn len_missing_returns_no_match() {
+        let doc = sample_doc();
+        assert!(matches!(
+            query_len(&doc, "nonexistent").unwrap(),
+            QueryLenResult::NoMatch
+        ));
+    }
+}

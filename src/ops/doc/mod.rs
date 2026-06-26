@@ -3,6 +3,7 @@ use std::path::Path;
 
 mod navigate;
 mod preserve;
+pub mod query;
 mod toml_preserve;
 mod yaml_cst;
 mod yaml_splice;
