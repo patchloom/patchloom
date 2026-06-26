@@ -780,7 +780,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "replace operation requires one of to, insert_before, or insert_after"
+            "replace: one of to, insert_before, or insert_after must be provided"
         );
     }
 
@@ -802,7 +802,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "insert_before and insert_after cannot both be set"
+            "replace: insert_before and insert_after cannot be combined"
         );
     }
 
@@ -838,7 +838,7 @@ mod tests {
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "to cannot be combined with insert_before or insert_after"
+            "replace: to cannot be combined with insert_before or insert_after"
         );
     }
 
@@ -932,8 +932,8 @@ mod tests {
 
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
-            err.to_string().contains("non-empty search pattern"),
-            "expected 'non-empty search pattern' error, got: {}",
+            err.to_string().contains("search pattern must not be empty"),
+            "expected 'search pattern must not be empty' error, got: {}",
             err
         );
     }

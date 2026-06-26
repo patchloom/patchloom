@@ -66,6 +66,83 @@ pub fn validate_replace_mode(
     }
 }
 
+/// Errors from [`validate_replace_args`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplaceValidationError {
+    EmptyPattern,
+    NthZero,
+    RangeRequiresWholeLine,
+    WholeLineMultilineConflict,
+    Mode(ReplaceModeError),
+}
+
+impl std::fmt::Display for ReplaceValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyPattern => write!(f, "search pattern must not be empty"),
+            Self::NthZero => {
+                write!(
+                    f,
+                    "nth must be >= 1 (1-based); use nth=1 for the first occurrence"
+                )
+            }
+            Self::RangeRequiresWholeLine => write!(f, "range requires whole_line"),
+            Self::WholeLineMultilineConflict => {
+                write!(f, "whole_line and multiline cannot be combined")
+            }
+            Self::Mode(e) => match e {
+                ReplaceModeError::MissingMode => {
+                    write!(
+                        f,
+                        "one of to, insert_before, or insert_after must be provided"
+                    )
+                }
+                ReplaceModeError::BothInsertModes => {
+                    write!(f, "insert_before and insert_after cannot be combined")
+                }
+                ReplaceModeError::ToWithInsert => {
+                    write!(
+                        f,
+                        "to cannot be combined with insert_before or insert_after"
+                    )
+                }
+            },
+        }
+    }
+}
+
+/// Parameters for replace argument validation.
+pub struct ReplaceValidationParams<'a> {
+    pub pattern: &'a str,
+    pub has_to: bool,
+    pub has_insert_before: bool,
+    pub has_insert_after: bool,
+    pub nth: Option<usize>,
+    pub whole_line: bool,
+    pub multiline: bool,
+    pub has_range: bool,
+}
+
+/// Validate replace arguments. Shared by CLI and MCP entry points.
+pub fn validate_replace_args(
+    p: &ReplaceValidationParams<'_>,
+) -> Result<(), ReplaceValidationError> {
+    if p.pattern.is_empty() {
+        return Err(ReplaceValidationError::EmptyPattern);
+    }
+    if p.nth == Some(0) {
+        return Err(ReplaceValidationError::NthZero);
+    }
+    if p.has_range && !p.whole_line {
+        return Err(ReplaceValidationError::RangeRequiresWholeLine);
+    }
+    if p.whole_line && p.multiline {
+        return Err(ReplaceValidationError::WholeLineMultilineConflict);
+    }
+    validate_replace_mode(p.has_to, p.has_insert_before, p.has_insert_after)
+        .map_err(ReplaceValidationError::Mode)
+}
+
 pub fn replacement_text(
     from: &str,
     to: &Option<String>,
@@ -334,6 +411,127 @@ mod tests {
         #[test]
         fn validate_mode_valid_insert_after_only() {
             validate_replace_mode(false, false, true).unwrap();
+        }
+
+        // ── validate_replace_args tests ───────────────────────────────
+
+        fn valid_params() -> ReplaceValidationParams<'static> {
+            ReplaceValidationParams {
+                pattern: "needle",
+                has_to: true,
+                has_insert_before: false,
+                has_insert_after: false,
+                nth: None,
+                whole_line: false,
+                multiline: false,
+                has_range: false,
+            }
+        }
+
+        #[test]
+        fn validate_args_valid_basic() {
+            validate_replace_args(&valid_params()).unwrap();
+        }
+
+        #[test]
+        fn validate_args_empty_pattern() {
+            let mut p = valid_params();
+            p.pattern = "";
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::EmptyPattern)
+            );
+        }
+
+        #[test]
+        fn validate_args_nth_zero() {
+            let mut p = valid_params();
+            p.nth = Some(0);
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::NthZero)
+            );
+        }
+
+        #[test]
+        fn validate_args_nth_one_ok() {
+            let mut p = valid_params();
+            p.nth = Some(1);
+            validate_replace_args(&p).unwrap();
+        }
+
+        #[test]
+        fn validate_args_range_requires_whole_line() {
+            let mut p = valid_params();
+            p.has_range = true;
+            p.whole_line = false;
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::RangeRequiresWholeLine)
+            );
+        }
+
+        #[test]
+        fn validate_args_range_with_whole_line_ok() {
+            let mut p = valid_params();
+            p.has_range = true;
+            p.whole_line = true;
+            validate_replace_args(&p).unwrap();
+        }
+
+        #[test]
+        fn validate_args_whole_line_multiline_conflict() {
+            let mut p = valid_params();
+            p.whole_line = true;
+            p.multiline = true;
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::WholeLineMultilineConflict)
+            );
+        }
+
+        #[test]
+        fn validate_args_mode_error_propagated() {
+            let p = ReplaceValidationParams {
+                pattern: "needle",
+                has_to: false,
+                has_insert_before: false,
+                has_insert_after: false,
+                nth: None,
+                whole_line: false,
+                multiline: false,
+                has_range: false,
+            };
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::Mode(ReplaceModeError::MissingMode))
+            );
+        }
+
+        #[test]
+        fn validate_args_display_messages() {
+            // Verify Display impl produces expected human-readable messages.
+            assert!(
+                ReplaceValidationError::EmptyPattern
+                    .to_string()
+                    .contains("search pattern must not be empty")
+            );
+            assert!(ReplaceValidationError::NthZero.to_string().contains("nth"));
+            assert!(
+                ReplaceValidationError::RangeRequiresWholeLine
+                    .to_string()
+                    .contains("range requires whole_line")
+            );
+            assert!(
+                ReplaceValidationError::WholeLineMultilineConflict
+                    .to_string()
+                    .contains("whole_line and multiline")
+            );
+            assert!(
+                ReplaceValidationError::Mode(ReplaceModeError::MissingMode)
+                    .to_string()
+                    .contains("to, insert_before, or insert_after")
+            );
         }
 
         #[test]

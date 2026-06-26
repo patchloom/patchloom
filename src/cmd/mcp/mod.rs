@@ -939,37 +939,19 @@ impl PatchloomService {
                 validate_content_size("insert_after", ia)?;
             }
 
-            // Mirror CLI validations (replace.rs:239-247).
-            if p.nth == Some(0) {
-                return Err(McpError::invalid_params("nth must be >= 1 (1-based)", None));
-            }
-            let mode_count = p.to.is_some() as u8
-                + p.insert_before.is_some() as u8
-                + p.insert_after.is_some() as u8;
-            if mode_count > 1 {
-                return Err(McpError::invalid_params(
-                    "to, insert_before, and insert_after are mutually exclusive",
-                    None,
-                ));
-            }
-            if mode_count == 0 {
-                return Err(McpError::invalid_params(
-                    "one of to, insert_before, or insert_after is required",
-                    None,
-                ));
-            }
-            if p.whole_line && p.multiline {
-                return Err(McpError::invalid_params(
-                    "whole_line and multiline cannot be combined",
-                    None,
-                ));
-            }
-            if p.range.is_some() && !p.whole_line {
-                return Err(McpError::invalid_params(
-                    "range requires whole_line=true",
-                    None,
-                ));
-            }
+            crate::ops::replace::validate_replace_args(
+                &crate::ops::replace::ReplaceValidationParams {
+                    pattern: &p.from,
+                    has_to: p.to.is_some(),
+                    has_insert_before: p.insert_before.is_some(),
+                    has_insert_after: p.insert_after.is_some(),
+                    nth: p.nth,
+                    whole_line: p.whole_line,
+                    multiline: p.multiline,
+                    has_range: p.range.is_some(),
+                },
+            )
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
             // Tier 2: pre-validate structured file edits and collect warnings.
             let validation_warnings = if !p.regex {

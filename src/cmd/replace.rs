@@ -2,8 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{self, DiffResult, unified_diff};
 use crate::exit;
 use crate::ops::replace::{
-    ReplaceModeError, compile_replace_regex, replace_content, replace_whole_lines,
-    replacement_text, validate_replace_mode,
+    compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
 };
 use crate::write::policy_from_flags;
 use clap::Args;
@@ -233,35 +232,18 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.regex,
         args.paths
     );
-    if args.from.is_empty() {
-        anyhow::bail!("search pattern must not be empty");
-    }
-    if args.nth == Some(0) {
-        anyhow::bail!("--nth is 1-based; use --nth 1 for the first occurrence");
-    }
-    if args.range.is_some() && !args.whole_line {
-        anyhow::bail!("--range requires --whole-line");
-    }
-    if args.whole_line && args.multiline {
-        anyhow::bail!("--whole-line and --multiline cannot be combined");
-    }
-
-    match validate_replace_mode(
-        args.to.is_some(),
-        args.insert_before.is_some(),
-        args.insert_after.is_some(),
-    ) {
-        Ok(()) => {}
-        Err(ReplaceModeError::MissingMode) => {
-            anyhow::bail!("one of --to, --insert-before, or --insert-after must be provided")
-        }
-        Err(ReplaceModeError::BothInsertModes) => {
-            anyhow::bail!("--insert-before and --insert-after cannot be combined")
-        }
-        Err(ReplaceModeError::ToWithInsert) => {
-            anyhow::bail!("--to cannot be combined with --insert-before or --insert-after")
-        }
-    }
+    use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
+    validate_replace_args(&ReplaceValidationParams {
+        pattern: &args.from,
+        has_to: args.to.is_some(),
+        has_insert_before: args.insert_before.is_some(),
+        has_insert_after: args.insert_after.is_some(),
+        nth: args.nth,
+        whole_line: args.whole_line,
+        multiline: args.multiline,
+        has_range: args.range.is_some(),
+    })
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let cwd = global.resolve_cwd()?;
     let replacements = collect_replacements(&args, global)?;
@@ -1003,7 +985,7 @@ mod tests {
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(
-            err.to_string().contains("--range requires --whole-line"),
+            err.to_string().contains("range requires whole_line"),
             "{err}"
         );
     }
@@ -1034,7 +1016,7 @@ mod tests {
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
         assert!(
             err.to_string()
-                .contains("--whole-line and --multiline cannot be combined"),
+                .contains("whole_line and multiline cannot be combined"),
             "{err}"
         );
     }
