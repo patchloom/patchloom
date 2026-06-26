@@ -4,8 +4,7 @@ use crate::exit;
 use crate::ops::replace::{
     compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
 };
-use crate::plan::Operation;
-use crate::tx::engine::{ExecuteOptions, execute_operations};
+use crate::tx::engine::{ExecuteOptions, execute_precomputed};
 use clap::Args;
 use serde::Serialize;
 
@@ -258,36 +257,22 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let file_count = replacements.len();
     let files = make_file_results(&replacements);
 
-    // Phase 2: Build one Operation::Replace per file and execute via tx engine.
-    let mode = if args.regex {
-        Some("regex".to_string())
-    } else {
-        None
-    };
-    let ops: Vec<Operation> = replacements
+    // Phase 2: Feed pre-computed results to the engine for commit/diff/backup.
+    // The scan phase already read files and computed replacements; we pass
+    // (display_path, original, replaced) directly to avoid re-reading files.
+    let precomputed = replacements
         .iter()
-        .map(|r| Operation::Replace {
-            path: Some(r.display_path.clone()),
-            glob: None,
-            mode: mode.clone(),
-            from: args.from.clone(),
-            to: args.to.clone(),
-            nth: args.nth,
-            insert_before: args.insert_before.clone(),
-            insert_after: args.insert_after.clone(),
-            case_insensitive: args.case_insensitive,
-            multiline: args.multiline,
-            if_exists: args.if_exists,
-            whole_line: args.whole_line,
-            range: args.range.clone(),
-            word_boundary: args.word_boundary,
-            before_context: None,
-            after_context: None,
+        .map(|r| {
+            (
+                r.display_path.clone(),
+                r.original.clone(),
+                r.replaced.clone(),
+            )
         })
         .collect();
 
     let options = ExecuteOptions { cwd: &cwd, global };
-    let result = execute_operations(ops, options)?;
+    let result = execute_precomputed(precomputed, options);
 
     // Phase 3: Render output based on mode (check/apply/diff/confirm).
     replace_output(global, result, &files, total_matches, file_count, &cwd)

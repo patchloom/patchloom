@@ -124,6 +124,65 @@ pub fn execute_operations(
     execute_plan_inner(operations, options)
 }
 
+/// A pre-computed file change: `(relative_path, original_content, new_content)`.
+///
+/// Used by commands that perform their own parallel scan/compute phase and
+/// want to hand off the results to the engine for commit/diff/backup without
+/// re-reading or re-computing.
+pub type PrecomputedChange = (String, String, String);
+
+/// Wrap pre-computed file changes into an `ExecutionResult`.
+///
+/// This bypasses operation execution entirely: the caller has already read
+/// files and computed new content (e.g. via a parallel scan phase). The
+/// engine provides only the commit/diff/backup lifecycle.
+///
+/// Write policy is applied to each change if enabled in `global`.
+pub fn execute_precomputed(
+    changes: Vec<PrecomputedChange>,
+    options: ExecuteOptions<'_>,
+) -> ExecutionResult {
+    use crate::write::{apply_policy, policy_from_flags};
+    use std::collections::{HashMap, HashSet};
+
+    let cwd = options.cwd.to_path_buf();
+    let mut result_changes: Vec<(std::path::PathBuf, String, String)> = Vec::new();
+    let mut existed_before: HashSet<std::path::PathBuf> = HashSet::new();
+    let mut pending: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
+
+    for (rel_path, original, new_content) in changes {
+        let abs_path = cwd.join(&rel_path);
+        existed_before.insert(abs_path.clone());
+        let policy = policy_from_flags(options.global, Some(&abs_path));
+        let final_content = apply_policy(&new_content, &policy).into_owned();
+        if final_content != original {
+            pending.insert(abs_path.clone(), (original.clone(), final_content.clone()));
+            result_changes.push((abs_path, original, final_content));
+        }
+    }
+
+    let no_effective_changes = result_changes.is_empty();
+    let exec_result = super::output::TxExecResult {
+        changes: result_changes,
+        deletions: HashSet::new(),
+        existed_before,
+        pending,
+        tx_reads: Vec::new(),
+        tx_searches: Vec::new(),
+        tx_lints: Vec::new(),
+        no_effective_changes,
+        replace_no_matches: false,
+        replace_hint: None,
+    };
+
+    ExecutionResult {
+        exec_result,
+        exit_code: exit::SUCCESS,
+        has_changes: !no_effective_changes,
+        cwd,
+    }
+}
+
 /// Shared implementation for single-op and multi-op execution.
 fn execute_plan_inner(
     operations: Vec<Operation>,
@@ -353,5 +412,66 @@ mod tests {
         assert!(output.ok);
         assert_eq!(output.status, "success");
         assert_eq!(output.files_created, 1);
+    }
+
+    #[test]
+    fn execute_precomputed_commits_changes() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "original\n").unwrap();
+
+        let global = GlobalFlags::test_default();
+        let changes = vec![(
+            "test.txt".to_string(),
+            "original\n".to_string(),
+            "replaced\n".to_string(),
+        )];
+
+        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        assert!(result.has_changes);
+        assert_eq!(result.exit_code, exit::SUCCESS);
+
+        // Not committed yet.
+        assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+
+        // Commit and verify.
+        result.commit().unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "replaced\n");
+    }
+
+    #[test]
+    fn execute_precomputed_no_change_when_identical() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "same\n").unwrap();
+
+        let global = GlobalFlags::test_default();
+        let changes = vec![(
+            "test.txt".to_string(),
+            "same\n".to_string(),
+            "same\n".to_string(),
+        )];
+
+        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        assert!(!result.has_changes);
+    }
+
+    #[test]
+    fn execute_precomputed_builds_diffs() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "old\n").unwrap();
+
+        let global = GlobalFlags::test_default();
+        let changes = vec![(
+            "test.txt".to_string(),
+            "old\n".to_string(),
+            "new\n".to_string(),
+        )];
+
+        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        let diffs = result.build_diffs();
+        assert_eq!(diffs.len(), 1);
+        assert!(diffs[0].has_changes);
     }
 }
