@@ -57,7 +57,19 @@ pub(super) fn splice_yaml_array_diffs(
         }
     }
     if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *target) {
-        Ok(Some(result))
+        // Verify the result round-trips cleanly through the CST library (yaml_edit).
+        // serde_yaml_ng is more lenient with indentation patterns than yaml_edit.
+        // A spliced result with altered indentation may parse once but corrupt
+        // subsequent CST modifications (e.g., duplicating keys with wrong indent).
+        // The CST no-op round-trip catches this: if `file.to_string()` differs from
+        // the input, the CST misinterprets the structure and future edits will fail (#972).
+        if let Ok(file) = result.parse::<yaml_edit::YamlFile>() {
+            let roundtrip = file.to_string();
+            if roundtrip == result {
+                return Ok(Some(result));
+            }
+        }
+        Ok(None)
     } else {
         Ok(None)
     }
@@ -89,8 +101,20 @@ fn find_array_diffs<'a>(
                 }
             }
         }
-        (serde_json::Value::Array(cur_arr), serde_json::Value::Array(tgt_arr)) => {
+        (serde_json::Value::Array(cur_arr), serde_json::Value::Array(tgt_arr))
+            if cur_arr.len() != tgt_arr.len() =>
+        {
+            // Different lengths: this array itself changed (growth/shrink).
             result.push((path.clone(), cur_arr.as_slice(), tgt_arr.as_slice()));
+        }
+        (serde_json::Value::Array(_), serde_json::Value::Array(_)) => {
+            // Same-length arrays: the splice path cannot navigate into array
+            // elements by index (it only supports mapping key paths). If the
+            // diff is inside an element (e.g., containers[0].env grew), we
+            // must NOT push the parent array or the splice will replace all
+            // entries via serde_yaml_ng, losing the original indentation (#972).
+            // Instead, we skip it and let the caller fall back to the
+            // non-preserving serializer which produces correct output.
         }
         _ => {}
     }
@@ -378,8 +402,7 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    // Values that look like booleans, null, or numbers.
-    // Use eq_ignore_ascii_case to avoid allocating a lowercased copy.
+    // Values that look like booleans, null, or YAML special floats.
     if s.eq_ignore_ascii_case("true")
         || s.eq_ignore_ascii_case("false")
         || s.eq_ignore_ascii_case("yes")
@@ -387,6 +410,10 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
         || s.eq_ignore_ascii_case("on")
         || s.eq_ignore_ascii_case("off")
         || s.eq_ignore_ascii_case("null")
+        || s.eq_ignore_ascii_case(".inf")
+        || s.eq_ignore_ascii_case("-.inf")
+        || s.eq_ignore_ascii_case("+.inf")
+        || s.eq_ignore_ascii_case(".nan")
         || s == "~"
     {
         return true;
@@ -394,8 +421,13 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
     if s.parse::<f64>().is_ok() {
         return true;
     }
+    // Trailing colon makes the value look like a mapping key (e.g., "host:").
+    if s.ends_with(':') {
+        return true;
+    }
+    // YAML tag indicator (e.g., "!important", "!!str").
     // Strings with special YAML characters.
-    s.starts_with(|c: char| "#&*?|>{[%@`\"'".contains(c))
+    s.starts_with(|c: char| "#&*?|>{[%@`\"'!".contains(c))
         || s.contains(": ")
         || s.contains(" #")
         || s.contains('\n')
@@ -580,9 +612,31 @@ mod tests {
     }
 
     #[test]
+    fn needs_quoting_trailing_colon() {
+        assert!(needs_yaml_quoting("host:"));
+        assert!(needs_yaml_quoting("value:"));
+    }
+
+    #[test]
+    fn needs_quoting_tag_indicator() {
+        assert!(needs_yaml_quoting("!important"));
+        assert!(needs_yaml_quoting("!!str"));
+    }
+
+    #[test]
+    fn needs_quoting_special_floats() {
+        assert!(needs_yaml_quoting(".inf"));
+        assert!(needs_yaml_quoting("-.inf"));
+        assert!(needs_yaml_quoting(".nan"));
+        assert!(needs_yaml_quoting(".Inf"));
+        assert!(needs_yaml_quoting(".NaN"));
+    }
+
+    #[test]
     fn plain_strings_need_no_quoting() {
         assert!(!needs_yaml_quoting("hello"));
         assert!(!needs_yaml_quoting("foo-bar_baz"));
+        assert!(!needs_yaml_quoting("http://example.com:8080/path"));
     }
 
     // -----------------------------------------------------------------------

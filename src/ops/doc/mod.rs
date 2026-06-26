@@ -151,8 +151,13 @@ fn try_preserve_yaml_object(
     }
 
     // Array growth or structure mismatch: try splice.
-    let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result)?;
-    if let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)? {
+    // If the CST produced invalid YAML (e.g., duplicated keys from
+    // misinterpreted indentation, #972), serde_yaml_ng will fail to parse
+    // it. In that case, skip the splice and fall through to the caller's
+    // non-preserving fallback instead of propagating the error.
+    if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
+        && let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)?
+    {
         return Ok(Some(spliced));
     }
     Ok(None)
@@ -185,6 +190,7 @@ fn try_preserve_yaml_array(
         && let Some(spliced) =
             yaml_splice::splice_yaml_root_sequence(original_content, old_arr, new_arr)?
         && serde_yaml_ng::from_str::<serde_json::Value>(&spliced).is_ok_and(|v| v == *new_value)
+        && spliced.parse::<yaml_edit::YamlFile>().is_ok()
     {
         return Ok(Some(spliced));
     }
@@ -1051,6 +1057,71 @@ mod tests {
         }
 
         #[test]
+        fn yaml_nested_array_append_produces_yaml_edit_parseable_output() {
+            // Regression for #972: doc_append on a deeply nested array (e.g., K8s
+            // env vars inside a container) could produce YAML with altered indentation.
+            // serde_yaml_ng accepted the result, but yaml_edit (CST parser) rejected it,
+            // causing subsequent doc_set calls to fail with "did not find expected key".
+            //
+            // Uses realistic K8s-style indentation: containers at 8 spaces, entries
+            // at 10 spaces (the exact pattern from the bug report).
+            let yaml = concat!(
+                "apiVersion: apps/v1\n",
+                "kind: Deployment\n",
+                "metadata:\n",
+                "  name: my-app\n",
+                "spec:\n",
+                "  replicas: 1\n",
+                "  template:\n",
+                "    spec:\n",
+                "      containers:\n",
+                "        - name: main\n",
+                "          image: my-app:latest\n",
+                "          env:\n",
+                "            - name: DB_HOST\n",
+                "              value: postgres.default:5432\n",
+                "            - name: API_URL\n",
+                "              valueFrom:\n",
+                "                configMapKeyRef:\n",
+                "                  name: config\n",
+                "                  key: api-url\n",
+                "          resources:\n",
+                "            limits:\n",
+                "              cpu: \"1\"\n",
+                "              memory: 512Mi\n",
+            );
+            let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+            let mut new = old.clone();
+            // Append a new env var with a URL value (the original bug trigger).
+            new["spec"]["template"]["spec"]["containers"][0]["env"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"name": "OTEL_ENDPOINT", "value": "http://otel-collector.monitoring:4317"}));
+
+            let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+            // Must round-trip through serde_yaml_ng.
+            let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+            assert_eq!(reparsed, new, "serialized YAML must match target: {result}");
+            // Must also be parseable by yaml_edit (the CST library used by doc_set).
+            assert!(
+                result.parse::<yaml_edit::YamlFile>().is_ok(),
+                "result must be parseable by yaml_edit for subsequent doc_set: {result}"
+            );
+            // After the append, a subsequent set on a different path must succeed.
+            // This simulates the #972 scenario: doc_append then doc_set.
+            let mut final_val = new.clone();
+            final_val["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]["cpu"] =
+                json!("2");
+            let result2 = serialize_value_preserving(&result, &new, &final_val, &FileFormat::Yaml)
+                .expect("doc_set after doc_append must not fail");
+            let reparsed2: serde_json::Value = serde_yaml_ng::from_str(&result2).unwrap();
+            assert_eq!(
+                reparsed2, final_val,
+                "second operation must produce correct output: {result2}"
+            );
+        }
+
+        #[test]
         fn yaml_sequence_root_mutation_not_lost() {
             let yaml = "- item1\n- item2\n";
             let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
@@ -1480,6 +1551,20 @@ mod tests {
             assert!(needs_yaml_quoting("`backtick"));
             assert!(needs_yaml_quoting("\"quoted"));
             assert!(needs_yaml_quoting("'squoted"));
+            assert!(needs_yaml_quoting("!tag"));
+        }
+
+        #[test]
+        fn yaml_trailing_colon_needs_quoting() {
+            assert!(needs_yaml_quoting("host:"));
+            assert!(needs_yaml_quoting("value:"));
+        }
+
+        #[test]
+        fn yaml_special_floats_need_quoting() {
+            assert!(needs_yaml_quoting(".inf"));
+            assert!(needs_yaml_quoting("-.inf"));
+            assert!(needs_yaml_quoting(".nan"));
         }
 
         #[test]

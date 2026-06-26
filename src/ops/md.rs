@@ -184,6 +184,9 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(without_section.len() + section_text.len() + 2);
                     out.push_str(&without_section[..dest_body_end]);
+                    if !out.ends_with("\n\n") && !out.is_empty() {
+                        out.push('\n');
+                    }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
                         out.push('\n');
@@ -211,6 +214,9 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(dest_content.len() + section_text.len() + 2);
                     out.push_str(&dest_content[..dest_body_end]);
+                    if !out.ends_with("\n\n") && !out.is_empty() {
+                        out.push('\n');
+                    }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
                         out.push('\n');
@@ -296,14 +302,19 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         }
     }
 
-    let mut out = String::with_capacity(content.len() + normalized.len() + 2);
+    let mut out = String::with_capacity(content.len() + normalized.len() + 4);
     out.push_str(&content[..body_end]);
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
     out.push_str(&normalized);
     out.push('\n');
-    out.push_str(&content[body_end..]);
+    // Preserve the blank line separator before the next heading.
+    let remainder = &content[body_end..];
+    if remainder.starts_with('#') && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    out.push_str(remainder);
     Some(out)
 }
 
@@ -723,6 +734,30 @@ mod tests {
             let content = "# List\n- a\n";
             let result = upsert_bullet_in(content, "List", "new item").unwrap();
             assert!(result.contains("- new item\n"));
+        }
+
+        #[test]
+        fn upsert_bullet_preserves_blank_line_before_next_heading() {
+            // Regression test for #973: upsert_bullet consumed the blank line
+            // separating the section body from the next heading.
+            let content =
+                "## Section A\n\n- Bullet one\n- Bullet two\n\n## Section B\n\nContent B.\n";
+            let result = upsert_bullet_in(content, "Section A", "- Bullet three").unwrap();
+            assert!(
+                result.contains("- Bullet three\n\n## Section B"),
+                "blank line before next heading must be preserved: {result}"
+            );
+        }
+
+        #[test]
+        fn upsert_bullet_preserves_blank_before_sub_heading() {
+            // #973 variant: subsection headings (###) also need blank line preservation.
+            let content = "### Bug Fixes\n\n- Fix one\n\n### Dependencies\n\nDep content.\n";
+            let result = upsert_bullet_in(content, "Bug Fixes", "- Fix two").unwrap();
+            assert!(
+                result.contains("- Fix two\n\n### Dependencies"),
+                "blank line before sub-heading must be preserved: {result}"
+            );
         }
 
         #[test]
