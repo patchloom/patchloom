@@ -198,7 +198,7 @@ pub struct WritePolicyOptions {
 /// Backward-compatible alias for [`EolMode`](crate::write::EolMode).
 #[deprecated(
     since = "0.6.0",
-    note = "use crate::write::EolMode instead (Lf, Crlf, Keep)"
+    note = "use crate::write::EolMode instead (Lf, Crlf, Cr, Keep)"
 )]
 pub type EolNormalization = EolMode;
 
@@ -220,8 +220,6 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
         normalize_eol: opts.normalize_eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
         collapse_blanks: opts.collapse_blanks,
-        indent_style: None,
-        indent_size: None,
     }
 }
 

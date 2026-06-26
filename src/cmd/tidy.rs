@@ -239,6 +239,7 @@ fn eol_mode_to_str(mode: crate::cli::global::EolMode) -> &'static str {
     match mode {
         crate::cli::global::EolMode::Lf => "lf",
         crate::cli::global::EolMode::Crlf => "crlf",
+        crate::cli::global::EolMode::Cr => "cr",
         crate::cli::global::EolMode::Keep => "keep",
     }
 }
@@ -681,6 +682,7 @@ mod tests {
         use crate::cli::global::EolMode;
         assert_eq!(eol_mode_to_str(EolMode::Lf), "lf");
         assert_eq!(eol_mode_to_str(EolMode::Crlf), "crlf");
+        assert_eq!(eol_mode_to_str(EolMode::Cr), "cr");
         assert_eq!(eol_mode_to_str(EolMode::Keep), "keep");
     }
 }

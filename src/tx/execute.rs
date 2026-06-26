@@ -591,8 +591,6 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     EolMode::Keep
                 },
                 collapse_blanks: false,
-                indent_style: None,
-                indent_size: None,
             };
             let new = crate::write::apply_policy(&content, &policy);
             if content != *new {

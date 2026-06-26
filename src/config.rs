@@ -99,6 +99,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         match config.write_policy.normalize_eol.as_deref() {
             Some("lf") => global.normalize_eol = Some(crate::cli::global::EolMode::Lf),
             Some("crlf") => global.normalize_eol = Some(crate::cli::global::EolMode::Crlf),
+            Some("cr") => global.normalize_eol = Some(crate::cli::global::EolMode::Cr),
             Some(invalid) => {
                 eprintln!("{}", invalid_normalize_eol_warning(invalid));
             }
