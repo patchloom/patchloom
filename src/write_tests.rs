@@ -743,6 +743,24 @@ mod dedent_indent {
     }
 
     #[test]
+    fn parse_line_range_rejects_zero() {
+        // Line numbers are 1-based; 0 is invalid.
+        assert!(parse_line_range("0").is_err());
+        assert!(parse_line_range("0:5").is_err());
+        assert!(parse_line_range("1:0").is_err());
+    }
+
+    #[test]
+    fn parse_line_range_rejects_inverted() {
+        // start > end is an error, not a silent no-op.
+        let err = parse_line_range("50:10").unwrap_err();
+        assert!(
+            err.to_string().contains("inverted"),
+            "should mention inverted range: {err}"
+        );
+    }
+
+    #[test]
     fn dedent_auto_line_range() {
         // Only dedent lines 2-3; leave lines 1 and 4 alone.
         let input = "    a\n        b\n        c\n    d\n";

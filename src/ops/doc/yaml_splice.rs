@@ -266,7 +266,7 @@ fn find_yaml_key_line(lines: &[&str], key_path: &[String]) -> Option<usize> {
             if indent < min_indent {
                 continue;
             }
-            if trimmed.starts_with(&key_colon) || trimmed.starts_with(&key_colon_sp) {
+            if trimmed == key_colon || trimmed.starts_with(&key_colon_sp) {
                 search_start = i + 1;
                 min_indent = indent + 1;
                 if depth == key_path.len() - 1 {
@@ -908,5 +908,27 @@ mod tests {
                 "round-trip mismatch: {spliced}"
             );
         }
+    }
+
+    #[test]
+    fn find_yaml_key_line_rejects_prefix_match() {
+        // Regression: "name:" must not match "namespace:".
+        let yaml = "namespace: kube-system\nname: my-app\nitems:\n  - one\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_yaml_key_line(&lines, &["name".into()]);
+        assert_eq!(
+            result,
+            Some(1),
+            "should match 'name:' on line 1, not 'namespace:' on line 0"
+        );
+    }
+
+    #[test]
+    fn find_yaml_key_line_matches_key_only_on_line() {
+        // "name:" at end of line (value on next line) should match.
+        let yaml = "name:\n  first: Alice\n  last: Smith\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_yaml_key_line(&lines, &["name".into()]);
+        assert_eq!(result, Some(0));
     }
 }

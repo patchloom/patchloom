@@ -252,7 +252,7 @@ pub(super) fn inject_strict_into_schema(mut schema: serde_json::Value) -> serde_
             "strict".to_string(),
             serde_json::json!({
                 "type": "boolean",
-                "description": "Enable strict mode (default true). When true, ambiguous matches cause an error instead of a best-effort resolution.",
+                "description": "Enable strict mode (default true). When true, roll back all file writes if format or validate lifecycle steps fail.",
                 "default": true
             }),
         );
