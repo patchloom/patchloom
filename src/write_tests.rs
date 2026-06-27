@@ -646,6 +646,7 @@ mod error_handling {
 }
 
 mod format_preservation {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
