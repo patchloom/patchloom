@@ -282,6 +282,43 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::PARSE_ERROR);
     }
 
+    // 3b. Merge --verify CLI args with plan's verify field.
+    #[cfg(feature = "ast")]
+    let verify_checks = {
+        use crate::plan::VerifyCheck;
+        let mut checks: Vec<VerifyCheck> = plan.verify.clone().unwrap_or_default();
+        for raw in &args.verify {
+            match VerifyCheck::parse(raw) {
+                Ok(c) => checks.push(c),
+                Err(e) => {
+                    let msg = format!("invalid --verify spec '{raw}': {e}");
+                    if structured {
+                        emit_error_json("parse_error", &msg, None, compact);
+                    } else {
+                        eprintln!("tx: {msg}");
+                    }
+                    return Ok(exit::PARSE_ERROR);
+                }
+            }
+        }
+        checks
+    };
+
+    // 3c. Take pre-execution symbol snapshot for verification.
+    #[cfg(feature = "ast")]
+    let verify_before = if !verify_checks.is_empty() {
+        let affected = crate::tx::verify::affected_file_paths(&plan, &cwd);
+        verify_checks
+            .iter()
+            .map(|check| {
+                let snap = crate::tx::verify::snapshot_symbols(&affected, check);
+                (check.clone(), snap)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut result =
         match crate::tx::execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
@@ -296,6 +333,38 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::OPERATION_FAILED);
             }
         };
+
+    // 4b. Post-execution verification against pending content.
+    #[cfg(feature = "ast")]
+    if !verify_before.is_empty() {
+        let affected = crate::tx::verify::affected_file_paths(&plan, &cwd);
+        let mut any_failed = false;
+        let mut messages = Vec::new();
+        for (check, before_snap) in &verify_before {
+            let after_snap =
+                crate::tx::verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
+            let vr = crate::tx::verify::compare_snapshots(before_snap, &after_snap, check, &cwd);
+            messages.push(vr.message.clone());
+            if !vr.passed {
+                any_failed = true;
+            }
+        }
+        let summary = messages.join("\n");
+        if any_failed {
+            let msg = format!("verification failed, changes not applied:\n{summary}");
+            if structured {
+                emit_error_json("verification_failed", &msg, None, compact);
+            } else {
+                eprintln!("tx: {msg}");
+            }
+            return Ok(exit::VALIDATION_FAILED);
+        }
+        if !global.quiet {
+            for m in &messages {
+                eprintln!("tx: {m}");
+            }
+        }
+    }
 
     // Deletions of empty files won't appear in `changes` (original == final == ""),
     // but they still count as changes for --check reporting.

@@ -862,6 +862,16 @@ Use these when newline and whitespace correctness is the main concern.
 - **Failure behavior:** `required: true` makes the step gate transaction success. `required: false` still reports the validation problem to stderr. Error output reports the failing step number, exit status, the lifecycle working directory (`cwd`), and a truncated snippet of the command's stderr when available.
 - **Prefer instead:** Use standalone verification outside `tx` when the mutation and the validation lifecycle should stay separate.
 
+<!-- ref:tx-field:verify -->
+### `verify`
+
+- **What it does:** Runs pre/post-operation symbol verification checks to ensure structural safety.
+- **Use when:** A refactoring plan must preserve the number of functions, test methods, or other AST symbols.
+- **Field value:** Array of check objects. Each is either `{"kind": "function", "attr": "test"}` (symbol count) or `{"check": "unique_names"}` (named check).
+- **CLI equivalent:** `--verify="kind=function,attr=test"` (repeatable).
+- **Failure behavior:** When a check fails, the transaction rolls back and exits with `VALIDATION_FAILED` (6).
+- **Prefer instead:** Omit when the plan only touches configuration files or non-code content.
+
 ### Transaction operations
 
 The operations below are the building blocks inside `operations`.

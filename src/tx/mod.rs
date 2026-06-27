@@ -7,6 +7,7 @@ mod output;
 mod replace_op;
 mod search_op;
 mod validate;
+pub(crate) mod verify;
 
 // Re-export all pub and pub(crate) items so `crate::tx::*` paths continue to work.
 
@@ -57,6 +58,11 @@ pub struct TxArgs {
     /// Disable strict rollback on format/validate failure.
     #[arg(long)]
     pub no_strict: bool,
+
+    /// Verify symbol counts before and after execution. Repeatable.
+    /// Examples: `--verify="kind=function,attr=test"`, `--verify=unique_names`.
+    #[arg(long)]
+    pub verify: Vec<String>,
 
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,

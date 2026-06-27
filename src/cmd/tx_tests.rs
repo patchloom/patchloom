@@ -141,6 +141,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -197,6 +198,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -252,6 +254,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -287,6 +290,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -326,6 +330,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -366,6 +371,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -450,6 +456,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -479,6 +486,7 @@ mod basic {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -542,6 +550,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -575,6 +584,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -613,6 +623,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -645,6 +656,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -680,6 +692,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -712,6 +725,7 @@ mod edge_cases {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -737,6 +751,7 @@ mod error_handling {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let global = GlobalFlags::test_default();
@@ -834,6 +849,7 @@ mod error_handling {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -954,6 +970,7 @@ mod error_handling {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let global = GlobalFlags::test_default();
@@ -996,6 +1013,7 @@ mod error_handling {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1029,6 +1047,7 @@ mod error_handling {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1077,6 +1096,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1113,6 +1133,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1176,6 +1197,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1211,6 +1233,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1246,6 +1269,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1285,6 +1309,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1393,6 +1418,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1437,6 +1463,7 @@ mod integrity {
             plan: plan_file.to_str().unwrap().to_string(),
             plan_format: None,
             no_strict: false,
+            verify: Vec::new(),
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();

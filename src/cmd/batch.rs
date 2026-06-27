@@ -415,6 +415,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             operations,
             format: None,
             validate: None,
+            verify: None,
         };
         serde_json::to_string(&plan)?
     };
@@ -431,6 +432,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .to_string(),
         plan_format: None,
         no_strict: false,
+        verify: Vec::new(),
         write: args.write,
     };
     // Delegate to tx, which handles --apply / --confirm / --format / plan lifecycle.

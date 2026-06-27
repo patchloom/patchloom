@@ -1,7 +1,7 @@
 //! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
 
 use crate::ast::Language;
-use crate::ast::symbols::{self, SymbolDef, SymbolKind};
+use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
@@ -1066,28 +1066,7 @@ pub fn lang_from_str(s: &str) -> Language {
     Language::from_extension(s)
 }
 
-pub fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
-    match kind_arg {
-        Some(s) => s
-            .split(',')
-            .filter_map(|k| SymbolKind::from_str_loose(k.trim()))
-            .collect(),
-        None => Vec::new(),
-    }
-}
-
-pub fn filter_symbols<'a>(
-    symbols: &'a [SymbolDef],
-    kind_filter: &[SymbolKind],
-) -> Vec<&'a SymbolDef> {
-    if kind_filter.is_empty() {
-        return symbols.iter().collect();
-    }
-    symbols
-        .iter()
-        .filter(|s| kind_filter.contains(&s.kind))
-        .collect()
-}
+pub use symbols::{filter_symbols, parse_kind_filter};
 
 pub fn collect_source_files(
     dir: &std::path::Path,
@@ -1170,6 +1149,7 @@ pub fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::symbols::SymbolKind;
 
     #[test]
     fn parse_kind_filter_works() {
