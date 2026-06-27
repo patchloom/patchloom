@@ -647,7 +647,14 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
     let final_content = apply_policy(content, policy);
 
     // Capture the original file's permissions before overwriting.
-    let original_perms = std::fs::metadata(path).ok().map(|m| m.permissions());
+    // Use symlink_metadata so that when `path` is a symlink we get the
+    // symlink entry's metadata, not the target's. persist() replaces the
+    // path entry (the symlink) with a regular file, so carrying over the
+    // target's permissions would be wrong.
+    let original_perms = std::fs::symlink_metadata(path)
+        .ok()
+        .filter(|m| !m.file_type().is_symlink())
+        .map(|m| m.permissions());
 
     let parent = path
         .parent()

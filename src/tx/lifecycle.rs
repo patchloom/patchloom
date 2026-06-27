@@ -125,13 +125,17 @@ pub(crate) fn rollback_strict(
 ) {
     let noop_policy = WritePolicy::default();
     for (path, original, _) in changes {
-        if !existed_before.contains(path) && !deletions.contains(path) {
-            if let Err(e) = std::fs::remove_file(path) {
-                eprintln!("tx: rollback: failed to remove {}: {e}", path.display());
+        if !existed_before.contains(path) {
+            // File was created during this tx. Whether it was also deleted
+            // does not matter: it should not exist after rollback.
+            let _ = std::fs::remove_file(path);
+        } else if !deletions.contains(path) {
+            // File existed before and was modified (not deleted): restore.
+            if let Err(e) = atomic_write(path, original, &noop_policy) {
+                eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
             }
-        } else if let Err(e) = atomic_write(path, original, &noop_policy) {
-            eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
         }
+        // If existed_before AND in deletions: handled by the deletions loop below.
     }
     for path in deletions {
         if let Some((orig, _)) = pending.get(path)
@@ -649,6 +653,69 @@ mod tests {
             file.exists(),
             "rollback should restore file even when parent dir was removed"
         );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+    }
+
+    /// Regression (#1063): a file created and then deleted in the same tx
+    /// must not exist after rollback (it did not exist before the tx).
+    #[test]
+    fn rollback_strict_create_then_delete_leaves_no_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("ephemeral.txt");
+
+        // Simulate: the tx engine created this file and then deleted it.
+        // The changes list contains an entry with empty original (did not
+        // exist before) and the deletions set also contains it.
+        let file_pb = file.clone();
+        let changes = vec![(file_pb.clone(), String::new(), "hello".to_string())];
+        let pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        deletions.insert(file_pb.clone());
+        let existed_before = HashSet::new(); // did NOT exist before tx
+
+        // Create the file on disk to simulate mid-tx state.
+        std::fs::write(&file, "hello").unwrap();
+
+        rollback_strict(&changes, &pending, &deletions, &existed_before);
+
+        assert!(
+            !file.exists(),
+            "create-then-delete file must not exist after rollback"
+        );
+    }
+
+    /// Ensure rollback_strict still restores modified-then-deleted files
+    /// (files that existed before the tx, were modified, then deleted).
+    #[test]
+    fn rollback_strict_modify_then_delete_restores_original() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("existing.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        let file_pb = file.clone();
+        // File was modified (shows up in changes) and also deleted.
+        let changes = vec![(
+            file_pb.clone(),
+            "original".to_string(),
+            "modified".to_string(),
+        )];
+        let mut pending = HashMap::new();
+        pending.insert(
+            file_pb.clone(),
+            ("original".to_string(), "modified".to_string()),
+        );
+        let mut deletions = HashSet::new();
+        deletions.insert(file_pb.clone());
+        let mut existed_before = HashSet::new();
+        existed_before.insert(file_pb.clone());
+
+        // Simulate mid-tx state: file was deleted.
+        std::fs::remove_file(&file).unwrap();
+
+        rollback_strict(&changes, &pending, &deletions, &existed_before);
+
+        // The deletions loop should restore the original.
+        assert!(file.exists(), "deleted file should be restored");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
     }
 

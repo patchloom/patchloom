@@ -46,6 +46,16 @@
 //! let result = validate_edit(json, "value", "new_value", Some("config.json"));
 //! assert!(result.valid);
 //! ```
+//!
+//! Validate with `--nth` semantics (only replace the Nth occurrence):
+//!
+//! ```rust
+//! use patchloom::fallback::validate_edit_nth;
+//!
+//! let json = r#"{"a": "val", "b": "val"}"#;
+//! let result = validate_edit_nth(json, "val", "new", Some("data.json"), Some(1));
+//! assert!(result.valid);
+//! ```
 
 use serde::{Deserialize, Serialize};
 
@@ -120,11 +130,26 @@ pub struct ValidationResult {
 ///
 /// Performs the replacement in memory and checks basic structural validity
 /// of the resulting content (JSON, YAML, TOML validation for structured files).
+///
+/// When `nth` is `Some(n)`, only the Nth (1-based) occurrence is replaced,
+/// matching the behavior of the replace command's `--nth` flag. When `None`,
+/// all occurrences are replaced.
 pub fn validate_edit(
     content: &str,
     from: &str,
     to: &str,
     file_path: Option<&str>,
+) -> ValidationResult {
+    validate_edit_nth(content, from, to, file_path, None)
+}
+
+/// Like [`validate_edit`] but with an explicit `nth` occurrence parameter.
+pub fn validate_edit_nth(
+    content: &str,
+    from: &str,
+    to: &str,
+    file_path: Option<&str>,
+    nth: Option<usize>,
 ) -> ValidationResult {
     if from.is_empty() {
         return ValidationResult {
@@ -145,7 +170,32 @@ pub fn validate_edit(
         };
     }
 
-    let new_content = content.replace(from, to);
+    let new_content = match nth {
+        Some(n) => {
+            // Replace only the Nth (1-based) occurrence.
+            let mut count = 0usize;
+            let mut result = String::with_capacity(content.len());
+            let mut remaining = content;
+            while let Some(pos) = remaining.find(from) {
+                count += 1;
+                if count == n {
+                    result.push_str(&remaining[..pos]);
+                    result.push_str(to);
+                    result.push_str(&remaining[pos + from.len()..]);
+                    break;
+                }
+                result.push_str(&remaining[..pos + from.len()]);
+                remaining = &remaining[pos + from.len()..];
+            }
+            if count < n {
+                // Nth occurrence not found; use content as-is.
+                content.to_string()
+            } else {
+                result
+            }
+        }
+        None => content.replace(from, to),
+    };
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
 
@@ -939,6 +989,40 @@ mod tests {
             "expected YAML error, got: {}",
             result.errors[0]
         );
+    }
+
+    // -- validate_edit_nth (#1061) -------------------------------------------
+
+    #[test]
+    fn validate_edit_nth_replaces_only_nth_occurrence() {
+        // Two occurrences of "val"; replacing only the 1st is valid JSON.
+        let json = r#"{"a": "val", "b": "val"}"#;
+        let result = validate_edit_nth(json, "val", "new", Some("data.json"), Some(1));
+        assert!(result.valid, "nth=1 should produce valid JSON");
+    }
+
+    #[test]
+    fn validate_edit_nth_none_replaces_all() {
+        // nth=None replaces all occurrences (same as validate_edit).
+        let content = "aXbXc";
+        let result = validate_edit_nth(content, "X", "Y", None, None);
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn validate_edit_nth_out_of_range() {
+        // nth=5 but only 2 occurrences: content is unchanged, still valid.
+        let content = "aXbXc";
+        let result = validate_edit_nth(content, "X", "Y", None, Some(5));
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn validate_edit_nth_detects_invalid_json_for_single_occurrence() {
+        // Replacing only the 1st "value" with a broken fragment is invalid.
+        let json = r#"{"a": "value", "b": "value"}"#;
+        let result = validate_edit_nth(json, "\"value\"", "broken}", Some("config.json"), Some(1));
+        assert!(!result.valid, "nth=1 should detect broken JSON");
     }
 
     // -- anchor_match and resolve_with_fallback edge cases (#978) -----------
