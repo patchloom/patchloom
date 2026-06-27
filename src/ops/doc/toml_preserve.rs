@@ -193,7 +193,10 @@ mod tests {
         let new = json(r#"{"a": 1, "c": 3}"#);
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
-        assert!(result.contains("c"), "new key should appear: {result}");
+        assert!(
+            result.contains("c = 3"),
+            "new key 'c = 3' should appear: {result}"
+        );
     }
 
     #[test]
@@ -214,7 +217,11 @@ mod tests {
         let result = doc.to_string();
         assert!(
             result.contains("99"),
-            "array element should be updated: {result}"
+            "array element 99 should appear: {result}"
+        );
+        assert!(
+            !result.contains(", 2, 3]"),
+            "old array layout should not persist: {result}"
         );
     }
 
@@ -226,8 +233,8 @@ mod tests {
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
         assert!(
-            result.contains("3"),
-            "longer array should be applied: {result}"
+            result.contains("1, 2, 3"),
+            "extended array [1, 2, 3] should appear: {result}"
         );
     }
 

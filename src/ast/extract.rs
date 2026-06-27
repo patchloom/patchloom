@@ -150,7 +150,11 @@ mod tests {
         assert!(!result.source_content.contains("fn foo"));
         assert!(result.source_content.contains("fn bar"));
         assert!(result.target_content.contains("fn foo()"));
-        assert!(result.target_content.contains("42"));
+        assert!(
+            result.target_content.contains("    42"),
+            "target should contain the function body: {}",
+            result.target_content
+        );
     }
 
     #[test]

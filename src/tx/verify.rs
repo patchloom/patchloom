@@ -25,8 +25,8 @@ pub(crate) struct SymbolSnapshot {
 #[derive(Debug, Clone)]
 pub(crate) struct SnappedSymbol {
     pub(crate) name: String,
-    /// Retained for diagnostic messages in compare_snapshots.
-    #[allow(dead_code)]
+    /// Used in `compare_snapshots` diagnostic messages to show which
+    /// specific symbols were added or removed (e.g. "fn 'foo' removed").
     pub(crate) kind: symbols::SymbolKind,
 }
 
@@ -259,12 +259,44 @@ pub(crate) fn compare_snapshots(
                     before.files.keys().chain(after.files.keys()).collect();
 
                 for path in all_files {
-                    let b = before.files.get(path).map_or(0, |v| v.len());
-                    let a = after.files.get(path).map_or(0, |v| v.len());
+                    let before_syms = before.files.get(path);
+                    let after_syms = after.files.get(path);
+                    let b = before_syms.map_or(0, |v| v.len());
+                    let a = after_syms.map_or(0, |v| v.len());
                     if b != a {
                         let display = path.strip_prefix(cwd).unwrap_or(path).display();
                         let diff = a as isize - b as isize;
-                        details.push(format!("  {display}: {b} -> {a} ({diff:+})"));
+                        let mut line = format!("  {display}: {b} -> {a} ({diff:+})");
+
+                        // Show which specific symbols were added or removed
+                        let before_names: HashSet<&str> = before_syms
+                            .map(|v| v.iter().map(|s| s.name.as_str()).collect())
+                            .unwrap_or_default();
+                        let after_names: HashSet<&str> = after_syms
+                            .map(|v| v.iter().map(|s| s.name.as_str()).collect())
+                            .unwrap_or_default();
+
+                        let removed: Vec<_> = before_syms
+                            .into_iter()
+                            .flat_map(|v| v.iter())
+                            .filter(|s| !after_names.contains(s.name.as_str()))
+                            .map(|s| format!("{} '{}'", s.kind, s.name))
+                            .collect();
+                        let added: Vec<_> = after_syms
+                            .into_iter()
+                            .flat_map(|v| v.iter())
+                            .filter(|s| !before_names.contains(s.name.as_str()))
+                            .map(|s| format!("{} '{}'", s.kind, s.name))
+                            .collect();
+
+                        if !removed.is_empty() {
+                            line.push_str(&format!(" removed: {}", removed.join(", ")));
+                        }
+                        if !added.is_empty() {
+                            line.push_str(&format!(" added: {}", added.join(", ")));
+                        }
+
+                        details.push(line);
                     }
                 }
 
@@ -485,7 +517,63 @@ fn my_test() {
         };
         let result = compare_snapshots(&before, &after, &check, Path::new("/tmp"));
         assert!(!result.passed);
-        assert!(result.message.contains("-2"));
+        assert!(
+            result.message.contains("-2"),
+            "should show count diff: {}",
+            result.message
+        );
+        assert!(
+            result.message.contains("function (attr=test)"),
+            "should include kind label with attr: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn compare_snapshots_mismatch_shows_symbol_names_and_kinds() {
+        let check = VerifyCheck::SymbolCount {
+            kind: "function".to_string(),
+            attr: None,
+        };
+        let before = SymbolSnapshot {
+            files: HashMap::from([(
+                PathBuf::from("/tmp/lib.rs"),
+                vec![
+                    SnappedSymbol {
+                        name: "alpha".into(),
+                        kind: symbols::SymbolKind::Function,
+                    },
+                    SnappedSymbol {
+                        name: "beta".into(),
+                        kind: symbols::SymbolKind::Function,
+                    },
+                ],
+            )]),
+            total: 2,
+        };
+        let after = SymbolSnapshot {
+            files: HashMap::from([(
+                PathBuf::from("/tmp/lib.rs"),
+                vec![SnappedSymbol {
+                    name: "alpha".into(),
+                    kind: symbols::SymbolKind::Function,
+                }],
+            )]),
+            total: 1,
+        };
+        let result = compare_snapshots(&before, &after, &check, Path::new("/tmp"));
+        assert!(!result.passed);
+        assert!(
+            result.message.contains("fn 'beta'"),
+            "should name the removed symbol with its kind: {}",
+            result.message
+        );
+        assert!(
+            result.message.contains("removed:"),
+            "should label the removed symbols: {}",
+            result.message
+        );
     }
 
     #[test]

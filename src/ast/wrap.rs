@@ -210,7 +210,11 @@ mod tests {
         assert!(result.content.contains("pub(crate) mod helpers {"));
         assert!(result.content.contains("    fn helper_a()"));
         assert!(result.content.contains("    fn helper_b()"));
-        assert!(result.content.contains("}"));
+        assert!(
+            result.content.ends_with("}\n") || result.content.ends_with('}'),
+            "module wrapper should close with }}: {}",
+            result.content
+        );
     }
 
     #[test]
