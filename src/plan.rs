@@ -866,6 +866,20 @@ pub fn parse_plan_auto(
 /// substitute template variables into each operation, and flatten the result into
 /// `plan.operations`. After this call, `plan.for_each` is `None`.
 ///
+/// Escape a string for safe embedding inside a JSON string literal.
+///
+/// The template substitution operates on the serialized JSON, replacing
+/// `{path}` etc. inside already-quoted `"..."` values. If the substituted
+/// text contains JSON-special characters (backslash, quote, newline, etc.),
+/// the resulting JSON would be malformed. This function applies the same
+/// escaping that `serde_json::to_string` would use for string content.
+#[cfg(feature = "cli")]
+fn json_escape(s: &str) -> String {
+    // Use serde_json to produce `"escaped"`, then strip the surrounding quotes.
+    let quoted = serde_json::to_string(s).unwrap_or_else(|_| format!("\"{s}\""));
+    quoted[1..quoted.len() - 1].to_string()
+}
+
 /// Template variables: `{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`.
 #[cfg(feature = "cli")]
 pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result<()> {
@@ -958,12 +972,14 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_default();
 
+        // JSON-escape all substitution values so file paths containing
+        // quotes, backslashes, or control characters don't produce invalid JSON.
         let substituted = template_ops_json
-            .replace("{path}", &rel_str)
-            .replace("{dir}", &dir)
-            .replace("{stem}", &stem)
-            .replace("{ext}", &ext)
-            .replace("{name}", &name);
+            .replace("{path}", &json_escape(&rel_str))
+            .replace("{dir}", &json_escape(&dir))
+            .replace("{stem}", &json_escape(&stem))
+            .replace("{ext}", &json_escape(&ext))
+            .replace("{name}", &json_escape(&name));
 
         let file_ops: Vec<Operation> = serde_json::from_str(&substituted)
             .map_err(|e| anyhow::anyhow!("for_each: template expansion failed: {e}"))?;
@@ -977,6 +993,21 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn json_escape_handles_special_chars() {
+        // Backslash
+        assert_eq!(json_escape(r#"a\b"#), r#"a\\b"#);
+        // Quotes
+        assert_eq!(json_escape(r#"a"b"#), r#"a\"b"#);
+        // Newlines
+        assert_eq!(json_escape("a\nb"), r#"a\nb"#);
+        // Combined
+        assert_eq!(json_escape("he said \"hi\"\n"), r#"he said \"hi\"\n"#);
+        // Plain string (no escaping needed)
+        assert_eq!(json_escape("hello"), "hello");
+    }
 
     #[test]
     fn parse_minimal_plan() {
