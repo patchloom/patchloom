@@ -531,6 +531,13 @@ impl PatchloomService {
                 ));
             };
 
+            // Expand for_each (glob-driven batch) before path validation.
+            if plan.for_each.is_some() {
+                crate::plan::expand_for_each(&mut plan, svc.cwd()).map_err(|e| {
+                    McpError::invalid_params(format!("for_each expansion failed: {e}"), None)
+                })?;
+            }
+
             // Validate every path declared by operations against the PathGuard
             // (including special handling for paths embedded in PatchApply diffs).
             for op in &plan.operations {
@@ -748,6 +755,66 @@ impl PatchloomService {
         Parameters(p): Parameters<AstImportsParams>,
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| ast_tools::handle_ast_imports(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Reorder symbols within a file or scope by name, kind, or custom order. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
+    )]
+    async fn ast_reorder(
+        &self,
+        Parameters(p): Parameters<AstReorderParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_reorder(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
+    )]
+    async fn ast_group(
+        &self,
+        Parameters(p): Parameters<AstGroupParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_group(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
+    )]
+    async fn ast_move(
+        &self,
+        Parameters(p): Parameters<AstMoveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_move(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
+    )]
+    async fn ast_extract_to_file(
+        &self,
+        Parameters(p): Parameters<AstExtractToFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_extract_to_file(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
+    )]
+    async fn ast_split(
+        &self,
+        Parameters(p): Parameters<AstSplitParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_split(svc, p))
             .await
     }
 

@@ -5936,3 +5936,543 @@ fn test_tx_replace_whole_line_and_multiline_rejected() {
     // File must not be modified
     assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\nline3\n");
 }
+
+// ── ast.reorder (tx plan) ──────────────────────────────────────
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_reorder_alphabetical_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn zebra() {}\nfn alpha() {}\nfn mid() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.reorder",
+            "path": portable_path_str(&file),
+            "order": "alphabetical"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let alpha_pos = content.find("fn alpha").expect("alpha should exist");
+    let mid_pos = content.find("fn mid").expect("mid should exist");
+    let zebra_pos = content.find("fn zebra").expect("zebra should exist");
+    assert!(
+        alpha_pos < mid_pos && mid_pos < zebra_pos,
+        "symbols should be in alphabetical order: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_reorder_custom_order_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn a() {}\nfn b() {}\nfn c() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.reorder",
+            "path": portable_path_str(&file),
+            "order": ["c", "a", "b"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let c_pos = content.find("fn c").unwrap();
+    let a_pos = content.find("fn a").unwrap();
+    let b_pos = content.find("fn b").unwrap();
+    assert!(
+        c_pos < a_pos && a_pos < b_pos,
+        "custom order c,a,b should apply: {content}"
+    );
+}
+
+// ── ast.group (tx plan) ────────────────────────────────────────
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_group_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(
+        &file,
+        "fn public_api() {}\n\nfn test_one() {}\n\nfn test_two() {}\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.group",
+            "path": portable_path_str(&file),
+            "module": "tests",
+            "symbols": ["test_one", "test_two"],
+            "preamble": "use super::*;"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("mod tests"),
+        "should create mod tests: {content}"
+    );
+    assert!(
+        content.contains("use super::*;"),
+        "should include preamble: {content}"
+    );
+    assert!(
+        content.contains("fn public_api"),
+        "non-grouped symbol should remain: {content}"
+    );
+}
+
+// ── ast.move (tx plan) ─────────────────────────────────────────
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.rs");
+    let target = dir.path().join("target.rs");
+    fs::write(&source, "fn keep() {}\nfn moveme() { let x = 1; }\n").unwrap();
+    fs::write(&target, "fn existing() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["moveme"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let src_content = fs::read_to_string(&source).unwrap();
+    let tgt_content = fs::read_to_string(&target).unwrap();
+    assert!(
+        !src_content.contains("moveme"),
+        "moveme should be removed from source: {src_content}"
+    );
+    assert!(
+        src_content.contains("fn keep"),
+        "keep should remain in source: {src_content}"
+    );
+    assert!(
+        tgt_content.contains("fn moveme"),
+        "moveme should appear in target: {tgt_content}"
+    );
+    assert!(
+        tgt_content.contains("fn existing"),
+        "existing should remain in target: {tgt_content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_creates_target() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("source.rs");
+    let target = dir.path().join("new_target.rs");
+    fs::write(&source, "fn stay() {}\nfn go() { 42 }\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["go"],
+            "target_prepend": "use crate::prelude::*;\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert!(target.exists(), "target file should be created");
+    let tgt = fs::read_to_string(&target).unwrap();
+    assert!(
+        tgt.contains("use crate::prelude::*;"),
+        "prepend should be present: {tgt}"
+    );
+    assert!(tgt.contains("fn go"), "symbol should be present: {tgt}");
+}
+
+// ── ast.extract_to_file (tx plan) ──────────────────────────────
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("lib.rs");
+    let target = dir.path().join("tests.rs");
+    fs::write(
+        &source,
+        "fn main() {}\n\nmod tests {\n    fn test_a() {}\n}\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": portable_path_str(&source),
+            "symbol": "tests",
+            "target": portable_path_str(&target),
+            "replacement": "mod tests;",
+            "prepend": "use super::*;\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let src = fs::read_to_string(&source).unwrap();
+    let tgt = fs::read_to_string(&target).unwrap();
+    assert!(
+        src.contains("mod tests;"),
+        "replacement should be in source: {src}"
+    );
+    assert!(
+        !src.contains("fn test_a"),
+        "extracted symbol body should be removed from source: {src}"
+    );
+    assert!(
+        tgt.contains("fn test_a"),
+        "extracted content should be in target: {tgt}"
+    );
+    assert!(
+        tgt.contains("use super::*;"),
+        "prepend should be in target: {tgt}"
+    );
+}
+
+// ── ast.split (tx plan) ────────────────────────────────────────
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("big.rs");
+    let types_file = dir.path().join("types.rs");
+    let utils_file = dir.path().join("utils.rs");
+    fs::write(&source, "struct Config {}\nfn helper() {}\nfn main() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.split",
+            "source": portable_path_str(&source),
+            "targets": [
+                {
+                    "path": portable_path_str(&types_file),
+                    "symbols": ["Config"],
+                    "prepend": "use super::*;\n"
+                },
+                {
+                    "path": portable_path_str(&utils_file),
+                    "symbols": ["helper"]
+                }
+            ],
+            "keep_in_source": ["main"],
+            "source_suffix": "mod types;\nmod utils;\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let src = fs::read_to_string(&source).unwrap();
+    let types = fs::read_to_string(&types_file).unwrap();
+    let utils = fs::read_to_string(&utils_file).unwrap();
+
+    assert!(src.contains("fn main"), "main should stay in source: {src}");
+    assert!(
+        src.contains("mod types;"),
+        "source_suffix should be appended: {src}"
+    );
+    assert!(
+        !src.contains("struct Config"),
+        "Config should be moved out: {src}"
+    );
+    assert!(
+        types.contains("struct Config"),
+        "Config should be in types.rs: {types}"
+    );
+    assert!(
+        types.contains("use super::*;"),
+        "prepend should be in types.rs: {types}"
+    );
+    assert!(
+        utils.contains("fn helper"),
+        "helper should be in utils.rs: {utils}"
+    );
+}
+
+// ── for_each glob batch (tx plan) ──────────────────────────────
+
+#[test]
+fn test_tx_for_each_glob_expansion_with_templates() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("a.txt"), "old_value\n").unwrap();
+    fs::write(src.join("b.txt"), "old_value\n").unwrap();
+    fs::write(src.join("skip.md"), "old_value\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "src/*.txt"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "old_value",
+            "to": "new_value in {stem}"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let a = fs::read_to_string(src.join("a.txt")).unwrap();
+    let b = fs::read_to_string(src.join("b.txt")).unwrap();
+    let md = fs::read_to_string(src.join("skip.md")).unwrap();
+
+    assert!(
+        a.contains("new_value in a"),
+        "template {{stem}} should expand to 'a': {a}"
+    );
+    assert!(
+        b.contains("new_value in b"),
+        "template {{stem}} should expand to 'b': {b}"
+    );
+    assert_eq!(
+        md.trim(),
+        "old_value",
+        "skip.md should not be modified (non-matching glob): {md}"
+    );
+}
+
+#[test]
+fn test_tx_for_each_exclude_filters_files() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("keep.txt"), "original\n").unwrap();
+    fs::write(src.join("skip.txt"), "original\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "src/*.txt",
+            "exclude": ["src/skip.txt"]
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "original",
+            "to": "changed"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let keep = fs::read_to_string(src.join("keep.txt")).unwrap();
+    let skip = fs::read_to_string(src.join("skip.txt")).unwrap();
+
+    assert!(
+        keep.contains("changed"),
+        "keep.txt should be modified: {keep}"
+    );
+    assert_eq!(
+        skip.trim(),
+        "original",
+        "skip.txt should be excluded: {skip}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_for_each_filter_has_symbol() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("with_tests.rs"),
+        "fn main() {}\nmod tests { fn test_a() {} }\n",
+    )
+    .unwrap();
+    fs::write(src.join("no_tests.rs"), "fn helper() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "src/*.rs",
+            "filter": "has_symbol(tests)"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "fn main",
+            "to": "fn entry"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let with = fs::read_to_string(src.join("with_tests.rs")).unwrap();
+    let without = fs::read_to_string(src.join("no_tests.rs")).unwrap();
+
+    assert!(
+        with.contains("fn entry"),
+        "file with tests should be modified: {with}"
+    );
+    assert!(
+        without.contains("fn helper"),
+        "file without tests should not be modified: {without}"
+    );
+}
+
+#[test]
+fn test_tx_for_each_check_mode() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("a.txt"), "hello\n").unwrap();
+    fs::write(src.join("b.txt"), "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "src/*.txt"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "hello",
+            "to": "world"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // --check should report changes without modifying files
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(2); // CHANGES_DETECTED
+
+    // Files should be unchanged
+    assert_eq!(fs::read_to_string(src.join("a.txt")).unwrap(), "hello\n");
+    assert_eq!(fs::read_to_string(src.join("b.txt")).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_tx_for_each_no_matches_produces_empty_plan() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "nonexistent/**/*.xyz"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "a",
+            "to": "b"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // No matching files means no operations, success with no changes
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+}

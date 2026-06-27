@@ -499,6 +499,129 @@ pub(crate) struct AstImportsParams {
     pub lang: Option<String>,
 }
 
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstReorderParams {
+    /// File to reorder symbols in.
+    pub path: String,
+    /// Scope to reorder within (module/impl). Default: top-level.
+    #[serde(default)]
+    pub inside: Option<String>,
+    /// Ordering: "alphabetical", "reverse", "kind-first", or array of names.
+    pub order: serde_json::Value,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstGroupParams {
+    /// File to modify.
+    pub path: String,
+    /// Module name to create or append to.
+    pub module: String,
+    /// Symbols to move into the module.
+    pub symbols: Vec<String>,
+    /// Code to insert at the top of the module (e.g., `use super::*;`).
+    #[serde(default)]
+    pub preamble: Option<String>,
+    /// Where to place new module: "first-symbol" (default), "end", or "after:<symbol>".
+    #[serde(default)]
+    pub position: Option<String>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstMoveParams {
+    /// Source file.
+    pub path: String,
+    /// Target file.
+    pub target: String,
+    /// Symbols to move.
+    pub symbols: Vec<String>,
+    /// Position in target: "end" (default), "start", "after:<symbol>", "before:<symbol>".
+    #[serde(default)]
+    pub position: Option<String>,
+    /// Content to prepend to target file if creating it.
+    #[serde(default)]
+    pub target_prepend: Option<String>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstExtractToFileParams {
+    /// Source file containing the symbol.
+    pub source: String,
+    /// Name of the symbol to extract.
+    pub symbol: String,
+    /// Destination file path.
+    pub target: String,
+    /// Text to leave in place of the extracted block.
+    #[serde(default)]
+    pub replacement: Option<String>,
+    /// If true (default), remove wrapper and un-indent for modules.
+    #[serde(default)]
+    pub unwrap: Option<bool>,
+    /// Content to prepend to the target file.
+    #[serde(default)]
+    pub prepend: Option<String>,
+    /// Overwrite target if it exists.
+    #[serde(default)]
+    pub force: bool,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstSplitParams {
+    /// The file to split.
+    pub source: String,
+    /// Target file specs.
+    pub targets: Vec<AstSplitTargetParam>,
+    /// Symbols to keep in the source file.
+    #[serde(default)]
+    pub keep_in_source: Vec<String>,
+    /// Text to append to source after split (e.g., `mod` declarations).
+    #[serde(default)]
+    pub source_suffix: Option<String>,
+    /// Text to prepend to source after split.
+    #[serde(default)]
+    pub source_prefix: Option<String>,
+    /// Error if any symbol is unaccounted for (default: true).
+    #[serde(default)]
+    pub require_exhaustive: Option<bool>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AstSplitTargetParam {
+    /// Target file path.
+    pub path: String,
+    /// Symbols to move into this file.
+    pub symbols: Vec<String>,
+    /// Content to prepend to this target file.
+    #[serde(default)]
+    pub prepend: Option<String>,
+}
+
 /// No-parameter wrapper for tools that need no input (e.g., git_status).
 /// Required because rmcp 1.8+ validates that `inputSchema` has a root
 /// `type: "object"` field, which `serde_json::Value` does not provide.

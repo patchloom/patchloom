@@ -368,6 +368,14 @@ pub fn execute_plan_direct(
     cwd: &Path,
     guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<TxOutput> {
+    // Expand for_each (glob-driven batch) before anything else.
+    #[cfg(feature = "cli")]
+    let mut plan = plan;
+    #[cfg(feature = "cli")]
+    if plan.for_each.is_some() {
+        crate::plan::expand_for_each(&mut plan, cwd)?;
+    }
+
     crate::verbose!(
         "tx: direct plan execution ({} ops, cwd={}, guard={})",
         plan.operations.len(),
@@ -619,6 +627,7 @@ mod tests {
             cwd: None,
             strict: None,
             write_policy: None,
+            for_each: None,
         };
         let cwd = Path::new("/tmp");
         assert!(run_lifecycle(&plan, cwd, cwd).is_none());

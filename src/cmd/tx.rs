@@ -244,8 +244,22 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    // 3. Validate plan and resolve working directory.
+    // 2b. Expand for_each (glob-driven batch) before validation.
     let base_cwd = global.resolve_cwd()?;
+    let mut plan = plan;
+    if plan.for_each.is_some()
+        && let Err(e) = crate::plan::expand_for_each(&mut plan, &base_cwd)
+    {
+        let msg = e.to_string();
+        if structured {
+            emit_error_json("parse_error", &msg, None, compact);
+        } else {
+            eprintln!("tx: {msg}");
+        }
+        return Ok(exit::PARSE_ERROR);
+    }
+
+    // 3. Validate plan and resolve working directory.
     let (cwd, strict, _resolved_global) =
         match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
             Ok(v) => v,

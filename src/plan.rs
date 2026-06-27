@@ -41,6 +41,24 @@ pub struct Plan {
     /// Pre/post-operation symbol verification checks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verify: Option<Vec<VerifyCheck>>,
+    /// Glob-driven batch: expand operations once per matching file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub for_each: Option<ForEach>,
+}
+
+/// Glob-driven batch expansion: apply the same set of operations to every
+/// file matching a glob pattern, with template variable substitution.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct ForEach {
+    /// Glob pattern to expand (e.g. `src/**/*.rs`).
+    pub glob: String,
+    /// Glob patterns to exclude from the matched set.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// Optional filter expression (e.g. `has_symbol(tests)`).
+    #[serde(default)]
+    pub filter: Option<String>,
 }
 
 /// A single verification check parsed from `--verify` or plan `verify` field.
@@ -387,6 +405,112 @@ pub enum Operation {
         #[serde(default)]
         lang: Option<String>,
     },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.reorder", alias = "ast_reorder")]
+    AstReorder {
+        path: String,
+        /// Scope to reorder within (module/impl). Default: top-level.
+        #[serde(default)]
+        inside: Option<String>,
+        /// Ordering: "alphabetical", "reverse", "kind-first", or array of names.
+        order: serde_json::Value,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.group", alias = "ast_group")]
+    AstGroup {
+        path: String,
+        /// Module name to create or append to.
+        module: String,
+        /// Symbols to move into the module.
+        symbols: Vec<String>,
+        /// Code to insert at the top of the module (e.g., `use super::*;`).
+        #[serde(default)]
+        preamble: Option<String>,
+        /// Where to place new module: "first-symbol" (default), "end", or "after:<symbol>".
+        #[serde(default)]
+        position: Option<String>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.move", alias = "ast_move")]
+    AstMove {
+        /// Source file.
+        path: String,
+        /// Target file.
+        target: String,
+        /// Symbols to move.
+        symbols: Vec<String>,
+        /// Position in target: "end" (default), "start", "after:<symbol>", "before:<symbol>".
+        #[serde(default)]
+        position: Option<String>,
+        /// Content to prepend to target file if it's being created.
+        #[serde(default)]
+        target_prepend: Option<String>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.extract_to_file", alias = "ast_extract_to_file")]
+    AstExtractToFile {
+        /// Source file containing the symbol.
+        source: String,
+        /// Name of the symbol to extract.
+        symbol: String,
+        /// Destination file path.
+        target: String,
+        /// Text to leave in place of the extracted block.
+        #[serde(default)]
+        replacement: Option<String>,
+        /// If true (default for modules), remove the wrapper and un-indent.
+        #[serde(default)]
+        unwrap: Option<bool>,
+        /// Content to prepend to the target file.
+        #[serde(default)]
+        prepend: Option<String>,
+        /// Overwrite target if it exists.
+        #[serde(default)]
+        force: bool,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.split", alias = "ast_split")]
+    AstSplit {
+        /// The file to split.
+        source: String,
+        /// Target file specs.
+        targets: Vec<SplitTargetSpec>,
+        /// Symbols to keep in the source file.
+        #[serde(default)]
+        keep_in_source: Vec<String>,
+        /// Text to append to source after split (e.g., `mod` declarations).
+        #[serde(default)]
+        source_suffix: Option<String>,
+        /// Text to prepend to source after split.
+        #[serde(default)]
+        source_prefix: Option<String>,
+        /// Error if any symbol is unaccounted for (default: true).
+        #[serde(default)]
+        require_exhaustive: Option<bool>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+}
+
+/// Target file specification for `ast.split`.
+#[cfg(feature = "ast")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+pub struct SplitTargetSpec {
+    /// Target file path.
+    pub path: String,
+    /// Symbols to move into this file.
+    pub symbols: Vec<String>,
+    /// Content to prepend to this target file.
+    #[serde(default)]
+    pub prepend: Option<String>,
 }
 
 impl Operation {
@@ -429,6 +553,16 @@ impl Operation {
             Operation::AstWrap { .. } => "ast.wrap",
             #[cfg(feature = "ast")]
             Operation::AstImports { .. } => "ast.imports",
+            #[cfg(feature = "ast")]
+            Operation::AstReorder { .. } => "ast.reorder",
+            #[cfg(feature = "ast")]
+            Operation::AstGroup { .. } => "ast.group",
+            #[cfg(feature = "ast")]
+            Operation::AstMove { .. } => "ast.move",
+            #[cfg(feature = "ast")]
+            Operation::AstExtractToFile { .. } => "ast.extract_to_file",
+            #[cfg(feature = "ast")]
+            Operation::AstSplit { .. } => "ast.split",
         }
     }
 
@@ -464,6 +598,11 @@ impl Operation {
                         | Operation::AstInsert { .. }
                         | Operation::AstWrap { .. }
                         | Operation::AstImports { .. }
+                        | Operation::AstReorder { .. }
+                        | Operation::AstGroup { .. }
+                        | Operation::AstMove { .. }
+                        | Operation::AstExtractToFile { .. }
+                        | Operation::AstSplit { .. }
                 )
             }
             #[cfg(not(feature = "ast"))]
@@ -640,8 +779,26 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
         | Operation::AstReplace { path, .. }
         | Operation::AstInsert { path, .. }
         | Operation::AstWrap { path, .. }
-        | Operation::AstImports { path, .. } => {
+        | Operation::AstImports { path, .. }
+        | Operation::AstReorder { path, .. }
+        | Operation::AstGroup { path, .. } => {
             vec![path.as_str()]
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstMove { path, target, .. } => vec![path.as_str(), target.as_str()],
+        #[cfg(feature = "ast")]
+        Operation::AstExtractToFile { source, target, .. } => {
+            vec![source.as_str(), target.as_str()]
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstSplit {
+            source, targets, ..
+        } => {
+            let mut p = vec![source.as_str()];
+            for t in targets {
+                p.push(t.path.as_str());
+            }
+            p
         }
     }
 }
@@ -694,6 +851,122 @@ pub fn parse_plan_auto(
         Some("toml") => parse_plan_toml(input),
         _ => parse_plan(input),
     }
+}
+
+// ---------------------------------------------------------------------------
+// for_each expansion
+// ---------------------------------------------------------------------------
+
+/// Expand a plan's `for_each` block: match files via glob, apply exclude/filter,
+/// substitute template variables into each operation, and flatten the result into
+/// `plan.operations`. After this call, `plan.for_each` is `None`.
+///
+/// Template variables: `{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`.
+#[cfg(feature = "cli")]
+pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result<()> {
+    let fe = match plan.for_each.take() {
+        Some(fe) => fe,
+        None => return Ok(()),
+    };
+
+    // 1. Collect matching files.
+    let glob_set = crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?
+        .ok_or_else(|| anyhow::anyhow!("for_each: invalid glob pattern"))?;
+
+    let all_files = crate::files::collect_file_paths(cwd, false)?;
+    let mut matched: Vec<std::path::PathBuf> = all_files
+        .into_iter()
+        .filter(|p| {
+            let rel = p.strip_prefix(cwd).unwrap_or(p);
+            glob_set.is_match(rel)
+        })
+        .collect();
+    matched.sort();
+
+    // 2. Apply exclude patterns.
+    if !fe.exclude.is_empty() {
+        let excl = crate::files::build_glob_matcher(&fe.exclude)?;
+        if let Some(excl_set) = excl {
+            matched.retain(|p| {
+                let rel = p.strip_prefix(cwd).unwrap_or(p);
+                !excl_set.is_match(rel)
+            });
+        }
+    }
+
+    // 3. Apply filter (currently supports `has_symbol(NAME)`).
+    if let Some(ref filter) = fe.filter {
+        let filter = filter.trim();
+        if let Some(sym_name) = filter
+            .strip_prefix("has_symbol(")
+            .and_then(|s| s.strip_suffix(')'))
+        {
+            let sym_name = sym_name.trim();
+            #[cfg(feature = "ast")]
+            {
+                matched.retain(|p| {
+                    let syms = crate::ast::symbols::extract_symbols_from_file(p, None);
+                    syms.iter().any(|s| s.name == sym_name)
+                });
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                let _ = sym_name;
+                anyhow::bail!("for_each filter `has_symbol(...)` requires the `ast` feature");
+            }
+        } else {
+            anyhow::bail!("for_each: unsupported filter expression: {filter}");
+        }
+    }
+
+    if matched.is_empty() {
+        // No files matched; clear operations (nothing to do).
+        plan.operations.clear();
+        return Ok(());
+    }
+
+    // 4. Serialize template operations once, then substitute per file.
+    let template_ops_json = serde_json::to_string(&plan.operations)?;
+
+    let mut expanded = Vec::with_capacity(matched.len() * plan.operations.len());
+    for file_path in &matched {
+        let rel = file_path
+            .strip_prefix(cwd)
+            .unwrap_or(file_path)
+            .to_string_lossy();
+        let rel_str = rel.replace('\\', "/");
+
+        let dir = std::path::Path::new(&rel_str)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let name = std::path::Path::new(&rel_str)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let stem = std::path::Path::new(&rel_str)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let ext = std::path::Path::new(&rel_str)
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        let substituted = template_ops_json
+            .replace("{path}", &rel_str)
+            .replace("{dir}", &dir)
+            .replace("{stem}", &stem)
+            .replace("{ext}", &ext)
+            .replace("{name}", &name);
+
+        let file_ops: Vec<Operation> = serde_json::from_str(&substituted)
+            .map_err(|e| anyhow::anyhow!("for_each: template expansion failed: {e}"))?;
+        expanded.extend(file_ops);
+    }
+
+    plan.operations = expanded;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -795,10 +1068,16 @@ mod tests {
             {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"},
             {"op": "ast.insert", "path": "f.rs", "content": "fn new() {}", "after": "main"},
             {"op": "ast.wrap", "path": "f.rs", "symbols": ["helper"], "wrapper": "mod internal"},
-            {"op": "ast.imports", "path": "f.rs", "add": ["use std::io;"]}
+            {"op": "ast.imports", "path": "f.rs", "add": ["use std::io;"]},
+            {"op": "ast.reorder", "path": "f.rs", "order": "alphabetical"},
+            {"op": "ast.reorder", "path": "f.rs", "order": ["b", "a"], "inside": "mod tests"},
+            {"op": "ast.group", "path": "f.rs", "module": "tests", "symbols": ["test_a"]},
+            {"op": "ast.move", "path": "src.rs", "target": "dst.rs", "symbols": ["foo"]},
+            {"op": "ast.extract_to_file", "source": "lib.rs", "symbol": "tests", "target": "lib_tests.rs"},
+            {"op": "ast.split", "source": "big.rs", "targets": [{"path": "a.rs", "symbols": ["A"]}]}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 39);
+        assert_eq!(plan.operations.len(), 45);
     }
 
     #[test]
@@ -831,10 +1110,40 @@ mod tests {
             {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"},
             {"op": "ast_insert", "path": "f.rs", "content": "fn x() {}", "inside": "Foo"},
             {"op": "ast_wrap", "path": "f.rs", "lines": "1:10", "wrapper": "mod m"},
-            {"op": "ast_imports", "path": "f.rs", "remove": ["use old;"]}
+            {"op": "ast_imports", "path": "f.rs", "remove": ["use old;"]},
+            {"op": "ast_reorder", "path": "f.rs", "order": "reverse"},
+            {"op": "ast_group", "path": "f.rs", "module": "m", "symbols": ["x"]},
+            {"op": "ast_move", "path": "a.rs", "target": "b.rs", "symbols": ["f"]},
+            {"op": "ast_extract_to_file", "source": "a.rs", "symbol": "tests", "target": "a_tests.rs"},
+            {"op": "ast_split", "source": "big.rs", "targets": [{"path": "s.rs", "symbols": ["S"]}]}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 25);
+        assert_eq!(plan.operations.len(), 30);
+    }
+
+    #[test]
+    fn parse_plan_with_for_each() {
+        let json = r#"{
+            "version": "1",
+            "for_each": {
+                "glob": "src/**/*.rs",
+                "exclude": ["src/main.rs"],
+                "filter": "has_symbol(tests)"
+            },
+            "operations": [{"op": "replace", "path": "{path}", "from": "a", "to": "b"}]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+        let fe = plan.for_each.unwrap();
+        assert_eq!(fe.glob, "src/**/*.rs");
+        assert_eq!(fe.exclude, vec!["src/main.rs"]);
+        assert_eq!(fe.filter.as_deref(), Some("has_symbol(tests)"));
+    }
+
+    #[test]
+    fn parse_plan_without_for_each_is_none() {
+        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert!(plan.for_each.is_none());
     }
 
     #[test]

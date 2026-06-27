@@ -40,8 +40,14 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         (content, Some(p.to_string()))
     };
 
-    let plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
+    let mut plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
     let cwd = global.resolve_cwd()?;
+
+    // Expand for_each before summarizing so the explain output shows all
+    // expanded operations (not the template).
+    if plan.for_each.is_some() {
+        crate::plan::expand_for_each(&mut plan, &cwd)?;
+    }
     let config_strict = crate::config::find_and_load(&cwd)
         .map(|(config, _)| config.tx.strict)
         .unwrap_or(None);
@@ -402,6 +408,60 @@ fn describe_operation(op: &Operation) -> String {
             };
             format!("AST imports ({action}) in {path}")
         }
+        #[cfg(feature = "ast")]
+        Operation::AstReorder {
+            path,
+            inside,
+            order,
+            ..
+        } => {
+            let scope = inside.as_deref().unwrap_or("top-level");
+            let strategy = match order {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(arr) => format!("custom ({})", arr.len()),
+                _ => "unknown".to_string(),
+            };
+            format!("AST reorder {scope} symbols by {strategy} in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstGroup {
+            path,
+            module,
+            symbols,
+            ..
+        } => {
+            format!(
+                "AST group {} symbol(s) into mod {module} in {path}",
+                symbols.len()
+            )
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstMove {
+            path,
+            target,
+            symbols,
+            ..
+        } => {
+            format!(
+                "AST move {} symbol(s) from {path} to {target}",
+                symbols.len()
+            )
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstExtractToFile {
+            source,
+            symbol,
+            target,
+            ..
+        } => {
+            format!("AST extract \"{symbol}\" from {source} to {target}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstSplit {
+            source, targets, ..
+        } => {
+            format!("AST split {source} into {} target file(s)", targets.len())
+        }
     }
 }
 
@@ -549,6 +609,7 @@ mod tests {
             format: None,
             validate: None,
             verify: None,
+            for_each: None,
         };
         // Just ensure it doesn't panic.
         print_human_summary(&plan, true);
@@ -574,6 +635,7 @@ mod tests {
                 timeout: None,
             }]),
             verify: None,
+            for_each: None,
         };
         let json = build_json_summary(&plan, false);
         assert_eq!(json["operation_count"], 1);

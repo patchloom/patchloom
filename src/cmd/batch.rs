@@ -416,6 +416,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             format: None,
             validate: None,
             verify: None,
+            for_each: None,
         };
         serde_json::to_string(&plan)?
     };
