@@ -1842,6 +1842,41 @@ fn search_format_results_human_and_json() {
 
 #[test]
 #[cfg(any(feature = "cli", feature = "files"))]
+fn search_multiline_literal_auto_escapes_metacharacters() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    // Pattern "foo.bar" should match literally, not as regex foo<any>bar
+    fs::write(&file, "foo.bar\nfooXbar\n").unwrap();
+
+    let opts = SearchOptions {
+        multiline: true,
+        regex: false,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "foo.bar", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].line, "foo.bar");
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_multiline_regex_does_not_escape() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo.bar\nfooXbar\n").unwrap();
+
+    let opts = SearchOptions {
+        multiline: true,
+        regex: true,
+        ..Default::default()
+    };
+    // With regex: true, "foo.bar" matches both lines (dot = any char)
+    let results = search_one_file(&file, "foo.bar", &opts, dir.path());
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
 fn collect_with_ignores_direct() {
     // Direct test of #813 helper.
     let dir = TempDir::new().unwrap();
@@ -1885,10 +1920,13 @@ fn file_append_and_prepend_basic() {
     assert_eq!(res.action, "append");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n world");
 
-    // prepend
+    // prepend (newline separator added because ">> " lacks trailing \n)
     let res2 = file_prepend(&file, ">> ", ApplyMode::Apply, None).unwrap();
     assert!(res2.changed);
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), ">> hello\n world");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        ">> \nhello\n world"
+    );
 }
 
 #[test]
