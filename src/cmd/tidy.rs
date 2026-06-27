@@ -174,7 +174,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     match args.action {
         TidyAction::Check { paths } => {
             let issues = collect_issues(&paths, global)?;
-            if !global.quiet {
+            if !global.quiet || global.json || global.jsonl {
                 render_issues(&issues, global);
             }
             if issues.is_empty() {
@@ -746,5 +746,38 @@ mod tests {
         assert_eq!(eol_mode_to_str(EolMode::Crlf), "crlf");
         assert_eq!(eol_mode_to_str(EolMode::Cr), "cr");
         assert_eq!(eol_mode_to_str(EolMode::Keep), "keep");
+    }
+
+    /// Regression: `tidy check --quiet --json` must still emit JSON output.
+    /// The old code gated render_issues entirely on `!global.quiet`, which
+    /// suppressed JSON/JSONL output. Only human-readable text should be
+    /// suppressed by --quiet.
+    #[test]
+    fn check_quiet_still_emits_json() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("no_nl.txt");
+        std::fs::write(&file, b"hello").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.quiet = true;
+        global.json = true;
+
+        // Collect issues directly (render_issues is called by run()).
+        let issues = collect_issues(&[".".to_string()], &global).unwrap();
+        assert!(!issues.is_empty(), "should detect issues even when quiet");
+
+        // Verify that run() returns CHANGES_DETECTED (not SUCCESS) with --quiet.
+        let args = TidyArgs {
+            action: TidyAction::Check {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::CHANGES_DETECTED,
+            "exit code must reflect issues even with --quiet"
+        );
     }
 }

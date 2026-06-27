@@ -29,8 +29,14 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
             if let Some((ch, min_len)) = fence {
                 let count = trimmed.bytes().take_while(|&b| b == ch).count();
                 if count >= min_len {
-                    fence = None;
-                    return false;
+                    // CommonMark 4.5: a backtick closing fence must not be
+                    // followed by non-whitespace characters. Tilde fences
+                    // have no such restriction.
+                    let after_fence = &trimmed[count..];
+                    if ch == b'~' || after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
+                        fence = None;
+                        return false;
+                    }
                 }
             } else {
                 let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();

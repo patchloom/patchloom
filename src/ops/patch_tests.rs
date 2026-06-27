@@ -870,6 +870,44 @@ mod regression {
         assert!(apply_hunks("x\n", &hunks).is_err());
     }
 
+    /// Regression: merge_hunks must produce correct ConflictRange line
+    /// numbers for multi-hunk patches. The old code double-counted hunk
+    /// sizes via an `output_line` accumulator on top of the `pos` index
+    /// which already reflected previous splices.
+    #[test]
+    fn merge_hunks_multi_hunk_conflict_lines_are_correct() {
+        // Hunk 1 at line 2: change "line2" to "changed2" (base says "line2").
+        // Hunk 2 at line 8: change "line8" to "changed8" (base says "line8").
+        let hunks = vec![
+            make_hunk(1, &["line1"], &["line2"], &["changed2"], &["line3"]),
+            make_hunk(7, &["line7"], &["line8"], &["changed8"], &["line9"]),
+        ];
+        // Simulate "ours" already having different content at hunk 2 to force a conflict.
+        let ours = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nours8\nline9\nline10\n";
+        let result = merge_hunks(ours, &hunks).unwrap();
+        // Hunk 1 applies cleanly (ours matches base for hunk 1).
+        // Hunk 2 conflicts because ours has "ours8" while base has "line8".
+        assert_eq!(
+            result.conflicts.len(),
+            1,
+            "should have exactly one conflict"
+        );
+        let conflict = &result.conflicts[0];
+        // The conflict should be at the position of hunk 2 in the output.
+        // Find the conflict marker in the actual output to verify.
+        let lines: Vec<&str> = result.content.lines().collect();
+        let marker_line = lines
+            .iter()
+            .position(|l| l.contains("<<<<<<< patchloom"))
+            .expect("conflict marker should exist");
+        // ConflictRange is 1-based.
+        assert_eq!(
+            conflict.start_line,
+            marker_line + 1,
+            "conflict start_line should match actual marker position"
+        );
+    }
+
     /// Regression: find_match must not panic when delta * sign overflows.
     /// Found by fuzzing.
     #[test]

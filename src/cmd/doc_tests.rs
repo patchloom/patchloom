@@ -81,7 +81,7 @@ mod basic {
     }
 
     #[test]
-    fn has_returns_false_for_missing_key() {
+    fn has_returns_no_matches_for_missing_key() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
         let action = DocAction::Has {
@@ -89,8 +89,60 @@ mod basic {
             selector: "missing".into(),
         };
         let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(
+            code,
+            exit::NO_MATCHES,
+            "doc has should return NO_MATCHES when selector is absent"
+        );
         assert_eq!(output, "false");
+    }
+
+    #[test]
+    fn has_exit_code_consistent_with_get() {
+        // Regression: doc has always returned SUCCESS even for missing keys,
+        // while doc get returned NO_MATCHES. Both should use NO_MATCHES.
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "data.json", r#"{"a": 1}"#);
+
+        // Existing key: both return SUCCESS.
+        let (_, has_code) = execute_with_mode(
+            &DocAction::Has {
+                file: path.clone(),
+                selector: "a".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
+        let (_, get_code) = execute_with_mode(
+            &DocAction::Get {
+                file: path.clone(),
+                selector: "a".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
+        assert_eq!(has_code, exit::SUCCESS);
+        assert_eq!(get_code, exit::SUCCESS);
+
+        // Missing key: both return NO_MATCHES.
+        let (_, has_code) = execute_with_mode(
+            &DocAction::Has {
+                file: path.clone(),
+                selector: "missing".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
+        let (_, get_code) = execute_with_mode(
+            &DocAction::Get {
+                file: path,
+                selector: "missing".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
+        assert_eq!(has_code, exit::NO_MATCHES);
+        assert_eq!(get_code, exit::NO_MATCHES);
     }
 
     // -- keys ---------------------------------------------------------------

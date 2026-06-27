@@ -347,7 +347,6 @@ pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError
     let had_final_newline = ours.ends_with('\n') || ours.is_empty();
     let mut offset: isize = 0;
     let mut conflicts = Vec::new();
-    let mut output_line: usize = 1;
     for (hunk_idx, hunk) in hunks.iter().enumerate() {
         let expected = hunk_expected_start(hunk, offset).map_err(|msg| MergeError {
             message: format!("hunk {} failed: {msg}", hunk_idx + 1),
@@ -369,7 +368,7 @@ pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError
             if ours_region.iter().map(String::as_str).collect::<Vec<_>>() == old_refs {
                 (theirs_lines, Vec::new())
             } else {
-                merge_three_way(&base_lines, &ours_region, &theirs_lines, output_line + pos)
+                merge_three_way(&base_lines, &ours_region, &theirs_lines, pos + 1)
             };
         conflicts.extend(hunk_conflicts);
         let new_len = replacement.len();
@@ -378,7 +377,6 @@ pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError
             isize::try_from(new_len).unwrap_or(isize::MAX)
                 - isize::try_from(old_len).unwrap_or(isize::MAX),
         );
-        output_line = output_line.saturating_add(new_len);
     }
     Ok(MergeResult {
         content: join_lines(&src_lines, had_final_newline),
