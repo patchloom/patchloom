@@ -292,6 +292,13 @@ mod basic {
                     content: "c".into(),
                 },
             ),
+            (
+                "file.prepend",
+                Operation::FilePrepend {
+                    path: "f".into(),
+                    content: "c".into(),
+                },
+            ),
             ("file.delete", Operation::FileDelete { path: "f".into() }),
             (
                 "file.rename",

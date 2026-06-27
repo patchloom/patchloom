@@ -274,6 +274,8 @@ pub enum Operation {
     },
     #[serde(rename = "file.append", alias = "append_file")]
     FileAppend { path: String, content: String },
+    #[serde(rename = "file.prepend", alias = "prepend_file")]
+    FilePrepend { path: String, content: String },
     #[serde(rename = "file.delete", alias = "delete_file")]
     FileDelete { path: String },
     #[serde(rename = "file.rename", alias = "move_file")]
@@ -536,6 +538,7 @@ impl Operation {
             Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
             Operation::TidyFix { .. } => "tidy.fix",
             Operation::FileAppend { .. } => "file.append",
+            Operation::FilePrepend { .. } => "file.prepend",
             Operation::FileCreate { .. } => "file.create",
             Operation::FileDelete { .. } => "file.delete",
             Operation::FileRename { .. } => "file.rename",
@@ -584,6 +587,7 @@ impl Operation {
                 | Operation::MdDedupeHeadings { .. }
                 | Operation::PatchApply { .. }
                 | Operation::FileAppend { .. }
+                | Operation::FilePrepend { .. }
                 | Operation::Read { .. }
                 | Operation::Search { .. }
                 | Operation::MdLintAgents { .. }
@@ -769,6 +773,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
         | Operation::MdDedupeHeadings { path, .. }
         | Operation::TidyFix { path, .. }
         | Operation::FileAppend { path, .. }
+        | Operation::FilePrepend { path, .. }
         | Operation::FileCreate { path, .. }
         | Operation::FileDelete { path, .. }
         | Operation::Read { path, .. }

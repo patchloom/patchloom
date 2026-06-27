@@ -174,8 +174,8 @@ pub mod write;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    ApplyMode, EditResult, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
-    build_context_lines, format_search_results, search_file,
+    ApplyMode, ContentEditResult, EditResult, ReplaceOptions, SearchOptions, SearchResult,
+    WritePolicyOptions, build_context_lines, format_search_results, search_file,
 };
 pub use plan::Plan;
 

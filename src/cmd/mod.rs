@@ -224,7 +224,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Move a heading section (same file or cross-file) | `md_move_section` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
-             | Create, append, rename, or delete a file | `create_file`, `append_file`, `move_file`, `delete_file` |\n\
+             | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |\n\

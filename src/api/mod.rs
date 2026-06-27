@@ -139,6 +139,22 @@ pub struct EditResult {
     pub dest_path: Option<String>,
 }
 
+/// Result of an in-memory content edit (no file path, no applied flag).
+///
+/// Returned by [`replace::replace_in_content`] for callers that work on
+/// in-memory buffers rather than files on disk.
+#[derive(Debug, Clone)]
+pub struct ContentEditResult {
+    /// The original content before the edit.
+    pub original: String,
+    /// The content after the edit.
+    pub new_content: String,
+    /// A unified diff between original and new content.
+    pub diff: String,
+    /// Whether the content changed.
+    pub changed: bool,
+}
+
 /// Controls whether an operation writes to disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyMode {

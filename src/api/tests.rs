@@ -1678,9 +1678,160 @@ fn search_file_and_format_and_context_builder_direct() {
 
     // context builder directly
     let lines: Vec<&str> = "a\nb\nc\n".lines().collect();
-    let (b, a) = build_context_lines(&lines, 1, 1);
+    let (b, a) = build_context_lines(&lines, 1, 1, 1);
     assert_eq!(b, vec!["a".to_string()]);
     assert_eq!(a, vec!["c".to_string()]);
+}
+
+#[test]
+fn build_context_lines_asymmetric() {
+    let lines: Vec<&str> = "aaa\nbbb\nccc\nddd\neee".lines().collect();
+    // 0 before, 2 after
+    let (b, a) = build_context_lines(&lines, 2, 0, 2);
+    assert!(b.is_empty());
+    assert_eq!(a, vec!["ddd".to_string(), "eee".to_string()]);
+    // 1 before, 0 after
+    let (b, a) = build_context_lines(&lines, 2, 1, 0);
+    assert_eq!(b, vec!["bbb".to_string()]);
+    assert!(a.is_empty());
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_context_more_after() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(
+        &file,
+        "// line 1\n// line 2\nfn main() {\n    println!(\"hello\");\n    return;\n}\n// line 7\n",
+    )
+    .unwrap();
+
+    let opts = SearchOptions {
+        before_context: Some(1),
+        after_context: Some(3),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "fn main", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].context_before.len(), 1);
+    assert_eq!(results[0].context_after.len(), 3);
+    assert!(results[0].context_before[0].contains("line 2"));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_context_zero_before() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        before_context: Some(0),
+        after_context: Some(2),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert!(results[0].context_before.is_empty());
+    assert_eq!(results[0].context_after.len(), 2);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_overrides_symmetric() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        context: Some(2),
+        before_context: Some(0),
+        after_context: Some(1),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert!(results[0].context_before.is_empty());
+    assert_eq!(results[0].context_after.len(), 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_symmetric_context_still_works() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        context: Some(1),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert_eq!(results[0].context_before.len(), 1);
+    assert_eq!(results[0].context_after.len(), 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_invert_match_excludes_matching_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.py");
+    fs::write(
+        &file,
+        "import os\nimport sys\ndef hello():\n    pass\nimport json\n",
+    )
+    .unwrap();
+
+    let opts = SearchOptions {
+        invert_match: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "import", &opts, dir.path());
+    assert!(results.iter().all(|r| !r.line.contains("import")));
+    assert!(results.iter().any(|r| r.line.contains("def hello")));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_invert_match_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\naaa\nbbb\naaa\n").unwrap();
+
+    let opts = SearchOptions {
+        invert_match: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "aaa", &opts, dir.path());
+    assert_eq!(results.len(), 2); // only the two "bbb" lines
+    assert!(results.iter().all(|r| r.line == "bbb"));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_multiline_pattern_spans_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "struct Foo {\n    x: i32,\n    y: String,\n}\n").unwrap();
+
+    let opts = SearchOptions {
+        regex: true,
+        multiline: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, r"struct Foo \{[^}]+\}", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].line_number, 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_format_results_human_and_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("x.rs");
+    fs::write(&file, "fn foo() {}\nfn bar() {}\n").unwrap();
+    let opts = SearchOptions::default();
+    let res = search_one_file(&file, "fn", &opts, dir.path());
 
     // formatter (human + json)
     let txt = format_search_results(&res, false);
@@ -2021,4 +2172,197 @@ fn adapter_unchanged_returns_no_diff() {
         "should not be changed when pattern doesn't match"
     );
     assert!(!result.applied);
+}
+
+// ── replace_in_content tests ──────────────────────────────────
+
+#[test]
+fn replace_in_content_literal() {
+    let content = "fn hello() {}\nfn world() {}\n";
+    let result =
+        replace::replace_in_content(content, "hello", "greet", &ReplaceOptions::default()).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("fn greet()"));
+    assert!(!result.new_content.contains("fn hello()"));
+}
+
+#[test]
+fn replace_in_content_regex() {
+    let content = "version = \"1.2.3\"\n";
+    let opts = ReplaceOptions {
+        regex: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        r#"version = "\d+\.\d+\.\d+""#,
+        "version = \"2.0.0\"",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("2.0.0"));
+}
+
+#[test]
+fn replace_in_content_word_boundary() {
+    let content = "let setup = setup_config();\n";
+    let opts = ReplaceOptions {
+        word_boundary: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "setup", "init", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "let init = setup_config();\n");
+}
+
+#[test]
+fn replace_in_content_nth() {
+    let content = "aaa bbb aaa bbb aaa\n";
+    let opts = ReplaceOptions {
+        nth: Some(2),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "aaa", "xxx", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "aaa bbb xxx bbb aaa\n");
+}
+
+#[test]
+fn replace_in_content_insert_after() {
+    let content = "use std::io;\n\nfn main() {}\n";
+    let opts = ReplaceOptions {
+        insert_after: Some("\nuse std::fs;".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("use std::io;\nuse std::fs;"));
+}
+
+#[test]
+fn replace_in_content_insert_before() {
+    let content = "use std::io;\n\nfn main() {}\n";
+    let opts = ReplaceOptions {
+        insert_before: Some("use std::fs;\n".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("use std::fs;\nuse std::io;"));
+}
+
+#[test]
+fn replace_in_content_no_match_unchanged() {
+    let content = "fn hello() {}\n";
+    let result =
+        replace::replace_in_content(content, "nonexistent", "x", &ReplaceOptions::default())
+            .unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.new_content, content);
+}
+
+#[test]
+fn replace_in_content_whole_line() {
+    let content = "line one\nremove this\nline three\n";
+    let opts = ReplaceOptions {
+        whole_line: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "remove this", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(!result.new_content.contains("remove this"));
+    assert!(result.new_content.contains("line one"));
+    assert!(result.new_content.contains("line three"));
+}
+
+#[test]
+fn replace_in_content_range() {
+    let content = "aaa\nbbb\naaa\nbbb\naaa\n";
+    let opts = ReplaceOptions {
+        whole_line: true,
+        range: Some((2, Some(4))),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "aaa", "xxx", &opts).unwrap();
+    assert!(result.changed);
+    // Only the "aaa" on line 3 (within range 2-4) should be replaced
+    let lines: Vec<&str> = result.new_content.lines().collect();
+    assert_eq!(lines[0], "aaa"); // line 1, outside range
+    assert_eq!(lines[2], "xxx"); // line 3, inside range
+    assert_eq!(lines[4], "aaa"); // line 5, outside range
+}
+
+#[test]
+fn replace_in_content_if_exists_no_match() {
+    let content = "fn hello() {}\n";
+    let opts = ReplaceOptions {
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "nonexistent", "x", &opts).unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.new_content, content);
+}
+
+#[test]
+fn replace_in_content_case_insensitive() {
+    let content = "Hello World\n";
+    let opts = ReplaceOptions {
+        case_insensitive: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "hello", "Hi", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("Hi World"));
+}
+
+#[test]
+fn replace_in_content_empty_pattern_errors() {
+    let result = replace::replace_in_content("content", "", "x", &ReplaceOptions::default());
+    assert!(result.is_err());
+}
+
+#[test]
+fn replace_in_content_diff_is_populated() {
+    let content = "old text\n";
+    let result =
+        replace::replace_in_content(content, "old", "new", &ReplaceOptions::default()).unwrap();
+    assert!(result.changed);
+    assert!(!result.diff.is_empty());
+    assert!(result.diff.contains("-old text"));
+    assert!(result.diff.contains("+new text"));
+}
+
+#[test]
+fn replace_in_content_range_requires_whole_line() {
+    let opts = ReplaceOptions {
+        range: Some((1, Some(3))),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("range requires whole_line")
+    );
+}
+
+#[test]
+fn replace_in_content_whole_line_multiline_conflict() {
+    let opts = ReplaceOptions {
+        whole_line: true,
+        multiline: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("whole_line and multiline cannot be combined")
+    );
 }

@@ -94,8 +94,17 @@ pub struct SearchOptions {
     pub regex: bool,
     /// Case insensitive match.
     pub case_insensitive: bool,
-    /// Context lines around matches.
+    /// Context lines around matches (symmetric). Overridden by
+    /// `before_context` / `after_context` when those are set.
     pub context: Option<usize>,
+    /// Lines of context before each match. Takes precedence over `context`.
+    pub before_context: Option<usize>,
+    /// Lines of context after each match. Takes precedence over `context`.
+    pub after_context: Option<usize>,
+    /// Show lines that do NOT match the pattern.
+    pub invert_match: bool,
+    /// Enable multiline matching (dot matches newlines in regex mode).
+    pub multiline: bool,
     /// Glob patterns to include (e.g. "*.rs").
     pub globs: Vec<String>,
     /// Max number of results (0 for unlimited).
@@ -122,24 +131,33 @@ pub struct SearchResult {
 /// Helper to build context slices for a match line. DRY for search impls (library + CLI).
 ///
 /// Exposed for downstreams that want consistent context extraction (#815).
+///
+/// Accepts asymmetric context sizes (`before_ctx`, `after_ctx`). For symmetric
+/// context pass the same value for both.
 pub fn build_context_lines(
     all_lines: &[&str],
     match_idx: usize,
-    ctx: usize,
+    before_ctx: usize,
+    after_ctx: usize,
 ) -> (Vec<String>, Vec<String>) {
-    if ctx == 0 {
-        return (vec![], vec![]);
-    }
-    let before_start = match_idx.saturating_sub(ctx);
-    let after_end = (match_idx + 1 + ctx).min(all_lines.len());
-    let before = all_lines[before_start..match_idx]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    let after = all_lines[match_idx + 1..after_end]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let before = if before_ctx == 0 {
+        vec![]
+    } else {
+        let start = match_idx.saturating_sub(before_ctx);
+        all_lines[start..match_idx]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let after = if after_ctx == 0 {
+        vec![]
+    } else {
+        let end = (match_idx + 1 + after_ctx).min(all_lines.len());
+        all_lines[match_idx + 1..end]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
     (before, after)
 }
 
@@ -204,11 +222,18 @@ pub fn search_directory(
 
     #[cfg(not(any(feature = "cli", feature = "files")))]
     {
+        if opts.multiline {
+            bail!("multiline search requires the 'cli' or 'files' feature");
+        }
+        if opts.invert_match {
+            bail!("invert_match search requires the 'cli' or 'files' feature");
+        }
         // fallback to single file search (multi-match supported via basic search)
         if root.is_file() {
             let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
             let display = root.to_path_buf();
-            let c = opts.context.unwrap_or(0);
+            let ctx_b = opts.before_context.or(opts.context).unwrap_or(0);
+            let ctx_a = opts.after_context.or(opts.context).unwrap_or(0);
             // read once for both content and context lines (fallback is rare / no "files" feature)
             let content = std::fs::read_to_string(root)
                 .with_context(|| format!("failed to read {}", root.display()))?;
@@ -217,7 +242,8 @@ pub fn search_directory(
                 .into_iter()
                 .map(|m| {
                     let i = m.line_number - 1;
-                    let (context_before, context_after) = build_context_lines(&all_lines, i, c);
+                    let (context_before, context_after) =
+                        build_context_lines(&all_lines, i, ctx_b, ctx_a);
                     // column not tracked in basic fallback search (always 1; full impl behind "files" feature)
                     let column = 1;
                     SearchResult {
@@ -265,34 +291,63 @@ pub fn search_one_file(
     } else {
         pattern.to_string()
     };
-    let re = if opts.regex || opts.case_insensitive {
+    let re = if opts.regex || opts.case_insensitive || opts.multiline {
         regex::RegexBuilder::new(&pat)
             .case_insensitive(opts.case_insensitive)
+            .dot_matches_new_line(opts.multiline)
             .build()
             .ok()
     } else {
         None
     };
 
+    let ctx_before = opts.before_context.or(opts.context).unwrap_or(0);
+    let ctx_after = opts.after_context.or(opts.context).unwrap_or(0);
+
+    // Multiline mode: match against full content, report the start line of each match
+    if opts.multiline {
+        let mut results = Vec::new();
+        if let Some(re) = &re {
+            let all_lines: Vec<&str> = content.lines().collect();
+            for m in re.find_iter(&content) {
+                let start_byte = m.start();
+                let line_num = content[..start_byte].matches('\n').count();
+                let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();
+                let (context_before, context_after) =
+                    build_context_lines(&all_lines, line_num, ctx_before, ctx_after);
+                results.push(SearchResult {
+                    path: display.to_path_buf(),
+                    line_number: line_num + 1,
+                    line: line_text,
+                    column: 1,
+                    context_before,
+                    context_after,
+                });
+            }
+        }
+        return results;
+    }
+
     let mut results = Vec::new();
-    for (i, line) in content.lines().enumerate() {
-        let matched = if let Some(re) = &re {
+    let all_lines: Vec<&str> = content.lines().collect();
+    for (i, line) in all_lines.iter().enumerate() {
+        let found = if let Some(re) = &re {
             re.is_match(line)
         } else {
             line.contains(pattern)
         };
-        if matched {
-            let all_lines: Vec<&str> = content.lines().collect();
-            let c = opts.context.unwrap_or(0);
-            let (context_before, context_after) = build_context_lines(&all_lines, i, c);
-            let column = if opts.regex || opts.case_insensitive {
+        let is_match = if opts.invert_match { !found } else { found };
+        if is_match {
+            let (context_before, context_after) =
+                build_context_lines(&all_lines, i, ctx_before, ctx_after);
+            let column = if !opts.invert_match {
                 if let Some(re) = &re {
                     re.find(line).map_or(1, |m| m.start() + 1)
                 } else {
-                    1
+                    line.find(pattern).map_or(1, |p| p + 1)
                 }
             } else {
-                line.find(pattern).map_or(1, |p| p + 1)
+                1
             };
             results.push(SearchResult {
                 path: display.to_path_buf(),

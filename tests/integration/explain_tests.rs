@@ -246,4 +246,23 @@ fn test_explain_file_append_description() {
         .stdout(predicates::str::contains("Append"));
 }
 
+#[test]
+fn test_explain_file_prepend_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": "1", "operations": [{"op": "file.prepend", "path": "main.rs", "content": "// license"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Prepend"));
+}
+
 // ── --format flag on write commands ────────────────────────────

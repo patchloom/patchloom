@@ -215,6 +215,16 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         ],
     },
     McpToolMeta {
+        tool_name: "prepend_file",
+        op_name: "file.prepend",
+        description: "Prepend content to the beginning of an existing file. Example: {\"path\": \"src/main.rs\", \"content\": \"// Copyright 2026\\n\"}",
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
         tool_name: "create_file",
         op_name: "file.create",
         description: "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"src/new.rs\", \"content\": \"fn main() {}\"}",

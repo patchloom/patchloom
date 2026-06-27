@@ -434,3 +434,26 @@ fn test_batch_file_append() {
         "batch file.append should append: {content}"
     );
 }
+
+#[test]
+fn test_batch_file_prepend() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "existing\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "file.prepend data.txt prepended-line\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.starts_with("prepended-line"),
+        "batch file.prepend should prepend: {content}"
+    );
+}
