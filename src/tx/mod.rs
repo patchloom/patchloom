@@ -1,3 +1,14 @@
+// Most items in `tx` are consumed by CLI commands or the `files`-feature
+// library API (`crate::api`).  When neither feature is active the types
+// are still compiled (Plan lives here unconditionally) but have no
+// callers, so we suppress the warnings at the module level.
+//
+// NOTE: this blanket means `make test-library-hygiene` (which runs
+// clippy under `--no-default-features --features "ast,files"`) will
+// NOT flag genuinely dead items in this module.  Add per-item
+// `#[cfg(…)]` gates or targeted `#[allow(dead_code)]` with a
+// justification comment for items that are only used under a specific
+// feature set.
 #![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 
 pub mod engine;
