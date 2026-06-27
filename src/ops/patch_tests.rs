@@ -1,6 +1,44 @@
-// ── patch module tests ────────────────────────────────────────────
-mod patch_tests {
-    use crate::ops::patch::*;
+use crate::ops::patch::*;
+
+/// Helper: build a hunk with prefix context, removes, adds, suffix context.
+fn make_hunk(
+    old_start: usize,
+    prefix: &[&str],
+    removes: &[&str],
+    adds: &[&str],
+    suffix: &[&str],
+) -> Hunk {
+    let mut lines = Vec::new();
+    for s in prefix {
+        lines.push(PatchLine::Context(s.to_string()));
+    }
+    for s in removes {
+        lines.push(PatchLine::Remove(s.to_string()));
+    }
+    for s in adds {
+        lines.push(PatchLine::Add(s.to_string()));
+    }
+    for s in suffix {
+        lines.push(PatchLine::Context(s.to_string()));
+    }
+    let old_count = prefix.len() + removes.len() + suffix.len();
+    let new_count = prefix.len() + adds.len() + suffix.len();
+    Hunk {
+        old_start,
+        old_count,
+        new_start: old_start,
+        new_count,
+        lines,
+    }
+}
+
+/// Shorthand: `&[&str]` → `Vec<String>`.
+fn s(strings: &[&str]) -> Vec<String> {
+    strings.iter().map(|s| s.to_string()).collect()
+}
+
+mod basic {
+    use super::*;
 
     #[test]
     fn parse_patch_single_file() {
@@ -39,18 +77,6 @@ mod patch_tests {
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].path, "a.txt");
         assert_eq!(files[1].path, "b.txt");
-    }
-
-    #[test]
-    fn parse_patch_no_files() {
-        let diff = "just some text\n";
-        assert!(parse_patch(diff).is_err());
-    }
-
-    #[test]
-    fn parse_patch_no_hunks() {
-        let diff = "--- a/f.txt\n+++ b/f.txt\n";
-        assert!(parse_patch(diff).is_err());
     }
 
     #[test]
@@ -106,38 +132,6 @@ mod patch_tests {
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "a\nb\n");
-    }
-
-    #[test]
-    fn apply_hunks_stale_context_fails() {
-        let original = "a\nb\nc\n";
-        let hunks = vec![Hunk {
-            old_start: 1,
-            old_count: 1,
-            new_start: 1,
-            new_count: 1,
-            lines: vec![
-                PatchLine::Remove("wrong_context".into()),
-                PatchLine::Add("x".into()),
-            ],
-        }];
-        assert!(apply_hunks(original, &hunks).is_err());
-    }
-
-    #[test]
-    fn apply_hunks_fuzz_match() {
-        // The hunk header says line 2, but the actual match is at line 3
-        // (1 line off). Should still apply within FUZZ_RANGE=3.
-        let original = "a\nb\nc\nd\n";
-        let hunks = vec![Hunk {
-            old_start: 2,
-            old_count: 1,
-            new_start: 2,
-            new_count: 1,
-            lines: vec![PatchLine::Remove("c".into()), PatchLine::Add("C".into())],
-        }];
-        let result = apply_hunks(original, &hunks).unwrap();
-        assert_eq!(result, "a\nb\nC\nd\n");
     }
 
     #[test]
@@ -199,126 +193,12 @@ mod patch_tests {
     }
 
     #[test]
-    fn apply_hunks_pure_addition_on_empty() {
-        // A patch that creates a file from scratch: old_start=0, old_count=0,
-        // hunk contains only additions.
-        let original = "";
-        let hunks = vec![Hunk {
-            old_start: 0,
-            old_count: 0,
-            new_start: 1,
-            new_count: 2,
-            lines: vec![
-                PatchLine::Add("new_line1".into()),
-                PatchLine::Add("new_line2".into()),
-            ],
-        }];
-        let result = apply_hunks(original, &hunks).unwrap();
-        // Empty original is treated as having a final newline, so the
-        // output also gets one.
-        assert_eq!(result, "new_line1\nnew_line2\n");
-    }
-
-    #[test]
-    fn apply_hunks_preserves_no_final_newline() {
-        let original = "line1\nline2";
-        let hunks = vec![Hunk {
-            old_start: 2,
-            old_count: 1,
-            new_start: 2,
-            new_count: 1,
-            lines: vec![
-                PatchLine::Remove("line2".into()),
-                PatchLine::Add("LINE2".into()),
-            ],
-        }];
-        let result = apply_hunks(original, &hunks).unwrap();
-        assert_eq!(result, "line1\nLINE2");
-    }
-
-    /// Regression: apply_hunks must not panic on huge old_start values
-    /// that would overflow isize when cast from usize. Found by fuzzing.
-    #[test]
-    fn apply_hunks_huge_old_start_does_not_panic() {
-        let hunks = vec![Hunk {
-            old_start: usize::MAX,
-            old_count: 1,
-            new_start: 1,
-            new_count: 1,
-            lines: vec![PatchLine::Context("x".into())],
-        }];
-        // Must return Err, never panic.
-        assert!(apply_hunks("x\n", &hunks).is_err());
-    }
-
-    /// Regression: find_match must not panic when delta * sign overflows.
-    /// Found by fuzzing.
-    #[test]
-    fn apply_hunks_huge_fuzz_range_does_not_panic() {
-        let hunks = vec![Hunk {
-            old_start: 1,
-            old_count: 0,
-            new_start: 1,
-            new_count: 1,
-            lines: vec![PatchLine::Add("new".into())],
-        }];
-        // apply_hunks uses a fuzz of 2 internally; the regression was
-        // in find_match when delta values caused isize overflow. Just
-        // verify it doesn't panic.
-        let _ = apply_hunks("original\n", &hunks);
-    }
-}
-
-// ── merge / conflict path tests ──────────────────────────────
-mod merge_tests {
-    use crate::ops::patch::*;
-
-    /// Helper: build a hunk with prefix context, removes, adds, suffix context.
-    fn make_hunk(
-        old_start: usize,
-        prefix: &[&str],
-        removes: &[&str],
-        adds: &[&str],
-        suffix: &[&str],
-    ) -> Hunk {
-        let mut lines = Vec::new();
-        for s in prefix {
-            lines.push(PatchLine::Context(s.to_string()));
-        }
-        for s in removes {
-            lines.push(PatchLine::Remove(s.to_string()));
-        }
-        for s in adds {
-            lines.push(PatchLine::Add(s.to_string()));
-        }
-        for s in suffix {
-            lines.push(PatchLine::Context(s.to_string()));
-        }
-        let old_count = prefix.len() + removes.len() + suffix.len();
-        let new_count = prefix.len() + adds.len() + suffix.len();
-        Hunk {
-            old_start,
-            old_count,
-            new_start: old_start,
-            new_count,
-            lines,
-        }
-    }
-
-    /// Shorthand: `&[&str]` → `Vec<String>`.
-    fn s(strings: &[&str]) -> Vec<String> {
-        strings.iter().map(|s| s.to_string()).collect()
-    }
-
-    // ── merge_three_way_lines ────────────────────────────────
-
-    #[test]
     fn merge_three_way_lines_theirs_wins() {
         // ours == base for the differing line → take theirs
         let base = s(&["same", "base_val", "same"]);
         let ours = s(&["same", "base_val", "same"]);
         let theirs = s(&["same", "theirs_val", "same"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["same", "theirs_val", "same"]));
         assert!(conflicts.is_empty());
     }
@@ -329,7 +209,7 @@ mod merge_tests {
         let base = s(&["A", "base", "C"]);
         let ours = s(&["A", "ours", "C"]);
         let theirs = s(&["A", "base", "C"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["A", "ours", "C"]));
         assert!(conflicts.is_empty());
     }
@@ -340,7 +220,7 @@ mod merge_tests {
         let base = s(&["X"]);
         let ours = s(&["Z"]);
         let theirs = s(&["Z"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["Z"]));
         assert!(conflicts.is_empty());
     }
@@ -351,27 +231,16 @@ mod merge_tests {
         let base = s(&["base"]);
         let ours = s(&["ours"]);
         let theirs = s(&["theirs"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
         assert_eq!(result.len(), 5);
-        assert_eq!(result[0], super::super::CONFLICT_OURS);
+        assert_eq!(result[0], CONFLICT_OURS);
         assert_eq!(result[1], "ours");
-        assert_eq!(result[2], super::super::CONFLICT_SEP);
+        assert_eq!(result[2], CONFLICT_SEP);
         assert_eq!(result[3], "theirs");
-        assert_eq!(result[4], super::super::CONFLICT_THEIRS);
+        assert_eq!(result[4], CONFLICT_THEIRS);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].start_line, 1);
         assert_eq!(conflicts[0].end_line, 5);
-    }
-
-    #[test]
-    fn merge_three_way_lines_all_unchanged() {
-        // all three identical → no change, no conflict
-        let base = s(&["A", "B"]);
-        let ours = s(&["A", "B"]);
-        let theirs = s(&["A", "B"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
-        assert_eq!(result, s(&["A", "B"]));
-        assert!(conflicts.is_empty());
     }
 
     #[test]
@@ -381,12 +250,10 @@ mod merge_tests {
         let base = s(&["B1", "B2"]);
         let ours = s(&["O1", "B2"]);
         let theirs = s(&["B1", "T2"]);
-        let (result, conflicts) = super::super::merge_three_way_lines(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["O1", "T2"]));
         assert!(conflicts.is_empty());
     }
-
-    // ── merge_three_way_block ────────────────────────────────
 
     #[test]
     fn merge_three_way_block_theirs_wins() {
@@ -394,7 +261,7 @@ mod merge_tests {
         let base = s(&["A", "B"]);
         let ours = s(&["A", "B"]);
         let theirs = s(&["A", "B", "C"]);
-        let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_block(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["A", "B", "C"]));
         assert!(conflicts.is_empty());
     }
@@ -405,19 +272,8 @@ mod merge_tests {
         let base = s(&["A", "B"]);
         let ours = s(&["A", "B", "new"]);
         let theirs = s(&["A", "B"]);
-        let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
+        let (result, conflicts) = merge_three_way_block(&base, &ours, &theirs, 1);
         assert_eq!(result, s(&["A", "B", "new"]));
-        assert!(conflicts.is_empty());
-    }
-
-    #[test]
-    fn merge_three_way_block_ours_equals_theirs() {
-        // ours == theirs, both differ from base → take ours, no conflict
-        let base = s(&["old"]);
-        let ours = s(&["new1", "new2"]);
-        let theirs = s(&["new1", "new2"]);
-        let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
-        assert_eq!(result, s(&["new1", "new2"]));
         assert!(conflicts.is_empty());
     }
 
@@ -427,61 +283,43 @@ mod merge_tests {
         let base = s(&["B1", "B2"]);
         let ours = s(&["O1", "O2", "O3"]);
         let theirs = s(&["T1", "T2", "T3", "T4"]);
-        let (result, conflicts) = super::super::merge_three_way_block(&base, &ours, &theirs, 1);
-        assert_eq!(result[0], super::super::CONFLICT_OURS);
+        let (result, conflicts) = merge_three_way_block(&base, &ours, &theirs, 1);
+        assert_eq!(result[0], CONFLICT_OURS);
         assert_eq!(result[1], "O1");
         assert_eq!(result[2], "O2");
         assert_eq!(result[3], "O3");
-        assert_eq!(result[4], super::super::CONFLICT_SEP);
+        assert_eq!(result[4], CONFLICT_SEP);
         assert_eq!(result[5], "T1");
         assert_eq!(result[6], "T2");
         assert_eq!(result[7], "T3");
         assert_eq!(result[8], "T4");
-        assert_eq!(result[9], super::super::CONFLICT_THEIRS);
+        assert_eq!(result[9], CONFLICT_THEIRS);
         assert_eq!(result.len(), 10);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].start_line, 1);
         assert_eq!(conflicts[0].end_line, 10);
     }
 
-    // ── find_match_global ────────────────────────────────────
-
     #[test]
     fn find_match_global_finds_at_start() {
         let haystack: Vec<&str> = vec!["A", "B", "C", "D"];
         let needle: Vec<&str> = vec!["A", "B"];
-        assert_eq!(super::super::find_match_global(&haystack, &needle), Some(0));
+        assert_eq!(find_match_global(&haystack, &needle), Some(0));
     }
 
     #[test]
     fn find_match_global_finds_in_middle() {
         let haystack: Vec<&str> = vec!["X", "A", "B", "Y"];
         let needle: Vec<&str> = vec!["A", "B"];
-        assert_eq!(super::super::find_match_global(&haystack, &needle), Some(1));
+        assert_eq!(find_match_global(&haystack, &needle), Some(1));
     }
 
     #[test]
     fn find_match_global_finds_at_end() {
         let haystack: Vec<&str> = vec!["X", "Y", "A", "B"];
         let needle: Vec<&str> = vec!["A", "B"];
-        assert_eq!(super::super::find_match_global(&haystack, &needle), Some(2));
+        assert_eq!(find_match_global(&haystack, &needle), Some(2));
     }
-
-    #[test]
-    fn find_match_global_empty_needle() {
-        let haystack: Vec<&str> = vec!["A", "B"];
-        let needle: Vec<&str> = vec![];
-        assert_eq!(super::super::find_match_global(&haystack, &needle), Some(0));
-    }
-
-    #[test]
-    fn find_match_global_no_match() {
-        let haystack: Vec<&str> = vec!["A", "B", "C"];
-        let needle: Vec<&str> = vec!["X", "Y"];
-        assert_eq!(super::super::find_match_global(&haystack, &needle), None);
-    }
-
-    // ── locate_by_context_anchors ────────────────────────────
 
     #[test]
     fn locate_by_context_anchors_prefix_only() {
@@ -499,7 +337,7 @@ mod merge_tests {
             ],
         };
         let haystack: Vec<&str> = vec!["ctx1", "ctx2", "modified"];
-        let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+        let result = locate_by_context_anchors(&haystack, &hunk, 0);
         assert_eq!(result, Some(0));
     }
 
@@ -518,7 +356,7 @@ mod merge_tests {
             ],
         };
         let haystack: Vec<&str> = vec!["modified", "suffix"];
-        let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+        let result = locate_by_context_anchors(&haystack, &hunk, 0);
         assert_eq!(result, Some(0));
     }
 
@@ -538,29 +376,9 @@ mod merge_tests {
             ],
         };
         let haystack: Vec<&str> = vec!["prefix", "modified", "suffix"];
-        let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
+        let result = locate_by_context_anchors(&haystack, &hunk, 0);
         assert_eq!(result, Some(0));
     }
-
-    #[test]
-    fn locate_by_context_anchors_no_context_returns_none() {
-        // Hunk has no context lines at all → cannot locate
-        let hunk = Hunk {
-            old_start: 1,
-            old_count: 1,
-            new_start: 1,
-            new_count: 1,
-            lines: vec![
-                PatchLine::Remove("old".into()),
-                PatchLine::Add("new".into()),
-            ],
-        };
-        let haystack: Vec<&str> = vec!["modified"];
-        let result = super::super::locate_by_context_anchors(&haystack, &hunk, 0);
-        assert_eq!(result, None);
-    }
-
-    // ── merge_hunks ─────────────────────────────────────────
 
     #[test]
     fn merge_hunks_clean_apply() {
@@ -585,10 +403,10 @@ mod merge_tests {
         )];
         let result = merge_hunks(ours, &hunks).unwrap();
         assert!(!result.conflicts.is_empty());
-        assert!(result.content.contains(super::super::CONFLICT_OURS));
+        assert!(result.content.contains(CONFLICT_OURS));
         assert!(result.content.contains("ours_modified"));
         assert!(result.content.contains("theirs_val"));
-        assert!(result.content.contains(super::super::CONFLICT_THEIRS));
+        assert!(result.content.contains(CONFLICT_THEIRS));
     }
 
     #[test]
@@ -615,25 +433,6 @@ mod merge_tests {
         assert_eq!(result.content, "ctx1\nours_val\npatched\nctx2\n");
         assert!(result.conflicts.is_empty());
     }
-
-    #[test]
-    fn merge_hunks_preserves_final_newline() {
-        let ours = "ctx1\nold\nctx2\n";
-        let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
-        let result = merge_hunks(ours, &hunks).unwrap();
-        assert!(result.content.ends_with('\n'));
-    }
-
-    #[test]
-    fn merge_hunks_no_final_newline() {
-        let ours = "ctx1\nold\nctx2";
-        let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
-        let result = merge_hunks(ours, &hunks).unwrap();
-        assert!(!result.content.ends_with('\n'));
-        assert_eq!(result.content, "ctx1\nnew\nctx2");
-    }
-
-    // ── apply_hunks_with_options ─────────────────────────────
 
     #[test]
     fn apply_with_options_merge_clean() {
@@ -690,43 +489,142 @@ mod merge_tests {
         let result = apply_hunks_with_options(ours, &hunks, opts).unwrap();
         assert_eq!(result.status, ApplyHunksStatus::Conflict);
         assert!(!result.conflicts.is_empty());
-        assert!(result.content.contains(super::super::CONFLICT_OURS));
+        assert!(result.content.contains(CONFLICT_OURS));
         assert!(result.content.contains("ours_mod"));
         assert!(result.content.contains("theirs"));
-        assert!(result.content.contains(super::super::CONFLICT_THEIRS));
+        assert!(result.content.contains(CONFLICT_THEIRS));
     }
 
     #[test]
-    fn apply_with_options_merge_conflict_disallowed() {
-        // Stale content, conflicting merge, allow_conflicts = false → Err
-        let ours = "ctx1\nours_mod\nctx2\n";
-        let hunks = vec![make_hunk(1, &["ctx1"], &["base"], &["theirs"], &["ctx2"])];
-        let opts = ApplyHunksOptions {
-            on_stale: OnStale::Merge,
-            allow_conflicts: false,
-        };
-        let result = apply_hunks_with_options(ours, &hunks, opts);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("conflict"));
-    }
-
-    #[test]
-    fn apply_with_options_fail_on_stale() {
-        // OnStale::Fail with stale content → Err
-        let ours = "ctx1\nmodified\nctx2\n";
-        let hunks = vec![make_hunk(1, &["ctx1"], &["original"], &["new"], &["ctx2"])];
-        let opts = ApplyHunksOptions {
-            on_stale: OnStale::Fail,
-            allow_conflicts: false,
-        };
-        let result = apply_hunks_with_options(ours, &hunks, opts);
-        assert!(result.is_err());
+    fn parse_patch_with_diff_git_headers() {
+        let diff = "\
+diff --git a/src/hello.rs b/src/hello.rs
+index 1234567..abcdefg 100644
+--- a/src/hello.rs
++++ b/src/hello.rs
+@@ -1,3 +1,3 @@
+ fn main() {
+-    println!(\"hello\");
++    println!(\"Hello, world!\");
+ }
+";
+        let files = parse_patch(diff).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/hello.rs");
+        assert_eq!(files[0].hunks.len(), 1);
+        assert_eq!(files[0].hunks[0].old_start, 1);
+        assert_eq!(files[0].hunks[0].old_count, 3);
+        assert_eq!(files[0].hunks[0].new_count, 3);
+        assert_eq!(files[0].hunks[0].lines.len(), 4);
+        assert_eq!(
+            files[0].hunks[0].lines[0],
+            PatchLine::Context("fn main() {".into())
+        );
+        assert_eq!(
+            files[0].hunks[0].lines[1],
+            PatchLine::Remove("    println!(\"hello\");".into())
+        );
+        assert_eq!(
+            files[0].hunks[0].lines[2],
+            PatchLine::Add("    println!(\"Hello, world!\");".into())
+        );
+        assert_eq!(files[0].hunks[0].lines[3], PatchLine::Context("}".into()));
     }
 }
 
-// ── fuzz boundary and edge case tests ────────────────────────
-mod fuzz_and_edge_tests {
-    use crate::ops::patch::*;
+mod edge_cases {
+    use super::*;
+
+    #[test]
+    fn apply_hunks_fuzz_match() {
+        // The hunk header says line 2, but the actual match is at line 3
+        // (1 line off). Should still apply within FUZZ_RANGE=3.
+        let original = "a\nb\nc\nd\n";
+        let hunks = vec![Hunk {
+            old_start: 2,
+            old_count: 1,
+            new_start: 2,
+            new_count: 1,
+            lines: vec![PatchLine::Remove("c".into()), PatchLine::Add("C".into())],
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        assert_eq!(result, "a\nb\nC\nd\n");
+    }
+
+    #[test]
+    fn apply_hunks_pure_addition_on_empty() {
+        // A patch that creates a file from scratch: old_start=0, old_count=0,
+        // hunk contains only additions.
+        let original = "";
+        let hunks = vec![Hunk {
+            old_start: 0,
+            old_count: 0,
+            new_start: 1,
+            new_count: 2,
+            lines: vec![
+                PatchLine::Add("new_line1".into()),
+                PatchLine::Add("new_line2".into()),
+            ],
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        // Empty original is treated as having a final newline, so the
+        // output also gets one.
+        assert_eq!(result, "new_line1\nnew_line2\n");
+    }
+
+    #[test]
+    fn merge_three_way_lines_all_unchanged() {
+        // all three identical → no change, no conflict
+        let base = s(&["A", "B"]);
+        let ours = s(&["A", "B"]);
+        let theirs = s(&["A", "B"]);
+        let (result, conflicts) = merge_three_way_lines(&base, &ours, &theirs, 1);
+        assert_eq!(result, s(&["A", "B"]));
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn merge_three_way_block_ours_equals_theirs() {
+        // ours == theirs, both differ from base → take ours, no conflict
+        let base = s(&["old"]);
+        let ours = s(&["new1", "new2"]);
+        let theirs = s(&["new1", "new2"]);
+        let (result, conflicts) = merge_three_way_block(&base, &ours, &theirs, 1);
+        assert_eq!(result, s(&["new1", "new2"]));
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn find_match_global_empty_needle() {
+        let haystack: Vec<&str> = vec!["A", "B"];
+        let needle: Vec<&str> = vec![];
+        assert_eq!(find_match_global(&haystack, &needle), Some(0));
+    }
+
+    #[test]
+    fn find_match_global_no_match() {
+        let haystack: Vec<&str> = vec!["A", "B", "C"];
+        let needle: Vec<&str> = vec!["X", "Y"];
+        assert_eq!(find_match_global(&haystack, &needle), None);
+    }
+
+    #[test]
+    fn locate_by_context_anchors_no_context_returns_none() {
+        // Hunk has no context lines at all → cannot locate
+        let hunk = Hunk {
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![
+                PatchLine::Remove("old".into()),
+                PatchLine::Add("new".into()),
+            ],
+        };
+        let haystack: Vec<&str> = vec!["modified"];
+        let result = locate_by_context_anchors(&haystack, &hunk, 0);
+        assert_eq!(result, None);
+    }
 
     #[test]
     fn fuzz_at_maximum_boundary_delta_3() {
@@ -830,41 +728,102 @@ mod fuzz_and_edge_tests {
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, original);
     }
+}
+
+mod error_handling {
+    use super::*;
 
     #[test]
-    fn parse_patch_with_diff_git_headers() {
-        let diff = "\
-diff --git a/src/hello.rs b/src/hello.rs
-index 1234567..abcdefg 100644
---- a/src/hello.rs
-+++ b/src/hello.rs
-@@ -1,3 +1,3 @@
- fn main() {
--    println!(\"hello\");
-+    println!(\"Hello, world!\");
- }
-";
-        let files = parse_patch(diff).unwrap();
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, "src/hello.rs");
-        assert_eq!(files[0].hunks.len(), 1);
-        assert_eq!(files[0].hunks[0].old_start, 1);
-        assert_eq!(files[0].hunks[0].old_count, 3);
-        assert_eq!(files[0].hunks[0].new_count, 3);
-        assert_eq!(files[0].hunks[0].lines.len(), 4);
-        assert_eq!(
-            files[0].hunks[0].lines[0],
-            PatchLine::Context("fn main() {".into())
-        );
-        assert_eq!(
-            files[0].hunks[0].lines[1],
-            PatchLine::Remove("    println!(\"hello\");".into())
-        );
-        assert_eq!(
-            files[0].hunks[0].lines[2],
-            PatchLine::Add("    println!(\"Hello, world!\");".into())
-        );
-        assert_eq!(files[0].hunks[0].lines[3], PatchLine::Context("}".into()));
+    fn parse_patch_no_files() {
+        let diff = "just some text\n";
+        assert!(parse_patch(diff).is_err());
+    }
+
+    #[test]
+    fn parse_patch_no_hunks() {
+        let diff = "--- a/f.txt\n+++ b/f.txt\n";
+        assert!(parse_patch(diff).is_err());
+    }
+
+    #[test]
+    fn apply_hunks_stale_context_fails() {
+        let original = "a\nb\nc\n";
+        let hunks = vec![Hunk {
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![
+                PatchLine::Remove("wrong_context".into()),
+                PatchLine::Add("x".into()),
+            ],
+        }];
+        assert!(apply_hunks(original, &hunks).is_err());
+    }
+
+    #[test]
+    fn apply_with_options_merge_conflict_disallowed() {
+        // Stale content, conflicting merge, allow_conflicts = false → Err
+        let ours = "ctx1\nours_mod\nctx2\n";
+        let hunks = vec![make_hunk(1, &["ctx1"], &["base"], &["theirs"], &["ctx2"])];
+        let opts = ApplyHunksOptions {
+            on_stale: OnStale::Merge,
+            allow_conflicts: false,
+        };
+        let result = apply_hunks_with_options(ours, &hunks, opts);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("conflict"));
+    }
+
+    #[test]
+    fn apply_with_options_fail_on_stale() {
+        // OnStale::Fail with stale content → Err
+        let ours = "ctx1\nmodified\nctx2\n";
+        let hunks = vec![make_hunk(1, &["ctx1"], &["original"], &["new"], &["ctx2"])];
+        let opts = ApplyHunksOptions {
+            on_stale: OnStale::Fail,
+            allow_conflicts: false,
+        };
+        let result = apply_hunks_with_options(ours, &hunks, opts);
+        assert!(result.is_err());
+    }
+}
+
+mod format_preservation {
+    use super::*;
+
+    #[test]
+    fn apply_hunks_preserves_no_final_newline() {
+        let original = "line1\nline2";
+        let hunks = vec![Hunk {
+            old_start: 2,
+            old_count: 1,
+            new_start: 2,
+            new_count: 1,
+            lines: vec![
+                PatchLine::Remove("line2".into()),
+                PatchLine::Add("LINE2".into()),
+            ],
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        assert_eq!(result, "line1\nLINE2");
+    }
+
+    #[test]
+    fn merge_hunks_preserves_final_newline() {
+        let ours = "ctx1\nold\nctx2\n";
+        let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+        let result = merge_hunks(ours, &hunks).unwrap();
+        assert!(result.content.ends_with('\n'));
+    }
+
+    #[test]
+    fn merge_hunks_no_final_newline() {
+        let ours = "ctx1\nold\nctx2";
+        let hunks = vec![make_hunk(1, &["ctx1"], &["old"], &["new"], &["ctx2"])];
+        let result = merge_hunks(ours, &hunks).unwrap();
+        assert!(!result.content.ends_with('\n'));
+        assert_eq!(result.content, "ctx1\nnew\nctx2");
     }
 
     #[test]
@@ -889,5 +848,41 @@ index 1234567..abcdefg 100644
         );
         assert_eq!(files[0].hunks[0].lines[1], PatchLine::Remove("old".into()));
         assert_eq!(files[0].hunks[0].lines[2], PatchLine::Add("new".into()));
+    }
+}
+
+mod regression {
+    use super::*;
+
+    /// Regression: apply_hunks must not panic on huge old_start values
+    /// that would overflow isize when cast from usize. Found by fuzzing.
+    #[test]
+    fn apply_hunks_huge_old_start_does_not_panic() {
+        let hunks = vec![Hunk {
+            old_start: usize::MAX,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![PatchLine::Context("x".into())],
+        }];
+        // Must return Err, never panic.
+        assert!(apply_hunks("x\n", &hunks).is_err());
+    }
+
+    /// Regression: find_match must not panic when delta * sign overflows.
+    /// Found by fuzzing.
+    #[test]
+    fn apply_hunks_huge_fuzz_range_does_not_panic() {
+        let hunks = vec![Hunk {
+            old_start: 1,
+            old_count: 0,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![PatchLine::Add("new".into())],
+        }];
+        // apply_hunks uses a fuzz of 2 internally; the regression was
+        // in find_match when delta values caused isize overflow. Just
+        // verify it doesn't panic.
+        let _ = apply_hunks("original\n", &hunks);
     }
 }
