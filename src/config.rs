@@ -18,6 +18,7 @@ pub struct ProjectConfig {
     pub output: Output,
     pub tx: TxConfig,
     pub defaults: Defaults,
+    pub format: FormatConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -28,6 +29,21 @@ pub struct Defaults {
     pub apply: Option<bool>,
     /// Default format command (e.g., "cargo fmt"). Applied after --apply unless overridden by CLI --format.
     pub format: Option<String>,
+}
+
+/// Format configuration: per-extension formatters and auto-format toggle.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+#[non_exhaustive]
+pub struct FormatConfig {
+    /// When true, run formatters automatically after --apply without needing --format.
+    pub auto: Option<bool>,
+    /// Single catch-all formatter command (runs on the entire cwd).
+    pub command: Option<String>,
+    /// Per-extension formatter commands. Keys are file extensions (without dot),
+    /// values are shell commands. The file path is appended as the last argument.
+    #[serde(default)]
+    pub by_extension: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -123,7 +139,14 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.apply = true;
     }
     if global.format.is_none() {
-        global.format = config.defaults.format.clone();
+        // CLI --format wins, then defaults.format, then format.command (with auto=true)
+        if let Some(ref fmt) = config.defaults.format {
+            global.format = Some(fmt.clone());
+        } else if config.format.auto == Some(true)
+            && let Some(ref cmd) = config.format.command
+        {
+            global.format = Some(cmd.clone());
+        }
     }
 
     // Exclude globs: prepend config globs before user globs.
@@ -322,6 +345,7 @@ color = "always"
             },
             tx: TxConfig::default(),
             defaults: Defaults::default(),
+            format: FormatConfig::default(),
         };
         let mut global = crate::cli::global::GlobalFlags::default();
         apply_config(&mut global, &config);
@@ -552,5 +576,94 @@ respect_editorconfig = true
         assert_eq!(config.defaults.apply, Some(true));
         assert_eq!(config.defaults.format.as_deref(), Some("cargo fmt"));
         assert_eq!(config.write_policy.respect_editorconfig, Some(true));
+    }
+
+    #[test]
+    fn find_and_load_format_config() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            r#"
+[format]
+auto = true
+command = "treefmt"
+
+[format.by_extension]
+rs = "rustfmt"
+go = "gofmt -w"
+ts = "prettier --write"
+"#,
+        )
+        .unwrap();
+
+        let (config, _) = find_and_load(dir.path()).unwrap();
+        assert_eq!(config.format.auto, Some(true));
+        assert_eq!(config.format.command.as_deref(), Some("treefmt"));
+        assert_eq!(config.format.by_extension.len(), 3);
+        assert_eq!(config.format.by_extension.get("rs").unwrap(), "rustfmt");
+        assert_eq!(config.format.by_extension.get("go").unwrap(), "gofmt -w");
+        assert_eq!(
+            config.format.by_extension.get("ts").unwrap(),
+            "prettier --write"
+        );
+    }
+
+    #[test]
+    fn find_and_load_format_auto_without_command() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            r#"
+[format]
+auto = true
+
+[format.by_extension]
+rs = "rustfmt"
+"#,
+        )
+        .unwrap();
+
+        let (config, _) = find_and_load(dir.path()).unwrap();
+        assert_eq!(config.format.auto, Some(true));
+        assert!(config.format.command.is_none());
+        assert_eq!(config.format.by_extension.get("rs").unwrap(), "rustfmt");
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_format_auto_command_sets_global_format() {
+        let config = ProjectConfig {
+            format: FormatConfig {
+                auto: Some(true),
+                command: Some("treefmt".into()),
+                ..FormatConfig::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        assert!(global.format.is_none());
+        apply_config(&mut global, &config);
+        assert_eq!(global.format.as_deref(), Some("treefmt"));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_defaults_format_wins_over_format_command() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                format: Some("cargo fmt --all".into()),
+                ..Defaults::default()
+            },
+            format: FormatConfig {
+                auto: Some(true),
+                command: Some("treefmt".into()),
+                ..FormatConfig::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+        // defaults.format takes priority over format.command
+        assert_eq!(global.format.as_deref(), Some("cargo fmt --all"));
     }
 }

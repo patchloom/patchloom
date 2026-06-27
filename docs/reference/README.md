@@ -97,6 +97,13 @@ These flags shape how written content is normalized before it reaches disk.
 - **Use when:** The formatter is slow (e.g. large monorepo) and the default 30 second timeout is insufficient.
 - **Prefer instead:** Keep the default unless the formatter demonstrably needs more time.
 
+<!-- ref:write-flag:no-format -->
+### `--no-format`
+
+- **What it does:** Disables post-write formatting even if configured in `.patchloom.toml` (via `[format] auto = true` or `[defaults] format`).
+- **Use when:** You want to skip formatting for a single invocation without changing the project config.
+- **Prefer instead:** Omit when you want the configured formatter to run normally.
+
 ### Output and scope flags
 
 These flags affect how Patchloom reports results or chooses which files to touch.
