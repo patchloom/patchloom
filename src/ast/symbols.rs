@@ -137,6 +137,163 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
     }
 }
 
+/// Located function signature with byte offsets into the source.
+///
+/// Returned by [`find_function_span`] to let callers splice in replacement
+/// signatures without understanding language-specific syntax.
+#[derive(Debug, Clone)]
+pub struct FunctionSpan {
+    /// Full byte range of the function node (including body).
+    pub full_range: std::ops::Range<usize>,
+    /// Byte range of just the signature (up to but not including the body).
+    /// May include trailing whitespace; see `signature_text` for the trimmed version.
+    pub signature_range: std::ops::Range<usize>,
+    /// The signature text.
+    pub signature_text: String,
+    /// Function name.
+    pub name: String,
+    /// 1-based start line.
+    pub start_line: usize,
+    /// 1-based end line of the signature (not the body).
+    pub signature_end_line: usize,
+}
+
+/// Find a function by name and return its signature span.
+///
+/// Works for any language with a tree-sitter grammar. Returns `None` if
+/// the language has no grammar support, the function is not found, or
+/// parsing fails.
+///
+/// The caller can use `signature_range` to splice in a replacement:
+///
+/// ```rust,ignore
+/// let span = find_function_span(source, "old_name", Language::Rust).unwrap();
+/// let result = format!(
+///     "{}{}{}",
+///     &source[..span.signature_range.start],
+///     new_signature,
+///     &source[span.signature_range.end..],
+/// );
+/// ```
+pub fn find_function_span(
+    source: &str,
+    function_name: &str,
+    lang: Language,
+) -> Option<FunctionSpan> {
+    let (tree, _) = parse_source(source, lang)?;
+    let root = tree.root_node();
+
+    let fn_node = find_function_node(root, source, function_name)?;
+
+    let start = fn_node.start_byte();
+    let end = fn_node.end_byte();
+    let sig_end = find_body_start(fn_node).unwrap_or(end);
+
+    let signature_text = source[start..sig_end].trim_end().to_string();
+    let start_line = fn_node.start_position().row + 1;
+    let sig_end_line = source[..sig_end].matches('\n').count() + 1;
+
+    Some(FunctionSpan {
+        full_range: start..end,
+        signature_range: start..sig_end,
+        signature_text,
+        name: function_name.to_string(),
+        start_line,
+        signature_end_line: sig_end_line,
+    })
+}
+
+/// Node kinds that represent function/method definitions per language.
+const FUNCTION_NODE_KINDS: &[&str] = &[
+    "function_item",           // Rust
+    "function_definition",     // Python, C, C++
+    "function_declaration",    // TypeScript, JavaScript, Go
+    "method_declaration",      // Go, Java
+    "method_definition",       // TypeScript, JavaScript
+    "constructor_declaration", // Java
+];
+
+/// Node kinds that represent a function body (block of code).
+const BODY_NODE_KINDS: &[&str] = &[
+    "block",              // Rust, Python, Go
+    "statement_block",    // TypeScript, JavaScript
+    "compound_statement", // C, C++
+];
+
+/// Recursively find a function/method node by name across any supported language.
+fn find_function_node<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    source: &str,
+    name: &str,
+) -> Option<tree_sitter_lib::Node<'a>> {
+    if FUNCTION_NODE_KINDS.contains(&node.kind()) && function_node_has_name(node, source, name) {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = find_function_node(child, source, name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Check if a function/method node has the given name.
+///
+/// Handles multiple naming strategies:
+/// 1. Direct identifier child (Rust, Python, Go, TypeScript, Java)
+/// 2. Name nested inside a declarator child (C, C++)
+fn function_node_has_name(node: tree_sitter_lib::Node, source: &str, name: &str) -> bool {
+    // Strategy 1: direct identifier child
+    let name_kinds = &[
+        "identifier",
+        "name",
+        "property_identifier",
+        "field_identifier",
+        "word",
+    ];
+    if child_text_by_kinds(node, name_kinds, source) == Some(name) {
+        return true;
+    }
+    // Strategy 2: C-family declarator nesting (function_declarator -> identifier)
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind().contains("declarator") {
+            if child_text_by_kinds(child, name_kinds, source) == Some(name) {
+                return true;
+            }
+            // One more level: function_declarator -> declarator -> identifier
+            let mut inner = child.walk();
+            for grandchild in child.children(&mut inner) {
+                if grandchild.kind().contains("declarator") || grandchild.kind() == "identifier" {
+                    if grandchild.kind() == "identifier" {
+                        if grandchild.utf8_text(source.as_bytes()).ok() == Some(name) {
+                            return true;
+                        }
+                    } else if child_text_by_kinds(grandchild, name_kinds, source) == Some(name) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Find the byte offset where the body starts within a function node.
+///
+/// Scans children for known body node kinds, returning the start byte of the
+/// body. For Python, the body is the indented `block` after the colon.
+fn find_body_start(fn_node: tree_sitter_lib::Node) -> Option<usize> {
+    let mut cursor = fn_node.walk();
+    for child in fn_node.children(&mut cursor) {
+        if BODY_NODE_KINDS.contains(&child.kind()) {
+            return Some(child.start_byte());
+        }
+    }
+    None
+}
+
 /// Tree-sitter based helper for function signature updates (Rust focus for now).
 /// Locates the exact `function_item` node by identifier, replaces only the signature
 /// portion (up to body or semicolon) with `new_sig`.
@@ -1185,5 +1342,121 @@ struct Point {
         assert!(text.contains("#[test]"));
         assert!(text.contains("fn foo()"));
         assert!(!text.contains("fn bar"));
+    }
+
+    // ── find_function_span tests ──────────────────────────────────
+
+    #[test]
+    fn find_function_span_rust() {
+        let source = "fn hello(x: i32) -> String {\n    x.to_string()\n}\n";
+        let span = find_function_span(source, "hello", Language::Rust).unwrap();
+        assert_eq!(span.name, "hello");
+        assert!(span.signature_text.contains("fn hello(x: i32) -> String"));
+        assert!(!span.signature_text.contains("x.to_string()"));
+        assert_eq!(span.start_line, 1);
+    }
+
+    #[test]
+    fn find_function_span_python() {
+        let source = "class Foo:\n    def process(self, data: list) -> dict:\n        return {}\n";
+        let span = find_function_span(source, "process", Language::Python).unwrap();
+        assert_eq!(span.name, "process");
+        assert!(span.signature_text.contains("def process"));
+        assert!(span.signature_text.contains("-> dict"));
+    }
+
+    #[test]
+    fn find_function_span_typescript() {
+        let source = "export async function fetchData(url: string): Promise<Response> {\n  return fetch(url);\n}\n";
+        let span = find_function_span(source, "fetchData", Language::TypeScript).unwrap();
+        assert_eq!(span.name, "fetchData");
+        assert!(span.signature_text.contains("function fetchData"));
+    }
+
+    #[test]
+    fn find_function_span_go_function() {
+        let source =
+            "func HandleRequest(w http.ResponseWriter, r *http.Request) error {\n\treturn nil\n}\n";
+        let span = find_function_span(source, "HandleRequest", Language::Go).unwrap();
+        assert_eq!(span.name, "HandleRequest");
+        assert!(span.signature_text.contains("func HandleRequest"));
+    }
+
+    #[test]
+    fn find_function_span_go_method() {
+        let source = "func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) error {\n\treturn nil\n}\n";
+        let span = find_function_span(source, "HandleRequest", Language::Go).unwrap();
+        assert_eq!(span.name, "HandleRequest");
+        assert!(
+            span.signature_text
+                .contains("func (s *Server) HandleRequest")
+        );
+    }
+
+    #[test]
+    fn find_function_span_java() {
+        let source = "public class Foo {\n    public void processEvent(Event e) {\n        // ...\n    }\n}\n";
+        let span = find_function_span(source, "processEvent", Language::Java).unwrap();
+        assert_eq!(span.name, "processEvent");
+        assert!(span.signature_text.contains("public void processEvent"));
+    }
+
+    #[test]
+    fn find_function_span_not_found() {
+        let source = "fn hello() {}\n";
+        let result = find_function_span(source, "nonexistent", Language::Rust);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_function_span_no_grammar() {
+        let source = "whatever";
+        let result = find_function_span(source, "foo", Language::Unknown);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_function_span_multiline_python() {
+        let source = "def long_function(\n    param1: str,\n    param2: int,\n    param3: bool = False,\n) -> dict:\n    return {}\n";
+        let span = find_function_span(source, "long_function", Language::Python).unwrap();
+        assert_eq!(span.name, "long_function");
+        assert!(span.signature_text.contains("param1: str"));
+        assert!(span.signature_text.contains("-> dict"));
+        assert_eq!(span.start_line, 1);
+        assert!(span.signature_end_line >= 5);
+    }
+
+    #[test]
+    fn find_function_span_can_splice_replacement() {
+        let source = "fn old_name(x: i32) -> bool {\n    true\n}\n";
+        let span = find_function_span(source, "old_name", Language::Rust).unwrap();
+        let new_sig = "fn new_name(x: i32, y: bool) -> bool ";
+        let mut result = String::new();
+        result.push_str(&source[..span.signature_range.start]);
+        result.push_str(new_sig);
+        result.push_str(&source[span.signature_range.end..]);
+        assert!(result.contains("fn new_name(x: i32, y: bool) -> bool"));
+        assert!(result.contains("true")); // body preserved
+    }
+
+    #[test]
+    fn find_function_span_cpp() {
+        let source = "void process(int x, double y) {\n    // body\n}\n";
+        let span = find_function_span(source, "process", Language::Cpp).unwrap();
+        assert_eq!(span.name, "process");
+        assert!(
+            span.signature_text
+                .contains("void process(int x, double y)")
+        );
+        assert!(!span.signature_text.contains("// body"));
+    }
+
+    #[test]
+    fn find_function_span_c() {
+        let source = "int main(int argc, char *argv[]) {\n    return 0;\n}\n";
+        let span = find_function_span(source, "main", Language::C).unwrap();
+        assert_eq!(span.name, "main");
+        assert!(span.signature_text.contains("int main"));
+        assert!(!span.signature_text.contains("return 0"));
     }
 }
