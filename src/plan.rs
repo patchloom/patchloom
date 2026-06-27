@@ -588,6 +588,9 @@ impl Operation {
                 | Operation::PatchApply { .. }
                 | Operation::FileAppend { .. }
                 | Operation::FilePrepend { .. }
+                | Operation::FileCreate { .. }
+                | Operation::FileDelete { .. }
+                | Operation::FileRename { .. }
                 | Operation::Read { .. }
                 | Operation::Search { .. }
                 | Operation::MdLintAgents { .. }
@@ -1333,5 +1336,38 @@ mod tests {
         let plan = parse_plan(set_json).unwrap();
         let (_, mutation) = op_to_doc_mutation(&plan.operations[0]).unwrap();
         assert!(matches!(mutation, DocMutation::Set { .. }));
+    }
+
+    /// Regression: FileCreate, FileDelete, and FileRename must trigger a doc
+    /// cache flush, otherwise a preceding doc.set can be silently undone.
+    #[test]
+    fn needs_doc_flush_includes_file_create_delete_rename() {
+        let create = Operation::FileCreate {
+            path: "f.json".into(),
+            content: "{}".into(),
+            force: Some(false),
+        };
+        assert!(
+            create.needs_doc_flush(),
+            "FileCreate must trigger doc flush"
+        );
+
+        let delete = Operation::FileDelete {
+            path: "f.json".into(),
+        };
+        assert!(
+            delete.needs_doc_flush(),
+            "FileDelete must trigger doc flush"
+        );
+
+        let rename = Operation::FileRename {
+            from: "a.json".into(),
+            to: "b.json".into(),
+            force: false,
+        };
+        assert!(
+            rename.needs_doc_flush(),
+            "FileRename must trigger doc flush"
+        );
     }
 }
