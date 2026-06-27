@@ -957,15 +957,17 @@ pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language)
     let start_0 = full_start.saturating_sub(1);
     let end_0 = full_end.min(lines.len());
 
-    // Find byte offsets
+    // Find byte offsets. str::lines() strips both \n and \r\n, so line.len()
+    // excludes the line ending. We must account for the actual ending size.
+    let line_ending_len = if source.contains("\r\n") { 2 } else { 1 };
     let mut byte_start = 0;
     for line in &lines[..start_0] {
-        byte_start += line.len() + 1; // +1 for '\n'
+        byte_start += line.len() + line_ending_len;
     }
 
     let mut byte_end = byte_start;
     for line in &lines[start_0..end_0] {
-        byte_end += line.len() + 1;
+        byte_end += line.len() + line_ending_len;
     }
 
     // Don't go past source length
@@ -1590,5 +1592,25 @@ struct Point {
         assert_eq!(span.name, "main");
         assert!(span.signature_text.contains("int main"));
         assert!(!span.signature_text.contains("return 0"));
+    }
+
+    #[test]
+    fn extract_symbol_text_crlf() {
+        // CRLF line endings: str::lines() strips \r\n but each line's
+        // byte offset must account for 2-byte endings, not 1.
+        let source = "fn first() {}\r\nfn second() {\r\n    42\r\n}\r\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let second = symbols.iter().find(|s| s.name == "second").unwrap();
+        let text = extract_symbol_text(source, second, Language::Rust);
+        assert!(
+            text.contains("fn second()"),
+            "extracted text should contain 'fn second()', got: {:?}",
+            text
+        );
+        assert!(
+            !text.contains("fn first()"),
+            "extracted text should not contain 'fn first()', got: {:?}",
+            text
+        );
     }
 }
