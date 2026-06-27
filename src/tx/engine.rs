@@ -9,9 +9,8 @@
 //! ensuring a single execution engine for all surfaces.
 
 use crate::cli::global::GlobalFlags;
-use crate::exit;
 use crate::plan::{Operation, Plan, SCHEMA_VERSION};
-use crate::tx::output::{TxExecResult, build_full_tx_output};
+use crate::tx::output::TxExecResult;
 
 use std::path::Path;
 
@@ -30,12 +29,14 @@ pub struct ExecuteOptions<'a> {
 ///
 /// Contains everything a CLI command needs to decide on output:
 /// which files changed, what diffs were produced, and the exit code.
-#[allow(dead_code)] // Public API: fields used by library embedders and MCP
+///
+/// Used by CLI commands directly and by the library API via
+/// `crate::api::execute_as_edit_result()` (under the `files` feature).
+/// The module-level `allow(dead_code)` in `tx/mod.rs` handles the case
+/// where neither `cli` nor `files` is enabled.
 pub struct ExecutionResult {
     /// The collected execution result from the engine.
     pub(crate) exec_result: TxExecResult,
-    /// Pre-computed exit code.
-    pub exit_code: u8,
     /// Whether any effective changes were produced.
     pub has_changes: bool,
     /// Working directory used.
@@ -89,12 +90,6 @@ impl ExecutionResult {
         )
         .map_err(|e| anyhow::anyhow!("{}", e.message))
     }
-
-    /// Build a `TxOutput` report from this result.
-    #[allow(dead_code)] // Public API for library embedders
-    pub fn into_tx_output(mut self) -> crate::tx::TxOutput {
-        build_full_tx_output("success", &mut self.exec_result, &self.cwd)
-    }
 }
 
 /// Execute a single `Operation` through the unified engine.
@@ -118,7 +113,8 @@ pub fn execute_single(
 ///
 /// Similar to `execute_single` but for multi-operation batches that need
 /// atomicity (all succeed or none are committed).
-#[allow(dead_code)] // Public API for library embedders
+///
+/// Used by CLI commands (`tidy`, `ast rename`) for multi-file batches.
 pub fn execute_operations(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
@@ -179,7 +175,6 @@ pub fn execute_precomputed(
 
     ExecutionResult {
         exec_result,
-        exit_code: exit::SUCCESS,
         has_changes: !no_effective_changes,
         cwd,
     }
@@ -226,15 +221,9 @@ fn execute_plan_inner(
     let result = super::execute_and_collect(&plan, &cwd, options.global, true, true)?;
 
     let has_changes = !result.no_effective_changes;
-    let exit_code = if result.replace_no_matches {
-        exit::NO_MATCHES
-    } else {
-        exit::SUCCESS
-    };
 
     Ok(ExecutionResult {
         exec_result: result,
-        exit_code,
         has_changes,
         cwd,
     })
@@ -243,7 +232,6 @@ fn execute_plan_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exit;
     use std::fs;
     use tempfile::TempDir;
 
@@ -268,7 +256,6 @@ mod tests {
 
         let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
         assert!(result.has_changes);
-        assert_eq!(result.exit_code, exit::SUCCESS);
 
         // File should not exist yet (not committed)
         assert!(!dir.path().join("new_file.txt").exists());
@@ -292,7 +279,6 @@ mod tests {
 
         let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
         assert!(result.has_changes);
-        assert_eq!(result.exit_code, exit::SUCCESS);
 
         // Still exists until commit
         assert!(file.exists());
@@ -358,7 +344,6 @@ mod tests {
 
         let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
         assert!(!result.has_changes);
-        assert_eq!(result.exit_code, exit::SUCCESS);
     }
 
     #[test]
@@ -425,24 +410,6 @@ mod tests {
     }
 
     #[test]
-    fn execute_single_into_tx_output() {
-        let dir = TempDir::new().unwrap();
-        let global = GlobalFlags::test_default();
-
-        let op = Operation::FileCreate {
-            path: "report.txt".to_string(),
-            content: "data\n".to_string(),
-            force: None,
-        };
-
-        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
-        let output = result.into_tx_output();
-        assert!(output.ok);
-        assert_eq!(output.status, "success");
-        assert_eq!(output.files_created, 1);
-    }
-
-    #[test]
     fn execute_precomputed_commits_changes() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
@@ -457,7 +424,6 @@ mod tests {
 
         let result = execute_precomputed(changes, test_options(dir.path(), &global));
         assert!(result.has_changes);
-        assert_eq!(result.exit_code, exit::SUCCESS);
 
         // Not committed yet.
         assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
