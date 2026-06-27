@@ -95,7 +95,7 @@ fn test_doc_has_missing_key() {
         .arg(&file)
         .arg("missing")
         .assert()
-        .success()
+        .code(3) // NO_MATCHES: key doesn't exist
         .stdout(predicate::str::contains("false"));
 }
 

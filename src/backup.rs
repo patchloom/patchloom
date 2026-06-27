@@ -212,9 +212,22 @@ pub fn backup_write_files(
     // Finalize (write manifest) BEFORE performing writes so the backup is
     // discoverable even if a write fails mid-batch, allowing `patchloom undo`
     // to restore the partially-modified files.
-    session.finalize()?;
-    for &(path, content, policy) in files {
-        crate::write::atomic_write(path, content, policy)?;
+    let backup_ts = session.finalize()?;
+
+    let write_result: anyhow::Result<()> = (|| {
+        for &(path, content, policy) in files {
+            crate::write::atomic_write(path, content, policy)?;
+        }
+        Ok(())
+    })();
+
+    if let Err(e) = write_result {
+        // Auto-restore from backup on partial write failure so the caller
+        // does not end up with a half-written batch.
+        if let Some(ref ts) = backup_ts {
+            let _ = restore_session(cwd, ts);
+        }
+        return Err(e);
     }
     Ok(())
 }
@@ -749,6 +762,32 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&f2).unwrap(), "original-b");
     }
 
+    /// Regression: backup_write_files must auto-restore on partial write
+    /// failure so the caller does not end up with a half-written batch.
+    #[test]
+    fn backup_write_files_auto_restores_on_partial_failure() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        std::fs::write(&real, "original").unwrap();
+
+        // Second target is in a nonexistent directory so atomic_write fails.
+        let bad = dir.path().join("no_such_dir").join("fail.txt");
+
+        let policy = crate::write::WritePolicy::default();
+        let files: Vec<(&Path, &str, &crate::write::WritePolicy)> =
+            vec![(&real, "updated", &policy), (&bad, "x", &policy)];
+        let result = backup_write_files(dir.path(), &files);
+        assert!(result.is_err(), "write to missing dir should fail");
+
+        // After the auto-restore, the first file should be back to its
+        // original content (not left in the "updated" state).
+        assert_eq!(
+            std::fs::read_to_string(&real).unwrap(),
+            "original",
+            "auto-restore should revert partial writes"
+        );
+    }
+
     #[test]
     fn backup_write_files_manifest_survives_write_failure() {
         let dir = TempDir::new().unwrap();
@@ -768,11 +807,7 @@ mod tests {
         let sessions = list_sessions(dir.path()).unwrap();
         assert_eq!(sessions.len(), 1, "backup session must be finalized");
 
-        // The first file was written before the second failed.
-        assert_eq!(std::fs::read_to_string(&real).unwrap(), "updated");
-
-        // Undo restores the first file despite partial failure.
-        restore_session(dir.path(), &sessions[0].timestamp).unwrap();
+        // Auto-restore should have reverted the first file back to original.
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "original");
     }
 }

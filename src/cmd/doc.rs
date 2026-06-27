@@ -420,7 +420,14 @@ pub(crate) fn execute_with_mode(
                 OutputMode::Json => serde_json::to_string_pretty(&found)?,
                 OutputMode::Jsonl => serde_json::to_string(&found)?,
             };
-            Ok((output, exit::SUCCESS))
+            Ok((
+                output,
+                if found {
+                    exit::SUCCESS
+                } else {
+                    exit::NO_MATCHES
+                },
+            ))
         }
 
         DocAction::Keys { file, selector } => {

@@ -273,6 +273,16 @@ pub fn anchor_match(
     let lines: Vec<&str> = content.lines().collect();
     let target_lines: Vec<&str> = target.lines().collect();
 
+    // Compute byte offset of each line start for accurate slicing,
+    // avoiding CRLF vs LF mismatch (the old code used a global
+    // heuristic that broke on mixed or CRLF line endings).
+    let mut line_byte_starts: Vec<usize> = vec![0];
+    for (i, b) in content.bytes().enumerate() {
+        if b == b'\n' {
+            line_byte_starts.push(i + 1);
+        }
+    }
+
     if target_lines.is_empty() {
         return None;
     }
@@ -333,17 +343,23 @@ pub fn anchor_match(
             }
         }
 
-        // Found a match. Compute the matched region.
+        // Found a match. Extract the matched region directly from the
+        // original content so line endings are preserved exactly.
         let end_idx = (i + target_lines.len()).min(lines.len());
-        let matched: Vec<&str> = lines[i..end_idx].to_vec();
-        let matched_text = matched.join("\n");
-
-        // Compute byte offset.
-        let line_sep_len = if content.contains("\r\n") { 2 } else { 1 };
-        let start_offset = lines[..i]
-            .iter()
-            .map(|l| l.len() + line_sep_len)
-            .sum::<usize>();
+        let start_offset = line_byte_starts[i];
+        let end_offset = if end_idx < line_byte_starts.len() {
+            line_byte_starts[end_idx]
+        } else {
+            content.len()
+        };
+        // Strip exactly one trailing line ending to match the format
+        // of exact-match results (which carry no trailing newline).
+        let slice = &content[start_offset..end_offset];
+        let matched_text = slice
+            .strip_suffix("\r\n")
+            .or_else(|| slice.strip_suffix('\n'))
+            .unwrap_or(slice)
+            .to_string();
 
         return Some(AnchorMatchResult {
             matched_text,
@@ -426,7 +442,15 @@ pub fn resolve_with_fallback(
                 best_match = line.to_string();
                 best_offset = offset;
             }
-            offset += line.len() + 1;
+            // Advance past the line content and the actual line ending,
+            // which may be \r\n (2 bytes) or \n (1 byte).
+            offset += line.len();
+            if content.as_bytes().get(offset) == Some(&b'\r') {
+                offset += 1;
+            }
+            if content.as_bytes().get(offset) == Some(&b'\n') {
+                offset += 1;
+            }
         }
         if best_score > 0.85 {
             return Ok(AnchorMatchResult {
@@ -663,11 +687,76 @@ mod tests {
         assert_eq!(result.start_offset, 7);
     }
 
+    /// Regression: anchor match on CRLF content must produce a matched_text
+    /// that is an exact substring of the original content. The old code
+    /// joined lines with "\n" which produced LF-only text, wrong for CRLF.
+    #[test]
+    fn anchor_match_crlf_matched_text_preserves_endings() {
+        let content =
+            "fn setup() {}\r\nfn proccess_data(x: i32) {}\r\nfn more() {}\r\nfn cleanup() {}\r\n";
+        let result = anchor_match(
+            content,
+            "fn process_data(x: i32) {}\nfn more() {}",
+            Some("fn setup() {}"),
+            Some("fn cleanup() {}"),
+        )
+        .unwrap();
+        // matched_text must be verifiable against the original content.
+        let end = result.start_offset + result.matched_text.len();
+        assert_eq!(
+            &content[result.start_offset..end],
+            result.matched_text,
+            "matched_text must be an exact slice of the original content"
+        );
+        // And it should contain the CRLF between lines.
+        assert!(
+            result.matched_text.contains("\r\n"),
+            "matched text should preserve CRLF line endings"
+        );
+    }
+
+    /// Regression: anchor match on mixed line endings (some CRLF, some LF)
+    /// must produce correct offsets for each line, not a global decision.
+    #[test]
+    fn anchor_match_mixed_endings_correct_offset() {
+        let content = "header\r\nfn proccess(x: i32) {}\nfooter\n";
+        let result = anchor_match(
+            content,
+            "fn process(x: i32) {}",
+            Some("header"),
+            Some("footer"),
+        )
+        .unwrap();
+        // "header\r\n" is 8 bytes, so line 2 starts at offset 8.
+        assert_eq!(result.start_offset, 8);
+        let end = result.start_offset + result.matched_text.len();
+        assert_eq!(&content[result.start_offset..end], result.matched_text);
+    }
+
     #[test]
     fn resolve_with_fallback_exact_match() {
         let content = "fn hello() {}\n";
         let result = resolve_with_fallback(content, "fn hello()", None, None).unwrap();
         assert_eq!(result.strategy, MatchStrategy::Exact);
+    }
+
+    /// Regression: similarity matching on CRLF content must compute
+    /// correct byte offsets. The old code used `offset += line.len() + 1`
+    /// which hardcoded LF (1 byte), wrong for CRLF (2 bytes).
+    #[test]
+    fn resolve_with_fallback_similarity_crlf_offset() {
+        let content = "fn alpha() {}\r\nfn process_requets(data: &str) {}\r\nfn gamma() {}\r\n";
+        let result =
+            resolve_with_fallback(content, "fn process_requests(data: &str) {}", None, None)
+                .unwrap();
+        assert_eq!(result.strategy, MatchStrategy::Similarity);
+        // "fn alpha() {}\r\n" is 15 bytes, so the match starts at offset 15.
+        assert_eq!(result.start_offset, 15);
+        // Verify the offset points to the correct position in content.
+        assert!(
+            content[result.start_offset..].starts_with(&result.matched_text),
+            "start_offset must point to matched_text in content"
+        );
     }
 
     #[test]

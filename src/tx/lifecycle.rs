@@ -136,12 +136,26 @@ pub(crate) fn rollback_strict(
     for path in deletions {
         if let Some((orig, _)) = pending.get(path)
             && existed_before.contains(path)
-            && let Err(e) = atomic_write(path, orig, &noop_policy)
         {
-            eprintln!(
-                "tx: rollback: failed to restore deleted {}: {e}",
-                path.display()
-            );
+            // Ensure parent directory exists before restoring; the directory
+            // may have been removed if the deletion was the last file in it.
+            if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+                && !parent.exists()
+                && let Err(e) = std::fs::create_dir_all(parent)
+            {
+                eprintln!(
+                    "tx: rollback: failed to create dir {}: {e}",
+                    parent.display()
+                );
+                continue;
+            }
+            if let Err(e) = atomic_write(path, orig, &noop_policy) {
+                eprintln!(
+                    "tx: rollback: failed to restore deleted {}: {e}",
+                    path.display()
+                );
+            }
         }
     }
 }
@@ -603,6 +617,40 @@ mod tests {
     }
 
     // ---- LifecycleError ----
+
+    /// Regression: rollback_strict must create parent directories before
+    /// restoring deleted files via atomic_write. If the parent dir was
+    /// removed (e.g., the delete was the last file in it), the restore fails.
+    #[test]
+    fn rollback_strict_creates_parent_dir_for_deleted_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("subdir");
+        std::fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("file.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        // Simulate: file was deleted and its parent dir removed.
+        let file_pb = file.clone();
+        std::fs::remove_file(&file).unwrap();
+        std::fs::remove_dir(&sub).unwrap();
+        assert!(!sub.exists());
+
+        // Build the state as if the tx engine tracked this deletion.
+        let mut pending = HashMap::new();
+        pending.insert(file_pb.clone(), ("original".to_string(), String::new()));
+        let mut deletions = HashSet::new();
+        deletions.insert(file_pb.clone());
+        let mut existed_before = HashSet::new();
+        existed_before.insert(file_pb.clone());
+
+        // rollback_strict should recreate the parent dir and restore the file.
+        rollback_strict(&[], &pending, &deletions, &existed_before);
+        assert!(
+            file.exists(),
+            "rollback should restore file even when parent dir was removed"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+    }
 
     #[test]
     fn lifecycle_error_fields() {

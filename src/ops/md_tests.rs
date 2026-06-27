@@ -989,4 +989,56 @@ mod regression {
         assert!(table_pos < rules_pos, "Rules should be after the table");
         assert!(result.contains("- rule1"));
     }
+
+    // Regression: backtick closing fence with trailing non-whitespace
+    // must NOT close the code block (CommonMark spec 4.5). A line like
+    // "```javascript" inside a backtick block is not a valid closer.
+    #[test]
+    fn backtick_fence_closer_rejects_trailing_content() {
+        let content = "\
+````
+```javascript
+# Not a real heading
+```
+````
+# Real heading
+body text
+";
+        let headings = parse_headings(content);
+        assert_eq!(
+            headings.len(),
+            1,
+            "only the heading outside the code block should be parsed"
+        );
+        assert_eq!(headings[0].text, "Real heading");
+    }
+
+    // Tilde fences ARE allowed to have trailing content on the closing fence
+    // per CommonMark spec (only backtick fences have this restriction).
+    #[test]
+    fn tilde_fence_closer_accepts_trailing_content() {
+        let content = "\
+~~~
+# Inside tilde block
+~~~ some trailing text
+# Outside heading
+";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Outside heading");
+    }
+
+    // Verify that a clean backtick closing fence (no trailing content) still works.
+    #[test]
+    fn backtick_fence_closer_allows_trailing_whitespace() {
+        let content = "\
+```
+# Inside code block
+```   \t
+# Real heading
+";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Real heading");
+    }
 }
