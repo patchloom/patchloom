@@ -1678,9 +1678,160 @@ fn search_file_and_format_and_context_builder_direct() {
 
     // context builder directly
     let lines: Vec<&str> = "a\nb\nc\n".lines().collect();
-    let (b, a) = build_context_lines(&lines, 1, 1);
+    let (b, a) = build_context_lines(&lines, 1, 1, 1);
     assert_eq!(b, vec!["a".to_string()]);
     assert_eq!(a, vec!["c".to_string()]);
+}
+
+#[test]
+fn build_context_lines_asymmetric() {
+    let lines: Vec<&str> = "aaa\nbbb\nccc\nddd\neee".lines().collect();
+    // 0 before, 2 after
+    let (b, a) = build_context_lines(&lines, 2, 0, 2);
+    assert!(b.is_empty());
+    assert_eq!(a, vec!["ddd".to_string(), "eee".to_string()]);
+    // 1 before, 0 after
+    let (b, a) = build_context_lines(&lines, 2, 1, 0);
+    assert_eq!(b, vec!["bbb".to_string()]);
+    assert!(a.is_empty());
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_context_more_after() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(
+        &file,
+        "// line 1\n// line 2\nfn main() {\n    println!(\"hello\");\n    return;\n}\n// line 7\n",
+    )
+    .unwrap();
+
+    let opts = SearchOptions {
+        before_context: Some(1),
+        after_context: Some(3),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "fn main", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].context_before.len(), 1);
+    assert_eq!(results[0].context_after.len(), 3);
+    assert!(results[0].context_before[0].contains("line 2"));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_context_zero_before() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        before_context: Some(0),
+        after_context: Some(2),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert!(results[0].context_before.is_empty());
+    assert_eq!(results[0].context_after.len(), 2);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_asymmetric_overrides_symmetric() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        context: Some(2),
+        before_context: Some(0),
+        after_context: Some(1),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert!(results[0].context_before.is_empty());
+    assert_eq!(results[0].context_after.len(), 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_symmetric_context_still_works() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\nccc\nddd\neee\n").unwrap();
+
+    let opts = SearchOptions {
+        context: Some(1),
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "ccc", &opts, dir.path());
+    assert_eq!(results[0].context_before.len(), 1);
+    assert_eq!(results[0].context_after.len(), 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_invert_match_excludes_matching_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.py");
+    fs::write(
+        &file,
+        "import os\nimport sys\ndef hello():\n    pass\nimport json\n",
+    )
+    .unwrap();
+
+    let opts = SearchOptions {
+        invert_match: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "import", &opts, dir.path());
+    assert!(results.iter().all(|r| !r.line.contains("import")));
+    assert!(results.iter().any(|r| r.line.contains("def hello")));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_invert_match_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa\nbbb\naaa\nbbb\naaa\n").unwrap();
+
+    let opts = SearchOptions {
+        invert_match: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, "aaa", &opts, dir.path());
+    assert_eq!(results.len(), 2); // only the two "bbb" lines
+    assert!(results.iter().all(|r| r.line == "bbb"));
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_multiline_pattern_spans_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "struct Foo {\n    x: i32,\n    y: String,\n}\n").unwrap();
+
+    let opts = SearchOptions {
+        regex: true,
+        multiline: true,
+        ..Default::default()
+    };
+    let results = search_one_file(&file, r"struct Foo \{[^}]+\}", &opts, dir.path());
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].line_number, 1);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_format_results_human_and_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("x.rs");
+    fs::write(&file, "fn foo() {}\nfn bar() {}\n").unwrap();
+    let opts = SearchOptions::default();
+    let res = search_one_file(&file, "fn", &opts, dir.path());
 
     // formatter (human + json)
     let txt = format_search_results(&res, false);
