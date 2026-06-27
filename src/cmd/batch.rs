@@ -71,6 +71,34 @@ macro_rules! op {
     };
 }
 
+/// Helper macros for batch operation parsing.
+///
+/// `doc_psv!` handles the common doc pattern: 3 args = path + selector + json_value.
+/// `doc_ps!` handles 2-arg doc ops: path + selector.
+/// `md_phc!` handles 3-arg markdown ops: path + heading + content (third field varies).
+macro_rules! doc_psv {
+    ($op_name:expr, $args:expr, $line_num:expr, $Variant:ident) => {{
+        require_args($op_name, $args, 3, $line_num)?;
+        let value = parse_json_value(&$args[2])?;
+        op!($Variant {
+            path: $args[0].clone(),
+            selector: $args[1].clone(),
+            value
+        })
+    }};
+}
+
+macro_rules! md_phc {
+    ($op_name:expr, $args:expr, $line_num:expr, $Variant:ident, $field3:ident) => {{
+        require_args($op_name, $args, 3, $line_num)?;
+        op!($Variant {
+            path: $args[0].clone(),
+            heading: $args[1].clone(),
+            $field3: $args[2].clone()
+        })
+    }};
+}
+
 fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     let tokens = tokenize(line).map_err(|e| anyhow::anyhow!("line {line_num}: {e}"))?;
     if tokens.is_empty() {
@@ -80,15 +108,13 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     let args = &tokens[1..];
 
     match op {
-        "doc.set" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            op!(DocSet {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                value
-            })
-        }
+        // -- doc operations (path + selector + value) --------------------------
+        "doc.set" => doc_psv!(op, args, line_num, DocSet),
+        "doc.ensure" => doc_psv!(op, args, line_num, DocEnsure),
+        "doc.append" => doc_psv!(op, args, line_num, DocAppend),
+        "doc.prepend" => doc_psv!(op, args, line_num, DocPrepend),
+        "doc.update" => doc_psv!(op, args, line_num, DocUpdate),
+
         "doc.delete" => {
             require_args(op, args, 2, line_num)?;
             op!(DocDelete {
@@ -101,42 +127,6 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             let value = parse_json_value(&args[1])?;
             op!(DocMerge {
                 path: args[0].clone(),
-                value
-            })
-        }
-        "doc.ensure" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            op!(DocEnsure {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                value
-            })
-        }
-        "doc.append" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            op!(DocAppend {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                value
-            })
-        }
-        "doc.prepend" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            op!(DocPrepend {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                value
-            })
-        }
-        "doc.update" => {
-            require_args(op, args, 3, line_num)?;
-            let value = parse_json_value(&args[2])?;
-            op!(DocUpdate {
-                path: args[0].clone(),
-                selector: args[1].clone(),
                 value
             })
         }
@@ -157,6 +147,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
+        // -- replace -----------------------------------------------------------
         "replace" => {
             require_args(op, args, 3, line_num)?;
             Ok(Operation::Replace {
@@ -179,6 +170,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
+        // -- file operations ---------------------------------------------------
         "file.append" => {
             require_args(op, args, 2, line_num)?;
             op!(FileAppend {
@@ -209,46 +201,12 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
-        "md.upsert_bullet" => {
-            require_args(op, args, 3, line_num)?;
-            op!(MdUpsertBullet {
-                path: args[0].clone(),
-                heading: args[1].clone(),
-                bullet: args[2].clone()
-            })
-        }
-        "md.table_append" => {
-            require_args(op, args, 3, line_num)?;
-            op!(MdTableAppend {
-                path: args[0].clone(),
-                heading: args[1].clone(),
-                row: args[2].clone()
-            })
-        }
-        "md.replace_section" => {
-            require_args(op, args, 3, line_num)?;
-            op!(MdReplaceSection {
-                path: args[0].clone(),
-                heading: args[1].clone(),
-                content: args[2].clone()
-            })
-        }
-        "md.insert_after_heading" => {
-            require_args(op, args, 3, line_num)?;
-            op!(MdInsertAfterHeading {
-                path: args[0].clone(),
-                heading: args[1].clone(),
-                content: args[2].clone()
-            })
-        }
-        "md.insert_before_heading" => {
-            require_args(op, args, 3, line_num)?;
-            op!(MdInsertBeforeHeading {
-                path: args[0].clone(),
-                heading: args[1].clone(),
-                content: args[2].clone()
-            })
-        }
+        // -- markdown operations -----------------------------------------------
+        "md.upsert_bullet" => md_phc!(op, args, line_num, MdUpsertBullet, bullet),
+        "md.table_append" => md_phc!(op, args, line_num, MdTableAppend, row),
+        "md.replace_section" => md_phc!(op, args, line_num, MdReplaceSection, content),
+        "md.insert_after_heading" => md_phc!(op, args, line_num, MdInsertAfterHeading, content),
+        "md.insert_before_heading" => md_phc!(op, args, line_num, MdInsertBeforeHeading, content),
 
         "md.move_section" => {
             if args.len() == 4 {
@@ -288,6 +246,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
+        // -- tidy --------------------------------------------------------------
         "tidy.fix" => {
             require_args(op, args, 1, line_num)?;
             op!(TidyFix {
@@ -298,6 +257,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
+        // -- AST operations (feature-gated) ------------------------------------
         #[cfg(feature = "ast")]
         "ast.rename" => {
             require_args(op, args, 3, line_num)?;

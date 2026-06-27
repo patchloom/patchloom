@@ -173,52 +173,67 @@ impl DocAction {
 
     /// The primary file path for this action, if any.
     fn file_path(&self) -> Option<&str> {
-        match self {
-            DocAction::Get { file, .. }
-            | DocAction::Has { file, .. }
-            | DocAction::Keys { file, .. }
-            | DocAction::Len { file, .. }
-            | DocAction::Set { file, .. }
-            | DocAction::Delete { file, .. }
-            | DocAction::DeleteWhere { file, .. }
-            | DocAction::Merge { file, .. }
-            | DocAction::Append { file, .. }
-            | DocAction::Prepend { file, .. }
-            | DocAction::Select { file, .. }
-            | DocAction::Update { file, .. }
-            | DocAction::Move { file, .. }
-            | DocAction::Ensure { file, .. }
-            | DocAction::Flatten { file } => Some(file.as_str()),
-            DocAction::Diff { .. } => None,
+        // All single-file variants share a `file` field; only `Diff` uses two files.
+        macro_rules! single_file {
+            ($($Variant:ident),+ $(,)?) => {
+                match self {
+                    $(DocAction::$Variant { file, .. } => Some(file.as_str()),)+
+                    DocAction::Diff { .. } => None,
+                }
+            };
         }
+        single_file!(
+            Get,
+            Has,
+            Keys,
+            Len,
+            Set,
+            Delete,
+            DeleteWhere,
+            Merge,
+            Append,
+            Prepend,
+            Select,
+            Update,
+            Move,
+            Ensure,
+            Flatten
+        )
     }
 
     /// Resolve all file paths against `cwd` so the command does not depend
     /// on the process-global current directory.
     fn resolve_files(&mut self, cwd: &std::path::Path) {
-        match self {
-            DocAction::Get { file, .. }
-            | DocAction::Has { file, .. }
-            | DocAction::Keys { file, .. }
-            | DocAction::Len { file, .. }
-            | DocAction::Set { file, .. }
-            | DocAction::Delete { file, .. }
-            | DocAction::DeleteWhere { file, .. }
-            | DocAction::Merge { file, .. }
-            | DocAction::Append { file, .. }
-            | DocAction::Prepend { file, .. }
-            | DocAction::Select { file, .. }
-            | DocAction::Update { file, .. }
-            | DocAction::Move { file, .. }
-            | DocAction::Ensure { file, .. }
-            | DocAction::Flatten { file } => {
-                *file = cwd.join(&*file).to_string_lossy().into_owned();
-            }
-            DocAction::Diff { file_a, file_b } => {
-                *file_a = cwd.join(&*file_a).to_string_lossy().into_owned();
-                *file_b = cwd.join(&*file_b).to_string_lossy().into_owned();
-            }
+        macro_rules! resolve_single {
+            ($($Variant:ident),+ $(,)?) => {
+                match self {
+                    $(DocAction::$Variant { file, .. } => {
+                        *file = cwd.join(&*file).to_string_lossy().into_owned();
+                    })+
+                    DocAction::Diff { file_a, file_b } => {
+                        *file_a = cwd.join(&*file_a).to_string_lossy().into_owned();
+                        *file_b = cwd.join(&*file_b).to_string_lossy().into_owned();
+                    }
+                }
+            };
         }
+        resolve_single!(
+            Get,
+            Has,
+            Keys,
+            Len,
+            Set,
+            Delete,
+            DeleteWhere,
+            Merge,
+            Append,
+            Prepend,
+            Select,
+            Update,
+            Move,
+            Ensure,
+            Flatten
+        );
     }
 }
 
