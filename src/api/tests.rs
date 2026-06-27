@@ -2333,3 +2333,36 @@ fn replace_in_content_diff_is_populated() {
     assert!(result.diff.contains("-old text"));
     assert!(result.diff.contains("+new text"));
 }
+
+#[test]
+fn replace_in_content_range_requires_whole_line() {
+    let opts = ReplaceOptions {
+        range: Some((1, Some(3))),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("range requires whole_line")
+    );
+}
+
+#[test]
+fn replace_in_content_whole_line_multiline_conflict() {
+    let opts = ReplaceOptions {
+        whole_line: true,
+        multiline: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("whole_line and multiline cannot be combined")
+    );
+}

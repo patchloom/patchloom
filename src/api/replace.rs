@@ -202,6 +202,12 @@ pub fn replace_in_content(
     if from.is_empty() && !is_regex {
         bail!("empty search pattern");
     }
+    if opts.range.is_some() && !opts.whole_line {
+        bail!("range requires whole_line to be true");
+    }
+    if opts.whole_line && opts.multiline {
+        bail!("whole_line and multiline cannot be combined");
+    }
 
     let compiled_re = ops::replace::compile_replace_regex(
         from,

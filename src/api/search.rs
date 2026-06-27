@@ -222,6 +222,12 @@ pub fn search_directory(
 
     #[cfg(not(any(feature = "cli", feature = "files")))]
     {
+        if opts.multiline {
+            bail!("multiline search requires the 'cli' or 'files' feature");
+        }
+        if opts.invert_match {
+            bail!("invert_match search requires the 'cli' or 'files' feature");
+        }
         // fallback to single file search (multi-match supported via basic search)
         if root.is_file() {
             let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
