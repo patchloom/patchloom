@@ -312,4 +312,38 @@ mod tests {
         assert!(first_pos < moved_pos);
         assert!(moved_pos < last_pos);
     }
+
+    #[test]
+    fn move_position_before() {
+        let source = "fn moved() {}\n";
+        let target = "fn first() {}\n\nfn last() {}\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["moved".into()],
+            MovePosition::Before("last".into()),
+            Language::Rust,
+        )
+        .unwrap();
+        let first_pos = result.target_content.find("fn first").unwrap();
+        let moved_pos = result.target_content.find("fn moved").unwrap();
+        let last_pos = result.target_content.find("fn last").unwrap();
+        assert!(first_pos < moved_pos);
+        assert!(moved_pos < last_pos);
+    }
+
+    #[test]
+    fn parse_position_variants() {
+        assert!(matches!(parse_position(None), MovePosition::End));
+        assert!(matches!(parse_position(Some("end")), MovePosition::End));
+        assert!(matches!(parse_position(Some("start")), MovePosition::Start));
+        assert!(matches!(
+            parse_position(Some("after:foo")),
+            MovePosition::After(ref s) if s == "foo"
+        ));
+        assert!(matches!(
+            parse_position(Some("before:bar")),
+            MovePosition::Before(ref s) if s == "bar"
+        ));
+    }
 }

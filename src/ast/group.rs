@@ -351,4 +351,23 @@ mod tests {
         let result = group_symbols(source, &spec, Language::Rust).unwrap();
         assert_eq!(result.symbols_moved, 0);
     }
+
+    #[test]
+    fn group_position_after_symbol() {
+        let source = "fn anchor() {}\n\nfn target() {}\n\nfn trailing() {}\n";
+        let spec = GroupSpec {
+            module: "m".into(),
+            symbols: vec!["target".into()],
+            preamble: None,
+            position: GroupPosition::After("anchor".into()),
+        };
+        let result = group_symbols(source, &spec, Language::Rust).unwrap();
+        let anchor_pos = result.content.find("fn anchor").unwrap();
+        let mod_pos = result.content.find("mod m {").unwrap();
+        let trailing_pos = result.content.find("fn trailing").unwrap();
+        assert!(anchor_pos < mod_pos);
+        assert!(mod_pos < trailing_pos);
+        assert!(result.module_created);
+        assert_eq!(result.symbols_moved, 1);
+    }
 }
