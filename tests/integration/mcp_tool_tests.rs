@@ -2702,3 +2702,245 @@ async fn test_mcp_no_matches_returns_descriptive_message() {
     );
     client.cancel().await.unwrap();
 }
+
+// ── MCP ast_reorder round-trip ─────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_reorder_alphabetical() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn zebra() {}\nfn alpha() {}\nfn mid() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_reorder",
+        serde_json::json!({"path": "lib.rs", "order": "alphabetical"}),
+    )
+    .await;
+    assert!(!is_error, "ast_reorder should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_reorder ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    let alpha = content.find("fn alpha").unwrap();
+    let mid = content.find("fn mid").unwrap();
+    let zebra = content.find("fn zebra").unwrap();
+    assert!(
+        alpha < mid && mid < zebra,
+        "should be alphabetical: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_group round-trip ───────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_group_creates_module() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn public_api() {}\nfn test_a() {}\nfn test_b() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_group",
+        serde_json::json!({
+            "path": "lib.rs",
+            "module": "tests",
+            "symbols": ["test_a", "test_b"],
+            "preamble": "use super::*;"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_group should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_group ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(content.contains("mod tests"), "module created: {content}");
+    assert!(
+        content.contains("use super::*;"),
+        "preamble present: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_move round-trip ────────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_move_between_files() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("src.rs"),
+        "fn keep() {}\nfn moveme() { 42 }\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("dst.rs"), "fn existing() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_move",
+        serde_json::json!({
+            "path": "src.rs",
+            "target": "dst.rs",
+            "symbols": ["moveme"]
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_move should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_move ok: {val}");
+
+    let src = fs::read_to_string(dir.path().join("src.rs")).unwrap();
+    let dst = fs::read_to_string(dir.path().join("dst.rs")).unwrap();
+    assert!(!src.contains("moveme"), "removed from source: {src}");
+    assert!(dst.contains("fn moveme"), "added to target: {dst}");
+    assert!(dst.contains("fn existing"), "existing kept: {dst}");
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_extract_to_file round-trip ─────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_extract_to_file() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn main() {}\n\nmod tests {\n    fn test_one() {}\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_extract_to_file",
+        serde_json::json!({
+            "source": "lib.rs",
+            "symbol": "tests",
+            "target": "tests.rs",
+            "replacement": "mod tests;",
+            "prepend": "use super::*;\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_extract_to_file should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_extract_to_file ok: {val}");
+
+    let src = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    let tgt = fs::read_to_string(dir.path().join("tests.rs")).unwrap();
+    assert!(src.contains("mod tests;"), "replacement in source: {src}");
+    assert!(
+        tgt.contains("fn test_one"),
+        "extracted content in target: {tgt}"
+    );
+    assert!(tgt.contains("use super::*;"), "prepend in target: {tgt}");
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_split round-trip ───────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_split_distributes_symbols() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("big.rs"),
+        "struct Config {}\nfn helper() {}\nfn main() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_split",
+        serde_json::json!({
+            "source": "big.rs",
+            "targets": [
+                {"path": "types.rs", "symbols": ["Config"]},
+                {"path": "utils.rs", "symbols": ["helper"]}
+            ],
+            "keep_in_source": ["main"],
+            "source_suffix": "mod types;\nmod utils;\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_split should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_split ok: {val}");
+
+    let src = fs::read_to_string(dir.path().join("big.rs")).unwrap();
+    let types = fs::read_to_string(dir.path().join("types.rs")).unwrap();
+    let utils = fs::read_to_string(dir.path().join("utils.rs")).unwrap();
+    assert!(src.contains("fn main"), "main stays: {src}");
+    assert!(src.contains("mod types;"), "suffix appended: {src}");
+    assert!(types.contains("struct Config"), "Config in types: {types}");
+    assert!(utils.contains("fn helper"), "helper in utils: {utils}");
+    client.cancel().await.unwrap();
+}
+
+// ── MCP execute_plan with for_each ─────────────────────────────
+
+#[tokio::test]
+async fn test_mcp_execute_plan_for_each() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("a.txt"), "old\n").unwrap();
+    fs::write(src.join("b.txt"), "old\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "execute_plan",
+        serde_json::json!({
+            "plan": {
+                "version": "1",
+                "for_each": {"glob": "src/*.txt"},
+                "operations": [{
+                    "op": "replace",
+                    "path": "{path}",
+                    "from": "old",
+                    "to": "new"
+                }]
+            }
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "execute_plan with for_each should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "for_each plan ok: {val}");
+
+    let a = fs::read_to_string(src.join("a.txt")).unwrap();
+    let b = fs::read_to_string(src.join("b.txt")).unwrap();
+    assert_eq!(a.trim(), "new", "a.txt should be updated: {a}");
+    assert_eq!(b.trim(), "new", "b.txt should be updated: {b}");
+    client.cancel().await.unwrap();
+}

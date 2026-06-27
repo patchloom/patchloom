@@ -219,6 +219,7 @@ fn execute_plan_inner(
         cwd: None,
         strict: None,
         write_policy: None,
+        for_each: None,
     };
 
     let cwd = options.cwd.to_path_buf();

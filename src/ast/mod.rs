@@ -6,14 +6,19 @@
 
 pub mod deps;
 pub mod diff;
+pub mod extract;
+pub mod group;
 pub mod impact;
 pub mod imports;
 pub mod insert;
 pub mod map;
+pub mod move_symbols;
 pub mod refs;
 pub mod rename;
+pub mod reorder;
 pub mod replace;
 pub mod search;
+pub mod split;
 pub mod symbols;
 pub mod validate;
 pub mod wrap;

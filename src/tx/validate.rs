@@ -59,7 +59,12 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::AstReplace { .. }
         | Operation::AstInsert { .. }
         | Operation::AstWrap { .. }
-        | Operation::AstImports { .. } => Ok(()),
+        | Operation::AstImports { .. }
+        | Operation::AstReorder { .. }
+        | Operation::AstGroup { .. }
+        | Operation::AstMove { .. }
+        | Operation::AstExtractToFile { .. }
+        | Operation::AstSplit { .. } => Ok(()),
         Operation::TidyFix { dedent, indent, .. } => {
             if dedent.is_some() && indent.is_some() {
                 anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");

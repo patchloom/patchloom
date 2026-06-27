@@ -628,6 +628,110 @@ fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolK
     None
 }
 
+/// Compute the full source range of a symbol including preceding attributes
+/// and doc comments that are conventionally part of the symbol definition.
+///
+/// Returns `(full_start_line, end_line)` where both are 1-based and
+/// `full_start_line` may be earlier than `sym.start_line`.
+///
+/// Language-aware: handles `#[...]` for Rust, `@decorator` for Python/TS/Java,
+/// `///` and `//!` doc comments for Rust, `/** ... */` JSDoc for JS/TS/Java,
+/// and `//` doc comments preceding Go functions.
+pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize, usize) {
+    let lines: Vec<&str> = source.lines().collect();
+    let sym_start_0 = sym.start_line.saturating_sub(1); // convert to 0-based
+    if sym_start_0 == 0 {
+        return (sym.start_line, sym.end_line);
+    }
+
+    let mut first_line_0 = sym_start_0;
+
+    // Walk backwards from the line before the symbol
+    let mut i = sym_start_0;
+    while i > 0 {
+        i -= 1;
+        let trimmed = lines[i].trim();
+
+        if trimmed.is_empty() {
+            // Empty line: include only if the line above is also an attribute/doc
+            // (i.e., don't include leading blank lines that aren't between attrs)
+            if i > 0 && is_annotation_line(lines[i - 1].trim(), lang) {
+                first_line_0 = i;
+                continue;
+            }
+            break;
+        }
+
+        if is_annotation_line(trimmed, lang) {
+            first_line_0 = i;
+        } else {
+            break;
+        }
+    }
+
+    (first_line_0 + 1, sym.end_line) // back to 1-based
+}
+
+/// Check if a line is an annotation/attribute/decorator/doc-comment for a symbol.
+fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
+    match lang {
+        Language::Rust => {
+            trimmed.starts_with("#[")
+                || trimmed.starts_with("///")
+                || trimmed.starts_with("//!")
+                || trimmed.starts_with("/**")
+                || trimmed.starts_with("* ")
+                || trimmed == "*/"
+                || trimmed == "*"
+        }
+        Language::Python => trimmed.starts_with('@'),
+        Language::TypeScript | Language::JavaScript => {
+            trimmed.starts_with('@')
+                || trimmed.starts_with("/**")
+                || trimmed.starts_with("* ")
+                || trimmed == "*/"
+                || trimmed == "*"
+        }
+        Language::Java | Language::Kotlin => {
+            trimmed.starts_with('@')
+                || trimmed.starts_with("/**")
+                || trimmed.starts_with("* ")
+                || trimmed == "*/"
+                || trimmed == "*"
+        }
+        Language::Go => {
+            // Go doc comments are // lines immediately preceding a declaration
+            trimmed.starts_with("//")
+        }
+        _ => false,
+    }
+}
+
+/// Extract the text of a symbol from source, using the full span (including
+/// attributes and doc comments).
+pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language) -> &'a str {
+    let (full_start, full_end) = full_symbol_span(source, sym, lang);
+    let lines: Vec<&str> = source.lines().collect();
+    let start_0 = full_start.saturating_sub(1);
+    let end_0 = full_end.min(lines.len());
+
+    // Find byte offsets
+    let mut byte_start = 0;
+    for line in &lines[..start_0] {
+        byte_start += line.len() + 1; // +1 for '\n'
+    }
+
+    let mut byte_end = byte_start;
+    for line in &lines[start_0..end_0] {
+        byte_end += line.len() + 1;
+    }
+
+    // Don't go past source length
+    byte_end = byte_end.min(source.len());
+
+    &source[byte_start..byte_end]
+}
+
 /// Parse a comma-separated kind filter string into a list of `SymbolKind`s.
 pub fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
     match kind_arg {
@@ -1002,5 +1106,84 @@ struct Point {
         assert!(out.contains("pub(crate) fn old(x: u32, y: &str) -> String"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old(a: i32)"));
+    }
+
+    // ── full_symbol_span tests ────────────────────────────────────
+
+    #[test]
+    fn full_span_no_attributes() {
+        let source = "fn foo() {\n    42\n}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = &symbols[0];
+        let (start, end) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(start, sym.start_line);
+        assert_eq!(end, sym.end_line);
+    }
+
+    #[test]
+    fn full_span_single_attribute() {
+        let source = "#[test]\nfn foo() {\n    42\n}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = &symbols[0];
+        assert_eq!(sym.start_line, 2); // tree-sitter sees fn on line 2
+        let (start, end) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(start, 1); // includes #[test]
+        assert_eq!(end, sym.end_line);
+    }
+
+    #[test]
+    fn full_span_stacked_attributes() {
+        let source = "#[test]\n#[cfg(unix)]\nfn foo() {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = &symbols[0];
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(start, 1); // includes both attributes
+    }
+
+    #[test]
+    fn full_span_doc_comment() {
+        let source = "/// This is a doc comment.\n/// Second line.\nfn foo() {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = &symbols[0];
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(start, 1);
+    }
+
+    #[test]
+    fn full_span_mixed_attrs_and_docs() {
+        let source = "/// A doc comment.\n#[test]\n#[cfg(unix)]\nfn foo() {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = &symbols[0];
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(start, 1);
+    }
+
+    #[test]
+    fn full_span_python_decorator() {
+        let source = "@staticmethod\ndef foo():\n    pass\n";
+        let symbols = extract_symbols(source, Language::Python);
+        let sym = &symbols[0];
+        let (start, _) = full_symbol_span(source, sym, Language::Python);
+        assert_eq!(start, 1);
+    }
+
+    #[test]
+    fn full_span_stops_at_unrelated_code() {
+        let source = "fn bar() {}\n\n#[test]\nfn foo() {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
+        let (start, _) = full_symbol_span(source, foo, Language::Rust);
+        assert_eq!(start, 3); // #[test] on line 3, not line 1
+    }
+
+    #[test]
+    fn extract_symbol_text_basic() {
+        let source = "#[test]\nfn foo() {\n    42\n}\n\nfn bar() {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
+        let text = extract_symbol_text(source, foo, Language::Rust);
+        assert!(text.contains("#[test]"));
+        assert!(text.contains("fn foo()"));
+        assert!(!text.contains("fn bar"));
     }
 }

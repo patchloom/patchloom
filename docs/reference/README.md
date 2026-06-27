@@ -872,6 +872,14 @@ Use these when newline and whitespace correctness is the main concern.
 - **Failure behavior:** When a check fails, the transaction rolls back and exits with `VALIDATION_FAILED` (6).
 - **Prefer instead:** Omit when the plan only touches configuration files or non-code content.
 
+<!-- ref:tx-field:for_each -->
+### `for_each`
+
+- **What it does:** Glob-driven batch expansion. When present, the plan's `operations` are treated as templates and expanded once per matching file. Template variables (`{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`) are substituted in all operation fields.
+- **Use when:** The same structural transform (extract tests, add headers, reorder symbols) must be applied to many files matching a glob pattern.
+- **Field value:** Object with `glob` (required), `exclude` (optional array of glob patterns), and `filter` (optional, e.g. `has_symbol(tests)`).
+- **Failure behavior:** If the glob matches zero files, the plan produces zero operations (success with no changes). If any expanded operation fails, the entire batch rolls back atomically.
+
 ### Transaction operations
 
 The operations below are the building blocks inside `operations`.
@@ -1055,6 +1063,76 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Applies a unified diff inside a transaction. Supports `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing during staging.
 - **Use when:** Patch replay needs to compose with earlier in-plan edits and share the same rollback or validation behavior.
 - **Related:** top level `patch apply`, `patch merge`
+
+<!-- ref:tx-op:ast.rename -->
+### `ast.rename`
+
+- **What it does:** Renames all occurrences of an identifier within a file using tree-sitter AST awareness, skipping strings, comments, and documentation. References inside the renamed symbol and callers are updated atomically.
+- **Use when:** You need a precise identifier rename that respects language semantics (e.g., renaming `old_fn` to `new_fn` without touching the string `"old_fn"` in a log message).
+- **Related:** `replace` (text-level), `ast replace`
+
+<!-- ref:tx-op:ast.replace -->
+### `ast.replace`
+
+- **What it does:** Performs a scoped text replacement within a single symbol's body. Only the text inside the named symbol is searched and modified; the rest of the file is untouched.
+- **Use when:** You need to change a value, string, or expression inside a specific function or struct without affecting identically-named text in other symbols.
+- **Related:** `replace` (file-level), `ast.rename` (identifier rename)
+
+<!-- ref:tx-op:ast.insert -->
+### `ast.insert`
+
+- **What it does:** Inserts new source code at a position relative to an existing symbol (before, after, inside-start, inside-end). Handles indentation matching and blank-line separation.
+- **Use when:** You need to add a new function, field, or statement adjacent to or inside an existing symbol without manually computing line numbers.
+- **Related:** `ast.wrap`, `ast.group`
+
+<!-- ref:tx-op:ast.wrap -->
+### `ast.wrap`
+
+- **What it does:** Wraps an existing symbol with a prefix and suffix, re-indenting the original body. Commonly used for wrapping a function in an `impl` block, a `mod` block, or an `if` guard.
+- **Use when:** You need to add structural nesting around an existing symbol (e.g., wrapping free functions in an `impl`, adding `#[cfg(test)]` module wrappers).
+- **Related:** `ast.insert`, `ast.group`
+
+<!-- ref:tx-op:ast.imports -->
+### `ast.imports`
+
+- **What it does:** Adds or removes import statements from a file. Supports `add` and `remove` actions with deduplication. Language-aware: handles `use` (Rust), `import` (Python/JS/TS/Go/Java), `#include` (C/C++).
+- **Use when:** You need to manage imports programmatically after moving symbols, adding new dependencies, or cleaning up unused imports.
+- **Related:** `ast.move`, `ast.extract_to_file`
+
+<!-- ref:tx-op:ast.reorder -->
+### `ast.reorder`
+
+- **What it does:** Reorders top-level symbols (or symbols inside a scope) according to a strategy: `alphabetical`, `reverse`, `kind-first` (types before functions), or a custom ordered list of names. Preserves attached doc comments and attributes.
+- **Use when:** You want to enforce a consistent declaration order (e.g., alphabetical functions, types-first convention) or manually arrange symbols to match a specification.
+- **Related:** `ast.group`, `ast.move`
+
+<!-- ref:tx-op:ast.group -->
+### `ast.group`
+
+- **What it does:** Moves one or more symbols into a new or existing module block within the same file. Supports a preamble (e.g., `use super::*;`) and configurable placement (first-symbol position, end of file, or after a specific symbol).
+- **Use when:** You want to organize related symbols into a `mod tests { ... }` block or group utility functions into a sub-module without extracting to a separate file.
+- **Related:** `ast.extract_to_file`, `ast.move`, `ast.reorder`
+
+<!-- ref:tx-op:ast.move -->
+### `ast.move`
+
+- **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes.
+- **Use when:** You need to relocate functions, structs, or constants between files during a refactoring (e.g., moving helpers from `lib.rs` to `utils.rs`).
+- **Related:** `ast.extract_to_file`, `ast.group`, `ast.imports`
+
+<!-- ref:tx-op:ast.extract_to_file -->
+### `ast.extract_to_file`
+
+- **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`).
+- **Use when:** You want to extract a test module, a large struct, or a helper block into its own file while leaving a `mod` declaration behind.
+- **Related:** `ast.split`, `ast.move`, `ast.imports`
+
+<!-- ref:tx-op:ast.split -->
+### `ast.split`
+
+- **What it does:** Splits a file into multiple target files by distributing symbols. Each target specifies which symbols it receives and an optional prepend. Symbols not assigned to any target stay in the source (controlled by `keep_in_source`). Supports `source_suffix` and `source_prefix` for adding `mod` declarations. Enforces exhaustive accounting by default.
+- **Use when:** A file has grown too large and you want to distribute its symbols across several new files in one atomic operation, with `mod` re-exports generated automatically.
+- **Related:** `ast.extract_to_file`, `ast.move`, `ast.group`
 
 ## Library API
 

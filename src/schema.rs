@@ -432,6 +432,51 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
             r###"{"op":"ast.imports","path":"src/main.rs","add":["use std::collections::HashMap;"]}"###,
         )],
     },
+    OpMeta {
+        name: "ast.reorder",
+        description: "Reorder symbols within a file or scope by name, kind, or custom order.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Alphabetize functions",
+            r###"{"op":"ast.reorder","path":"src/lib.rs","order":"alphabetical"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.group",
+        description: "Group symbols into a named module within a file.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Group test functions into a module",
+            r###"{"op":"ast.group","path":"src/tests.rs","module":"line_endings","symbols":["test_crlf","test_lf"],"preamble":"use super::*;"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.move",
+        description: "Move symbols between files with optional target creation.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Move helpers to a utility file",
+            r###"{"op":"ast.move","path":"src/lib.rs","target":"src/helpers.rs","symbols":["helper_fn"]}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.extract_to_file",
+        description: "Extract a symbol to a separate file with optional module unwrapping.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Extract test module to companion file",
+            r###"{"op":"ast.extract_to_file","source":"src/lib.rs","symbol":"tests","target":"src/lib_tests.rs","replacement":"mod tests;","prepend":"use super::*;"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.split",
+        description: "Split a file into multiple target files by distributing symbols.",
+        tier: Tier::Strong,
+        examples: &[(
+            "Split a large module into sub-modules",
+            r###"{"op":"ast.split","source":"src/big.rs","targets":[{"path":"src/types.rs","symbols":["Config"],"prepend":"use super::*;"}],"keep_in_source":["main"],"source_suffix":"mod types;"}"###,
+        )],
+    },
 ];
 
 /// Return the complete registry of all patchloom operations with schemas.

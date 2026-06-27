@@ -705,6 +705,101 @@ pub(super) fn handle_ast_imports(
     svc.run_one_op(op, None)
 }
 
+pub(super) fn handle_ast_reorder(
+    svc: &PatchloomService,
+    p: AstReorderParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    let op = crate::plan::Operation::AstReorder {
+        path: p.path,
+        inside: p.inside,
+        order: p.order,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_group(
+    svc: &PatchloomService,
+    p: AstGroupParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    let op = crate::plan::Operation::AstGroup {
+        path: p.path,
+        module: p.module,
+        symbols: p.symbols,
+        preamble: p.preamble,
+        position: p.position,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_move(
+    svc: &PatchloomService,
+    p: AstMoveParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    svc.check_path(&p.target)?;
+    let op = crate::plan::Operation::AstMove {
+        path: p.path,
+        target: p.target,
+        symbols: p.symbols,
+        position: p.position,
+        target_prepend: p.target_prepend,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_extract_to_file(
+    svc: &PatchloomService,
+    p: AstExtractToFileParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.source)?;
+    svc.check_path(&p.target)?;
+    let op = crate::plan::Operation::AstExtractToFile {
+        source: p.source,
+        symbol: p.symbol,
+        target: p.target,
+        replacement: p.replacement,
+        unwrap: p.unwrap,
+        prepend: p.prepend,
+        force: p.force,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_split(
+    svc: &PatchloomService,
+    p: AstSplitParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.source)?;
+    for t in &p.targets {
+        svc.check_path(&t.path)?;
+    }
+    let targets: Vec<crate::plan::SplitTargetSpec> = p
+        .targets
+        .into_iter()
+        .map(|t| crate::plan::SplitTargetSpec {
+            path: t.path,
+            symbols: t.symbols,
+            prepend: t.prepend,
+        })
+        .collect();
+    let op = crate::plan::Operation::AstSplit {
+        source: p.source,
+        targets,
+        keep_in_source: p.keep_in_source,
+        source_suffix: p.source_suffix,
+        source_prefix: p.source_prefix,
+        require_exhaustive: p.require_exhaustive,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

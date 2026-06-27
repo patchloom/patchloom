@@ -812,6 +812,190 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             }
             return Ok(total_changes);
         }
+
+        #[cfg(feature = "ast")]
+        Operation::AstReorder {
+            path,
+            inside,
+            order,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let strategy = crate::ast::reorder::parse_strategy(order)?;
+            let result = crate::ast::reorder::reorder_symbols(
+                file_content,
+                inside.as_deref(),
+                &strategy,
+                lang_val,
+            )?;
+            if result.symbols_reordered > 0 {
+                update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            }
+            return Ok(result.symbols_reordered);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstGroup {
+            path,
+            module,
+            symbols: sym_names,
+            preamble,
+            position,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let pos = match position.as_deref() {
+                Some("end") => crate::ast::group::GroupPosition::End,
+                Some(s) if s.starts_with("after:") => {
+                    crate::ast::group::GroupPosition::After(s[6..].to_string())
+                }
+                _ => crate::ast::group::GroupPosition::FirstSymbol,
+            };
+            let spec = crate::ast::group::GroupSpec {
+                module: module.clone(),
+                symbols: sym_names.clone(),
+                preamble: preamble.clone(),
+                position: pos,
+            };
+            let result = crate::ast::group::group_symbols(file_content, &spec, lang_val)?;
+            if result.symbols_moved > 0 {
+                update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            }
+            return Ok(result.symbols_moved);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstMove {
+            path,
+            target,
+            symbols: sym_names,
+            position,
+            target_prepend,
+            lang,
+        } => {
+            let abs_source = tx.cwd.join(path);
+            let abs_target = tx.cwd.join(target);
+            let source_content =
+                read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
+            let target_content = if abs_target.exists() || tx.pending.contains_key(&abs_target) {
+                read_file_content(tx.pending, tx.existed_before, &abs_target)?.to_string()
+            } else {
+                target_prepend
+                    .as_ref()
+                    .map(|p| format!("{p}\n\n"))
+                    .unwrap_or_default()
+            };
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let pos = crate::ast::move_symbols::parse_position(position.as_deref());
+            let result = crate::ast::move_symbols::move_symbols(
+                &source_content,
+                &target_content,
+                sym_names,
+                pos,
+                lang_val,
+            )?;
+            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
+            update_file_content(tx.pending, tx.deletions, &abs_target, result.target_content);
+            return Ok(result.symbols_moved);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstExtractToFile {
+            source,
+            symbol,
+            target,
+            replacement,
+            unwrap,
+            prepend,
+            force,
+            lang,
+        } => {
+            let abs_source = tx.cwd.join(source);
+            let abs_target = tx.cwd.join(target);
+            if !force && (abs_target.exists() || tx.pending.contains_key(&abs_target)) {
+                anyhow::bail!(
+                    "target file '{}' already exists (use force: true to overwrite)",
+                    target
+                );
+            }
+            let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let do_unwrap = unwrap.unwrap_or(true);
+            let result = crate::ast::extract::extract_to_file(
+                source_content,
+                symbol,
+                replacement.as_deref(),
+                do_unwrap,
+                prepend.as_deref(),
+                lang_val,
+            )?;
+            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
+            update_file_content(tx.pending, tx.deletions, &abs_target, result.target_content);
+            return Ok(1);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstSplit {
+            source,
+            targets,
+            keep_in_source,
+            source_suffix,
+            source_prefix,
+            require_exhaustive,
+            lang,
+        } => {
+            let abs_source = tx.cwd.join(source);
+            let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let split_targets: Vec<crate::ast::split::SplitTarget> = targets
+                .iter()
+                .map(|t| crate::ast::split::SplitTarget {
+                    path: t.path.clone(),
+                    symbols: t.symbols.clone(),
+                    prepend: t.prepend.clone(),
+                })
+                .collect();
+            let exhaustive = require_exhaustive.unwrap_or(true);
+            let result = crate::ast::split::split_file(
+                source_content,
+                &split_targets,
+                keep_in_source,
+                source_suffix.as_deref(),
+                source_prefix.as_deref(),
+                exhaustive,
+                lang_val,
+            )?;
+            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
+            for (target_path, target_content) in &result.targets {
+                let abs_target = tx.cwd.join(target_path);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    &abs_target,
+                    target_content.clone(),
+                );
+            }
+            return Ok(result.symbols_distributed);
+        }
     }
 
     Ok(0)
