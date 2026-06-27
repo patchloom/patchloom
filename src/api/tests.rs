@@ -1840,6 +1840,32 @@ fn search_format_results_human_and_json() {
     assert!(js.contains("\"column\"") || js.contains("column"));
 }
 
+/// Regression: format_search_results must print context_before lines
+/// BEFORE the match line, not after.
+#[test]
+fn search_format_results_context_before_appears_before_match() {
+    let results = vec![SearchResult {
+        path: std::path::PathBuf::from("file.rs"),
+        line_number: 5,
+        line: "fn handle_error()".to_string(),
+        column: 0,
+        context_before: vec!["fn validate_input() {".to_string()],
+        context_after: vec!["    Ok(())".to_string()],
+    }];
+    let txt = format_search_results(&results, false);
+    let before_pos = txt.find("validate_input").expect("context_before missing");
+    let match_pos = txt.find("handle_error").expect("match line missing");
+    let after_pos = txt.find("Ok(())").expect("context_after missing");
+    assert!(
+        before_pos < match_pos,
+        "context_before must appear before match line"
+    );
+    assert!(
+        match_pos < after_pos,
+        "context_after must appear after match line"
+    );
+}
+
 #[test]
 #[cfg(any(feature = "cli", feature = "files"))]
 fn search_multiline_literal_auto_escapes_metacharacters() {

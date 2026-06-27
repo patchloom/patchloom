@@ -171,6 +171,13 @@ pub fn validate_edit_nth(
     }
 
     let new_content = match nth {
+        Some(0) => {
+            return ValidationResult {
+                valid: false,
+                errors: vec!["nth must be >= 1 (1-based indexing)".into()],
+                warnings: vec![],
+            };
+        }
         Some(n) => {
             // Replace only the Nth (1-based) occurrence.
             let mut count = 0usize;
@@ -1015,6 +1022,15 @@ mod tests {
         let content = "aXbXc";
         let result = validate_edit_nth(content, "X", "Y", None, Some(5));
         assert!(result.valid);
+    }
+
+    #[test]
+    fn validate_edit_nth_zero_rejected() {
+        // nth=0 is invalid (1-based indexing); must not truncate content.
+        let content = r#"{"a": "val"}"#;
+        let result = validate_edit_nth(content, "val", "X", Some("f.json"), Some(0));
+        assert!(!result.valid);
+        assert!(result.errors[0].contains("nth must be >= 1"));
     }
 
     #[test]
