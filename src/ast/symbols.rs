@@ -259,7 +259,7 @@ fn function_node_has_name(node: tree_sitter_lib::Node, source: &str, name: &str)
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind().contains("declarator") {
-            if child_text_by_kinds(child, name_kinds, source) == Some(name) {
+            if check_declarator_for_name(child, name_kinds, source, name) {
                 return true;
             }
             // One more level: function_declarator -> declarator -> identifier
@@ -270,11 +270,62 @@ fn function_node_has_name(node: tree_sitter_lib::Node, source: &str, name: &str)
                         if grandchild.utf8_text(source.as_bytes()).ok() == Some(name) {
                             return true;
                         }
-                    } else if child_text_by_kinds(grandchild, name_kinds, source) == Some(name) {
+                    } else if check_declarator_for_name(grandchild, name_kinds, source, name) {
                         return true;
                     }
                 }
             }
+        }
+    }
+    false
+}
+
+/// Check a declarator node for a matching name, including inside
+/// `qualified_identifier` / `scoped_identifier` nodes (C++ `MyClass::method`).
+fn check_declarator_for_name(
+    node: tree_sitter_lib::Node,
+    name_kinds: &[&str],
+    source: &str,
+    name: &str,
+) -> bool {
+    // Direct identifier child
+    if child_text_by_kinds(node, name_kinds, source) == Some(name) {
+        return true;
+    }
+    // Check inside qualified_identifier / scoped_identifier for nested name.
+    // Recurse because nested namespaces produce chains:
+    //   qualified_identifier -> name: qualified_identifier -> name: identifier
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
+            && qualified_identifier_has_name(child, name_kinds, source, name)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Recursively check a `qualified_identifier` / `scoped_identifier` for the
+/// innermost identifier matching `name`. Handles arbitrary nesting depth
+/// (e.g. `ns::MyClass::method`).
+fn qualified_identifier_has_name(
+    node: tree_sitter_lib::Node,
+    name_kinds: &[&str],
+    source: &str,
+    name: &str,
+) -> bool {
+    // Check direct identifier children
+    if child_text_by_kinds(node, name_kinds, source) == Some(name) {
+        return true;
+    }
+    // Recurse into nested qualified_identifier / scoped_identifier children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
+            && qualified_identifier_has_name(child, name_kinds, source, name)
+        {
+            return true;
         }
     }
     false
@@ -1449,6 +1500,22 @@ struct Point {
                 .contains("void process(int x, double y)")
         );
         assert!(!span.signature_text.contains("// body"));
+    }
+
+    #[test]
+    fn find_function_span_cpp_qualified_name() {
+        let source = "void MyClass::process(int x) {\n    // body\n}\n";
+        let span = find_function_span(source, "process", Language::Cpp).unwrap();
+        assert_eq!(span.name, "process");
+        assert!(span.signature_text.contains("void MyClass::process(int x)"));
+    }
+
+    #[test]
+    fn find_function_span_cpp_nested_namespace_qualified() {
+        let source = "int ns::MyClass::deep() {\n    return 0;\n}\n";
+        let span = find_function_span(source, "deep", Language::Cpp).unwrap();
+        assert_eq!(span.name, "deep");
+        assert!(span.signature_text.contains("ns::MyClass::deep()"));
     }
 
     #[test]
