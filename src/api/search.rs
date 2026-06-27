@@ -286,17 +286,23 @@ pub fn search_one_file(
         None => return vec![],
     };
     let display = crate::files::relative_display(path, root);
-    let pat = if opts.literal {
+    let pat = if opts.literal || (opts.multiline && !opts.regex) {
+        // Auto-escape when literal is set, or when multiline mode is used
+        // without regex (the pattern must go through RegexBuilder but the
+        // user expects literal matching).
         regex::escape(pattern)
     } else {
         pattern.to_string()
     };
     let re = if opts.regex || opts.case_insensitive || opts.multiline {
-        regex::RegexBuilder::new(&pat)
+        match regex::RegexBuilder::new(&pat)
             .case_insensitive(opts.case_insensitive)
             .dot_matches_new_line(opts.multiline)
             .build()
-            .ok()
+        {
+            Ok(r) => Some(r),
+            Err(_) => return vec![],
+        }
     } else {
         None
     };
@@ -306,24 +312,25 @@ pub fn search_one_file(
 
     // Multiline mode: match against full content, report the start line of each match
     if opts.multiline {
+        // `re` is always Some here: multiline triggers the regex path above,
+        // and invalid patterns return early with an empty vec.
+        let re = re.as_ref().expect("multiline always builds regex");
         let mut results = Vec::new();
-        if let Some(re) = &re {
-            let all_lines: Vec<&str> = content.lines().collect();
-            for m in re.find_iter(&content) {
-                let start_byte = m.start();
-                let line_num = content[..start_byte].matches('\n').count();
-                let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();
-                let (context_before, context_after) =
-                    build_context_lines(&all_lines, line_num, ctx_before, ctx_after);
-                results.push(SearchResult {
-                    path: display.to_path_buf(),
-                    line_number: line_num + 1,
-                    line: line_text,
-                    column: 1,
-                    context_before,
-                    context_after,
-                });
-            }
+        let all_lines: Vec<&str> = content.lines().collect();
+        for m in re.find_iter(&content) {
+            let start_byte = m.start();
+            let line_num = content[..start_byte].matches('\n').count();
+            let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();
+            let (context_before, context_after) =
+                build_context_lines(&all_lines, line_num, ctx_before, ctx_after);
+            results.push(SearchResult {
+                path: display.to_path_buf(),
+                line_number: line_num + 1,
+                line: line_text,
+                column: 1,
+                context_before,
+                context_after,
+            });
         }
         return results;
     }

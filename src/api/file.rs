@@ -88,6 +88,9 @@ fn file_write(
         }
         Operation::FileAppend { content, .. } => {
             let path_str = path.to_string_lossy();
+            if path.exists() && !path.is_file() {
+                bail!("target is not a file: {}", path.display());
+            }
             if !path.exists() {
                 bail!("file does not exist: {}", path.display());
             }
@@ -102,6 +105,9 @@ fn file_write(
         }
         Operation::FilePrepend { content, .. } => {
             let path_str = path.to_string_lossy();
+            if path.exists() && !path.is_file() {
+                bail!("target is not a file: {}", path.display());
+            }
             if !path.exists() {
                 bail!("file does not exist: {}", path.display());
             }
