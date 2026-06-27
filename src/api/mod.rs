@@ -346,7 +346,6 @@ fn build_edit_result(
 /// `ExecutionResult`). All API write functions can delegate to this adapter
 /// instead of reimplementing read-transform-write-backup independently.
 #[cfg(any(feature = "cli", feature = "files"))]
-#[allow(dead_code)] // Used by upcoming migration PRs (#1007)
 pub(crate) fn execute_as_edit_result(
     op: crate::plan::Operation,
     mode: ApplyMode,
@@ -367,7 +366,6 @@ pub(crate) fn execute_as_edit_result(
 /// Like `execute_as_edit_result` but for cross-file operations (rename, move)
 /// where the destination path differs from the source.
 #[cfg(any(feature = "cli", feature = "files"))]
-#[allow(dead_code)] // Used by upcoming migration PRs (#1007)
 pub(crate) fn execute_cross_file_as_edit_result(
     op: crate::plan::Operation,
     mode: ApplyMode,
@@ -388,7 +386,6 @@ pub(crate) fn execute_cross_file_as_edit_result(
 
 /// Map `ApplyMode` to `GlobalFlags` with the appropriate apply/check settings.
 #[cfg(any(feature = "cli", feature = "files"))]
-#[allow(dead_code)]
 fn mode_to_global_flags(mode: ApplyMode) -> crate::cli::global::GlobalFlags {
     let mut flags = crate::cli::global::GlobalFlags::default();
     match mode {
@@ -403,7 +400,6 @@ fn mode_to_global_flags(mode: ApplyMode) -> crate::cli::global::GlobalFlags {
 ///
 /// Handles commit for Apply mode, extracts per-file data from the engine result.
 #[cfg(any(feature = "cli", feature = "files"))]
-#[allow(dead_code)]
 fn execution_result_to_edit_result(
     result: crate::tx::engine::ExecutionResult,
     mode: ApplyMode,
