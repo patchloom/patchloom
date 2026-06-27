@@ -491,6 +491,7 @@ mod tests {
             ],
             format: None,
             validate: None,
+            verify: None,
         };
         // Just ensure it doesn't panic.
         print_human_summary(&plan, true);
@@ -515,6 +516,7 @@ mod tests {
                 required: Some(true),
                 timeout: None,
             }]),
+            verify: None,
         };
         let json = build_json_summary(&plan, false);
         assert_eq!(json["operation_count"], 1);

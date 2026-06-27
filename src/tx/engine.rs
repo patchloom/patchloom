@@ -215,6 +215,7 @@ fn execute_plan_inner(
         operations,
         format: None,
         validate: None,
+        verify: None,
         cwd: None,
         strict: None,
         write_policy: None,

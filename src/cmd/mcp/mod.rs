@@ -326,6 +326,7 @@ fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
         operations,
         format: None,
         validate: None,
+        verify: None,
     }
 }
 

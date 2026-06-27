@@ -38,6 +38,57 @@ pub struct Plan {
     pub operations: Vec<Operation>,
     pub format: Option<Vec<FormatStep>>,
     pub validate: Option<Vec<ValidationStep>>,
+    /// Pre/post-operation symbol verification checks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify: Option<Vec<VerifyCheck>>,
+}
+
+/// A single verification check parsed from `--verify` or plan `verify` field.
+#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum VerifyCheck {
+    /// `{"kind": "function", "attr": "test"}` or `{"kind": "function"}`
+    SymbolCount {
+        kind: String,
+        #[serde(default)]
+        attr: Option<String>,
+    },
+    /// `{"check": "unique_names"}` or `{"check": "no_orphans"}`
+    Named { check: String },
+}
+
+impl VerifyCheck {
+    /// Parse a CLI `--verify` value like `kind=function,attr=test` or `unique_names`.
+    #[cfg(feature = "cli")]
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        if s == "unique_names" || s == "no_orphans" {
+            return Ok(VerifyCheck::Named {
+                check: s.to_string(),
+            });
+        }
+        let mut kind = None;
+        let mut attr = None;
+        for part in s.split(',') {
+            let part = part.trim();
+            if let Some((k, v)) = part.split_once('=') {
+                match k.trim() {
+                    "kind" => kind = Some(v.trim().to_string()),
+                    "attr" => attr = Some(v.trim().to_string()),
+                    other => anyhow::bail!("unknown verify key: {other}"),
+                }
+            } else {
+                // Bare word like "function" treated as kind
+                kind = Some(part.to_string());
+            }
+        }
+        if let Some(kind) = kind {
+            Ok(VerifyCheck::SymbolCount { kind, attr })
+        } else {
+            anyhow::bail!(
+                "verify spec must contain 'kind=<type>' or a named check (unique_names, no_orphans)"
+            )
+        }
+    }
 }
 
 /// A format step to run after applying operations but before validation.

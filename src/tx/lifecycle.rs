@@ -392,6 +392,25 @@ pub fn execute_plan_direct(
         }
     }
 
+    // Pre-execution verification snapshot.
+    #[cfg(feature = "ast")]
+    let verify_before = if let Some(ref checks) = plan.verify {
+        if !checks.is_empty() {
+            let affected = super::verify::affected_file_paths(&plan, &effective_cwd);
+            checks
+                .iter()
+                .map(|check| {
+                    let snap = super::verify::snapshot_symbols(&affected, check);
+                    (check.clone(), snap)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     // Execute operations and collect changes in memory.
     let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
@@ -418,6 +437,34 @@ pub fn execute_plan_direct(
     if result.no_effective_changes {
         let output = build_full_tx_output("success", &mut result, &effective_cwd);
         return Ok(output);
+    }
+
+    // Post-execution verification against pending content.
+    #[cfg(feature = "ast")]
+    if !verify_before.is_empty() {
+        let affected = super::verify::affected_file_paths(&plan, &effective_cwd);
+        let mut messages = Vec::new();
+        let mut any_failed = false;
+        for (check, before_snap) in &verify_before {
+            let after_snap =
+                super::verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
+            let vr =
+                super::verify::compare_snapshots(before_snap, &after_snap, check, &effective_cwd);
+            messages.push(vr.message.clone());
+            if !vr.passed {
+                any_failed = true;
+            }
+        }
+        if any_failed {
+            let summary = messages.join("\n");
+            let msg = format!("verification failed, changes not applied:\n{summary}");
+            return Ok(build_error_output(
+                "verification_failed",
+                "verification_failed",
+                &msg,
+                None,
+            ));
+        }
     }
 
     // Apply: back up originals, write files.
@@ -568,6 +615,7 @@ mod tests {
             operations: Vec::new(),
             format: None,
             validate: None,
+            verify: None,
             cwd: None,
             strict: None,
             write_policy: None,

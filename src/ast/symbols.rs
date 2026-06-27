@@ -628,6 +628,31 @@ fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolK
     None
 }
 
+/// Parse a comma-separated kind filter string into a list of `SymbolKind`s.
+pub fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
+    match kind_arg {
+        Some(s) => s
+            .split(',')
+            .filter_map(|k| SymbolKind::from_str_loose(k.trim()))
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Filter symbols by kind. Returns all symbols if filter is empty.
+pub fn filter_symbols<'a>(
+    symbols: &'a [SymbolDef],
+    kind_filter: &[SymbolKind],
+) -> Vec<&'a SymbolDef> {
+    if kind_filter.is_empty() {
+        return symbols.iter().collect();
+    }
+    symbols
+        .iter()
+        .filter(|s| kind_filter.contains(&s.kind))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
