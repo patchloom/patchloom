@@ -212,8 +212,7 @@ mod tests {
             symbols: vec!["alpha".into()],
             prepend: None,
         }];
-        let result = split_file(source, &targets, &[], None, None, false, Language::Rust);
-        assert!(result.is_ok());
+        split_file(source, &targets, &[], None, None, false, Language::Rust).unwrap();
     }
 
     #[test]
