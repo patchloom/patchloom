@@ -315,20 +315,7 @@ fn qualified_identifier_has_name(
     source: &str,
     name: &str,
 ) -> bool {
-    // Check direct identifier children
-    if child_text_by_kinds(node, name_kinds, source) == Some(name) {
-        return true;
-    }
-    // Recurse into nested qualified_identifier / scoped_identifier children
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
-            && qualified_identifier_has_name(child, name_kinds, source, name)
-        {
-            return true;
-        }
-    }
-    false
+    innermost_qualified_name(node, name_kinds, source) == Some(name)
 }
 
 /// Find the byte offset where the body starts within a function node.
@@ -840,6 +827,30 @@ fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolK
     None
 }
 
+/// Extract the innermost identifier name from a `qualified_identifier` /
+/// `scoped_identifier` node. Handles arbitrary nesting depth
+/// (e.g. `ns::MyClass::method` returns `"method"`).
+fn innermost_qualified_name<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    name_kinds: &[&str],
+    source: &'a str,
+) -> Option<&'a str> {
+    // Check direct identifier children first
+    if let Some(name) = child_text_by_kinds(node, name_kinds, source) {
+        return Some(name);
+    }
+    // Recurse into nested qualified_identifier / scoped_identifier children
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
+            && let Some(name) = innermost_qualified_name(child, name_kinds, source)
+        {
+            return Some(name);
+        }
+    }
+    None
+}
+
 /// Search child nodes for `qualified_identifier` / `scoped_identifier` and
 /// return the innermost identifier name. Used by `extract_generic` to handle
 /// C++ qualified method definitions (e.g. `void MyClass::method()`).
@@ -850,15 +861,10 @@ fn find_name_in_qualified_children<'a>(
 ) -> Option<&'a str> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier" {
-            // Check direct identifier children first
-            if let Some(name) = child_text_by_kinds(child, name_kinds, source) {
-                return Some(name);
-            }
-            // Recurse for deeper nesting (ns::MyClass::method)
-            if let Some(name) = find_name_in_qualified_children(child, name_kinds, source) {
-                return Some(name);
-            }
+        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
+            && let Some(name) = innermost_qualified_name(child, name_kinds, source)
+        {
+            return Some(name);
         }
     }
     None
