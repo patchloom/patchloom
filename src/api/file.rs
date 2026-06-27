@@ -1,10 +1,11 @@
 //! File-level operations (create, delete, rename, append, prepend) for the library API.
 //!
 //! Standard file operations delegate to the tx engine via `execute_as_edit_result`.
-//! `file_prepend` retains a direct implementation (no `Operation::FilePrepend` variant).
+//! All operations, including prepend, route through the tx engine.
 
 use std::path::Path;
 
+#[cfg(not(any(feature = "cli", feature = "files")))]
 use anyhow::{Context, bail};
 
 use crate::containment::PathGuard;
@@ -93,6 +94,20 @@ fn file_write(
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             let combined = crate::ops::file::append_content(&original, &content);
+            let policy = crate::write::WritePolicy::default();
+            let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
+            Ok(super::build_edit_result(
+                &path_str, original, combined, applied, action, None,
+            ))
+        }
+        Operation::FilePrepend { content, .. } => {
+            let path_str = path.to_string_lossy();
+            if !path.exists() {
+                bail!("file does not exist: {}", path.display());
+            }
+            let original = std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let combined = crate::ops::file::prepend_content(&original, &content);
             let policy = crate::write::WritePolicy::default();
             let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
             Ok(super::build_edit_result(
@@ -228,31 +243,15 @@ pub fn file_append(
 /// Prepend content to an existing file.
 ///
 /// The file must exist. Content is inserted at the beginning.
-/// Retains direct implementation (no `Operation::FilePrepend` variant).
 pub fn file_prepend(
     path: &Path,
     content: &str,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let path_str = path.to_string_lossy().to_string();
-
-    if !path.exists() {
-        bail!("file does not exist: {}", path.display());
-    }
-    if !path.is_file() {
-        bail!("target is not a file: {}", path.display());
-    }
-
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let combined = crate::ops::file::prepend_content(&original, content);
-
-    let policy = crate::write::WritePolicy::default();
-    let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
-
-    Ok(super::build_edit_result(
-        &path_str, original, combined, applied, "prepend", None,
-    ))
+    let op = Operation::FilePrepend {
+        path: path.to_string_lossy().into(),
+        content: content.into(),
+    };
+    file_write(op, path, mode, guard, "prepend")
 }

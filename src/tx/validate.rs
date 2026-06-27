@@ -48,6 +48,7 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdTableAppend { .. }
         | Operation::MdDedupeHeadings { .. }
         | Operation::FileAppend { .. }
+        | Operation::FilePrepend { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. }

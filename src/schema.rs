@@ -189,6 +189,15 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         )],
     },
     OpMeta {
+        name: "file.prepend",
+        description: "Prepend content to an existing file.",
+        tier: Tier::Weak,
+        examples: &[(
+            "Prepend a license header",
+            r###"{"op":"file.prepend","path":"src/main.rs","content":"// Copyright 2026\n"}"###,
+        )],
+    },
+    OpMeta {
         name: "file.create",
         description: "Create a new file with specified content.",
         tier: Tier::Weak,

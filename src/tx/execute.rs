@@ -322,6 +322,19 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             update_file_content(tx.pending, tx.deletions, &file_path, combined);
         }
 
+        Operation::FilePrepend { path, content } => {
+            let file_path = tx.cwd.join(path);
+            if !tx.deletions.contains(&file_path)
+                && !file_path.exists()
+                && !tx.pending.contains_key(&file_path)
+            {
+                anyhow::bail!("file does not exist: {path}");
+            }
+            let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+            let combined = crate::ops::file::prepend_content(existing, content);
+            update_file_content(tx.pending, tx.deletions, &file_path, combined);
+        }
+
         Operation::FileCreate {
             path,
             content,
@@ -588,6 +601,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         }
 
         Operation::FileAppend { .. }
+        | Operation::FilePrepend { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
         | Operation::FileRename { .. } => {

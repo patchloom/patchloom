@@ -178,6 +178,13 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 content: args[1].clone()
             })
         }
+        "file.prepend" => {
+            require_args(op, args, 2, line_num)?;
+            op!(FilePrepend {
+                path: args[0].clone(),
+                content: args[1].clone()
+            })
+        }
         "file.create" => {
             require_args(op, args, 2, line_num)?;
             op!(FileCreate {

@@ -283,6 +283,9 @@ fn describe_operation(op: &Operation) -> String {
         Operation::FileAppend { path, .. } => {
             format!("Append content to {path}")
         }
+        Operation::FilePrepend { path, .. } => {
+            format!("Prepend content to {path}")
+        }
         Operation::FileCreate { path, force, .. } => {
             let force_str = if *force == Some(true) {
                 " (overwrite)"

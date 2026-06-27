@@ -5695,6 +5695,139 @@ fn test_tx_file_append_missing_file_fails() {
 }
 
 #[test]
+fn test_tx_file_prepend_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "existing content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.prepend",
+            "path": portable_path_str(&file),
+            "content": "# Header\n\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "# Header\n\nexisting content\n");
+}
+
+#[test]
+fn test_tx_file_prepend_missing_file_fails() {
+    let dir = TempDir::new().unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.prepend",
+            "path": nonexistent_path("prepend-target"),
+            "content": "data\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not exist"));
+}
+
+#[test]
+fn test_tx_file_prepend_with_append_atomic() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("script.sh");
+    fs::write(&file, "echo hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            { "op": "file.prepend", "path": portable_path_str(&file), "content": "#!/bin/bash\n" },
+            { "op": "file.append", "path": portable_path_str(&file), "content": "echo goodbye\n" }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "#!/bin/bash\necho hello\necho goodbye\n");
+}
+
+#[test]
+fn test_tx_file_prepend_empty_content_is_noop() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.prepend",
+            "path": portable_path_str(&file),
+            "content": ""
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "content\n");
+}
+
+#[test]
+fn test_tx_file_prepend_alias_parsing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, "body\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "prepend_file",
+            "path": portable_path_str(&file),
+            "content": "header\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "header\nbody\n");
+}
+
+#[test]
 fn test_tx_format_flag_runs_after_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("f.txt");

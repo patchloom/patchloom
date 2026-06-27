@@ -104,6 +104,7 @@ mod basic {
             "missing md_move_section tool"
         );
         assert!(names.contains(&"append_file"), "missing append_file tool");
+        assert!(names.contains(&"prepend_file"), "missing prepend_file tool");
         assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
         assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
         assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
@@ -116,7 +117,7 @@ mod basic {
         );
         assert!(names.contains(&"ast_split"), "missing ast_split tool");
         // 32 base tools + 14 AST tools = 46
-        assert_eq!(names.len(), 51, "expected 51 tools, got {}", names.len());
+        assert_eq!(names.len(), 52, "expected 52 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
