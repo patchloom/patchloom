@@ -324,6 +324,168 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// Dedent content by removing leading whitespace.
+///
+/// `spec` accepts:
+/// - A numeric string (e.g. `"4"`) — remove up to N leading spaces per line.
+/// - `"tab"` — remove one leading tab per line.
+/// - `"auto"` — find the minimum non-zero indentation and remove that much.
+///
+/// If `line_range` is `Some((start, end))`, only lines in that 1-based inclusive
+/// range are affected. Blank lines are never modified.
+pub fn dedent_content(
+    content: &str,
+    spec: &str,
+    line_range: Option<(usize, Option<usize>)>,
+) -> String {
+    let lines: Vec<&str> = content.split('\n').collect();
+
+    let (start, end) = match line_range {
+        Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
+        None => (1, lines.len()),
+    };
+
+    let in_range = |i: usize| {
+        let line_num = i + 1; // 1-based
+        line_num >= start && line_num <= end
+    };
+
+    match spec {
+        "auto" => {
+            // Find minimum non-zero indentation in the range.
+            let min_indent = lines
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| in_range(i))
+                .filter(|&(_, line)| !line.trim().is_empty())
+                .map(|(_, line)| line.len() - line.trim_start().len())
+                .filter(|&n| n > 0)
+                .min()
+                .unwrap_or(0);
+
+            if min_indent == 0 {
+                return content.to_string();
+            }
+
+            dedent_by_n(&lines, min_indent, &in_range)
+        }
+        "tab" => {
+            let result: Vec<String> = lines
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    if !in_range(i) || line.trim().is_empty() {
+                        line.to_string()
+                    } else if let Some(rest) = line.strip_prefix('\t') {
+                        rest.to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect();
+            result.join("\n")
+        }
+        n => {
+            let count: usize = n.parse().unwrap_or(0);
+            if count == 0 {
+                return content.to_string();
+            }
+            dedent_by_n(&lines, count, &in_range)
+        }
+    }
+}
+
+fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> String {
+    let result: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if !in_range(i) || line.trim().is_empty() {
+                line.to_string()
+            } else {
+                let leading_spaces = line.len() - line.trim_start_matches(' ').len();
+                let strip = n.min(leading_spaces);
+                line[strip..].to_string()
+            }
+        })
+        .collect();
+    result.join("\n")
+}
+
+/// Parse a line range specification like `"10:50"` into `(start, Option<end>)`.
+///
+/// Both start and end are 1-based inclusive. Examples:
+/// - `"10:50"` → `(10, Some(50))`
+/// - `"5:"` → `(5, None)` (open-ended)
+/// - `"3"` → `(3, Some(3))` (single line)
+pub fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
+    if let Some((left, right)) = spec.split_once(':') {
+        let start: usize = left
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid line range start: '{left}'"))?;
+        if right.is_empty() {
+            Ok((start, None))
+        } else {
+            let end: usize = right
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid line range end: '{right}'"))?;
+            Ok((start, Some(end)))
+        }
+    } else {
+        let line: usize = spec
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid line number: '{spec}'"))?;
+        Ok((line, Some(line)))
+    }
+}
+
+/// Indent content by adding leading whitespace.
+///
+/// `spec` accepts:
+/// - A numeric string (e.g. `"4"`) — add N leading spaces to each non-blank line.
+/// - `"tab"` — add one leading tab to each non-blank line.
+///
+/// If `line_range` is `Some((start, end))`, only lines in that 1-based inclusive
+/// range are affected. Blank lines are never modified.
+pub fn indent_content(
+    content: &str,
+    spec: &str,
+    line_range: Option<(usize, Option<usize>)>,
+) -> String {
+    let lines: Vec<&str> = content.split('\n').collect();
+
+    let (start, end) = match line_range {
+        Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
+        None => (1, lines.len()),
+    };
+
+    let prefix = match spec {
+        "tab" => "\t".to_string(),
+        n => {
+            let count: usize = n.parse().unwrap_or(0);
+            " ".repeat(count)
+        }
+    };
+
+    if prefix.is_empty() {
+        return content.to_string();
+    }
+
+    let result: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let line_num = i + 1;
+            if line_num < start || line_num > end || line.trim().is_empty() {
+                line.to_string()
+            } else {
+                format!("{prefix}{line}")
+            }
+        })
+        .collect();
+    result.join("\n")
+}
+
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
 ///
 /// Returns `Cow::Borrowed` when the policy is a no-op, avoiding allocation.

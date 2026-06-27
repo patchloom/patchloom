@@ -10,13 +10,42 @@ use crate::write::EolMode;
 
 use super::{ApplyMode, EditResult, WritePolicyOptions};
 
+/// Options for indentation transforms (separate from write policy).
+#[derive(Debug, Clone, Default)]
+pub struct TidyIndentOptions {
+    /// Dedent specification: `"auto"`, `"tab"`, or a numeric string (e.g. `"4"`).
+    pub dedent: Option<String>,
+    /// Indent specification: `"tab"` or a numeric string (e.g. `"4"`).
+    pub indent: Option<String>,
+    /// Line range restriction: `"10:50"` (1-based inclusive).
+    pub lines: Option<String>,
+}
+
 /// Apply whitespace normalization to a file using the given write policy.
 ///
 /// Normalizes final newlines, line endings, trailing whitespace, and
-/// consecutive blank lines according to the policy options.
+/// consecutive blank lines according to the policy options. Optionally
+/// applies dedent/indent transforms via `indent_opts`.
 pub fn tidy(
     path: &Path,
     policy_opts: &WritePolicyOptions,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    tidy_with_indent(
+        path,
+        policy_opts,
+        &TidyIndentOptions::default(),
+        mode,
+        guard,
+    )
+}
+
+/// Apply whitespace normalization with optional dedent/indent transforms.
+pub fn tidy_with_indent(
+    path: &Path,
+    policy_opts: &WritePolicyOptions,
+    indent_opts: &TidyIndentOptions,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
@@ -36,6 +65,9 @@ pub fn tidy(
         ensure_final_newline: Some(policy_opts.ensure_final_newline),
         trim_trailing_whitespace: Some(policy_opts.trim_trailing_whitespace),
         normalize_eol: eol_str,
+        dedent: indent_opts.dedent.clone(),
+        indent: indent_opts.indent.clone(),
+        lines: indent_opts.lines.clone(),
     };
     tidy_write(op, path, mode, guard)
 }
@@ -94,6 +126,9 @@ fn tidy_write(
         ensure_final_newline,
         trim_trailing_whitespace,
         normalize_eol,
+        dedent,
+        indent,
+        lines,
         ..
     } = _op
     {
@@ -116,7 +151,19 @@ fn tidy_write(
             trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
             collapse_blanks: false,
         };
-        let new_content = crate::write::apply_policy(&original, &policy).into_owned();
+        let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
+
+        // Apply dedent/indent after policy normalization.
+        let line_range = lines
+            .as_deref()
+            .map(crate::write::parse_line_range)
+            .transpose()?;
+        if let Some(ref spec) = dedent {
+            new_content = crate::write::dedent_content(&new_content, spec, line_range);
+        }
+        if let Some(ref spec) = indent {
+            new_content = crate::write::indent_content(&new_content, spec, line_range);
+        }
 
         let noop_policy = crate::write::WritePolicy::default();
         let applied = super::write_if_apply(path, &new_content, mode, &noop_policy, guard)?;

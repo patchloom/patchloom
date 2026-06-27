@@ -47,7 +47,6 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdUpsertBullet { .. }
         | Operation::MdTableAppend { .. }
         | Operation::MdDedupeHeadings { .. }
-        | Operation::TidyFix { .. }
         | Operation::FileAppend { .. }
         | Operation::FileCreate { .. }
         | Operation::FileDelete { .. }
@@ -57,6 +56,12 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::PatchApply { .. } => Ok(()),
         #[cfg(feature = "ast")]
         Operation::AstRename { .. } | Operation::AstReplace { .. } => Ok(()),
+        Operation::TidyFix { dedent, indent, .. } => {
+            if dedent.is_some() && indent.is_some() {
+                anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");
+            }
+            Ok(())
+        }
         Operation::MdMoveSection { before, after, .. } => {
             if before.is_none() && after.is_none() {
                 anyhow::bail!("md.move_section requires either 'before' or 'after'");

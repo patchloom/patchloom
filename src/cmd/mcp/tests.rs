@@ -77,7 +77,7 @@ mod basic {
         assert_eq!(
             descriptions.get("fix_whitespace"),
             Some(
-                &"Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
+                &"Fix whitespace in a file: trims trailing spaces, ensures final newline. Optionally dedent (\"auto\", \"tab\", \"4\") or indent (\"tab\", \"4\") with optional line range. Example: {\"path\": \"dirty.txt\"} or {\"path\": \"src/main.rs\", \"dedent\": \"auto\", \"lines\": \"10:50\"}"
             ),
             "fix_whitespace description drifted"
         );

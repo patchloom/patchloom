@@ -307,6 +307,9 @@ mod basic {
                     ensure_final_newline: Some(true),
                     trim_trailing_whitespace: Some(true),
                     normalize_eol: Some("lf".into()),
+                    dedent: None,
+                    indent: None,
+                    lines: None,
                 },
             ),
             (

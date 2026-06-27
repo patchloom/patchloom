@@ -552,6 +552,9 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             ensure_final_newline,
             trim_trailing_whitespace,
             normalize_eol,
+            dedent,
+            indent,
+            lines,
         } => {
             let file_path = tx.cwd.join(path);
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?.to_owned();
@@ -565,9 +568,22 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 },
                 collapse_blanks: false,
             };
-            let new = crate::write::apply_policy(&content, &policy);
-            if content != *new {
-                update_file_content(tx.pending, tx.deletions, &file_path, new.into_owned());
+            let mut new = crate::write::apply_policy(&content, &policy).into_owned();
+
+            // Apply dedent/indent after policy normalization.
+            let line_range = lines
+                .as_deref()
+                .map(crate::write::parse_line_range)
+                .transpose()?;
+            if let Some(spec) = dedent {
+                new = crate::write::dedent_content(&new, spec, line_range);
+            }
+            if let Some(spec) = indent {
+                new = crate::write::indent_content(&new, spec, line_range);
+            }
+
+            if content != new {
+                update_file_content(tx.pending, tx.deletions, &file_path, new);
             }
         }
 

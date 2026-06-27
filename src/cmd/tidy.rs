@@ -26,7 +26,18 @@ pub enum TidyAction {
     /// Report newline, EOL, and whitespace issues in text files.
     Check { paths: Vec<String> },
     /// Apply normalization fixes to text files.
-    Fix { paths: Vec<String> },
+    Fix {
+        paths: Vec<String>,
+        /// Dedent: remove leading whitespace. Values: "auto", "tab", or a number (e.g. "4").
+        #[arg(long)]
+        dedent: Option<String>,
+        /// Indent: add leading whitespace. Values: "tab" or a number (e.g. "4").
+        #[arg(long)]
+        indent: Option<String>,
+        /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50").
+        #[arg(long)]
+        lines: Option<String>,
+    },
 }
 
 /// A single tidy issue found in a file.
@@ -172,17 +183,34 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(exit::CHANGES_DETECTED)
             }
         }
-        TidyAction::Fix { paths } => {
+        TidyAction::Fix {
+            paths,
+            dedent,
+            indent,
+            lines,
+        } => {
+            if dedent.is_some() && indent.is_some() {
+                anyhow::bail!("--dedent and --indent cannot both be set");
+            }
+
             let cwd = global.resolve_cwd()?;
             let glob_matcher = crate::build_glob_matcher_from_global(global)?;
             let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
             let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
+
+            // Parse line range once (shared across all files).
+            let line_range = lines
+                .as_deref()
+                .map(crate::write::parse_line_range)
+                .transpose()?;
 
             // Parallel read+compute phase: identify which files need fixing.
             // This preserves the performance-critical parallel scan; only
             // files that actually differ after policy application are
             // included in the engine execution.
             let quiet = global.quiet;
+            let dedent_ref = dedent.as_deref();
+            let indent_ref = indent.as_deref();
             let dirty_rel_paths: Vec<String> = crate::par_process_files(
                 &fix_file_paths,
                 glob_matcher.as_ref(),
@@ -194,7 +222,13 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             None => return None,
                         };
                     let policy = policy_from_flags(global, Some(file_path));
-                    let fixed = apply_policy(&original, &policy);
+                    let mut fixed = apply_policy(&original, &policy).into_owned();
+                    if let Some(spec) = dedent_ref {
+                        fixed = crate::write::dedent_content(&fixed, spec, line_range);
+                    }
+                    if let Some(spec) = indent_ref {
+                        fixed = crate::write::indent_content(&fixed, spec, line_range);
+                    }
                     if fixed == *original {
                         return None;
                     }
@@ -223,6 +257,9 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     ensure_final_newline: Some(global.ensure_final_newline),
                     trim_trailing_whitespace: Some(global.trim_trailing_whitespace),
                     normalize_eol: eol_str.map(String::from),
+                    dedent: dedent.clone(),
+                    indent: indent.clone(),
+                    lines: lines.clone(),
                 })
                 .collect();
 
@@ -516,6 +553,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -542,6 +582,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -568,6 +611,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -593,6 +639,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -616,6 +665,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -640,6 +692,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
@@ -660,6 +715,9 @@ mod tests {
         let args = TidyArgs {
             action: TidyAction::Fix {
                 paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
             },
             write: Default::default(),
         };
