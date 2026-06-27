@@ -314,10 +314,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             if file_path.exists() && !file_path.is_file() {
                 anyhow::bail!("target is not a file: {path}");
             }
-            if !tx.deletions.contains(&file_path)
-                && !file_path.exists()
-                && !tx.pending.contains_key(&file_path)
-            {
+            if tx.deletions.contains(&file_path) {
+                anyhow::bail!("file was deleted earlier in this transaction: {path}");
+            }
+            if !file_path.exists() && !tx.pending.contains_key(&file_path) {
                 anyhow::bail!("file does not exist: {path}");
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
@@ -330,10 +330,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             if file_path.exists() && !file_path.is_file() {
                 anyhow::bail!("target is not a file: {path}");
             }
-            if !tx.deletions.contains(&file_path)
-                && !file_path.exists()
-                && !tx.pending.contains_key(&file_path)
-            {
+            if tx.deletions.contains(&file_path) {
+                anyhow::bail!("file was deleted earlier in this transaction: {path}");
+            }
+            if !file_path.exists() && !tx.pending.contains_key(&file_path) {
                 anyhow::bail!("file does not exist: {path}");
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
@@ -1360,5 +1360,98 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
         assert!(op_needs_doc_flush(&op));
+    }
+
+    /// Regression: appending to a file deleted earlier in the same tx must
+    /// fail, not silently resurrect the file.
+    #[test]
+    fn file_append_to_deleted_file_errors() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("victim.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut existed_before = HashSet::new();
+        let mut deletions = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut tx_reads = Vec::new();
+        let mut tx_searches = Vec::new();
+        let mut tx_lints = Vec::new();
+
+        // Simulate: file was loaded and then deleted in this tx.
+        let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
+        deletions.insert(file.clone());
+
+        let mut tx = TxState {
+            cwd: dir.path(),
+            pending: &mut pending,
+            existed_before: &mut existed_before,
+            deletions: &mut deletions,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut tx_reads,
+            tx_searches: &mut tx_searches,
+            tx_lints: &mut tx_lints,
+            replace_hint: None,
+            quiet: false,
+            structured: false,
+        };
+
+        let op = Operation::FileAppend {
+            path: "victim.txt".into(),
+            content: "new stuff".into(),
+        };
+        let result = execute_file_op(&op, &mut tx);
+        assert!(
+            result.is_err(),
+            "append to deleted file should error, not resurrect"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("deleted earlier"),
+            "error message should mention deletion: {msg}"
+        );
+    }
+
+    /// Same regression for prepend.
+    #[test]
+    fn file_prepend_to_deleted_file_errors() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("victim.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut existed_before = HashSet::new();
+        let mut deletions = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut tx_reads = Vec::new();
+        let mut tx_searches = Vec::new();
+        let mut tx_lints = Vec::new();
+
+        let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
+        deletions.insert(file.clone());
+
+        let mut tx = TxState {
+            cwd: dir.path(),
+            pending: &mut pending,
+            existed_before: &mut existed_before,
+            deletions: &mut deletions,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut tx_reads,
+            tx_searches: &mut tx_searches,
+            tx_lints: &mut tx_lints,
+            replace_hint: None,
+            quiet: false,
+            structured: false,
+        };
+
+        let op = Operation::FilePrepend {
+            path: "victim.txt".into(),
+            content: "prefix".into(),
+        };
+        let result = execute_file_op(&op, &mut tx);
+        assert!(
+            result.is_err(),
+            "prepend to deleted file should error, not resurrect"
+        );
     }
 }

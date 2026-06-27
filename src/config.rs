@@ -173,7 +173,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
 
 fn invalid_normalize_eol_warning(invalid: &str) -> String {
     format!(
-        "warning: invalid write_policy.normalize_eol value {invalid:?}; expected \"lf\" or \"crlf\""
+        "warning: invalid write_policy.normalize_eol value {invalid:?}; expected \"lf\", \"crlf\", or \"cr\""
     )
 }
 
@@ -438,6 +438,7 @@ color = "always"
         assert!(warning.contains("CRLF"));
         assert!(warning.contains("\"lf\""));
         assert!(warning.contains("\"crlf\""));
+        assert!(warning.contains("\"cr\""));
     }
 
     #[test]

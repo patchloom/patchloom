@@ -395,10 +395,10 @@ pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String 
         }
     } else {
         for r in results {
-            let _ = writeln!(out, "{}:{}: {}", r.path.display(), r.line_number, r.line);
             for ctx in &r.context_before {
                 let _ = writeln!(out, "  {}", ctx);
             }
+            let _ = writeln!(out, "{}:{}: {}", r.path.display(), r.line_number, r.line);
             for ctx in &r.context_after {
                 let _ = writeln!(out, "  {}", ctx);
             }
