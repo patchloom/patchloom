@@ -326,23 +326,41 @@ mod tests {
     fn build_matcher_literal_case_sensitive() {
         let m = build_matcher("hello", true, false, false).unwrap();
         assert!(matches!(m, Matcher::Literal(_)));
-        assert!(m.find("say hello world").is_some());
-        assert!(m.find("say Hello world").is_none());
+        assert!(
+            m.find("say hello world").is_some(),
+            "literal 'hello' should match in 'say hello world'"
+        );
+        assert!(
+            m.find("say Hello world").is_none(),
+            "literal 'hello' should NOT match 'Hello' (case-sensitive)"
+        );
     }
 
     #[test]
     fn build_matcher_literal_case_insensitive_uses_regex() {
         let m = build_matcher("hello", true, true, false).unwrap();
         assert!(matches!(m, Matcher::Regex(_)));
-        assert!(m.find("say Hello world").is_some());
+        assert!(
+            m.find("say Hello world").is_some(),
+            "case-insensitive literal should match 'Hello'"
+        );
     }
 
     #[test]
     fn build_matcher_regex_pattern() {
         let m = build_matcher(r"hel+o", false, false, false).unwrap();
-        assert!(m.find("hello").is_some());
-        assert!(m.find("helllo").is_some());
-        assert!(m.find("heo").is_none());
+        assert!(
+            m.find("hello").is_some(),
+            "regex 'hel+o' should match 'hello'"
+        );
+        assert!(
+            m.find("helllo").is_some(),
+            "regex 'hel+o' should match 'helllo' (l+ matches multiple)"
+        );
+        assert!(
+            m.find("heo").is_none(),
+            "regex 'hel+o' should NOT match 'heo' (l+ requires at least one l)"
+        );
     }
 
     #[test]
