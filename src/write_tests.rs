@@ -933,4 +933,37 @@ mod format_preservation {
             "permissions should be preserved after atomic_write"
         );
     }
+
+    /// Regression (#1062): when `path` is a symlink, atomic_write should not
+    /// carry over the symlink target's permissions to the new regular file.
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_symlink_does_not_carry_target_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.txt");
+        fs::write(&target, "content").unwrap();
+        // Use 0o444 (read-only) which is distinctive from default tempfile
+        // permissions (typically 0o600).
+        fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&link, "new content", &policy).unwrap();
+
+        // The link should now be a regular file, not a symlink.
+        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
+        // The original target should be untouched.
+        assert_eq!(fs::read_to_string(&target).unwrap(), "content");
+        // The new file should NOT have the target's 0o444 permissions forced
+        // on it; it should have the default tempfile permissions instead.
+        let mode = fs::metadata(&link).unwrap().permissions().mode() & 0o777;
+        assert_ne!(
+            mode, 0o444,
+            "symlink target permissions should not be carried over"
+        );
+    }
 }

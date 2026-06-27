@@ -275,8 +275,13 @@ impl PatchloomService {
                 let abs = svc.cwd().join(&p.path);
                 if let Ok(content) = std::fs::read_to_string(&abs) {
                     let to_str = p.to.as_deref().unwrap_or("");
-                    let result =
-                        crate::fallback::validate_edit(&content, &p.from, to_str, Some(&p.path));
+                    let result = crate::fallback::validate_edit_nth(
+                        &content,
+                        &p.from,
+                        to_str,
+                        Some(&p.path),
+                        p.nth,
+                    );
                     let mut warnings = result.warnings;
                     if !result.valid {
                         warnings.extend(result.errors);
