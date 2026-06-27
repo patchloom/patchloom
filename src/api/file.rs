@@ -13,6 +13,7 @@ use crate::plan::Operation;
 use super::{ApplyMode, EditResult};
 
 /// Derive cwd from a file path (its parent directory).
+#[cfg(any(feature = "cli", feature = "files"))]
 fn cwd_from_path(path: &Path) -> &Path {
     path.parent().unwrap_or_else(|| Path::new("."))
 }

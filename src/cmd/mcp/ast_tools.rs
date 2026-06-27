@@ -632,6 +632,79 @@ pub(super) fn handle_ast_replace(
     Ok(CallToolResult::success(vec![Content::text(json)]))
 }
 
+pub(super) fn handle_ast_insert(
+    svc: &PatchloomService,
+    p: AstInsertParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    validate_content_size("content", &p.content)?;
+    let op = crate::plan::Operation::AstInsert {
+        path: p.path,
+        content: p.content,
+        inside: p.inside,
+        after: p.after,
+        before: p.before,
+        position: p.position,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_wrap(
+    svc: &PatchloomService,
+    p: AstWrapParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    validate_param_size("wrapper", &p.wrapper)?;
+    let op = crate::plan::Operation::AstWrap {
+        path: p.path,
+        symbols: p.symbols,
+        lines: p.lines,
+        wrapper: p.wrapper,
+        preamble: p.preamble,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
+pub(super) fn handle_ast_imports(
+    svc: &PatchloomService,
+    p: AstImportsParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+
+    // List-only mode (no mutation)
+    if p.add.is_none() && p.remove.is_none() && !p.dedupe {
+        let cwd = svc.cwd().to_path_buf();
+        let target = cwd.join(&p.path);
+        let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
+        let source = std::fs::read_to_string(&target)
+            .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+        let imports = crate::ast::imports::list_imports(&source, lang);
+        let obj = serde_json::json!({
+            "file": p.path,
+            "imports": imports.iter().map(|i| serde_json::json!({
+                "text": i.text,
+                "line": i.line,
+            })).collect::<Vec<_>>(),
+            "count": imports.len(),
+        });
+        let json = serde_json::to_string_pretty(&obj)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        return Ok(CallToolResult::success(vec![Content::text(json)]));
+    }
+
+    let op = crate::plan::Operation::AstImports {
+        path: p.path,
+        add: p.add,
+        remove: p.remove,
+        dedupe: p.dedupe,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

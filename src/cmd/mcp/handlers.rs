@@ -715,6 +715,42 @@ impl PatchloomService {
             .await
     }
 
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
+    )]
+    async fn ast_insert(
+        &self,
+        Parameters(p): Parameters<AstInsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_insert(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
+    )]
+    async fn ast_wrap(
+        &self,
+        Parameters(p): Parameters<AstWrapParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_wrap(svc, p))
+            .await
+    }
+
+    #[cfg(feature = "ast")]
+    #[tool(
+        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
+    )]
+    async fn ast_imports(
+        &self,
+        Parameters(p): Parameters<AstImportsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_imports(svc, p))
+            .await
+    }
+
     #[tool(
         description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
     )]

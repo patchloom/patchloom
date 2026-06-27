@@ -6,7 +6,9 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 #[cfg(feature = "cli")]
 use ignore::WalkState;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(feature = "cli", feature = "files"))]
+use std::path::PathBuf;
 #[cfg(feature = "cli")]
 use std::sync::Mutex;
 

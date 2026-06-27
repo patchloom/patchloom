@@ -405,10 +405,38 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
             r###"{"op":"ast.replace","path":"src/config.rs","symbol":"default_timeout","from":"30","to":"60"}"###,
         )],
     },
+    OpMeta {
+        name: "ast.insert",
+        description: "Insert code at a structurally-aware position: inside a container, or after/before a named symbol.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Insert a function after an existing one",
+            r###"{"op":"ast.insert","path":"src/lib.rs","content":"fn new_fn() {}","after":"existing_fn"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.wrap",
+        description: "Wrap existing code in a structural block (module, impl, cfg, etc.).",
+        tier: Tier::Medium,
+        examples: &[(
+            "Wrap helpers in a module",
+            r###"{"op":"ast.wrap","path":"src/lib.rs","symbols":["helper_a","helper_b"],"wrapper":"mod helpers"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.imports",
+        description: "Manage import/use statements: add (idempotent), remove, deduplicate.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add an import statement",
+            r###"{"op":"ast.imports","path":"src/main.rs","add":["use std::collections::HashMap;"]}"###,
+        )],
+    },
 ];
 
 /// Return the complete registry of all patchloom operations with schemas.
 pub fn operation_schemas() -> Vec<OperationSchema> {
+    #[allow(unused_mut)]
     let mut all: Vec<&OpMeta> = OPERATION_REGISTRY.iter().collect();
     #[cfg(feature = "ast")]
     all.extend(AST_OPERATION_REGISTRY.iter());

@@ -18,6 +18,7 @@ use crate::plan::Operation;
 use super::{ApplyMode, EditResult};
 
 /// Derive cwd from a file path (its parent directory).
+#[cfg(any(feature = "cli", feature = "files"))]
 fn cwd_from_path(path: &Path) -> &Path {
     path.parent().unwrap_or_else(|| Path::new("."))
 }
@@ -52,7 +53,7 @@ fn doc_write(
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    use crate::ops::doc::{DocMutation, MutationResult};
+    use crate::ops::doc::MutationResult;
     use crate::write::WritePolicy;
 
     // Extract the mutation from the operation.

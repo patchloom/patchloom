@@ -1,8 +1,10 @@
 #[allow(unused_imports)]
 use anyhow::bail;
 
+#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) type LineRange = (usize, Option<usize>);
 
+#[cfg(any(feature = "cli", feature = "files"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectedLines {
     pub content: String,
@@ -11,6 +13,7 @@ pub(crate) struct SelectedLines {
     pub total_lines: usize,
 }
 
+#[cfg(any(feature = "cli", feature = "files"))]
 impl SelectedLines {
     pub fn empty(total_lines: usize) -> Self {
         Self {
@@ -23,6 +26,7 @@ impl SelectedLines {
 }
 
 /// Parse a line range spec like "10", "10:20", "10-20", ":20", "10:" .
+#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
     // Accept both ':' and '-' as range separators so `--lines 1:10` and
     // `--lines 1-10` both work (the help examples show the dash form).
@@ -67,6 +71,7 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
 }
 
 /// Select a range of lines (1-based). Normalizes line endings to LF in output.
+#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();
@@ -105,6 +110,7 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
 }
 
 #[cfg(test)]
+#[cfg(any(feature = "cli", feature = "files"))]
 mod tests {
     use super::*;
 

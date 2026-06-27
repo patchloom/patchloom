@@ -333,6 +333,60 @@ pub enum Operation {
         #[serde(default)]
         lang: Option<String>,
     },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.insert", alias = "ast_insert")]
+    AstInsert {
+        path: String,
+        content: String,
+        /// Module/impl/struct to insert into.
+        #[serde(default)]
+        inside: Option<String>,
+        /// Insert after this symbol.
+        #[serde(default)]
+        after: Option<String>,
+        /// Insert before this symbol.
+        #[serde(default)]
+        before: Option<String>,
+        /// Position within `inside`: "start" or "end" (default).
+        #[serde(default)]
+        position: Option<String>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.wrap", alias = "ast_wrap")]
+    AstWrap {
+        path: String,
+        /// Symbols to wrap (mutually exclusive with `lines`).
+        #[serde(default)]
+        symbols: Option<Vec<String>>,
+        /// Line range to wrap (mutually exclusive with `symbols`).
+        #[serde(default)]
+        lines: Option<String>,
+        /// The wrapping construct (e.g. "mod foo", "impl Bar").
+        wrapper: String,
+        /// Content to insert at the top of the wrapped block.
+        #[serde(default)]
+        preamble: Option<String>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.imports", alias = "ast_imports")]
+    AstImports {
+        path: String,
+        /// Import statements to add.
+        #[serde(default)]
+        add: Option<Vec<String>>,
+        /// Import statements to remove.
+        #[serde(default)]
+        remove: Option<Vec<String>>,
+        /// Deduplicate imports.
+        #[serde(default)]
+        dedupe: bool,
+        #[serde(default)]
+        lang: Option<String>,
+    },
 }
 
 impl Operation {
@@ -369,6 +423,12 @@ impl Operation {
             Operation::AstRename { .. } => "ast.rename",
             #[cfg(feature = "ast")]
             Operation::AstReplace { .. } => "ast.replace",
+            #[cfg(feature = "ast")]
+            Operation::AstInsert { .. } => "ast.insert",
+            #[cfg(feature = "ast")]
+            Operation::AstWrap { .. } => "ast.wrap",
+            #[cfg(feature = "ast")]
+            Operation::AstImports { .. } => "ast.imports",
         }
     }
 
@@ -399,7 +459,11 @@ impl Operation {
             {
                 matches!(
                     self,
-                    Operation::AstRename { .. } | Operation::AstReplace { .. }
+                    Operation::AstRename { .. }
+                        | Operation::AstReplace { .. }
+                        | Operation::AstInsert { .. }
+                        | Operation::AstWrap { .. }
+                        | Operation::AstImports { .. }
                 )
             }
             #[cfg(not(feature = "ast"))]
@@ -572,7 +636,11 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
         | Operation::Search { path, .. }
         | Operation::MdLintAgents { path, .. } => vec![path.as_str()],
         #[cfg(feature = "ast")]
-        Operation::AstRename { path, .. } | Operation::AstReplace { path, .. } => {
+        Operation::AstRename { path, .. }
+        | Operation::AstReplace { path, .. }
+        | Operation::AstInsert { path, .. }
+        | Operation::AstWrap { path, .. }
+        | Operation::AstImports { path, .. } => {
             vec![path.as_str()]
         }
     }
@@ -724,10 +792,13 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5},
             {"op": "search", "path": ".", "pattern": "foo", "literal": true, "exclude_patterns": ["target/**"], "custom_ignore_filenames": [".blineignore"], "max_results": 10},
             {"op": "ast.rename", "path": "f.rs", "old_name": "Foo", "new_name": "Bar"},
-            {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"}
+            {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"},
+            {"op": "ast.insert", "path": "f.rs", "content": "fn new() {}", "after": "main"},
+            {"op": "ast.wrap", "path": "f.rs", "symbols": ["helper"], "wrapper": "mod internal"},
+            {"op": "ast.imports", "path": "f.rs", "add": ["use std::io;"]}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 36);
+        assert_eq!(plan.operations.len(), 39);
     }
 
     #[test]
@@ -757,10 +828,13 @@ mod tests {
             {"op": "read_file", "path": "f.txt"},
             {"op": "md_lint", "path": "f.md"},
             {"op": "ast_rename", "path": "f.rs", "old_name": "A", "new_name": "B"},
-            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"}
+            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"},
+            {"op": "ast_insert", "path": "f.rs", "content": "fn x() {}", "inside": "Foo"},
+            {"op": "ast_wrap", "path": "f.rs", "lines": "1:10", "wrapper": "mod m"},
+            {"op": "ast_imports", "path": "f.rs", "remove": ["use old;"]}
         ]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 22);
+        assert_eq!(plan.operations.len(), 25);
     }
 
     #[test]

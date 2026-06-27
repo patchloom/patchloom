@@ -345,6 +345,63 @@ fn describe_operation(op: &Operation) -> String {
         } => {
             format!("AST replace \"{from}\" with \"{to}\" in {symbol} in {path}")
         }
+        #[cfg(feature = "ast")]
+        Operation::AstInsert {
+            path,
+            inside,
+            after,
+            before,
+            ..
+        } => {
+            let target = inside
+                .as_deref()
+                .or(after.as_deref())
+                .or(before.as_deref())
+                .unwrap_or("(file)");
+            format!("AST insert code near \"{target}\" in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstWrap {
+            path,
+            symbols,
+            lines,
+            wrapper,
+            ..
+        } => {
+            let target = if let Some(syms) = symbols {
+                syms.join(", ")
+            } else if let Some(l) = lines {
+                format!("lines {l}")
+            } else {
+                "(unknown)".to_string()
+            };
+            format!("AST wrap {target} in \"{wrapper}\" in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstImports {
+            path,
+            add,
+            remove,
+            dedupe,
+            ..
+        } => {
+            let mut parts = Vec::new();
+            if let Some(a) = add {
+                parts.push(format!("add {}", a.len()));
+            }
+            if let Some(r) = remove {
+                parts.push(format!("remove {}", r.len()));
+            }
+            if *dedupe {
+                parts.push("dedupe".to_string());
+            }
+            let action = if parts.is_empty() {
+                "list".to_string()
+            } else {
+                parts.join(", ")
+            };
+            format!("AST imports ({action}) in {path}")
+        }
     }
 }
 

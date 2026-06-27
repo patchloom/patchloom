@@ -1,7 +1,9 @@
 //! Plan parsing and execution (transaction) for the library API.
 
+#[cfg(any(feature = "cli", feature = "files"))]
 use std::path::Path;
 
+#[cfg(any(feature = "cli", feature = "files"))]
 use crate::containment::PathGuard;
 
 #[cfg(any(feature = "cli", feature = "files"))]

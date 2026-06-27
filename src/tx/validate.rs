@@ -55,7 +55,11 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::MdLintAgents { .. }
         | Operation::PatchApply { .. } => Ok(()),
         #[cfg(feature = "ast")]
-        Operation::AstRename { .. } | Operation::AstReplace { .. } => Ok(()),
+        Operation::AstRename { .. }
+        | Operation::AstReplace { .. }
+        | Operation::AstInsert { .. }
+        | Operation::AstWrap { .. }
+        | Operation::AstImports { .. } => Ok(()),
         Operation::TidyFix { dedent, indent, .. } => {
             if dedent.is_some() && indent.is_some() {
                 anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");
