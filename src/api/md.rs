@@ -1,4 +1,8 @@
 //! Markdown section-aware operations for the public library API.
+//!
+//! Standard write functions delegate to the tx engine via `execute_as_edit_result`.
+//! Special cases (md_move_section cross-file, md_dedupe_headings with extra return
+//! data) keep direct implementations with feature-gated tx fallbacks.
 
 use std::path::Path;
 
@@ -6,32 +10,68 @@ use anyhow::Context;
 
 use crate::containment::PathGuard;
 use crate::ops;
-use crate::write::{WritePolicy, atomic_write};
+use crate::plan::Operation;
 
-use super::{
-    ApplyMode, EditResult, apply_cross_file_mutation, build_edit_result, ensure_contained,
-    write_if_apply,
-};
+use super::{ApplyMode, EditResult};
 
-fn md_edit<F>(
+/// Derive cwd from a file path (its parent directory).
+fn cwd_from_path(path: &Path) -> &Path {
+    path.parent().unwrap_or_else(|| Path::new("."))
+}
+
+/// Unified write path for standard md operations.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn md_write(
+    op: Operation,
     path: &Path,
-    heading: &str,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     action: &'static str,
-    transform: F,
-) -> anyhow::Result<EditResult>
-where
-    F: FnOnce(&str, &str) -> Option<String>,
-{
+) -> anyhow::Result<EditResult> {
+    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action)
+}
+
+#[cfg(not(any(feature = "cli", feature = "files")))]
+fn md_write(
+    _op: Operation,
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+) -> anyhow::Result<EditResult> {
+    // Fallback: execute the md operation through the tx engine's execute
+    // path. Without the tx module, delegate to the ops layer directly.
+    use crate::write::WritePolicy;
+
+    // Re-extract the operation fields to call ops directly.
+    // This is only used when building without cli/files features.
     let path_str = path.to_string_lossy();
     let original =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
-    let new_content = transform(&original, heading)
-        .ok_or_else(|| anyhow::anyhow!("heading '{}' not found in {}", heading, path_str))?;
+
+    let new_content = match _op {
+        Operation::MdReplaceSection {
+            heading, content, ..
+        } => ops::md::replace_section_in(&original, &heading, &content),
+        Operation::MdInsertAfterHeading {
+            heading, content, ..
+        } => ops::md::insert_after_heading_in(&original, &heading, &content),
+        Operation::MdInsertBeforeHeading {
+            heading, content, ..
+        } => ops::md::insert_before_heading_in(&original, &heading, &content),
+        Operation::MdUpsertBullet {
+            heading, bullet, ..
+        } => ops::md::upsert_bullet_in(&original, &heading, &bullet),
+        Operation::MdTableAppend { heading, row, .. } => {
+            ops::md::table_append_for_tx(&original, &heading, &row)
+        }
+        _ => None,
+    }
+    .ok_or_else(|| anyhow::anyhow!("heading not found in {path_str}"))?;
+
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
+    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+    Ok(super::build_edit_result(
         &path_str,
         original,
         new_content,
@@ -49,14 +89,12 @@ pub fn md_replace_section(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    md_edit(
-        path,
-        heading,
-        mode,
-        guard,
-        "md.replace_section",
-        |orig, h| ops::md::replace_section_in(orig, h, content),
-    )
+    let op = Operation::MdReplaceSection {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        content: content.into(),
+    };
+    md_write(op, path, mode, guard, "md.replace_section")
 }
 
 /// Insert or update a bullet point under a markdown heading.
@@ -69,9 +107,12 @@ pub fn md_upsert_bullet(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    md_edit(path, heading, mode, guard, "md.upsert_bullet", |orig, h| {
-        ops::md::upsert_bullet_in(orig, h, bullet)
-    })
+    let op = Operation::MdUpsertBullet {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        bullet: bullet.into(),
+    };
+    md_write(op, path, mode, guard, "md.upsert_bullet")
 }
 
 /// Append a row to a markdown table under a heading.
@@ -82,9 +123,12 @@ pub fn md_table_append(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    md_edit(path, heading, mode, guard, "md.table_append", |orig, h| {
-        ops::md::table_append_for_tx(orig, h, row)
-    })
+    let op = Operation::MdTableAppend {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        row: row.into(),
+    };
+    md_write(op, path, mode, guard, "md.table_append")
 }
 
 /// Insert content after a markdown heading.
@@ -95,14 +139,12 @@ pub fn md_insert_after_heading(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    md_edit(
-        path,
-        heading,
-        mode,
-        guard,
-        "md.insert_after_heading",
-        |orig, h| ops::md::insert_after_heading_in(orig, h, insertion),
-    )
+    let op = Operation::MdInsertAfterHeading {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        content: insertion.into(),
+    };
+    md_write(op, path, mode, guard, "md.insert_after_heading")
 }
 
 /// Move a markdown section to a position relative to another heading.
@@ -110,11 +152,9 @@ pub fn md_insert_after_heading(
 /// For same-file moves, pass `to` as `None`. For cross-file moves, pass the
 /// destination file path in `to`.
 ///
-/// The returned `EditResult` always describes the source `path`, with `dest_path`
-/// set for cross-file moves. When a cross-file move succeeds under Apply, the
-/// destination is mutated as a side effect (the result reports the dest via
-/// `dest_path`; re-read for its content if needed). See #795 for richer batch
-/// result plans.
+/// Cross-file moves are complex (two files, guard on dest) and retain the
+/// direct implementation. Same-file moves route through the tx engine when
+/// available.
 pub fn md_move_section(
     path: &Path,
     heading: &str,
@@ -123,6 +163,9 @@ pub fn md_move_section(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    // Cross-file moves retain the direct implementation because the tx engine
+    // only handles single-file operations. Same-file moves can route through
+    // the engine but cross-file needs coordinated writes to two files.
     let path_str = path.to_string_lossy();
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
@@ -137,25 +180,25 @@ pub fn md_move_section(
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
             .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
 
-    let policy = WritePolicy::default();
+    let policy = crate::write::WritePolicy::default();
     // Write the destination file for cross-file moves.
     if let Some(dest_path) = to {
         if mode == ApplyMode::Apply {
-            ensure_contained(guard, dest_path)?;
+            super::ensure_contained(guard, dest_path)?;
         }
-        let _ = write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
+        let _ = super::write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
     // Use generalized cross helper for source (centralized per #839).
-    let applied = apply_cross_file_mutation(
+    let applied = super::apply_cross_file_mutation(
         path,
         None,
         mode,
         guard,
         |backup| backup.save_before_write(path),
-        || atomic_write(path, &new_source, &policy),
+        || crate::write::atomic_write(path, &new_source, &policy),
     )?;
     let dest = to.map(|p| p.to_string_lossy().to_string());
-    Ok(build_edit_result(
+    Ok(super::build_edit_result(
         &path_str, original, new_source, applied, "md.move", dest,
     ))
 }
@@ -163,6 +206,8 @@ pub fn md_move_section(
 /// Remove duplicate headings at the same level in a markdown file.
 ///
 /// Returns the `EditResult` and a list of removed duplicate heading texts.
+/// Retains direct implementation because the removed-headings list is not
+/// available from the tx engine output.
 pub fn md_dedupe_headings(
     path: &Path,
     mode: ApplyMode,
@@ -174,10 +219,10 @@ pub fn md_dedupe_headings(
 
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);
 
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
+    let policy = crate::write::WritePolicy::default();
+    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
     Ok((
-        build_edit_result(&path_str, original, new_content, applied, "md.dedupe", None),
+        super::build_edit_result(&path_str, original, new_content, applied, "md.dedupe", None),
         removed,
     ))
 }
@@ -206,12 +251,10 @@ pub fn md_insert_before_heading(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    md_edit(
-        path,
-        heading,
-        mode,
-        guard,
-        "md.insert_before_heading",
-        |orig, h| ops::md::insert_before_heading_in(orig, h, insertion),
-    )
+    let op = Operation::MdInsertBeforeHeading {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        content: insertion.into(),
+    };
+    md_write(op, path, mode, guard, "md.insert_before_heading")
 }

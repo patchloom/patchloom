@@ -1,6 +1,9 @@
 //! Document operations (JSON, YAML, TOML) for the public library API.
 //!
-//! Contains LoadedDoc, loading, finishing edits, and all doc_* functions.
+//! Write functions delegate to the tx engine via `execute_as_edit_result`,
+//! sharing the same code path as CLI and MCP. Read functions (doc_get,
+//! doc_has) load and query directly.
+//!
 //! Re-exported from api:: via `mod doc; pub use self::doc::*;`.
 
 use std::path::Path;
@@ -10,77 +13,75 @@ use anyhow::{Context, bail};
 use crate::containment::PathGuard;
 use crate::ops;
 use crate::ops::doc::query::{QueryResult, query_get, query_has};
-use crate::ops::doc::{DocMutation, MutationResult};
-use crate::write::WritePolicy;
+use crate::plan::Operation;
 
-use super::{ApplyMode, EditResult, build_edit_result, write_if_apply};
+use super::{ApplyMode, EditResult};
 
-/// A parsed document loaded from disk, ready for mutation.
-struct LoadedDoc {
-    path_str: String,
-    format: ops::doc::FileFormat,
-    original: String,
-    value: serde_json::Value,
+/// Derive cwd from a file path (its parent directory).
+fn cwd_from_path(path: &Path) -> &Path {
+    path.parent().unwrap_or_else(|| Path::new("."))
 }
 
-/// Load and parse a JSON/YAML/TOML file.
-fn load_doc(path: &Path) -> anyhow::Result<LoadedDoc> {
+/// Load and parse a JSON/YAML/TOML file for read-only queries.
+fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
+    let path_str = path.to_string_lossy();
+    let format = ops::doc::detect_format(&path_str)?;
+    let original = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    ops::doc::parse_doc(&original, &format)
+}
+
+/// Unified write path: delegates to the tx engine when available (cli/files),
+/// falls back to direct mutation when the tx module is not compiled in.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn doc_write(
+    op: Operation,
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+) -> anyhow::Result<EditResult> {
+    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action)
+}
+
+#[cfg(not(any(feature = "cli", feature = "files")))]
+fn doc_write(
+    op: Operation,
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+) -> anyhow::Result<EditResult> {
+    use crate::ops::doc::{DocMutation, MutationResult};
+    use crate::write::WritePolicy;
+
+    // Extract the mutation from the operation.
+    let (_, mutation) =
+        crate::plan::op_to_doc_mutation(&op).expect("doc_write called with non-doc operation");
+
     let path_str = path.to_string_lossy().into_owned();
     let format = ops::doc::detect_format(&path_str)?;
     let original = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
     let value = ops::doc::parse_doc(&original, &format)?;
-    Ok(LoadedDoc {
-        path_str,
-        format,
-        original,
-        value,
-    })
-}
-
-/// Serialize a mutated document and build an `EditResult`.
-fn finish_doc_edit(
-    path: &Path,
-    doc: &LoadedDoc,
-    new_value: &serde_json::Value,
-    mode: ApplyMode,
-    guard: Option<&PathGuard>,
-    action: &'static str,
-) -> anyhow::Result<EditResult> {
-    let new_content =
-        ops::doc::serialize_value_preserving(&doc.original, &doc.value, new_value, &doc.format)?;
-    let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(build_edit_result(
-        &doc.path_str,
-        doc.original.clone(),
-        new_content,
-        applied,
-        action,
-        None,
-    ))
-}
-
-/// Load a document, apply a [`DocMutation`], and finish the edit.
-///
-/// This is the single entry point for all doc mutation functions in the
-/// library API, ensuring they share the same code path as CLI and tx.
-fn mutate_doc(
-    path: &Path,
-    mutation: DocMutation,
-    mode: ApplyMode,
-    guard: Option<&PathGuard>,
-    action: &'static str,
-) -> anyhow::Result<EditResult> {
-    let doc = load_doc(path)?;
-    let mut new_value = doc.value.clone();
+    let mut new_value = value.clone();
 
     let result = ops::doc::apply_doc_mutation(&mut new_value, mutation)?;
     if let MutationResult::TypeError(msg) = result {
         bail!("{msg}");
     }
 
-    finish_doc_edit(path, &doc, &new_value, mode, guard, action)
+    let new_content = ops::doc::serialize_value_preserving(&original, &value, &new_value, &format)?;
+    let policy = WritePolicy::default();
+    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+    Ok(super::build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        action,
+        None,
+    ))
 }
 
 /// Set a value at a selector path in a JSON, YAML, or TOML file.
@@ -94,16 +95,12 @@ pub fn doc_set(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Set {
-            selector: selector.into(),
-            value,
-        },
-        mode,
-        guard,
-        "doc.set",
-    )
+    let op = Operation::DocSet {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.set")
 }
 
 /// Delete a value at a selector path in a JSON, YAML, or TOML file.
@@ -113,15 +110,11 @@ pub fn doc_delete(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Delete {
-            selector: selector.into(),
-        },
-        mode,
-        guard,
-        "doc.delete",
-    )
+    let op = Operation::DocDelete {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+    };
+    doc_write(op, path, mode, guard, "doc.delete")
 }
 
 /// Deep-merge a value into the root of a JSON, YAML, or TOML file.
@@ -131,16 +124,20 @@ pub fn doc_merge(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(path, DocMutation::Merge { value }, mode, guard, "doc.merge")
+    let op = Operation::DocMerge {
+        path: path.to_string_lossy().into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.merge")
 }
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
 ///
 /// This is a read-only operation; the `mode` parameter is ignored.
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
-    let doc = load_doc(path)?;
+    let value = load_doc_value(path)?;
 
-    match query_get(&doc.value, selector)? {
+    match query_get(&value, selector)? {
         QueryResult::NoMatch => bail!("selector '{}' matched nothing", selector),
         QueryResult::Values(vals) if vals.len() == 1 => Ok(vals.into_iter().next().unwrap()),
         QueryResult::Values(vals) => Ok(serde_json::Value::Array(vals)),
@@ -149,8 +146,8 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
 
 /// Check whether a selector path exists in a JSON, YAML, or TOML file.
 pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
-    let doc = load_doc(path)?;
-    query_has(&doc.value, selector)
+    let value = load_doc_value(path)?;
+    query_has(&value, selector)
 }
 
 /// Append a value to an array at a selector path.
@@ -161,16 +158,12 @@ pub fn doc_append(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Append {
-            selector: selector.into(),
-            value,
-        },
-        mode,
-        guard,
-        "doc.append",
-    )
+    let op = Operation::DocAppend {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.append")
 }
 
 /// Prepend a value to an array at a selector path.
@@ -181,16 +174,12 @@ pub fn doc_prepend(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Prepend {
-            selector: selector.into(),
-            value,
-        },
-        mode,
-        guard,
-        "doc.prepend",
-    )
+    let op = Operation::DocPrepend {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.prepend")
 }
 
 /// Update all values matching a selector with a new value.
@@ -204,16 +193,12 @@ pub fn doc_update(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Update {
-            selector: selector.into(),
-            value,
-        },
-        mode,
-        guard,
-        "doc.update",
-    )
+    let op = Operation::DocUpdate {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.update")
 }
 
 /// Ensure a value exists at a selector path; set it only if missing.
@@ -224,16 +209,12 @@ pub fn doc_ensure(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Ensure {
-            selector: selector.into(),
-            value,
-        },
-        mode,
-        guard,
-        "doc.ensure",
-    )
+    let op = Operation::DocEnsure {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        value,
+    };
+    doc_write(op, path, mode, guard, "doc.ensure")
 }
 
 /// Delete array elements matching a predicate (e.g., `"name=old"`).
@@ -244,16 +225,12 @@ pub fn doc_delete_where(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::DeleteWhere {
-            selector: selector.into(),
-            predicate: predicate.into(),
-        },
-        mode,
-        guard,
-        "doc.delete_where",
-    )
+    let op = Operation::DocDeleteWhere {
+        path: path.to_string_lossy().into(),
+        selector: selector.into(),
+        predicate: predicate.into(),
+    };
+    doc_write(op, path, mode, guard, "doc.delete_where")
 }
 
 /// Move a value from one selector path to another within the same file.
@@ -264,14 +241,10 @@ pub fn doc_move(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    mutate_doc(
-        path,
-        DocMutation::Move {
-            from: from_selector.into(),
-            to: to_selector.into(),
-        },
-        mode,
-        guard,
-        "doc.move",
-    )
+    let op = Operation::DocMove {
+        path: path.to_string_lossy().into(),
+        from: from_selector.into(),
+        to: to_selector.into(),
+    };
+    doc_write(op, path, mode, guard, "doc.move")
 }
