@@ -228,8 +228,12 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |\n\
+             | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
+             | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |\n\
+             | Extract or split files by symbol | `ast_extract`, `ast_split` |\n\
              | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
-             | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\n",
+             | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\
+             | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\n",
         );
     }
     if show_cli {

@@ -105,7 +105,7 @@ pub fn split_file(
         }
     }
     if let Some(suffix) = source_suffix {
-        if !src_lines.is_empty() && !src_lines.last().unwrap().trim().is_empty() {
+        if src_lines.last().is_some_and(|l| !l.trim().is_empty()) {
             src_lines.push(String::new());
         }
         for line in suffix.lines() {
@@ -253,6 +253,28 @@ mod tests {
         assert!(result.source_content.contains("struct Config"));
         assert!(result.source_content.contains("fn process"));
         assert!(!result.source_content.contains("fn helper"));
+    }
+
+    #[test]
+    fn split_with_source_prefix() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let result = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            None,
+            Some("// This file was split."),
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(result.source_content.starts_with("// This file was split."));
+        assert!(result.source_content.contains("fn beta"));
     }
 
     #[test]

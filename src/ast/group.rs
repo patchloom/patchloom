@@ -41,7 +41,8 @@ pub fn group_symbols(
     let lines: Vec<&str> = source.lines().collect();
 
     // Check if target module already exists
-    let existing_mod = find_symbol(&symbols, &spec.module);
+    let existing_mod = find_symbol(&symbols, &spec.module)
+        .filter(|s| s.kind == super::symbols::SymbolKind::Module);
     let module_exists = existing_mod.is_some();
 
     // Find each symbol to move and collect their text + spans
@@ -350,5 +351,42 @@ mod tests {
         };
         let result = group_symbols(source, &spec, Language::Rust).unwrap();
         assert_eq!(result.symbols_moved, 0);
+    }
+
+    #[test]
+    fn group_position_after_symbol() {
+        let source = "fn anchor() {}\n\nfn target() {}\n\nfn trailing() {}\n";
+        let spec = GroupSpec {
+            module: "m".into(),
+            symbols: vec!["target".into()],
+            preamble: None,
+            position: GroupPosition::After("anchor".into()),
+        };
+        let result = group_symbols(source, &spec, Language::Rust).unwrap();
+        let anchor_pos = result.content.find("fn anchor").unwrap();
+        let mod_pos = result.content.find("mod m {").unwrap();
+        let trailing_pos = result.content.find("fn trailing").unwrap();
+        assert!(anchor_pos < mod_pos);
+        assert!(mod_pos < trailing_pos);
+        assert!(result.module_created);
+        assert_eq!(result.symbols_moved, 1);
+    }
+
+    #[test]
+    fn group_creates_new_module_when_name_matches_function() {
+        // If a function "helpers" exists, group should create a new `mod helpers`
+        // rather than inserting content inside the function body.
+        let source = "fn helpers() {}\n\nfn target() {}\n";
+        let spec = GroupSpec {
+            module: "helpers".into(),
+            symbols: vec!["target".into()],
+            preamble: None,
+            position: GroupPosition::End,
+        };
+        let result = group_symbols(source, &spec, Language::Rust).unwrap();
+        assert!(result.module_created);
+        assert!(result.content.contains("mod helpers {"));
+        assert!(result.content.contains("fn helpers()")); // function preserved
+        assert_eq!(result.symbols_moved, 1);
     }
 }

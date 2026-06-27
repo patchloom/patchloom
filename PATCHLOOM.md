@@ -18,8 +18,12 @@
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |
+| Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
+| Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
+| Extract or split files by symbol | `ast_extract`, `ast_split` |
 | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |
 | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |
+| Apply same operation to many files | `execute_plan` with `for_each` glob |
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
