@@ -43,7 +43,14 @@ pub fn split_file(
         std::collections::HashMap::new();
     for (idx, target) in targets.iter().enumerate() {
         for name in &target.symbols {
-            sym_to_target.insert(name.as_str(), idx);
+            if let Some(prev_idx) = sym_to_target.insert(name.as_str(), idx) {
+                anyhow::bail!(
+                    "symbol '{}' assigned to multiple targets: '{}' and '{}'",
+                    name,
+                    targets[prev_idx].path,
+                    target.path
+                );
+            }
         }
     }
 
@@ -297,5 +304,28 @@ mod tests {
         .unwrap();
         assert!(result.targets[0].1.contains("/// Alpha doc."));
         assert!(result.targets[0].1.contains("#[test]"));
+    }
+
+    #[test]
+    fn split_duplicate_symbol_across_targets_errors() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![
+            SplitTarget {
+                path: "a.rs".into(),
+                symbols: vec!["alpha".into()],
+                prepend: None,
+            },
+            SplitTarget {
+                path: "b.rs".into(),
+                symbols: vec!["alpha".into()],
+                prepend: None,
+            },
+        ];
+        let result = split_file(source, &targets, &[], None, None, false, Language::Rust);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("alpha"));
+        assert!(err.contains("a.rs"));
+        assert!(err.contains("b.rs"));
     }
 }
