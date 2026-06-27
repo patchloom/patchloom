@@ -190,6 +190,16 @@ fn execute_plan_inner(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
+    // Validate TidyFix-specific constraints (dedent + indent mutual exclusion).
+    for op in &operations {
+        if let Operation::TidyFix { dedent, indent, .. } = op
+            && dedent.is_some()
+            && indent.is_some()
+        {
+            anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");
+        }
+    }
+
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
     if let Some(g) = options.guard {
         for op in &operations {

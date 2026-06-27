@@ -116,7 +116,7 @@ mod basic {
         let op = parse_line("tidy.fix src/lib.rs", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::TidyFix { path, ensure_final_newline, trim_trailing_whitespace, normalize_eol }
+            Operation::TidyFix { path, ensure_final_newline, trim_trailing_whitespace, normalize_eol, .. }
             if path == "src/lib.rs"
                 && ensure_final_newline.is_none()
                 && trim_trailing_whitespace.is_none()

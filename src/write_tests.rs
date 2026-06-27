@@ -611,6 +611,137 @@ mod edge_cases {
     }
 }
 
+mod dedent_indent {
+    use super::*;
+
+    #[test]
+    fn dedent_auto_removes_minimum_indent() {
+        let input = "    line1\n        line2\n    line3\n";
+        let result = dedent_content(input, "auto", None);
+        assert_eq!(result, "line1\n    line2\nline3\n");
+    }
+
+    #[test]
+    fn dedent_auto_skips_blank_lines() {
+        let input = "    line1\n\n    line2\n";
+        let result = dedent_content(input, "auto", None);
+        assert_eq!(result, "line1\n\nline2\n");
+    }
+
+    #[test]
+    fn dedent_auto_no_indent_returns_unchanged() {
+        let input = "line1\nline2\n";
+        let result = dedent_content(input, "auto", None);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn dedent_numeric_removes_n_spaces() {
+        let input = "        line1\n    line2\n";
+        let result = dedent_content(input, "4", None);
+        assert_eq!(result, "    line1\nline2\n");
+    }
+
+    #[test]
+    fn dedent_numeric_stops_at_available_indent() {
+        let input = "  line1\n      line2\n";
+        let result = dedent_content(input, "4", None);
+        assert_eq!(result, "line1\n  line2\n");
+    }
+
+    #[test]
+    fn dedent_tab_removes_one_tab() {
+        let input = "\tline1\n\t\tline2\nline3\n";
+        let result = dedent_content(input, "tab", None);
+        assert_eq!(result, "line1\n\tline2\nline3\n");
+    }
+
+    #[test]
+    fn dedent_tab_no_tab_unchanged() {
+        let input = "    line1\n";
+        let result = dedent_content(input, "tab", None);
+        assert_eq!(result, "    line1\n");
+    }
+
+    #[test]
+    fn dedent_with_line_range() {
+        let input = "    line1\n    line2\n    line3\n    line4\n";
+        let result = dedent_content(input, "4", Some((2, Some(3))));
+        assert_eq!(result, "    line1\nline2\nline3\n    line4\n");
+    }
+
+    #[test]
+    fn indent_numeric_adds_spaces() {
+        let input = "line1\nline2\n";
+        let result = indent_content(input, "4", None);
+        assert_eq!(result, "    line1\n    line2\n");
+    }
+
+    #[test]
+    fn indent_tab_adds_tab() {
+        let input = "line1\nline2\n";
+        let result = indent_content(input, "tab", None);
+        assert_eq!(result, "\tline1\n\tline2\n");
+    }
+
+    #[test]
+    fn indent_skips_blank_lines() {
+        let input = "line1\n\nline2\n";
+        let result = indent_content(input, "4", None);
+        assert_eq!(result, "    line1\n\n    line2\n");
+    }
+
+    #[test]
+    fn indent_with_line_range() {
+        let input = "line1\nline2\nline3\nline4\n";
+        let result = indent_content(input, "4", Some((2, Some(3))));
+        assert_eq!(result, "line1\n    line2\n    line3\nline4\n");
+    }
+
+    #[test]
+    fn indent_zero_returns_unchanged() {
+        let input = "line1\nline2\n";
+        let result = indent_content(input, "0", None);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn parse_line_range_full() {
+        let (start, end) = parse_line_range("10:50").unwrap();
+        assert_eq!(start, 10);
+        assert_eq!(end, Some(50));
+    }
+
+    #[test]
+    fn parse_line_range_open_ended() {
+        let (start, end) = parse_line_range("5:").unwrap();
+        assert_eq!(start, 5);
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn parse_line_range_single_line() {
+        let (start, end) = parse_line_range("3").unwrap();
+        assert_eq!(start, 3);
+        assert_eq!(end, Some(3));
+    }
+
+    #[test]
+    fn parse_line_range_invalid() {
+        assert!(parse_line_range("abc").is_err());
+        assert!(parse_line_range("1:xyz").is_err());
+    }
+
+    #[test]
+    fn dedent_auto_line_range() {
+        // Only dedent lines 2-3; leave lines 1 and 4 alone.
+        let input = "    a\n        b\n        c\n    d\n";
+        let result = dedent_content(input, "auto", Some((2, Some(3))));
+        // min indent in range (lines 2-3) is 8 spaces, so remove 8.
+        assert_eq!(result, "    a\nb\nc\n    d\n");
+    }
+}
+
 mod error_handling {
     use super::*;
 

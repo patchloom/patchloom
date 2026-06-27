@@ -381,3 +381,129 @@ fn test_tidy_apply_readonly_dir_fails_gracefully() {
 
     fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// tidy fix --dedent / --indent
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tidy_fix_dedent_auto_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("indented.txt");
+    fs::write(&file, "    line1\n        line2\n    line3\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--dedent", "auto", "--apply"])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "line1\n    line2\nline3\n");
+}
+
+#[test]
+fn test_tidy_fix_dedent_numeric_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("indented.txt");
+    fs::write(&file, "        line1\n    line2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--dedent", "4", "--apply"])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "    line1\nline2\n");
+}
+
+#[test]
+fn test_tidy_fix_indent_numeric_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("flat.txt");
+    fs::write(&file, "line1\nline2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--indent", "4", "--apply"])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "    line1\n    line2\n");
+}
+
+#[test]
+fn test_tidy_fix_indent_tab_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("flat.txt");
+    fs::write(&file, "line1\nline2\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--indent", "tab", "--apply"])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "\tline1\n\tline2\n");
+}
+
+#[test]
+fn test_tidy_fix_dedent_with_line_range() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ranged.txt");
+    fs::write(&file, "    line1\n    line2\n    line3\n    line4\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "tidy", "fix", ".", "--dedent", "4", "--lines", "2:3", "--apply",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "    line1\nline2\nline3\n    line4\n");
+}
+
+#[test]
+fn test_tidy_fix_dedent_and_indent_rejects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "    line1\n").unwrap();
+
+    // Both --dedent and --indent should fail validation.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "tidy", "fix", ".", "--dedent", "auto", "--indent", "4", "--apply",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn test_tidy_fix_dedent_dry_run_no_modify() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("indented.txt");
+    let original = "    line1\n    line2\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--dedent", "auto"])
+        .current_dir(dir.path())
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, original, "file should not be modified in dry-run");
+}

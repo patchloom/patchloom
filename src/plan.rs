@@ -190,6 +190,12 @@ pub enum Operation {
         ensure_final_newline: Option<bool>,
         trim_trailing_whitespace: Option<bool>,
         normalize_eol: Option<String>,
+        /// Dedent specification: "4", "tab", or "auto".
+        dedent: Option<String>,
+        /// Indent specification: "4", "tab".
+        indent: Option<String>,
+        /// Line range restriction for dedent/indent: "10:50" (1-based inclusive).
+        lines: Option<String>,
     },
     #[serde(rename = "file.create", alias = "create_file")]
     FileCreate {

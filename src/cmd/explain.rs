@@ -260,8 +260,19 @@ fn describe_operation(op: &Operation) -> String {
         Operation::MdDedupeHeadings { path } => {
             format!("Deduplicate headings in {path}")
         }
-        Operation::TidyFix { path, .. } => {
-            format!("Normalize whitespace in {path}")
+        Operation::TidyFix {
+            path,
+            dedent,
+            indent,
+            ..
+        } => {
+            if dedent.is_some() {
+                format!("Dedent and normalize whitespace in {path}")
+            } else if indent.is_some() {
+                format!("Indent and normalize whitespace in {path}")
+            } else {
+                format!("Normalize whitespace in {path}")
+            }
         }
         Operation::FileAppend { path, .. } => {
             format!("Append content to {path}")

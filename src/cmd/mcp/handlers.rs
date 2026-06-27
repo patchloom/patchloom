@@ -495,6 +495,9 @@ impl PatchloomService {
                     ensure_final_newline: Some(true),
                     trim_trailing_whitespace: Some(true),
                     normalize_eol: None,
+                    dedent: None,
+                    indent: None,
+                    lines: None,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))
@@ -548,7 +551,7 @@ impl PatchloomService {
     // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
-        description = "Fix whitespace in a file: trims trailing spaces and ensures final newline. Safe to call on any file (no-op if already clean). Example: {\"path\": \"dirty.txt\"}"
+        description = "Fix whitespace in a file: trims trailing spaces, ensures final newline. Optionally dedent (\"auto\", \"tab\", \"4\") or indent (\"tab\", \"4\") with optional line range. Example: {\"path\": \"dirty.txt\"} or {\"path\": \"src/main.rs\", \"dedent\": \"auto\", \"lines\": \"10:50\"}"
     )]
     async fn fix_whitespace(
         &self,
@@ -562,6 +565,9 @@ impl PatchloomService {
                     ensure_final_newline: Some(true),
                     trim_trailing_whitespace: Some(true),
                     normalize_eol: None,
+                    dedent: p.dedent,
+                    indent: p.indent,
+                    lines: p.lines,
                 }],
                 None,
             )

@@ -254,6 +254,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 ensure_final_newline: None,
                 trim_trailing_whitespace: None,
                 normalize_eol: None,
+                dedent: None,
+                indent: None,
+                lines: None,
             })
         }
 
