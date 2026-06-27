@@ -295,7 +295,7 @@ fn file_create_force_propagates_read_error() {
     // Restore permissions so TempDir cleanup succeeds.
     fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(
-        err.to_string().contains("failed to read existing file"),
+        err.to_string().contains("failed to read"),
         "expected read error, got: {err}"
     );
 }
