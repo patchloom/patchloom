@@ -244,7 +244,9 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
             Some("parse_error") => exit::PARSE_ERROR,
             Some("rollback") => exit::ROLLBACK,
             Some("rollback_failed") => exit::FAILURE, // preserve historical CLI exit for this case
-            Some("validation_failed") | Some("format_failed") => exit::VALIDATION_FAILED,
+            Some("validation_failed") | Some("format_failed") | Some("verification_failed") => {
+                exit::VALIDATION_FAILED
+            }
             Some("operation_failed") => exit::OPERATION_FAILED,
             _ => exit::FAILURE,
         }
@@ -397,6 +399,10 @@ mod tests {
         );
         assert_eq!(
             exit_code_from_tx_output(&err_output("format_failed")),
+            exit::VALIDATION_FAILED
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("verification_failed")),
             exit::VALIDATION_FAILED
         );
         assert_eq!(

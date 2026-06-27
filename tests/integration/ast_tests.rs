@@ -246,6 +246,24 @@ fn test_ast_validate_jsonl_output() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_validate_json_exit_code_on_invalid_file() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("bad.rs");
+    fs::write(&f, "fn broken( {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "validate", "bad.rs", "--json"])
+        .assert()
+        .code(1) // exit::FAILURE, not SUCCESS
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+    assert_eq!(v["valid"], serde_json::json!(false));
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_search_jsonl_output() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("lib.rs");

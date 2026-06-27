@@ -407,6 +407,10 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
+    // Strings with leading/trailing whitespace lose it in plain scalar context.
+    if s != s.trim() {
+        return true;
+    }
     // Values that look like booleans, null, or YAML special floats.
     if s.eq_ignore_ascii_case("true")
         || s.eq_ignore_ascii_case("false")
@@ -446,6 +450,34 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // needs_yaml_quoting
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn needs_yaml_quoting_leading_whitespace() {
+        assert!(needs_yaml_quoting(" hello"), "leading space needs quoting");
+    }
+
+    #[test]
+    fn needs_yaml_quoting_trailing_whitespace() {
+        assert!(needs_yaml_quoting("hello "), "trailing space needs quoting");
+    }
+
+    #[test]
+    fn needs_yaml_quoting_only_whitespace() {
+        assert!(needs_yaml_quoting(" "), "single space needs quoting");
+        assert!(needs_yaml_quoting("  "), "double space needs quoting");
+    }
+
+    #[test]
+    fn needs_yaml_quoting_plain_string_ok() {
+        assert!(
+            !needs_yaml_quoting("hello"),
+            "plain string does not need quoting"
+        );
+    }
 
     // -----------------------------------------------------------------------
     // find_yaml_key_line

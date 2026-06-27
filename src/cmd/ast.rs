@@ -447,6 +447,9 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
     });
 
     for vr in &results {
+        if !vr.result.valid {
+            all_valid = false;
+        }
         if global.json || global.jsonl {
             let obj = serde_json::json!({
                 "file": vr.display,
@@ -456,7 +459,6 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
             });
             global.emit_json(&obj)?;
         } else if !vr.result.valid {
-            all_valid = false;
             eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
             for err in &vr.result.errors {
                 eprintln!("  line {}:{}: {}", err.line, err.column, err.text.trim());
