@@ -98,10 +98,12 @@ fn parse_file_path(line: &str) -> String {
         .or_else(|| line.strip_prefix("--- "))
         .unwrap_or(line);
 
-    raw.strip_prefix("b/")
+    let path = raw
+        .strip_prefix("b/")
         .or_else(|| raw.strip_prefix("a/"))
-        .unwrap_or(raw)
-        .to_string()
+        .unwrap_or(raw);
+    // Strip tab-separated timestamp from `diff -u` output (e.g. "file.txt\t2024-01-01 ...")
+    path.split('\t').next().unwrap_or(path).to_string()
 }
 
 fn parse_hunk_header(line: &str) -> Result<Hunk, String> {

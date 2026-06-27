@@ -522,7 +522,7 @@ fn test_project_config_collapse_blanks() {
 fn test_project_config_exclude_globs() {
     let dir = TempDir::new().unwrap();
 
-    // Create .patchloom.toml with glob that limits to *.rs files.
+    // Create .patchloom.toml with exclude glob that filters out *.rs files.
     fs::write(
         dir.path().join(".patchloom.toml"),
         "[exclude]\nglobs = [\"*.rs\"]\n",
@@ -533,15 +533,15 @@ fn test_project_config_exclude_globs() {
     fs::write(dir.path().join("code.rs"), "hello\n").unwrap();
     fs::write(dir.path().join("notes.txt"), "hello\n").unwrap();
 
-    // Search should find matches in .rs but not .txt (glob from config).
+    // Search should exclude .rs files and find matches only in .txt.
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["search", "hello", ".", "--cwd"])
         .arg(dir.path())
         .assert()
         .success()
-        .stdout(predicates::str::contains("code.rs"))
-        .stdout(predicates::str::contains("notes.txt").not());
+        .stdout(predicates::str::contains("notes.txt"))
+        .stdout(predicates::str::contains("code.rs").not());
 }
 
 // ── explain ──────────────────────────────────────────────────

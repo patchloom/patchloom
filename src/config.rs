@@ -149,11 +149,11 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         }
     }
 
-    // Exclude globs: prepend config globs before user globs.
+    // Exclude globs: prepend config globs before user excludes.
     if !config.exclude.globs.is_empty() {
         let mut merged = config.exclude.globs.clone();
-        merged.append(&mut global.glob);
-        global.glob = merged;
+        merged.append(&mut global.exclude);
+        global.exclude = merged;
     }
 
     // Color: config provides default, CLI wins.
@@ -358,7 +358,11 @@ color = "always"
         assert!(global.trim_trailing_whitespace);
         assert!(global.collapse_blanks);
         assert!(global.respect_editorconfig);
-        assert_eq!(global.glob, vec!["target/**"]);
+        assert_eq!(global.exclude, vec!["target/**"]);
+        assert!(
+            global.glob.is_empty(),
+            "exclude globs must not leak into include globs"
+        );
         assert!(matches!(
             global.color,
             crate::cli::global::ColorMode::Always
@@ -388,8 +392,10 @@ color = "always"
 
         // CLI flag already set, config doesn't override
         assert!(global.ensure_final_newline);
-        // Config globs prepended before user globs
-        assert_eq!(global.glob, vec!["config_glob", "user_glob"]);
+        // Config exclude globs go to exclude, not include globs
+        assert_eq!(global.exclude, vec!["config_glob"]);
+        // User include globs remain unchanged
+        assert_eq!(global.glob, vec!["user_glob"]);
         // CLI color wins
         assert!(matches!(global.color, crate::cli::global::ColorMode::Never));
     }
