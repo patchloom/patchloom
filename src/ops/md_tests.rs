@@ -1039,19 +1039,56 @@ body text
         assert_eq!(headings[0].text, "Real heading");
     }
 
-    // Tilde fences ARE allowed to have trailing content on the closing fence
-    // per CommonMark spec (only backtick fences have this restriction).
+    // CommonMark 4.5: closing fences (both backtick and tilde) may only be
+    // followed by spaces/tabs. Trailing non-whitespace means the line is NOT
+    // a valid closer, so the block stays open.
     #[test]
-    fn tilde_fence_closer_accepts_trailing_content() {
+    fn tilde_fence_closer_rejects_trailing_content() {
         let content = "\
 ~~~
 # Inside tilde block
 ~~~ some trailing text
+# Also inside (fence not closed)
+";
+        let headings = parse_headings(content);
+        assert_eq!(
+            headings.len(),
+            0,
+            "tilde fence with trailing text is not closed; all headings are inside"
+        );
+    }
+
+    // Tilde fence closes normally when only whitespace follows.
+    #[test]
+    fn tilde_fence_closer_allows_trailing_whitespace() {
+        let content = "\
+~~~
+# Inside tilde block
+~~~   \t
 # Outside heading
 ";
         let headings = parse_headings(content);
         assert_eq!(headings.len(), 1);
         assert_eq!(headings[0].text, "Outside heading");
+    }
+
+    // CommonMark 4.5: backtick opening fence info string must not contain
+    // backtick characters. A line like ```foo`bar is NOT a fence opener.
+    #[test]
+    fn backtick_fence_info_string_with_backtick_not_opened() {
+        let content = "\
+```foo`bar
+# Real heading (not inside a fence because opener was invalid)
+```foo`bar again
+# Also real
+";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(
+            headings[0].text,
+            "Real heading (not inside a fence because opener was invalid)"
+        );
+        assert_eq!(headings[1].text, "Also real");
     }
 
     // Verify that a clean backtick closing fence (no trailing content) still works.

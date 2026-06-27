@@ -320,10 +320,11 @@ pub fn apply_hunks_with_options(
                 });
             }
             let merge_result = merge_hunks(ours, hunks).map_err(|e| e.message)?;
+            // apply_hunks already failed above (line 315); since it is pure and
+            // deterministic, re-calling it with the same inputs would fail again.
+            // The merge path always produces Merged or Conflict status.
             let status = if !merge_result.conflicts.is_empty() {
                 ApplyHunksStatus::Conflict
-            } else if apply_hunks(ours, hunks).is_ok() {
-                ApplyHunksStatus::Clean
             } else {
                 ApplyHunksStatus::Merged
             };

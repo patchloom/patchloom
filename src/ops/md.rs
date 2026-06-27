@@ -29,18 +29,21 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
             if let Some((ch, min_len)) = fence {
                 let count = trimmed.bytes().take_while(|&b| b == ch).count();
                 if count >= min_len {
-                    // CommonMark 4.5: a backtick closing fence must not be
-                    // followed by non-whitespace characters. Tilde fences
-                    // have no such restriction.
+                    // CommonMark 4.5: the closing code fence may optionally
+                    // be followed by spaces and tabs only. No other characters
+                    // may occur on the line. This applies to both backtick and
+                    // tilde fences.
                     let after_fence = &trimmed[count..];
-                    if ch == b'~' || after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
+                    if after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
                         fence = None;
                         return false;
                     }
                 }
             } else {
                 let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();
-                if backticks >= 3 {
+                // CommonMark 4.5: if the info string comes after a backtick
+                // fence, it may not contain any backtick characters.
+                if backticks >= 3 && !trimmed[backticks..].contains('`') {
                     fence = Some((b'`', backticks));
                     return false;
                 }
