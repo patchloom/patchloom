@@ -2,39 +2,9 @@ use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
 use crate::plan::{Operation, Plan};
 
 /// Short label for an operation, used in error messages.
+/// Delegates to [`Operation::label()`].
 pub(super) fn op_label(op: &Operation) -> &'static str {
-    match op {
-        Operation::Replace { .. } => "replace",
-        Operation::DocSet { .. } => "doc.set",
-        Operation::DocDelete { .. } => "doc.delete",
-        Operation::DocMerge { .. } => "doc.merge",
-        Operation::DocAppend { .. } => "doc.append",
-        Operation::DocPrepend { .. } => "doc.prepend",
-        Operation::DocUpdate { .. } => "doc.update",
-        Operation::DocMove { .. } => "doc.move",
-        Operation::DocEnsure { .. } => "doc.ensure",
-        Operation::DocDeleteWhere { .. } => "doc.delete_where",
-        Operation::MdReplaceSection { .. } => "md.replace_section",
-        Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
-        Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
-        Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
-        Operation::MdTableAppend { .. } => "md.table_append",
-        Operation::MdMoveSection { .. } => "md.move_section",
-        Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
-        Operation::TidyFix { .. } => "tidy.fix",
-        Operation::FileAppend { .. } => "file.append",
-        Operation::FileCreate { .. } => "file.create",
-        Operation::FileDelete { .. } => "file.delete",
-        Operation::FileRename { .. } => "file.rename",
-        Operation::PatchApply { .. } => "patch.apply",
-        Operation::Read { .. } => "read",
-        Operation::Search { .. } => "search",
-        Operation::MdLintAgents { .. } => "md.lint_agents",
-        #[cfg(feature = "ast")]
-        Operation::AstRename { .. } => "ast.rename",
-        #[cfg(feature = "ast")]
-        Operation::AstReplace { .. } => "ast.replace",
-    }
+    op.label()
 }
 
 pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
