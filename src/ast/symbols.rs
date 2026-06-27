@@ -1519,6 +1519,28 @@ struct Point {
     }
 
     #[test]
+    fn find_function_span_cpp_triple_nested_namespace() {
+        let source =
+            "int outer::inner::MyClass::compute(int x) {\n    return x;\n}\n";
+        let span = find_function_span(source, "compute", Language::Cpp).unwrap();
+        assert_eq!(span.name, "compute");
+        assert!(
+            span.signature_text
+                .contains("outer::inner::MyClass::compute(int x)")
+        );
+    }
+
+    #[test]
+    fn find_function_span_cpp_qualified_no_false_positive() {
+        let source =
+            "void MyClass::alpha(int x) {\n}\nvoid MyClass::beta() {\n}\n";
+        let span = find_function_span(source, "beta", Language::Cpp).unwrap();
+        assert_eq!(span.name, "beta");
+        assert!(span.signature_text.contains("beta"));
+        assert!(!span.signature_text.contains("alpha"));
+    }
+
+    #[test]
     fn find_function_span_c() {
         let source = "int main(int argc, char *argv[]) {\n    return 0;\n}\n";
         let span = find_function_span(source, "main", Language::C).unwrap();
