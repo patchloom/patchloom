@@ -311,6 +311,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
     match op {
         Operation::FileAppend { path, content } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             if !tx.deletions.contains(&file_path)
                 && !file_path.exists()
                 && !tx.pending.contains_key(&file_path)
@@ -324,6 +327,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
         Operation::FilePrepend { path, content } => {
             let file_path = tx.cwd.join(path);
+            if file_path.exists() && !file_path.is_file() {
+                anyhow::bail!("target is not a file: {path}");
+            }
             if !tx.deletions.contains(&file_path)
                 && !file_path.exists()
                 && !tx.pending.contains_key(&file_path)

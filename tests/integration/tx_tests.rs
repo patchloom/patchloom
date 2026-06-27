@@ -5828,6 +5828,58 @@ fn test_tx_file_prepend_alias_parsing() {
 }
 
 #[test]
+fn test_tx_file_append_directory_path_fails() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("subdir");
+    fs::create_dir(&sub).unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.append",
+            "path": portable_path_str(&sub),
+            "content": "data"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("target is not a file"));
+}
+
+#[test]
+fn test_tx_file_prepend_directory_path_fails() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("subdir");
+    fs::create_dir(&sub).unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "file.prepend",
+            "path": portable_path_str(&sub),
+            "content": "data"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("target is not a file"));
+}
+
+#[test]
 fn test_tx_format_flag_runs_after_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("f.txt");
