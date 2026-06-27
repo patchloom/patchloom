@@ -2,11 +2,15 @@
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef, SymbolKind};
-use crate::backup::BackupSession;
 use crate::cli::global::GlobalFlags;
+use crate::cmd::output::WritePhase;
+use crate::cmd::output::execute_via_engine;
 use crate::exit;
+use crate::plan::Operation;
+use crate::tx::engine::ExecuteOptions;
 use anyhow::Context;
 use clap::{Args, Subcommand};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -285,73 +289,6 @@ pub struct RenameArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
-/// Apply, check, or preview a single file mutation.
-/// What `apply_or_preview` actually did.
-#[derive(Debug, PartialEq, Eq)]
-enum PreviewAction {
-    /// File was written to disk via `atomic_write`.
-    Applied,
-    /// Check mode: reported what would change without writing.
-    Checked,
-    /// Diff mode with changes: printed unified diff hunks.
-    Diffed,
-    /// Diff mode with no changes: nothing printed.
-    Unchanged,
-}
-
-fn apply_or_preview(
-    path: &std::path::Path,
-    original: &str,
-    new_content: &str,
-    global: &GlobalFlags,
-    cwd: &std::path::Path,
-    status_msg: &str,
-    backup: Option<&mut BackupSession>,
-) -> anyhow::Result<PreviewAction> {
-    let display_path = path.strip_prefix(cwd).unwrap_or(path);
-    let policy = crate::write::policy_from_flags(global, Some(path));
-
-    let do_write = |backup: Option<&mut BackupSession>| -> anyhow::Result<()> {
-        if let Some(b) = backup {
-            b.save_before_write(path)?;
-        }
-        crate::write::atomic_write(path, new_content, &policy)?;
-        Ok(())
-    };
-
-    if global.apply {
-        do_write(backup)?;
-        if !global.quiet {
-            eprintln!("{}: {status_msg}", display_path.display());
-        }
-        Ok(PreviewAction::Applied)
-    } else if global.check {
-        if !global.quiet {
-            eprintln!("{}: {status_msg} (check mode)", display_path.display());
-        }
-        Ok(PreviewAction::Checked)
-    } else {
-        let diff =
-            crate::diff::unified_diff(&display_path.display().to_string(), original, new_content);
-        if diff.has_changes {
-            print!("{}", diff.hunks);
-        }
-        // --confirm: prompt after showing diff, then apply if confirmed.
-        if global.should_apply() {
-            do_write(backup)?;
-            if !global.quiet {
-                eprintln!("{}: {status_msg}", display_path.display());
-            }
-            return Ok(PreviewAction::Applied);
-        }
-        if diff.has_changes {
-            Ok(PreviewAction::Diffed)
-        } else {
-            Ok(PreviewAction::Unchanged)
-        }
-    }
-}
-
 pub fn resolve_target_paths(
     target: &std::path::Path,
     path_arg: &str,
@@ -368,98 +305,104 @@ pub fn resolve_target_paths(
 
 fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast rename: '{}' -> '{}' in {}",
         args.old_name,
         args.new_name,
         args.path
     );
-
-    let mut total_replacements = 0usize;
-    let mut files_changed = 0usize;
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
-    // Single backup session for all files (batched, not per-file).
-    let mut backup = if global.apply {
-        Some(BackupSession::new(&cwd)?)
-    } else {
-        None
-    };
-
+    // Pre-filter to files that have matches, then execute as a batch through
+    // the tx engine. This gives us backup, rollback, and format lifecycle.
+    let mut operations = Vec::new();
+    let lang_hint = args.lang.as_deref();
     for path in &paths {
         let lang = resolve_lang(lang_hint, path);
         let source =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let result = if lang.has_grammar() {
+
+        // Check if this file has any matches (AST or word-boundary fallback).
+        let has_match = if lang.has_grammar() {
             crate::ast::rename::rename_in_source(&source, &args.old_name, &args.new_name, lang)
+                .is_some_and(|r| r.replacements > 0)
         } else {
-            // Fallback to word-boundary replace
-            None
+            false
+        } || {
+            // Word-boundary fallback
+            crate::ops::replace::compile_replace_regex(&args.old_name, false, false, false, true)
+                .ok()
+                .flatten()
+                .is_some_and(|re| re.is_match(&source))
         };
 
-        let (new_content, count) = match result {
-            Some(r) if r.replacements > 0 => (r.content, r.replacements),
-            _ => {
-                // Try word-boundary fallback for unknown languages or zero AST matches
-                let re = crate::ops::replace::compile_replace_regex(
-                    &args.old_name,
-                    false,
-                    false,
-                    false,
-                    true,
-                )?;
-                if let Some(re) = re {
-                    let new = re.replace_all(&source, args.new_name.as_str());
-                    let count = re.find_iter(&source).count();
-                    if count > 0 {
-                        (new.into_owned(), count)
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
-        };
-
-        total_replacements += count;
-        files_changed += 1;
-        let msg = format!("{} replacement{}", count, if count == 1 { "" } else { "s" });
-        apply_or_preview(
-            path,
-            &source,
-            &new_content,
-            global,
-            &cwd,
-            &msg,
-            backup.as_mut(),
-        )?;
-    }
-
-    if global.json || global.jsonl {
-        let obj = serde_json::json!({
-            "ok": true,
-            "files_changed": files_changed,
-            "replacements": total_replacements,
-        });
-        global.emit_json(&obj)?;
-    }
-
-    if let Some(b) = backup {
-        b.finalize()?;
-    }
-
-    if total_replacements == 0 {
-        Ok(exit::NO_MATCHES)
-    } else if global.check {
-        Ok(exit::CHANGES_DETECTED)
-    } else {
-        if global.apply {
-            crate::write::run_format_command(global, &cwd)?;
+        if has_match {
+            let rel = path
+                .strip_prefix(&cwd)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned();
+            operations.push(Operation::AstRename {
+                path: rel,
+                old_name: args.old_name.clone(),
+                new_name: args.new_name.clone(),
+                lang: args.lang.clone(),
+            });
         }
-        Ok(exit::SUCCESS)
     }
+
+    if operations.is_empty() {
+        return Ok(exit::NO_MATCHES);
+    }
+
+    let files_changed = operations.len();
+    let options = ExecuteOptions { cwd: &cwd, global };
+    let result = crate::tx::engine::execute_operations(operations, options)?;
+
+    if global.check {
+        if global.json || global.jsonl {
+            let obj = serde_json::json!({
+                "ok": true,
+                "files_changed": files_changed,
+            });
+            global.emit_json(&obj)?;
+        }
+        return Ok(exit::CHANGES_DETECTED);
+    }
+
+    if global.apply {
+        let diffs = result.build_diffs();
+        result.commit()?;
+        crate::write::run_format_command(global, &cwd)?;
+
+        if global.json || global.jsonl {
+            let obj = serde_json::json!({
+                "ok": true,
+                "files_changed": diffs.len(),
+            });
+            global.emit_json(&obj)?;
+        } else if !global.quiet {
+            for d in &diffs {
+                eprintln!("{}: renamed", d.path);
+            }
+        }
+        return Ok(exit::SUCCESS);
+    }
+
+    // Default preview mode
+    let diffs = result.build_diffs();
+    if !diffs.is_empty() {
+        let colored = crate::diff::render_diffs_colored(&diffs, global.should_color());
+        print!("{colored}");
+    }
+
+    if global.should_apply() {
+        result.commit()?;
+        crate::write::run_format_command(global, &cwd)?;
+        return Ok(exit::SUCCESS);
+    }
+
+    Ok(exit::CHANGES_DETECTED)
 }
 
 // ---------------------------------------------------------------------------
@@ -899,81 +842,67 @@ pub struct ReplaceArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
+#[derive(Debug, Serialize)]
+struct AstReplaceOutput {
+    ok: bool,
+    symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replacements: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+}
+
 fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let (cwd, target, lang, source) = setup_single_file(&args.path, args.lang.as_deref(), global)?;
     crate::verbose!(
         "ast replace: symbol={}, from={}, regex={}",
         args.symbol,
         args.from,
         args.regex
     );
-    crate::verbose!("ast replace: lang={lang}, file={}", args.path);
 
-    let result = crate::ast::replace::replace_in_symbol(
-        &source,
-        &args.symbol,
-        &args.from,
-        &args.to,
-        args.regex,
-        lang,
-    )?;
-
-    let result = match result {
-        Some(r) => r,
-        None => {
-            if !global.quiet {
-                eprintln!("symbol '{}' not found in {}", args.symbol, args.path);
-            }
-            return Ok(exit::NO_MATCHES);
-        }
+    let op = Operation::AstReplace {
+        path: args.path.clone(),
+        symbol: args.symbol.clone(),
+        from: args.from.clone(),
+        to: args.to.clone(),
+        regex: args.regex,
+        lang: args.lang.clone(),
     };
 
-    if result.replacements == 0 {
-        return Ok(exit::NO_MATCHES);
-    }
+    let symbol = args.symbol.clone();
+    let check_msg = format!("would replace in symbol '{symbol}' in {}", args.path);
+    let apply_msg = format!("replaced in symbol '{symbol}' in {}", args.path);
 
-    let msg = format!(
-        "{} replacement{} in symbol '{}'",
-        result.replacements,
-        if result.replacements == 1 { "" } else { "s" },
-        args.symbol,
-    );
-    let mut backup = if global.apply {
-        Some(BackupSession::new(&cwd)?)
-    } else {
-        None
-    };
-    apply_or_preview(
-        &target,
-        &source,
-        &result.content,
+    match execute_via_engine(
+        op,
         global,
-        &cwd,
-        &msg,
-        backup.as_mut(),
-    )?;
-    if let Some(b) = backup {
-        b.finalize()?;
-    }
-    if global.apply {
-        crate::write::run_format_command(global, &cwd)?;
-    }
-
-    if global.json || global.jsonl {
-        let obj = serde_json::json!({
-            "ok": true,
-            "symbol": args.symbol,
-            "replacements": result.replacements,
-            "start_line": result.start_line,
-            "end_line": result.end_line,
-        });
-        global.emit_json(&obj)?;
-    }
-
-    if global.check {
-        Ok(exit::CHANGES_DETECTED)
-    } else {
-        Ok(exit::SUCCESS)
+        |phase, diff| AstReplaceOutput {
+            ok: true,
+            symbol: symbol.clone(),
+            replacements: None, // tx engine doesn't expose count
+            diff,
+            applied: match phase {
+                WritePhase::Confirmed(a) => Some(a),
+                _ => None,
+            },
+        },
+        &check_msg,
+        &apply_msg,
+    ) {
+        Ok(code) => Ok(code),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") || msg.contains("no matches") {
+                if !global.quiet {
+                    eprintln!("{msg}");
+                }
+                Ok(exit::NO_MATCHES)
+            } else {
+                Err(e)
+            }
+        }
     }
 }
 
@@ -1299,96 +1228,8 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // apply_or_preview
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn apply_or_preview_diff_with_changes() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("a.rs");
-        let original = "fn old() {}\n";
-        let new_content = "fn new() {}\n";
-        std::fs::write(&f, original).unwrap();
-
-        let global = GlobalFlags::default();
-        let action = apply_or_preview(
-            &f,
-            original,
-            new_content,
-            &global,
-            dir.path(),
-            "renamed",
-            None,
-        )
-        .unwrap();
-        assert_eq!(action, PreviewAction::Diffed);
-    }
-
-    #[test]
-    fn apply_or_preview_diff_no_changes() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("b.rs");
-        let content = "fn same() {}\n";
-        std::fs::write(&f, content).unwrap();
-
-        let global = GlobalFlags::default();
-        let action =
-            apply_or_preview(&f, content, content, &global, dir.path(), "no-op", None).unwrap();
-        assert_eq!(action, PreviewAction::Unchanged);
-    }
-
-    #[test]
-    fn apply_or_preview_check_mode() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("c.rs");
-        let content = "fn check() {}\n";
-        std::fs::write(&f, content).unwrap();
-
-        let global = GlobalFlags {
-            check: true,
-            ..GlobalFlags::default()
-        };
-        let action = apply_or_preview(
-            &f,
-            content,
-            "fn changed() {}\n",
-            &global,
-            dir.path(),
-            "tested",
-            None,
-        )
-        .unwrap();
-        assert_eq!(action, PreviewAction::Checked);
-    }
-
-    #[test]
-    fn apply_or_preview_apply_mode() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("d.rs");
-        let original = "fn before() {}\n";
-        let new_content = "fn after() {}\n";
-        std::fs::write(&f, original).unwrap();
-
-        let global = GlobalFlags {
-            apply: true,
-            ..GlobalFlags::default()
-        };
-        let mut backup = BackupSession::new(dir.path()).unwrap();
-        let action = apply_or_preview(
-            &f,
-            original,
-            new_content,
-            &global,
-            dir.path(),
-            "applied",
-            Some(&mut backup),
-        )
-        .unwrap();
-        backup.finalize().unwrap();
-        assert_eq!(action, PreviewAction::Applied);
-        // Verify the file was actually written.
-        let on_disk = std::fs::read_to_string(&f).unwrap();
-        assert_eq!(on_disk, new_content);
-    }
+    // Note: apply_or_preview tests removed when AST write commands were
+    // migrated to use the tx engine (execute_via_engine / execute_operations).
+    // The tx engine has its own comprehensive tests in src/cmd/output.rs
+    // and tests/integration.rs.
 }

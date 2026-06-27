@@ -242,16 +242,26 @@ Command::<Name>(args) => {
 Command::<Name>(args) => <name>::run(args, &global),
 ```
 
-5. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
+5. **Choose the correct write path for commands that mutate files:**
 
-6. Add tests that cover success, failure, and edge-case exit codes.
+| Pattern | When to use | Example commands |
+|---------|-------------|------------------|
+| `execute_via_engine()` | Single-operation writes (most commands) | doc, md, create, delete, append, ast replace |
+| `execute_operations()` | Multi-file writes with pre-filtering | ast rename (scans, filters, batches) |
+| `execute_precomputed()` | Parallel scan + batch commit (optimization) | replace (multi-file regex scan) |
 
-7. Update ancillary files that integration tests auto-verify:
+All three go through the tx engine and get backup, rollback, format/validate lifecycle. Do not use `atomic_write()` directly in command implementations.
+
+6. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
+
+7. Add tests that cover success, failure, and edge-case exit codes.
+
+8. Update ancillary files that integration tests auto-verify:
    - `tests/agent/drivers/base.py`: add the command name to `_PATCHLOOM_SUBCOMMANDS`.
    - `docs/reference/README.md`: add a `<!-- ref:command:<name> -->` marker with a `## \`<name>\`` heading, description, **Use when:** stanza, and **Related:** links.
    - `docs/blog/launch-announcement.md`: update the command count ("N commands cover...").
 
-8. Run `make sync-patchloom-md && make update-readme && make check`.
+9. Run `make sync-patchloom-md && make update-readme && make check`.
 
 **PR body requirement (see #819):** When opening the PR for this work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Library follow-ups and polish PRs are the most common place this is missed. Edit via `gh pr edit` if needed before merge.
 
