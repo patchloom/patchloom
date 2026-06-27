@@ -135,6 +135,7 @@ mod basic {
     }
 
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn apply_patch_with_loader_basic() {
         let diff = "\
 --- a/test.txt

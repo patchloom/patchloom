@@ -254,6 +254,7 @@ mod basic {
 
         // Build representative Operation values for each schema op name.
         // Only the field names matter; values are dummies.
+        #[allow(unused_mut)]
         let mut ops: Vec<(&str, Operation)> = vec![
             (
                 "replace",
@@ -496,6 +497,39 @@ mod basic {
                     from: "a".into(),
                     to: "b".into(),
                     regex: false,
+                    lang: None,
+                },
+            ));
+            ops.push((
+                "ast.insert",
+                Operation::AstInsert {
+                    path: "f.rs".into(),
+                    content: "fn new() {}".into(),
+                    inside: None,
+                    after: Some("main".into()),
+                    before: None,
+                    position: None,
+                    lang: None,
+                },
+            ));
+            ops.push((
+                "ast.wrap",
+                Operation::AstWrap {
+                    path: "f.rs".into(),
+                    symbols: Some(vec!["helper".into()]),
+                    lines: None,
+                    wrapper: "mod internal".into(),
+                    preamble: None,
+                    lang: None,
+                },
+            ));
+            ops.push((
+                "ast.imports",
+                Operation::AstImports {
+                    path: "f.rs".into(),
+                    add: Some(vec!["use std::io;".into()]),
+                    remove: None,
+                    dedupe: false,
                     lang: None,
                 },
             ));

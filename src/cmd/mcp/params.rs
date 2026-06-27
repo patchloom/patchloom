@@ -432,6 +432,73 @@ pub(crate) struct AstReplaceParams {
     pub lang: Option<String>,
 }
 
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstInsertParams {
+    /// File to insert code into.
+    pub path: String,
+    /// Code to insert.
+    pub content: String,
+    /// Module/impl/struct to insert into (mutually exclusive with after/before).
+    #[serde(default)]
+    pub inside: Option<String>,
+    /// Insert after this symbol (mutually exclusive with inside/before).
+    #[serde(default)]
+    pub after: Option<String>,
+    /// Insert before this symbol (mutually exclusive with inside/after).
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Position within `inside`: "start" or "end" (default).
+    #[serde(default)]
+    pub position: Option<String>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstWrapParams {
+    /// File to modify.
+    pub path: String,
+    /// Symbols to wrap (mutually exclusive with lines).
+    #[serde(default)]
+    pub symbols: Option<Vec<String>>,
+    /// Line range to wrap (e.g. "10:50", mutually exclusive with symbols).
+    #[serde(default)]
+    pub lines: Option<String>,
+    /// The wrapping construct (e.g. "mod foo", "impl Bar", "#[cfg(test)]").
+    pub wrapper: String,
+    /// Content to insert at the top of the wrapped block.
+    #[serde(default)]
+    pub preamble: Option<String>,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub(crate) struct AstImportsParams {
+    /// File to modify.
+    pub path: String,
+    /// Import statements to add (idempotent; skips if already present).
+    #[serde(default)]
+    pub add: Option<Vec<String>>,
+    /// Import statements to remove.
+    #[serde(default)]
+    pub remove: Option<Vec<String>>,
+    /// Deduplicate imports.
+    #[serde(default)]
+    pub dedupe: bool,
+    /// Language hint.
+    pub lang: Option<String>,
+}
+
 /// No-parameter wrapper for tools that need no input (e.g., git_status).
 /// Required because rmcp 1.8+ validates that `inputSchema` has a root
 /// `type: "object"` field, which `serde_json::Value` does not provide.

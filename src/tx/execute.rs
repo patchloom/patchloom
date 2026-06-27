@@ -713,6 +713,105 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 None => anyhow::bail!("symbol '{}' not found in {}", symbol, path),
             }
         }
+
+        #[cfg(feature = "ast")]
+        Operation::AstInsert {
+            path,
+            content: insert_content,
+            inside,
+            after,
+            before,
+            position,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let pos = match position.as_deref() {
+                Some("start") => crate::ast::insert::InsertPosition::Start,
+                _ => crate::ast::insert::InsertPosition::End,
+            };
+            let result = crate::ast::insert::insert_code(
+                file_content,
+                insert_content,
+                inside.as_deref(),
+                after.as_deref(),
+                before.as_deref(),
+                pos,
+                lang_val,
+            )?;
+            update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            return Ok(1);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstWrap {
+            path,
+            symbols: sym_names,
+            lines: line_range,
+            wrapper,
+            preamble,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let result = crate::ast::wrap::wrap_code(
+                file_content,
+                sym_names.as_deref(),
+                line_range.as_deref(),
+                wrapper,
+                preamble.as_deref(),
+                lang_val,
+            )?;
+            update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            return Ok(1);
+        }
+
+        #[cfg(feature = "ast")]
+        Operation::AstImports {
+            path,
+            add,
+            remove,
+            dedupe,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let mut file_content =
+                read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_extension)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let mut total_changes = 0usize;
+
+            if let Some(add_list) = add {
+                let result = crate::ast::imports::add_imports(&file_content, add_list, lang_val);
+                total_changes += result.added;
+                file_content = result.content;
+            }
+            if let Some(remove_list) = remove {
+                let result =
+                    crate::ast::imports::remove_imports(&file_content, remove_list, lang_val);
+                total_changes += result.removed;
+                file_content = result.content;
+            }
+            if *dedupe {
+                let result = crate::ast::imports::dedupe_imports(&file_content, lang_val);
+                total_changes += result.deduped;
+                file_content = result.content;
+            }
+            if total_changes > 0 {
+                update_file_content(tx.pending, tx.deletions, &abs, file_content);
+            }
+            return Ok(total_changes);
+        }
     }
 
     Ok(0)

@@ -625,6 +625,7 @@ fn find_match(haystack: &[&str], needle: &[&str], expected: isize, fuzz: usize) 
     None
 }
 
+#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn apply_patch_with_loader<F>(
     diff_text: &str,
     mut load_original: F,

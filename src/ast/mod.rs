@@ -7,6 +7,8 @@
 pub mod deps;
 pub mod diff;
 pub mod impact;
+pub mod imports;
+pub mod insert;
 pub mod map;
 pub mod refs;
 pub mod rename;
@@ -14,6 +16,7 @@ pub mod replace;
 pub mod search;
 pub mod symbols;
 pub mod validate;
+pub mod wrap;
 
 use std::path::Path;
 
