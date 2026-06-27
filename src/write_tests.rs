@@ -609,6 +609,16 @@ mod edge_cases {
         let result = collapse_blanks(input);
         assert_eq!(result, input);
     }
+
+    #[test]
+    fn collapse_blanks_trailing_blank_no_newline() {
+        // Two consecutive blank lines where the last has no trailing newline.
+        // The fast-scan must detect this to trigger collapsing.
+        // The first blank line is preserved (with its newline); the second is dropped.
+        let input = "a\n \n ";
+        let result = collapse_blanks(input);
+        assert_eq!(result, "a\n \n");
+    }
 }
 
 mod dedent_indent {

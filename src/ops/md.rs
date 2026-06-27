@@ -78,6 +78,32 @@ fn setext_underline_level(line: &str) -> Option<usize> {
     }
 }
 
+/// Strip an optional ATX closing sequence from heading text.
+///
+/// Per CommonMark, a trailing sequence of `#` characters preceded by a space
+/// (or tabs) is removed, along with any trailing whitespace before that space.
+/// Example: `" Heading ## "` → `"Heading"`.
+fn strip_atx_closing(text: &str) -> String {
+    let trimmed = text.trim_end();
+    // Count trailing '#' characters.
+    let hash_count = trimmed.bytes().rev().take_while(|&b| b == b'#').count();
+    if hash_count == 0 {
+        return trimmed.to_string();
+    }
+    // The hashes must be preceded by a space/tab, or the text is entirely hashes.
+    let before = &trimmed[..trimmed.len() - hash_count];
+    if before.is_empty() {
+        // Text is all '#' — the entire content is the closing sequence.
+        return String::new();
+    }
+    if before.ends_with([' ', '\t']) {
+        before.trim_end().to_string()
+    } else {
+        // No space before hashes — they are part of the heading text.
+        trimmed.to_string()
+    }
+}
+
 pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
     let mut headings = Vec::new();
     let total_lines = content.lines().count();
@@ -97,7 +123,7 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
             }
             headings.push(HeadingInfo {
                 level: hashes,
-                text: line[hashes + 1..].to_string(),
+                text: strip_atx_closing(&line[hashes + 1..]),
                 line_start: idx,
                 body_line: idx + 1,
                 line_end: 0,

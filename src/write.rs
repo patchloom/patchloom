@@ -283,6 +283,15 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
         scan = &scan[end..];
     }
 
+    // Check trailing content after the last newline: if the remainder is
+    // blank and the previous line was also blank, we still need to collapse.
+    if !needs_collapse && prev_blank && !scan.is_empty() {
+        let trailing = std::str::from_utf8(scan).unwrap_or("");
+        if trailing.trim().is_empty() {
+            needs_collapse = true;
+        }
+    }
+
     if !needs_collapse {
         return Cow::Borrowed(content);
     }
