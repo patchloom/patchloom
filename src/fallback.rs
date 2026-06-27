@@ -195,11 +195,17 @@ pub fn validate_edit_nth(
                 remaining = &remaining[pos + from.len()..];
             }
             if count < n {
-                // Nth occurrence not found; use content as-is.
-                content.to_string()
-            } else {
-                result
+                return ValidationResult {
+                    valid: false,
+                    errors: vec![format!(
+                        "occurrence {n} not found (only {count} occurrence{} exist{})",
+                        if count == 1 { "" } else { "s" },
+                        if count == 1 { "s" } else { "" },
+                    )],
+                    warnings: vec![],
+                };
             }
+            result
         }
         None => content.replace(from, to),
     };
@@ -1018,10 +1024,18 @@ mod tests {
 
     #[test]
     fn validate_edit_nth_out_of_range() {
-        // nth=5 but only 2 occurrences: content is unchanged, still valid.
+        // nth=5 but only 2 occurrences: should return invalid with descriptive error.
         let content = "aXbXc";
         let result = validate_edit_nth(content, "X", "Y", None, Some(5));
-        assert!(result.valid);
+        assert!(
+            !result.valid,
+            "nth beyond occurrence count should be invalid"
+        );
+        assert!(
+            result.errors[0].contains("occurrence 5 not found"),
+            "error should mention the missing occurrence: {:?}",
+            result.errors
+        );
     }
 
     #[test]

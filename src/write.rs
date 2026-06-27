@@ -432,18 +432,30 @@ pub fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
         let start: usize = left
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid line range start: '{left}'"))?;
+        if start == 0 {
+            anyhow::bail!("line numbers are 1-based, got start=0");
+        }
         if right.is_empty() {
             Ok((start, None))
         } else {
             let end: usize = right
                 .parse()
                 .map_err(|_| anyhow::anyhow!("invalid line range end: '{right}'"))?;
+            if end == 0 {
+                anyhow::bail!("line numbers are 1-based, got end=0");
+            }
+            if end < start {
+                anyhow::bail!("inverted line range: start ({start}) > end ({end})");
+            }
             Ok((start, Some(end)))
         }
     } else {
         let line: usize = spec
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid line number: '{spec}'"))?;
+        if line == 0 {
+            anyhow::bail!("line numbers are 1-based, got 0");
+        }
         Ok((line, Some(line)))
     }
 }
