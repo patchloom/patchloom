@@ -173,7 +173,8 @@ pub(super) fn handle_ast_rename(
 
         let (new_content, count) = match result {
             Some(r) if r.replacements > 0 => (r.content, r.replacements),
-            _ => {
+            Some(_) => continue, // grammar parsed but no code identifiers found; skip file
+            None => {
                 // Try word-boundary fallback
                 let re = crate::ops::replace::compile_replace_regex(
                     &p.old_name,

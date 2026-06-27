@@ -924,4 +924,22 @@ mod regression {
         // verify it doesn't panic.
         let _ = apply_hunks("original\n", &hunks);
     }
+
+    #[test]
+    fn parse_file_path_strips_tab_timestamp() {
+        let result = parse_file_path("+++ b/file.txt\t2024-01-01 00:00:01.000000000 +0000");
+        assert_eq!(result, "file.txt");
+    }
+
+    #[test]
+    fn parse_file_path_no_tab_unchanged() {
+        let result = parse_file_path("+++ b/file.txt");
+        assert_eq!(result, "file.txt");
+    }
+
+    #[test]
+    fn parse_file_path_minus_with_tab_timestamp() {
+        let result = parse_file_path("--- a/src/main.rs\t2024-06-01 12:00:00.000 +0000");
+        assert_eq!(result, "src/main.rs");
+    }
 }

@@ -81,7 +81,12 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Binary files can't go through the tx engine (it reads as UTF-8 text).
     // Use a direct fs::rename (or copy+delete) for binary renames.
-    let is_binary = fs::read_to_string(&src).is_err();
+    // Distinguish actual binary (non-UTF-8) from I/O errors like permission denied.
+    let is_binary = match fs::read_to_string(&src) {
+        Ok(_) => false,
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => true,
+        Err(e) => return Err(e.into()),
+    };
     if is_binary {
         return run_binary_rename(&args, global, &cwd, &src, &dst);
     }
@@ -461,5 +466,35 @@ mod tests {
 
         let err = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap_err();
         assert!(err.to_string().contains("source is not a file"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_unreadable_file_propagates_io_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("unreadable.txt");
+        let dst = dir.path().join("dest.txt");
+        fs::write(&src, "hello\n").unwrap();
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+        // Should propagate the I/O error, not misclassify as binary
+        let result = run(args, &global);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            !err_msg.contains("binary"),
+            "should not misclassify permission error as binary: {err_msg}"
+        );
+        // Cleanup: restore permissions so TempDir can clean up
+        fs::set_permissions(&src, fs::Permissions::from_mode(0o644)).unwrap();
     }
 }

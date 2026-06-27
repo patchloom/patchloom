@@ -40,7 +40,7 @@ fn parse_porcelain_record(record: &[u8]) -> Option<(FileCategory, String)> {
     let file = String::from_utf8_lossy(&record[3..]).into_owned();
     let category = match xy.trim() {
         "??" | "A" | "AM" => FileCategory::Created,
-        "D" => FileCategory::Deleted,
+        "D" | "DD" | "AD" | "MD" => FileCategory::Deleted,
         _ => FileCategory::Modified,
     };
     Some((category, file))
@@ -191,5 +191,18 @@ mod tests {
         let (cat, file) = parse_porcelain_record(b"?? file name.txt").unwrap();
         assert_eq!(cat, FileCategory::Created);
         assert_eq!(file, "file name.txt");
+    }
+
+    #[test]
+    fn parse_compound_deletion_codes() {
+        // DD = unmerged, both deleted
+        let (cat, _) = parse_porcelain_record(b"DD file.txt").unwrap();
+        assert_eq!(cat, FileCategory::Deleted);
+        // AD = added in index, deleted in worktree
+        let (cat, _) = parse_porcelain_record(b"AD file.txt").unwrap();
+        assert_eq!(cat, FileCategory::Deleted);
+        // MD = modified in index, deleted in worktree
+        let (cat, _) = parse_porcelain_record(b"MD file.txt").unwrap();
+        assert_eq!(cat, FileCategory::Deleted);
     }
 }
