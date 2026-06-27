@@ -369,8 +369,13 @@ fn serialize_block_entries(entries: &[serde_json::Value], indent: &str) -> anyho
             serde_json::Value::String(s) => {
                 out.push_str(indent);
                 out.push_str("- ");
-                // Quote strings that need it.
-                if needs_yaml_quoting(s) {
+                // Quote strings that need it. Use double-quoting for strings
+                // containing newlines because YAML single-quoted scalars fold
+                // line breaks into spaces, corrupting the data.
+                if s.contains('\n') {
+                    let escaped = serde_json::to_string(s).expect("JSON string");
+                    out.push_str(&escaped);
+                } else if needs_yaml_quoting(s) {
                     out.push_str(&format!("'{}'", s.replace('\'', "''")));
                 } else {
                     out.push_str(s);
@@ -423,6 +428,11 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
     }
     // Trailing colon makes the value look like a mapping key (e.g., "host:").
     if s.ends_with(':') {
+        return true;
+    }
+    // "- " at the start looks like a block sequence entry when emitted
+    // inside a block sequence context (e.g., `- - item` is a nested sequence).
+    if s.starts_with("- ") || s == "-" {
         return true;
     }
     // YAML tag indicator (e.g., "!important", "!!str").
@@ -637,6 +647,32 @@ mod tests {
         assert!(!needs_yaml_quoting("hello"));
         assert!(!needs_yaml_quoting("foo-bar_baz"));
         assert!(!needs_yaml_quoting("http://example.com:8080/path"));
+    }
+
+    #[test]
+    fn needs_quoting_dash_space_prefix() {
+        // "- item" at the start of a block sequence entry produces `- - item`
+        // which YAML parses as a nested sequence, not a string.
+        assert!(needs_yaml_quoting("- item"));
+        assert!(needs_yaml_quoting("- "));
+        assert!(needs_yaml_quoting("-")); // bare dash is also ambiguous
+        // Plain dash in the middle or end is fine.
+        assert!(!needs_yaml_quoting("foo-bar"));
+        assert!(!needs_yaml_quoting("a-"));
+    }
+
+    #[test]
+    fn serialize_string_with_newline_uses_double_quote() {
+        use serde_json::json;
+        let entries = vec![json!("hello\nworld")];
+        let result = serialize_block_entries(&entries, "").unwrap();
+        // Must use double-quoting to preserve the newline.
+        assert!(
+            result.contains('"'),
+            "expected double-quoted string for newline, got: {result}"
+        );
+        let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(parsed, vec![json!("hello\nworld")]);
     }
 
     // -----------------------------------------------------------------------

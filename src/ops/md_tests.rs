@@ -517,6 +517,32 @@ mod edge_cases {
     }
 
     #[test]
+    fn parse_headings_strips_atx_closing_hashes() {
+        let content = "## Heading ##\n### Another ###\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Heading");
+        assert_eq!(headings[1].text, "Another");
+    }
+
+    #[test]
+    fn parse_headings_closing_hashes_without_space_are_content() {
+        // Per CommonMark, closing hashes must be preceded by a space.
+        let content = "# foo#\n## bar##baz\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "foo#");
+        assert_eq!(headings[1].text, "bar##baz");
+    }
+
+    #[test]
+    fn find_section_matches_heading_with_closing_hashes() {
+        let content = "## API ##\nsome text\n## Next\nother\n";
+        let (start, end) = find_section(content, "API").unwrap();
+        assert_eq!(&content[start..end], "some text\n");
+    }
+
+    #[test]
     fn find_section_with_hashes_in_query() {
         let content = "## API\nsome text\n";
         let (start, end) = find_section(content, "## API").unwrap();
