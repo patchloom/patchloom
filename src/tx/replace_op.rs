@@ -80,7 +80,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 after_context.as_deref(),
             ) {
                 Ok(anchor) => {
-                    let to_text = to.as_deref().unwrap_or("");
+                    let to_text = if let Some(ib) = insert_before {
+                        format!("{}{}", ib, anchor.matched_text)
+                    } else if let Some(ia) = insert_after {
+                        format!("{}{}", anchor.matched_text, ia)
+                    } else {
+                        to.as_deref().unwrap_or("").to_string()
+                    };
                     let new_content = format!(
                         "{}{}{}",
                         &content[..anchor.start_offset],
@@ -519,5 +525,64 @@ mod tests {
         assert_eq!(count, 2); // a.txt and b.txt matched
         // c.rs should not be modified
         assert!(!pending.contains_key(&dir.path().join("c.rs")));
+    }
+
+    #[test]
+    fn replace_insert_before_with_fallback_preserves_matched_text() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "fn process(input: Vec<u8>) {\n}\n").unwrap();
+
+        // `from` is stale (Vec<i32> instead of Vec<u8>), so exact match fails.
+        // Fallback should insert_before the matched text, not delete it.
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: None,
+            from: "fn process(input: Vec<i32>) {".into(),
+            to: None,
+            nth: None,
+            insert_before: Some("/// Process input.\n".into()),
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: Some("fn process".into()),
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        assert_eq!(count, 1);
+        let result = &pending[&file].1;
+        assert!(
+            result.contains("fn process(input: Vec<u8>)"),
+            "original function signature must be preserved, got: {result}"
+        );
+        assert!(
+            result.contains("/// Process input."),
+            "insert_before text must be present, got: {result}"
+        );
     }
 }

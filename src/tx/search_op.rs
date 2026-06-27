@@ -139,14 +139,18 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     line: line_idx + 1,
                     column: col + 1,
                     text,
-                    context_before: lines[start..line_idx]
+                    context_before: lines[start..line_idx.min(lines.len())]
                         .iter()
                         .map(|s| s.to_string())
                         .collect(),
-                    context_after: lines[line_idx + 1..end]
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
+                    context_after: if line_idx + 1 < lines.len() {
+                        lines[line_idx + 1..end]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect()
+                    } else {
+                        vec![]
+                    },
                 });
             }
         } else {
@@ -714,5 +718,54 @@ mod tests {
         assert_eq!(searches[0].match_count, 3);
         // matches is truncated to max_results
         assert_eq!(searches[0].matches.len(), 1);
+    }
+
+    #[test]
+    fn search_multiline_context_at_eof_no_panic() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        // File ending with newline; regex matching at end-of-string
+        std::fs::write(&file, "hello\nworld\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "world".into(),
+            regex: true,
+            context: Some(2),
+            before_context: None,
+            after_context: None,
+            max_results: 0,
+            case_insensitive: false,
+            invert_match: false,
+            multiline: true,
+            assert_count: None,
+            literal: false,
+            globs: vec![],
+            exclude_patterns: vec![],
+            custom_ignore_filenames: vec![],
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        // Should not panic even when match is near end of file
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 1);
     }
 }
