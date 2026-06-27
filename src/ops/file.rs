@@ -72,6 +72,11 @@ mod tests {
     }
 
     #[test]
+    fn prepend_empty_both() {
+        assert_eq!(prepend_content("", ""), "");
+    }
+
+    #[test]
     fn prepend_symmetry_with_append() {
         // Both ensure a newline separator when content lacks trailing newline
         let a = append_content("base", "added");
