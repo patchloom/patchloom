@@ -355,6 +355,14 @@ mod error_handling {
     use super::*;
 
     #[test]
+    fn tokenize_preserves_backslash_before_non_special_chars() {
+        // Regression: `\n`, `\t`, etc. inside quotes should keep the
+        // backslash because only `\"` and `\\` are recognized escapes.
+        let tokens = tokenize(r#"replace f.txt "C:\new\test" "D:\data""#).unwrap();
+        assert_eq!(tokens, vec!["replace", "f.txt", r"C:\new\test", r"D:\data"]);
+    }
+
+    #[test]
     fn tokenize_trailing_backslash_error() {
         let err = tokenize(r#"doc.set f.json key "trail\"#).unwrap_err();
         assert!(

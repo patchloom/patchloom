@@ -818,6 +818,22 @@ mod error_handling {
     }
 
     #[test]
+    fn table_append_no_trailing_newline() {
+        // Regression: when the file ends without a trailing newline,
+        // the new row must not be fused onto the last existing row.
+        let content = "# API\n| H |\n|---|\n| v |";
+        let result = table_append_in(content, 6, content.len(), "| new |").unwrap();
+        assert!(
+            result.contains("| v |\n| new |"),
+            "rows should be on separate lines: {result}"
+        );
+        assert!(
+            !result.contains("| v || new |"),
+            "rows must not be fused: {result}"
+        );
+    }
+
+    #[test]
     fn table_append_no_table() {
         let content = "# API\nJust text\n";
         let (start, end) = find_section(content, "API").unwrap();
@@ -981,6 +997,24 @@ mod regression {
         let result = upsert_bullet_in(content, "Section A", "- Bullet three").unwrap();
         assert!(
             result.contains("- Bullet three\n\n## Section B"),
+            "blank line before next heading must be preserved: {result}"
+        );
+    }
+
+    #[test]
+    fn upsert_bullet_inserts_before_trailing_blank_lines() {
+        // Regression: the new bullet should be grouped with existing
+        // bullets, not placed after trailing blank lines.
+        let content = "# A\n- item1\n- item2\n\n# B\n";
+        let result = upsert_bullet_in(content, "A", "- item3").unwrap();
+        // The new bullet must appear immediately after item2, before the blank line.
+        assert!(
+            result.contains("- item2\n- item3\n"),
+            "new bullet should be adjacent to existing bullets: {result}"
+        );
+        // The blank line separator before # B must be preserved.
+        assert!(
+            result.contains("item3\n\n# B"),
             "blank line before next heading must be preserved: {result}"
         );
     }

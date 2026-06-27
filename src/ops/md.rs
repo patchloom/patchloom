@@ -412,15 +412,38 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         }
     }
 
+    // Find the end of actual content within the body, before any trailing
+    // blank lines. This ensures the new bullet is grouped with existing
+    // bullets rather than placed after a blank line separator.
+    let trimmed_body = body.trim_end_matches(['\n', '\r', ' ']);
+    let content_end = body_start + trimmed_body.len();
+    // Find the next line boundary after content_end (include the trailing \n of
+    // the last non-blank line so the bullet goes on a new line, not appended).
+    let insert_at = if content_end < body_end {
+        // There is at least one trailing newline; include the first one.
+        content_end
+            + if content.as_bytes().get(content_end) == Some(&b'\r')
+                && content.as_bytes().get(content_end + 1) == Some(&b'\n')
+            {
+                2
+            } else if content.as_bytes().get(content_end) == Some(&b'\n') {
+                1
+            } else {
+                0
+            }
+    } else {
+        body_end
+    };
+
     let mut out = String::with_capacity(content.len() + normalized.len() + 4);
-    out.push_str(&content[..body_end]);
+    out.push_str(&content[..insert_at]);
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
     out.push_str(&normalized);
     out.push('\n');
     // Preserve the blank line separator before the next heading.
-    let remainder = &content[body_end..];
+    let remainder = &content[insert_at..];
     if remainder.starts_with('#') && !out.ends_with("\n\n") {
         out.push('\n');
     }
@@ -523,6 +546,12 @@ pub fn table_append_in(
 
     let mut out = String::with_capacity(content.len() + row.len() + 2);
     out.push_str(&content[..insert_pos]);
+    // Ensure there is a newline separator before the new row; without
+    // this, files that lack a trailing newline get the new row fused
+    // onto the last existing data row.
+    if insert_pos > 0 && content.as_bytes().get(insert_pos - 1) != Some(&b'\n') {
+        out.push('\n');
+    }
     out.push_str(row);
     if !row.ends_with('\n') {
         out.push('\n');

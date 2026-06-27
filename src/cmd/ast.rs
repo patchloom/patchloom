@@ -241,8 +241,10 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in {}", args.symbol, args.path))?;
 
     let lines: Vec<&str> = source.lines().collect();
-    let start = sym.start_line.saturating_sub(1 + args.context);
-    let end = (sym.end_line + args.context).min(lines.len());
+    let start = sym
+        .start_line
+        .saturating_sub(args.context.saturating_add(1));
+    let end = sym.end_line.saturating_add(args.context).min(lines.len());
 
     if global.json || global.jsonl {
         let content: String = lines[start..end].iter().map(|l| format!("{l}\n")).collect();
@@ -1212,6 +1214,22 @@ mod tests {
             msg.contains("path not found") && msg.contains("no_such_file.rs"),
             "error should mention path not found and the argument: {msg}"
         );
+    }
+
+    #[test]
+    fn context_line_calculation_no_overflow() {
+        // Regression: 1 + args.context and sym.end_line + args.context
+        // used to overflow with large context values. Verify saturating
+        // arithmetic prevents panic.
+        let start_line: usize = 5;
+        let end_line: usize = 10;
+        let context: usize = usize::MAX;
+        let total_lines: usize = 100;
+
+        let start = start_line.saturating_sub(context.saturating_add(1));
+        let end = end_line.saturating_add(context).min(total_lines);
+        assert_eq!(start, 0);
+        assert_eq!(end, total_lines);
     }
 
     // Note: apply_or_preview tests removed when AST write commands were
