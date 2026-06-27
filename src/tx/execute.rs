@@ -275,36 +275,9 @@ pub(crate) use super::search_op::execute_search_op;
 
 /// Returns true if the operation works on raw text and needs any cached
 /// doc values flushed (serialized) back to the pending text map first.
+/// Delegates to [`Operation::needs_doc_flush()`].
 fn op_needs_doc_flush(op: &Operation) -> bool {
-    matches!(
-        op,
-        Operation::Replace { .. }
-            | Operation::MdReplaceSection { .. }
-            | Operation::MdInsertAfterHeading { .. }
-            | Operation::MdInsertBeforeHeading { .. }
-            | Operation::MdUpsertBullet { .. }
-            | Operation::MdTableAppend { .. }
-            | Operation::MdMoveSection { .. }
-            | Operation::MdDedupeHeadings { .. }
-            | Operation::PatchApply { .. }
-            | Operation::FileAppend { .. }
-            | Operation::Read { .. }
-            | Operation::Search { .. }
-            | Operation::MdLintAgents { .. }
-            | Operation::TidyFix { .. }
-    ) || {
-        #[cfg(feature = "ast")]
-        {
-            matches!(
-                op,
-                Operation::AstRename { .. } | Operation::AstReplace { .. }
-            )
-        }
-        #[cfg(not(feature = "ast"))]
-        {
-            false
-        }
-    }
+    op.needs_doc_flush()
 }
 
 pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {

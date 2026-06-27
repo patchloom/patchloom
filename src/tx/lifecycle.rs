@@ -385,7 +385,7 @@ pub fn execute_plan_direct(
     // patterns, patch embedded paths) are best-effort or handled by loaders.
     if let Some(g) = guard {
         for op in &plan.operations {
-            for p in crate::plan::declared_paths(op) {
+            for p in op.declared_paths() {
                 g.check_path(p)
                     .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
             }

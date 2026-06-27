@@ -278,6 +278,87 @@ pub enum Operation {
     },
 }
 
+impl Operation {
+    /// Human-readable label for this operation (matches the serde tag name).
+    pub fn label(&self) -> &'static str {
+        match self {
+            Operation::Replace { .. } => "replace",
+            Operation::DocSet { .. } => "doc.set",
+            Operation::DocDelete { .. } => "doc.delete",
+            Operation::DocMerge { .. } => "doc.merge",
+            Operation::DocAppend { .. } => "doc.append",
+            Operation::DocPrepend { .. } => "doc.prepend",
+            Operation::DocUpdate { .. } => "doc.update",
+            Operation::DocMove { .. } => "doc.move",
+            Operation::DocEnsure { .. } => "doc.ensure",
+            Operation::DocDeleteWhere { .. } => "doc.delete_where",
+            Operation::MdReplaceSection { .. } => "md.replace_section",
+            Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
+            Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
+            Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
+            Operation::MdTableAppend { .. } => "md.table_append",
+            Operation::MdMoveSection { .. } => "md.move_section",
+            Operation::MdDedupeHeadings { .. } => "md.dedupe_headings",
+            Operation::TidyFix { .. } => "tidy.fix",
+            Operation::FileAppend { .. } => "file.append",
+            Operation::FileCreate { .. } => "file.create",
+            Operation::FileDelete { .. } => "file.delete",
+            Operation::FileRename { .. } => "file.rename",
+            Operation::PatchApply { .. } => "patch.apply",
+            Operation::Read { .. } => "read",
+            Operation::Search { .. } => "search",
+            Operation::MdLintAgents { .. } => "md.lint_agents",
+            #[cfg(feature = "ast")]
+            Operation::AstRename { .. } => "ast.rename",
+            #[cfg(feature = "ast")]
+            Operation::AstReplace { .. } => "ast.replace",
+        }
+    }
+
+    /// Whether this operation requires flushing the doc cache before execution.
+    ///
+    /// Non-doc operations (replace, md, file, patch, read, search, tidy, ast)
+    /// need the doc cache flushed because they read/write files directly and
+    /// would see stale content if doc mutations are still buffered.
+    pub fn needs_doc_flush(&self) -> bool {
+        matches!(
+            self,
+            Operation::Replace { .. }
+                | Operation::MdReplaceSection { .. }
+                | Operation::MdInsertAfterHeading { .. }
+                | Operation::MdInsertBeforeHeading { .. }
+                | Operation::MdUpsertBullet { .. }
+                | Operation::MdTableAppend { .. }
+                | Operation::MdMoveSection { .. }
+                | Operation::MdDedupeHeadings { .. }
+                | Operation::PatchApply { .. }
+                | Operation::FileAppend { .. }
+                | Operation::Read { .. }
+                | Operation::Search { .. }
+                | Operation::MdLintAgents { .. }
+                | Operation::TidyFix { .. }
+        ) || {
+            #[cfg(feature = "ast")]
+            {
+                matches!(
+                    self,
+                    Operation::AstRename { .. } | Operation::AstReplace { .. }
+                )
+            }
+            #[cfg(not(feature = "ast"))]
+            {
+                false
+            }
+        }
+    }
+
+    /// Returns the file paths declared by this operation for containment
+    /// validation. See [`declared_paths`] for details.
+    pub fn declared_paths(&self) -> Vec<&str> {
+        declared_paths(self)
+    }
+}
+
 /// Convert a doc-family `Operation` into a `(path, DocMutation)` pair.
 ///
 /// Returns `None` for non-doc operations. This is the single source of truth
