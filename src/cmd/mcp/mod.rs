@@ -314,7 +314,13 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
     let (output, code) =
         crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    exit_code_to_result(code, &output, "No results.")
+    // CHANGES_DETECTED (2) is a valid success for doc diff (differences found).
+    let effective = if code == exit::CHANGES_DETECTED {
+        exit::SUCCESS
+    } else {
+        code
+    };
+    exit_code_to_result(effective, &output, "No results.")
 }
 
 fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {

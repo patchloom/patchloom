@@ -532,14 +532,17 @@ pub(crate) fn execute_with_mode(
                 return Ok((out, exit::SUCCESS));
             }
             match output_mode {
-                OutputMode::Json => Ok((serde_json::to_string_pretty(&entries)?, exit::SUCCESS)),
+                OutputMode::Json => Ok((
+                    serde_json::to_string_pretty(&entries)?,
+                    exit::CHANGES_DETECTED,
+                )),
                 OutputMode::Jsonl => Ok((
                     entries
                         .iter()
                         .map(serde_json::to_string)
                         .collect::<Result<Vec<_>, _>>()?
                         .join("\n"),
-                    exit::SUCCESS,
+                    exit::CHANGES_DETECTED,
                 )),
                 OutputMode::Text => {
                     use std::fmt::Write;
@@ -582,7 +585,7 @@ pub(crate) fn execute_with_mode(
                             _ => {}
                         }
                     }
-                    Ok((out, exit::SUCCESS))
+                    Ok((out, exit::CHANGES_DETECTED))
                 }
             }
         }
