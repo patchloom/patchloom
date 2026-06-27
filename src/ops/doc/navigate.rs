@@ -10,6 +10,11 @@ pub fn navigate_mut<'a>(
         current = match seg {
             selector::Segment::Key(k) => {
                 if create {
+                    // Convert null root (e.g. empty YAML) to an empty object
+                    // so intermediate keys can be created.
+                    if current.is_null() {
+                        *current = serde_json::Value::Object(serde_json::Map::new());
+                    }
                     let needs_create = match current.as_object() {
                         Some(obj) => !obj.contains_key(k.as_str()),
                         None => false,
@@ -53,6 +58,12 @@ pub fn set_at_path(
     }
     let (parent_path, last) = split_last(segments);
     let parent = navigate_mut(root, parent_path, true)?;
+
+    // Convert null parent (e.g. empty YAML parsed to null) to an empty
+    // object so `doc set` works on empty documents.
+    if parent.is_null() && matches!(last, selector::Segment::Key(_)) {
+        *parent = serde_json::Value::Object(serde_json::Map::new());
+    }
 
     match last {
         selector::Segment::Key(k) => {
@@ -418,6 +429,25 @@ mod tests {
                 .contains("empty to selector"),
             "should report empty to selector"
         );
+    }
+
+    #[test]
+    fn set_at_path_on_null_root() {
+        // Regression: doc set on an empty YAML file (parsed as null)
+        // should convert null to an empty object, not error.
+        let mut root = serde_json::Value::Null;
+        set_at_path(&mut root, &segs("name"), json!("my-app")).unwrap();
+        assert_eq!(root, json!({"name": "my-app"}));
+    }
+
+    #[test]
+    fn navigate_mut_create_from_null() {
+        // Regression: navigate_mut with create=true should handle
+        // null nodes by converting them to objects.
+        let mut root = serde_json::Value::Null;
+        let val = navigate_mut(&mut root, &segs("a.b"), true).unwrap();
+        assert!(val.is_object());
+        assert!(root.is_object());
     }
 
     #[test]

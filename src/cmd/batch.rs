@@ -350,7 +350,12 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
             loop {
                 match chars.next() {
                     Some('\\') => match chars.next() {
-                        Some(escaped) => current.push(escaped),
+                        Some('"') => current.push('"'),
+                        Some('\\') => current.push('\\'),
+                        Some(other) => {
+                            current.push('\\');
+                            current.push(other);
+                        }
                         None => anyhow::bail!("unexpected end of line after backslash"),
                     },
                     Some('"') => break,
