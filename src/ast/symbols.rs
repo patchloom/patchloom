@@ -365,21 +365,7 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
     let fn_node = find_fn(root, source, old_name)?;
 
     // Signature is from start of node to start of body (or end if no body, e.g. decl)
-    let sig_end = if let Some(_body) = child_text_by_kind(fn_node, "body", source) {
-        // body starts after sig; find byte offset of body in source? Use node children.
-        // Simpler: find the '{' or ';' position after params/return.
-        let mut end_byte = fn_node.end_byte();
-        let mut c2 = fn_node.walk();
-        for ch in fn_node.children(&mut c2) {
-            if ch.kind() == "body" || ch.kind() == ";" {
-                end_byte = ch.start_byte();
-                break;
-            }
-        }
-        end_byte
-    } else {
-        fn_node.end_byte()
-    };
+    let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
 
     let start = fn_node.start_byte();
     let before = &source[..start];
@@ -442,19 +428,7 @@ pub fn rewrite_function_signature(
     let new_sig = format!("{}fn {}{}{}", vis_part, old_name, params, ret_part);
 
     // Use the same byte-range logic as replace to swap only the sig.
-    let sig_end = if let Some(_body) = child_text_by_kind(fn_node, "body", source) {
-        let mut end_byte = fn_node.end_byte();
-        let mut c2 = fn_node.walk();
-        for ch in fn_node.children(&mut c2) {
-            if ch.kind() == "body" || ch.kind() == ";" {
-                end_byte = ch.start_byte();
-                break;
-            }
-        }
-        end_byte
-    } else {
-        fn_node.end_byte()
-    };
+    let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
 
     let start = fn_node.start_byte();
     let before = &source[..start];
@@ -606,14 +580,24 @@ fn extract_python(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKi
     match node.kind() {
         "function_definition" => {
             let name = child_text_by_kind(node, "identifier", source)?;
-            let kind = if node
-                .parent()
-                .and_then(|p| p.parent())
-                .is_some_and(|gp| gp.kind() == "class_definition")
-            {
-                SymbolKind::Method
-            } else {
-                SymbolKind::Function
+            // Walk up ancestors to detect if this is a method inside a class.
+            // Non-decorated: function_definition -> block -> class_definition
+            // Decorated: function_definition -> decorated_definition -> block -> class_definition
+            let kind = {
+                let mut ancestor = node.parent();
+                let mut is_method = false;
+                while let Some(a) = ancestor {
+                    if a.kind() == "class_definition" {
+                        is_method = true;
+                        break;
+                    }
+                    ancestor = a.parent();
+                }
+                if is_method {
+                    SymbolKind::Method
+                } else {
+                    SymbolKind::Function
+                }
             };
             Some((kind, name.to_string()))
         }
@@ -1055,6 +1039,22 @@ def standalone():
     }
 
     #[test]
+    fn extract_python_decorated_method() {
+        // Regression: decorated methods have an extra `decorated_definition`
+        // wrapper, so the grandparent check for `class_definition` failed.
+        let source = "class Foo:\n    @staticmethod\n    def bar():\n        pass\n";
+        let symbols = extract_symbols(source, Language::Python);
+        let class = symbols.iter().find(|s| s.name == "Foo").unwrap();
+        assert_eq!(class.children.len(), 1);
+        assert_eq!(class.children[0].name, "bar");
+        assert_eq!(
+            class.children[0].kind,
+            SymbolKind::Method,
+            "decorated method should be classified as Method, not Function"
+        );
+    }
+
+    #[test]
     fn extract_go_symbols() {
         let source = r#"
 package main
@@ -1132,6 +1132,12 @@ impl Server {
         assert!(out.contains("pub fn new(b: u32) -> u32"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old"));
+        // Regression: body must be preserved (was deleted when using "body"
+        // node kind instead of "block").
+        assert!(
+            out.contains("{ a }"),
+            "function body should be preserved: {out}"
+        );
     }
 
     #[test]

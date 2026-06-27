@@ -414,7 +414,7 @@ fn apply_exclude_globs(paths: &mut Vec<PathBuf>, patterns: &[String]) -> anyhow:
         exb.add(globset::Glob::new(pat)?);
     }
     let ex = exb.build()?;
-    paths.retain(|p| !ex.is_match(p));
+    paths.retain(|p| !glob_matches_path(p, &ex));
     Ok(())
 }
 
@@ -857,6 +857,24 @@ mod tests {
                 .any(|r| r.starts_with("target") || r.ends_with(".md") || r.ends_with(".rs")),
             "advanced ignores not applied: {:?}",
             rels
+        );
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn exclude_glob_matches_files_in_subdirs() {
+        // Regression: exclude globs like "*.rs" must match files in
+        // subdirectories via filename fallback, same as include globs.
+        let mut paths = vec![
+            PathBuf::from("src/main.rs"),
+            PathBuf::from("src/lib.rs"),
+            PathBuf::from("README.md"),
+        ];
+        apply_exclude_globs(&mut paths, &["*.rs".into()]).unwrap();
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("README.md")],
+            "*.rs should exclude files in subdirs"
         );
     }
 }
