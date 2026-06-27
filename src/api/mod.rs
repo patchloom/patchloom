@@ -336,6 +336,124 @@ fn build_edit_result(
 }
 
 // ---------------------------------------------------------------------------
+// TX engine adapter (requires tx module: cli or files feature)
+// ---------------------------------------------------------------------------
+
+/// Execute a single `Operation` through the tx engine and return an `EditResult`.
+///
+/// This is the bridge between the library API (which uses `ApplyMode` and returns
+/// `EditResult`) and the tx engine (which uses `GlobalFlags` and returns
+/// `ExecutionResult`). All API write functions can delegate to this adapter
+/// instead of reimplementing read-transform-write-backup independently.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[allow(dead_code)] // Used by upcoming migration PRs (#1007)
+pub(crate) fn execute_as_edit_result(
+    op: crate::plan::Operation,
+    mode: ApplyMode,
+    cwd: &Path,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+) -> anyhow::Result<EditResult> {
+    let global = mode_to_global_flags(mode);
+    let options = crate::tx::engine::ExecuteOptions {
+        cwd,
+        global: &global,
+        guard,
+    };
+    let result = crate::tx::engine::execute_single(op, options)?;
+    execution_result_to_edit_result(result, mode, cwd, action, None)
+}
+
+/// Like `execute_as_edit_result` but for cross-file operations (rename, move)
+/// where the destination path differs from the source.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[allow(dead_code)] // Used by upcoming migration PRs (#1007)
+pub(crate) fn execute_cross_file_as_edit_result(
+    op: crate::plan::Operation,
+    mode: ApplyMode,
+    cwd: &Path,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+    dest_path: Option<String>,
+) -> anyhow::Result<EditResult> {
+    let global = mode_to_global_flags(mode);
+    let options = crate::tx::engine::ExecuteOptions {
+        cwd,
+        global: &global,
+        guard,
+    };
+    let result = crate::tx::engine::execute_single(op, options)?;
+    execution_result_to_edit_result(result, mode, cwd, action, dest_path)
+}
+
+/// Map `ApplyMode` to `GlobalFlags` with the appropriate apply/check settings.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[allow(dead_code)]
+fn mode_to_global_flags(mode: ApplyMode) -> crate::cli::global::GlobalFlags {
+    let mut flags = crate::cli::global::GlobalFlags::default();
+    match mode {
+        ApplyMode::Apply => flags.apply = true,
+        ApplyMode::Check => flags.check = true,
+        ApplyMode::Preview => {} // default: no apply, no check
+    }
+    flags
+}
+
+/// Convert an `ExecutionResult` into an `EditResult`.
+///
+/// Handles commit for Apply mode, extracts per-file data from the engine result.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[allow(dead_code)]
+fn execution_result_to_edit_result(
+    result: crate::tx::engine::ExecutionResult,
+    mode: ApplyMode,
+    cwd: &Path,
+    action: &'static str,
+    dest_path: Option<String>,
+) -> anyhow::Result<EditResult> {
+    let has_changes = result.has_changes;
+
+    // Extract path + content from the engine result before potentially consuming it.
+    let (path_str, original, new_content) =
+        if let Some((abs_path, orig, new)) = result.exec_result.changes.first() {
+            let rel = crate::files::relative_display(abs_path, cwd);
+            (rel.to_string_lossy().to_string(), orig.clone(), new.clone())
+        } else if let Some(abs_path) = result.exec_result.deletions.iter().next() {
+            // File deletion: content is in the pending map.
+            let rel = crate::files::relative_display(abs_path, cwd);
+            let original = result
+                .exec_result
+                .pending
+                .get(abs_path)
+                .map(|(orig, _)| orig.clone())
+                .unwrap_or_default();
+            (rel.to_string_lossy().to_string(), original, String::new())
+        } else {
+            // No changes at all (e.g., replace with no matches + if_exists).
+            // Return an unchanged result. We need the path from the operation,
+            // but we don't have it here. Use empty path as fallback.
+            (String::new(), String::new(), String::new())
+        };
+
+    // Commit for Apply mode.
+    let applied = if mode == ApplyMode::Apply && has_changes {
+        result.commit()?;
+        true
+    } else {
+        false
+    };
+
+    Ok(build_edit_result(
+        &path_str,
+        original,
+        new_content,
+        applied,
+        action,
+        dest_path,
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

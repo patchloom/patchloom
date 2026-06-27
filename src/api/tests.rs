@@ -1861,3 +1861,164 @@ fn make_write_policy_maps_crlf() {
         "should map EolMode::Crlf correctly"
     );
 }
+
+// ---------------------------------------------------------------------------
+// TX engine adapter (execute_as_edit_result)
+// ---------------------------------------------------------------------------
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_preview_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    let op = crate::plan::Operation::DocSet {
+        path: file.to_string_lossy().into(),
+        selector: "key".into(),
+        value: serde_json::json!("new"),
+    };
+
+    let result =
+        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "doc.set").unwrap();
+
+    assert!(result.changed, "content should differ");
+    assert!(!result.applied, "preview should not write");
+    assert!(result.new_content.contains("new"));
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("old"), "file should be unchanged on disk");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_apply_writes_to_disk() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    let op = crate::plan::Operation::DocSet {
+        path: file.to_string_lossy().into(),
+        selector: "key".into(),
+        value: serde_json::json!("new"),
+    };
+
+    let result =
+        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), None, "doc.set").unwrap();
+
+    assert!(result.changed);
+    assert!(result.applied);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("new"), "file should be updated on disk");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_check_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    let op = crate::plan::Operation::DocSet {
+        path: file.to_string_lossy().into(),
+        selector: "key".into(),
+        value: serde_json::json!("new"),
+    };
+
+    let result =
+        super::execute_as_edit_result(op, ApplyMode::Check, dir.path(), None, "doc.set").unwrap();
+
+    assert!(result.changed);
+    assert!(!result.applied, "check should not write");
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("old"), "file should be unchanged on disk");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_respects_guard() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    // Use AllowIfContained policy so absolute temp paths work with the guard.
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+
+    let op = crate::plan::Operation::DocSet {
+        path: file.to_string_lossy().into(),
+        selector: "key".into(),
+        value: serde_json::json!("new"),
+    };
+
+    let result =
+        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), Some(&guard), "doc.set")
+            .unwrap();
+
+    assert!(result.applied);
+    assert!(result.changed);
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_guard_rejects_outside_path() {
+    let dir = TempDir::new().unwrap();
+    let other = TempDir::new().unwrap();
+    let file = other.path().join("test.json");
+    fs::write(&file, r#"{"key": "old"}"#).unwrap();
+
+    let guard = PathGuard::builder(dir.path().to_path_buf())
+        .build()
+        .unwrap();
+
+    let op = crate::plan::Operation::DocSet {
+        path: file.to_string_lossy().into(),
+        selector: "key".into(),
+        value: serde_json::json!("new"),
+    };
+
+    let err =
+        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), Some(&guard), "doc.set");
+
+    assert!(err.is_err(), "guard should reject path outside workspace");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn adapter_unchanged_returns_no_diff() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    // Use a replace operation with a pattern that doesn't match
+    // to test the no-change path cleanly.
+    fs::write(&file, "hello world\n").unwrap();
+
+    let op = crate::plan::Operation::Replace {
+        path: Some(file.to_string_lossy().into()),
+        glob: None,
+        mode: None,
+        from: "nonexistent_pattern".into(),
+        to: Some("replacement".into()),
+        nth: None,
+        case_insensitive: false,
+        insert_before: None,
+        insert_after: None,
+        whole_line: false,
+        multiline: false,
+        range: None,
+        if_exists: true,
+        word_boundary: false,
+        before_context: None,
+        after_context: None,
+    };
+
+    let result =
+        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "replace").unwrap();
+
+    assert!(
+        !result.changed,
+        "should not be changed when pattern doesn't match"
+    );
+    assert!(!result.applied);
+}

@@ -278,7 +278,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // to avoid execute_via_engine's JSON emission (which would conflict
             // with the removed-headings output already emitted above).
             let op = Operation::MdDedupeHeadings { path: file.clone() };
-            let options = crate::tx::engine::ExecuteOptions { cwd: &cwd, global };
+            let options = crate::tx::engine::ExecuteOptions {
+                cwd: &cwd,
+                global,
+                guard: None,
+            };
             let result = crate::tx::engine::execute_single(op, options)?;
 
             if global.check {
