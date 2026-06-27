@@ -7,7 +7,44 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use anyhow::Context;
 use clap::{Args, Subcommand};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Shared helpers for AST subcommands
+// ---------------------------------------------------------------------------
+
+/// Resolve `--lang` hint to a `Language`, falling back to extension detection.
+fn resolve_lang(lang_arg: Option<&str>, path: &Path) -> Language {
+    lang_arg
+        .map(lang_from_str)
+        .unwrap_or_else(|| Language::from_path(path))
+}
+
+/// Common preamble for single-file AST commands: resolve cwd, join path, detect
+/// language, read source. Returns `(cwd, target, lang, source)`.
+fn setup_single_file(
+    path_arg: &str,
+    lang_arg: Option<&str>,
+    global: &GlobalFlags,
+) -> anyhow::Result<(PathBuf, PathBuf, Language, String)> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(path_arg);
+    let lang = resolve_lang(lang_arg, &target);
+    let source = std::fs::read_to_string(&target).with_context(|| format!("reading {path_arg}"))?;
+    Ok((cwd, target, lang, source))
+}
+
+/// Common preamble for multi-file AST commands: resolve cwd, join path, resolve
+/// target paths. Returns `(cwd, paths)`.
+fn setup_multi_file(
+    path_arg: &str,
+    global: &GlobalFlags,
+) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
+    let cwd = global.resolve_cwd()?;
+    let target = cwd.join(path_arg);
+    let paths = resolve_target_paths(&target, path_arg, global)?;
+    Ok((cwd, paths))
+}
 
 #[derive(Debug, Subcommand)]
 pub enum AstCommand {
@@ -88,7 +125,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let target = cwd.join(&args.path);
 
     let kind_filter = parse_kind_filter(&args.kind);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast list: target={}, kind_filter={:?}",
         args.path,
@@ -98,7 +135,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let mut any_output = false;
 
     if target.is_file() {
-        let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+        let lang = resolve_lang(lang_hint, &target);
         crate::verbose!("ast list: detected language={lang} for {}", args.path);
         if !lang.has_grammar() {
             eprintln!(
@@ -132,7 +169,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         let results: Vec<ListFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-            let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+            let lang = resolve_lang(lang_hint, path);
             let symbols = symbols::extract_symbols_from_file(path, Some(lang));
             if symbols.is_empty() {
                 return None;
@@ -188,18 +225,13 @@ pub struct ReadArgs {
 }
 
 fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
-    let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+    let (_cwd, _target, lang, source) =
+        setup_single_file(&args.path, args.lang.as_deref(), global)?;
     crate::verbose!(
         "ast read: file={}, symbol={}, lang={lang}",
         args.path,
         args.symbol
     );
-    let source =
-        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?;
     let all_symbols = symbols::extract_symbols(&source, lang);
     let sym = symbols::find_symbol(&all_symbols, &args.symbol)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in {}", args.symbol, args.path))?;
@@ -335,9 +367,8 @@ pub fn resolve_target_paths(
 }
 
 fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast rename: '{}' -> '{}' in {}",
         args.old_name,
@@ -347,8 +378,6 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let mut total_replacements = 0usize;
     let mut files_changed = 0usize;
-
-    let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
     // Single backup session for all files (batched, not per-file).
@@ -359,7 +388,7 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     for path in &paths {
-        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+        let lang = resolve_lang(lang_hint, path);
         let source =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let result = if lang.has_grammar() {
@@ -448,14 +477,11 @@ pub struct ValidateArgs {
 }
 
 fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    let lang_hint = args.lang.as_deref();
     crate::verbose!("ast validate: target={}", args.path);
 
     let mut all_valid = true;
-
-    let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast validate: checking {} files", paths.len());
 
     struct ValidateFileResult {
@@ -464,7 +490,7 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
     }
 
     let results: Vec<ValidateFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+        let lang = resolve_lang(lang_hint, path);
         if !lang.has_grammar() {
             return None;
         }
@@ -526,9 +552,8 @@ pub struct SearchArgs {
 }
 
 fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast search: query={}, pattern={}, target={}",
         args.query,
@@ -537,8 +562,6 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     );
 
     let mut total_matches = 0usize;
-
-    let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast search: scanning {} files", paths.len());
 
     struct SearchFileResult {
@@ -547,7 +570,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let file_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-        let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
+        let lang = resolve_lang(lang_hint, path);
         let query_str = if args.pattern {
             crate::ast::search::compile_pattern_query(&args.query, lang).ok()?
         } else {
@@ -618,18 +641,16 @@ pub struct RefsArgs {
 }
 
 fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    let lang_hint = args.lang.as_deref();
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
-
-    let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
     let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
         crate::par_process_files(&paths, None, &[], |path| {
             let display = display_path(path, &cwd);
-            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+            let lang = lang_hint.map(lang_from_str);
+            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang, &display);
             if refs.is_empty() { None } else { Some(refs) }
         });
 
@@ -879,19 +900,13 @@ pub struct ReplaceArgs {
 }
 
 fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let (cwd, target, lang, source) = setup_single_file(&args.path, args.lang.as_deref(), global)?;
     crate::verbose!(
         "ast replace: symbol={}, from={}, regex={}",
         args.symbol,
         args.from,
         args.regex
     );
-
-    let source =
-        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?;
-    let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
     crate::verbose!("ast replace: lang={lang}, file={}", args.path);
 
     let result = crate::ast::replace::replace_in_symbol(
@@ -984,11 +999,8 @@ pub struct ImpactArgs {
 }
 
 fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(&args.path);
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
-
-    let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast impact: scanning {} files", paths.len());
 
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
@@ -1051,8 +1063,7 @@ pub struct DiffArgs {
 fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
-    let lang = lang_hint.unwrap_or_else(|| Language::from_path(&target));
+    let lang = resolve_lang(args.lang.as_deref(), &target);
     crate::verbose!(
         "ast diff: file={}, from={}, lang={lang}",
         args.path,
