@@ -29,6 +29,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.7.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.6.0...patchloom-v0.7.0) (2026-06-27)
+
+
+### Features
+
+* add Windows ARM64 and Linux musl release targets ([#947](https://github.com/patchloom/patchloom/issues/947)) ([8a16a5f](https://github.com/patchloom/patchloom/commit/8a16a5f7d5c3ff4892fc81176e8714060a1f53a4))
+* **ast:** add ast.insert, ast.wrap, ast.imports operations ([#1015](https://github.com/patchloom/patchloom/issues/1015), [#1017](https://github.com/patchloom/patchloom/issues/1017), [#1020](https://github.com/patchloom/patchloom/issues/1020)) ([#1039](https://github.com/patchloom/patchloom/issues/1039)) ([679b985](https://github.com/patchloom/patchloom/commit/679b98519aff16650bc85eaae571dee6b4192473)), closes [#1037](https://github.com/patchloom/patchloom/issues/1037)
+* **ast:** Phase C operations and for_each glob batch ([#1040](https://github.com/patchloom/patchloom/issues/1040)) ([d0e0141](https://github.com/patchloom/patchloom/commit/d0e014123779ff47a320e34e04477af54b01fcfa))
+* library API parity (FilePrepend, replace_in_content, SearchOptions) ([#1047](https://github.com/patchloom/patchloom/issues/1047)) ([973ae60](https://github.com/patchloom/patchloom/commit/973ae60850a0809893f8e6e2a70e158224f8d32e))
+* post-write formatter hook with per-extension config ([#1035](https://github.com/patchloom/patchloom/issues/1035)) ([7fdc38b](https://github.com/patchloom/patchloom/commit/7fdc38bef1dbeb0238b135ede6e7bc1e63c2dd6b))
+* pre/post-operation symbol verification for tx plans ([#1036](https://github.com/patchloom/patchloom/issues/1036)) ([edae25a](https://github.com/patchloom/patchloom/commit/edae25a0606d617586371f332bc0efaf76cd793e)), closes [#1019](https://github.com/patchloom/patchloom/issues/1019)
+* **tidy:** add --dedent and --indent flags to tidy fix ([#1034](https://github.com/patchloom/patchloom/issues/1034)) ([2e3c9ae](https://github.com/patchloom/patchloom/commit/2e3c9ae7fca243c1aac5b11597054f8ecba1d8b4)), closes [#1021](https://github.com/patchloom/patchloom/issues/1021)
+
+
+### Bug Fixes
+
+* 3 bugs found by code audit round 5 with regression tests ([#1070](https://github.com/patchloom/patchloom/issues/1070)) ([b2886f4](https://github.com/patchloom/patchloom/commit/b2886f48f627e007a12b4c85a9ac9ed4f06f37a4))
+* 4 bugs found by code audit round 3 with regression tests ([#1068](https://github.com/patchloom/patchloom/issues/1068)) ([fe584cd](https://github.com/patchloom/patchloom/commit/fe584cd3ca2ab8cb25ab2ce3491d4f569e3eaa82))
+* 5 bugs found by code audit round 2 with regression tests ([#1067](https://github.com/patchloom/patchloom/issues/1067)) ([30390ad](https://github.com/patchloom/patchloom/commit/30390ad5171f2a8e186bffdba98660ddcf44ecc4))
+* 5 bugs found by code audit round 4 with regression tests ([#1069](https://github.com/patchloom/patchloom/issues/1069)) ([86f08cc](https://github.com/patchloom/patchloom/commit/86f08cc4c39daed14d0d54d97beaac2a7e50153a))
+* 5 bugs found by code audit with regression tests ([#1066](https://github.com/patchloom/patchloom/issues/1066)) ([5132560](https://github.com/patchloom/patchloom/commit/513256083ada30935526b016df49473054036dc2)), closes [#1067](https://github.com/patchloom/patchloom/issues/1067) [#1068](https://github.com/patchloom/patchloom/issues/1068) [#1069](https://github.com/patchloom/patchloom/issues/1069) [#1070](https://github.com/patchloom/patchloom/issues/1070)
+* 9 bugs found by code review with regression tests ([#1064](https://github.com/patchloom/patchloom/issues/1064)) ([b78329b](https://github.com/patchloom/patchloom/commit/b78329b6435ef844f8fdb7fa9200fe2d07d77bb5))
+* C++ qualified name handling in AST operations and refactor traversal ([#1055](https://github.com/patchloom/patchloom/issues/1055)) ([bddf621](https://github.com/patchloom/patchloom/commit/bddf62151ce9eecbc13d5e71d692315fd9d3055d))
+* C++ qualified name lookup and empty append spurious newline ([#1054](https://github.com/patchloom/patchloom/issues/1054)) ([dd45ec8](https://github.com/patchloom/patchloom/commit/dd45ec8736bf28da70a67a2f3ddd324d50b3d032)), closes [#1052](https://github.com/patchloom/patchloom/issues/1052) [#1053](https://github.com/patchloom/patchloom/issues/1053)
+* dead code and weak test assertions ([#1058](https://github.com/patchloom/patchloom/issues/1058)) ([d1e19c5](https://github.com/patchloom/patchloom/commit/d1e19c594217cd69fe75f2b0fcbc51c9987227db))
+* ensure_final_newline respects EOL mode ([#994](https://github.com/patchloom/patchloom/issues/994)) ([#995](https://github.com/patchloom/patchloom/issues/995)) ([5a9cdbc](https://github.com/patchloom/patchloom/commit/5a9cdbcc767b38a691f16acf89652a63e7d3eb75))
+* handle CR and CRLF line endings in replace_whole_lines ([#1000](https://github.com/patchloom/patchloom/issues/1000)) ([098c1bf](https://github.com/patchloom/patchloom/commit/098c1bfd9bd39c7ed9e13c72317ccb2b93287e27)), closes [#999](https://github.com/patchloom/patchloom/issues/999)
+* handle CR-only line endings in collapse_blanks and trim_trailing_whitespace ([#998](https://github.com/patchloom/patchloom/issues/998)) ([2c43864](https://github.com/patchloom/patchloom/commit/2c43864b35398b736cf188f9141a776d35cc0dd7)), closes [#996](https://github.com/patchloom/patchloom/issues/996)
+* multi-perspective improvement - tests, docs, and error context ([#956](https://github.com/patchloom/patchloom/issues/956)) ([a77afde](https://github.com/patchloom/patchloom/commit/a77afdeb10c012905ea81fe56054809d73ab94f3))
+* Phase C AST ops improvements from multi-perspective review ([#1046](https://github.com/patchloom/patchloom/issues/1046)) ([465ef09](https://github.com/patchloom/patchloom/commit/465ef092be939e980e6a5fa75147596e6bb5052a))
+* remove dead code and misleading #[allow(dead_code)] in tx engine ([#1060](https://github.com/patchloom/patchloom/issues/1060)) ([c675782](https://github.com/patchloom/patchloom/commit/c675782e4a174d0fc7ae4cf8869bd40ecdb6f738)), closes [#1059](https://github.com/patchloom/patchloom/issues/1059)
+* resolve 5 issues (is_file guard, multiline search, prepend newline, split duplicate, find_function_span) ([#1051](https://github.com/patchloom/patchloom/issues/1051)) ([732765b](https://github.com/patchloom/patchloom/commit/732765b76f50befa2bad829bf195dc8152fda9ba))
+* resolve tech-debt issues [#985](https://github.com/patchloom/patchloom/issues/985)-[#989](https://github.com/patchloom/patchloom/issues/989) ([#990](https://github.com/patchloom/patchloom/issues/990)) ([60630ed](https://github.com/patchloom/patchloom/commit/60630ed7d4ad85a91dffc57d0b0de14d0c115bc1)), closes [#986](https://github.com/patchloom/patchloom/issues/986) [#987](https://github.com/patchloom/patchloom/issues/987) [#988](https://github.com/patchloom/patchloom/issues/988)
+* setext heading body offset and CRLF bare CR normalization ([#993](https://github.com/patchloom/patchloom/issues/993)) ([478804d](https://github.com/patchloom/patchloom/commit/478804d7387ee3bbf4305802b2c26c521b3900dc)), closes [#991](https://github.com/patchloom/patchloom/issues/991) [#992](https://github.com/patchloom/patchloom/issues/992)
+* validate_edit nth, atomic_write symlink perms, rollback create-then-delete ([#1065](https://github.com/patchloom/patchloom/issues/1065)) ([e854b7c](https://github.com/patchloom/patchloom/commit/e854b7c5109eb8e5c80d838928e5e941e5d7315f))
+
+
+### Performance Improvements
+
+* build reverse dep map upfront in ast_impact; fix CONTRIBUTING.md ([#949](https://github.com/patchloom/patchloom/issues/949)) ([9ffd1bb](https://github.com/patchloom/patchloom/commit/9ffd1bb97a282ce423371a94ff792aa2d9a9b55d))
+
 ## [0.6.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.5.0...patchloom-v0.6.0) (2026-06-25)
 
 
