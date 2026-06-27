@@ -2,6 +2,9 @@
 /// Used by api::file_* , plan execution (tx), and cmd/append for consistency.
 /// Centralizes the "ensure nl between existing and new" logic.
 pub fn append_content(existing: &str, append: &str) -> String {
+    if append.is_empty() {
+        return existing.to_string();
+    }
     let mut combined = existing.to_string();
     if !combined.is_empty() && !combined.ends_with('\n') {
         combined.push('\n');
@@ -56,6 +59,16 @@ mod tests {
     #[test]
     fn prepend_empty_prepend() {
         assert_eq!(prepend_content("existing", ""), "existing");
+    }
+
+    #[test]
+    fn append_empty_append() {
+        assert_eq!(append_content("existing", ""), "existing");
+    }
+
+    #[test]
+    fn append_empty_both() {
+        assert_eq!(append_content("", ""), "");
     }
 
     #[test]
