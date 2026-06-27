@@ -121,6 +121,14 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `ast_diff` | Structural diff between two versions of a file. Shows added, removed, and modified symbols. |
 | `ast_impact` | Transitive impact analysis: trace the reference graph to find all dependents of a symbol. |
 | `ast_replace` | Replace text only within a specific symbol's body using AST scoping. |
+| `ast_insert` | Insert code before/after a symbol or inside a container (module, class, impl block). |
+| `ast_wrap` | Wrap a symbol in a container (module, class, namespace, impl block, or custom wrapper). |
+| `ast_imports` | List, add, remove, or deduplicate import statements in source files. |
+| `ast_reorder` | Reorder symbols by strategy: alphabetical, reverse, kind-first, or custom order. |
+| `ast_group` | Move symbols into a new or existing module block within the same file. |
+| `ast_move` | Move symbols between files with configurable insertion position. |
+| `ast_extract` | Extract a symbol to a new file, optionally unwrapping module blocks. |
+| `ast_split` | Split a file by distributing symbols across multiple target files. |
 
 ## How MCP mode differs from CLI mode
 

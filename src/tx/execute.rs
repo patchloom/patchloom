@@ -870,8 +870,8 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let pos = match position.as_deref() {
                 Some("end") => crate::ast::group::GroupPosition::End,
-                Some(s) if s.starts_with("after:") => {
-                    crate::ast::group::GroupPosition::After(s[6..].to_string())
+                Some(s) if let Some(name) = s.strip_prefix("after:") => {
+                    crate::ast::group::GroupPosition::After(name.to_string())
                 }
                 _ => crate::ast::group::GroupPosition::FirstSymbol,
             };

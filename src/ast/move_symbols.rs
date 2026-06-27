@@ -24,9 +24,16 @@ pub struct MoveResult {
 pub fn parse_position(s: Option<&str>) -> MovePosition {
     match s {
         Some("start") => MovePosition::Start,
-        Some(s) if s.starts_with("after:") => MovePosition::After(s[6..].to_string()),
-        Some(s) if s.starts_with("before:") => MovePosition::Before(s[7..].to_string()),
-        _ => MovePosition::End,
+        Some(s) => {
+            if let Some(name) = s.strip_prefix("after:") {
+                MovePosition::After(name.to_string())
+            } else if let Some(name) = s.strip_prefix("before:") {
+                MovePosition::Before(name.to_string())
+            } else {
+                MovePosition::End
+            }
+        }
+        None => MovePosition::End,
     }
 }
 
@@ -311,5 +318,39 @@ mod tests {
         let last_pos = result.target_content.find("fn last").unwrap();
         assert!(first_pos < moved_pos);
         assert!(moved_pos < last_pos);
+    }
+
+    #[test]
+    fn move_position_before() {
+        let source = "fn moved() {}\n";
+        let target = "fn first() {}\n\nfn last() {}\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["moved".into()],
+            MovePosition::Before("last".into()),
+            Language::Rust,
+        )
+        .unwrap();
+        let first_pos = result.target_content.find("fn first").unwrap();
+        let moved_pos = result.target_content.find("fn moved").unwrap();
+        let last_pos = result.target_content.find("fn last").unwrap();
+        assert!(first_pos < moved_pos);
+        assert!(moved_pos < last_pos);
+    }
+
+    #[test]
+    fn parse_position_variants() {
+        assert!(matches!(parse_position(None), MovePosition::End));
+        assert!(matches!(parse_position(Some("end")), MovePosition::End));
+        assert!(matches!(parse_position(Some("start")), MovePosition::Start));
+        assert!(matches!(
+            parse_position(Some("after:foo")),
+            MovePosition::After(ref s) if s == "foo"
+        ));
+        assert!(matches!(
+            parse_position(Some("before:bar")),
+            MovePosition::Before(ref s) if s == "bar"
+        ));
     }
 }
