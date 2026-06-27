@@ -122,8 +122,10 @@ src/
                        md (heading parse, section replace, bullet upsert, table append),
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
-  plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep;
-                       25 operation types including all doc/md/replace/tidy/file/patch/read/search ops
+  plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep, VerifyCheck;
+                       25 operation types including all doc/md/replace/tidy/file/patch/read/search ops.
+                       VerifyCheck defines pre/post symbol verification specs (must live here, not in
+                       feature-gated modules, because Plan is always compiled)
 tests/
   integration.rs       Rust integration tests (cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom
@@ -264,6 +266,20 @@ All three go through the tx engine and get backup, rollback, format/validate lif
 9. Run `make sync-patchloom-md && make update-readme && make check`.
 
 **PR body requirement (see #819):** When opening the PR for this work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Library follow-ups and polish PRs are the most common place this is missed. Edit via `gh pr edit` if needed before merge.
+
+## Adding a new Plan field
+
+When adding a field to the `Plan` struct in `src/plan.rs`:
+
+1. **Types must live in `plan.rs` (unconditional).** The `Plan` struct is always compiled (no feature gate). Any type referenced by a `Plan` field must also be unconditional. Do NOT define the type in a feature-gated module (e.g. `tx/verify.rs` behind `cli`/`files`) and import it into `plan.rs`. This breaks `--no-default-features`. Define the type in `plan.rs` and have the gated module import from `crate::plan` instead. This follows the existing pattern for `FormatStep`, `ValidationStep`, and `Operation`.
+
+2. **Add a reference doc marker.** The test `test_reference_doc_covers_meaningful_feature_inventory` collects all field names from `pub struct Plan` and requires a `<!-- ref:tx-field:fieldname -->` marker in `docs/reference/README.md`. Add a section with the marker, a `### \`fieldname\`` heading, and bullet points describing what it does, when to use it, and failure behavior.
+
+3. **Update all Plan construction sites.** Every place that constructs a `Plan` (tests, engine, batch, MCP, explain) needs the new field. Grep for `Plan {` and `Plan{` across all `.rs` files. Use `#[serde(skip_serializing_if = "Option::is_none")]` and `#[serde(default)]` for backward-compatible optional fields.
+
+4. Run `make sync-patchloom-md && make check`.
+
+**Note:** The same auto-inventory test pattern applies to `WriteFlags` (with `<!-- ref:write-flag:flagname -->` markers). When adding a new field to any struct that has reference doc auto-inventory coverage, grep `tests/integration.rs` for the struct name to find the corresponding inventory test and its expected marker format.
 
 ## Adding a new MCP tool
 
