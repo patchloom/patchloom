@@ -47,6 +47,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         *multiline,
         word_boundary,
     )?;
+    if range.is_some() && !*whole_line {
+        anyhow::bail!("range requires whole_line mode");
+    }
     let parsed_range = range
         .as_deref()
         .map(crate::ops::read::parse_line_range)
@@ -583,6 +586,58 @@ mod tests {
         assert!(
             result.contains("/// Process input."),
             "insert_before text must be present, got: {result}"
+        );
+    }
+
+    #[test]
+    fn replace_range_without_whole_line_is_rejected() {
+        // Regression: range was silently ignored when whole_line was false.
+        // Now the tx engine validates this, matching the CLI behavior.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("test.txt".into()),
+            glob: None,
+            mode: None,
+            from: "line".into(),
+            to: Some("LINE".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: Some("1:2".into()),
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        let err = execute_replace_op(&op, &mut tx).unwrap_err();
+        assert!(
+            err.to_string().contains("range requires whole_line"),
+            "should reject range without whole_line: {err}"
         );
     }
 }

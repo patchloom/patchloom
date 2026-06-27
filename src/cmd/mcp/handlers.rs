@@ -553,6 +553,11 @@ impl PatchloomService {
             // (it defaults to true). This provides a simple, predictable experience for agents.
             plan.strict = Some(p.strict);
 
+            // Strip plan.cwd to prevent containment bypass: a plan with
+            // cwd="/etc" would resolve relative paths against /etc instead
+            // of the workspace, escaping the PathGuard.
+            plan.cwd = None;
+
             execute_plan_validated(plan, svc.cwd(), Some(&svc.path_guard))
         })
         .await
