@@ -94,6 +94,8 @@ pub struct GlobalFlags {
     pub format: Option<String>,
     #[cfg_attr(feature = "cli", clap(skip))]
     pub format_timeout: Option<u64>,
+    #[cfg_attr(feature = "cli", clap(skip))]
+    pub no_format: bool,
 }
 
 /// Write-only flags exposed in subcommands that mutate files.
@@ -148,6 +150,10 @@ pub struct WriteFlags {
     /// Timeout in seconds for the --format command (default: 30).
     #[cfg_attr(feature = "cli", arg(long, global = true, default_value = "30"))]
     pub format_timeout: Option<u64>,
+
+    /// Disable post-write formatting even if configured in .patchloom.toml.
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
+    pub no_format: bool,
 }
 
 pub(crate) fn confirm_prompt(prompt: &str) -> bool {
@@ -200,6 +206,7 @@ impl GlobalFlags {
             collapse_blanks,
             ref format,
             format_timeout,
+            no_format,
         } = *w;
         self.diff = diff;
         self.apply = apply;
@@ -212,6 +219,7 @@ impl GlobalFlags {
         self.collapse_blanks = collapse_blanks;
         self.format = format.clone();
         self.format_timeout = format_timeout;
+        self.no_format = no_format;
     }
 
     /// Whether to proceed with the write after optional confirmation.
@@ -476,6 +484,7 @@ mod tests {
             collapse_blanks: true,
             format: Some("cargo fmt".into()),
             format_timeout: Some(60),
+            no_format: true,
         };
         let mut g = GlobalFlags::default();
         g.merge_write(&w);
@@ -490,6 +499,7 @@ mod tests {
         assert!(g.collapse_blanks);
         assert_eq!(g.format.as_deref(), Some("cargo fmt"));
         assert_eq!(g.format_timeout, Some(60));
+        assert!(g.no_format);
     }
 
     #[test]
