@@ -407,9 +407,24 @@ pub fn execute_plan_direct(
     };
 
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
-    // Upfront check on declared paths using shared helper; dynamic (globs
-    // patterns, patch embedded paths) are best-effort or handled by loaders.
     if let Some(g) = guard {
+        // Defense-in-depth: reject plans whose cwd would escape the guard's
+        // workspace root. The MCP handler strips plan.cwd, but library
+        // callers might not.
+        if plan.cwd.is_some() {
+            let canon_cwd = effective_cwd
+                .canonicalize()
+                .unwrap_or_else(|_| effective_cwd.clone());
+            if !canon_cwd.starts_with(g.canon_root()) {
+                anyhow::bail!(
+                    "plan cwd '{}' escapes workspace root '{}'",
+                    effective_cwd.display(),
+                    g.root().display()
+                );
+            }
+        }
+        // Upfront check on declared paths using shared helper; dynamic (globs
+        // patterns, patch embedded paths) are best-effort or handled by loaders.
         for op in &plan.operations {
             for p in op.declared_paths() {
                 g.check_path(p)
@@ -581,6 +596,43 @@ mod tests {
         assert_eq!(
             resolve_plan_cwd(base, Some("/other/dir")),
             PathBuf::from("/other/dir")
+        );
+    }
+
+    #[test]
+    fn execute_plan_direct_rejects_escaped_cwd_with_guard() {
+        // Regression: a plan with cwd pointing outside the workspace
+        // must be rejected when a PathGuard is present.
+        use crate::containment::{AbsolutePathPolicy, PathGuard};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "content").unwrap();
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+
+        let plan = crate::plan::Plan {
+            version: "1".into(),
+            cwd: Some("/tmp".into()),
+            operations: vec![crate::plan::Operation::Read {
+                path: "test.txt".into(),
+                lines: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+
+        let result = execute_plan_direct(plan, dir.path(), Some(&guard));
+        assert!(
+            result.is_err(),
+            "should reject plan.cwd that escapes workspace"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("escapes workspace root"),
+            "error should mention escape: {msg}"
         );
     }
 

@@ -37,8 +37,10 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         anyhow::bail!("search: literal and regex cannot be combined");
     }
 
-    // literal means treat pattern as literal text (escape it); !regex also escapes for backward compat in plans.
-    let pat = if *literal || !*regex {
+    // Treat pattern as literal text only when explicitly requested.
+    // Default (both literal=false, regex=false) is regex to match CLI
+    // and MCP behavior.
+    let pat = if *literal {
         regex::escape(pattern)
     } else {
         pattern.clone()
@@ -122,8 +124,9 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             // Multiline mode: search the full content so patterns can span lines.
             for m in re.find_iter(content) {
                 let line_idx = content[..m.start()].matches('\n').count();
+                let match_end_line = line_idx + m.as_str().matches('\n').count();
                 let start = line_idx.saturating_sub(ctx_before);
-                let end = (line_idx + 1 + ctx_after).min(lines.len());
+                let end = (match_end_line + 1 + ctx_after).min(lines.len());
                 let matched_text = m.as_str().to_string();
                 let text = if is_multi_file {
                     let display_path = file_path
@@ -143,8 +146,8 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                         .iter()
                         .map(|s| s.to_string())
                         .collect(),
-                    context_after: if line_idx + 1 < lines.len() {
-                        lines[line_idx + 1..end]
+                    context_after: if match_end_line + 1 < lines.len() {
+                        lines[match_end_line + 1..end]
                             .iter()
                             .map(|s| s.to_string())
                             .collect()
@@ -767,5 +770,91 @@ mod tests {
         // Should not panic even when match is near end of file
         execute_search_op(&op, &mut tx).unwrap();
         assert_eq!(searches[0].match_count, 1);
+    }
+
+    #[test]
+    fn search_default_mode_is_regex_not_literal() {
+        // Regression: when both literal=false and regex=false (defaults),
+        // the pattern should be treated as regex, matching CLI/MCP behavior.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "fooXbar\nfoo.bar\n").unwrap();
+
+        // Pattern "foo.bar" should match both lines (dot is regex wildcard)
+        let op = search_op("test.txt", "foo.bar");
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(
+            searches[0].match_count, 2,
+            "regex dot should match any char, yielding 2 matches"
+        );
+    }
+
+    #[test]
+    fn search_multiline_context_after_excludes_match_lines() {
+        // Regression: context_after should start after the last line of
+        // a multiline match, not after the first line.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "aaa\nbbb\nccc\nddd\neee\nfff\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "bbb\nccc\nddd".into(),
+            regex: true,
+            case_insensitive: false,
+            multiline: true,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: Some(1),
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+        execute_search_op(&op, &mut tx).unwrap();
+        assert_eq!(searches[0].match_count, 1);
+        let ctx_after = &searches[0].matches[0].context_after;
+        assert_eq!(
+            ctx_after,
+            &["eee"],
+            "context_after should be the line after the match, not a match line"
+        );
     }
 }
