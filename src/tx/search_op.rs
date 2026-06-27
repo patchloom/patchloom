@@ -182,27 +182,30 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         }
     }
 
-    // Cap after collection. Append order matches walk order.
-    if *max_results > 0 {
-        all_matches.truncate(*max_results);
-    }
+    // Validate assert_count against the true total before truncation.
+    let total_match_count = all_matches.len();
 
     if let Some(expected) = assert_count
-        && all_matches.len() != *expected
+        && total_match_count != *expected
     {
         anyhow::bail!(
             "search assert_count: expected {} matches for '{}' in {}, found {}",
             expected,
             pattern,
             path,
-            all_matches.len()
+            total_match_count
         );
+    }
+
+    // Cap after assertion check. Append order matches walk order.
+    if *max_results > 0 {
+        all_matches.truncate(*max_results);
     }
 
     tx.tx_searches.push(TxSearchResult {
         path: path.clone(),
         pattern: pattern.clone(),
-        match_count: all_matches.len(),
+        match_count: total_match_count,
         matches: all_matches,
     });
     Ok(())
@@ -656,7 +659,60 @@ mod tests {
         );
 
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 2);
+        // match_count reports the true total (5 matches), not the truncated count
+        assert_eq!(searches[0].match_count, 5);
+        // matches vec is truncated to max_results
         assert_eq!(searches[0].matches.len(), 2);
+    }
+
+    #[test]
+    fn search_assert_count_checks_before_max_results_truncation() {
+        // File has 3 matches. assert_count=3 should pass even with max_results=1.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "foo\nfoo\nfoo\n").unwrap();
+
+        let op = Operation::Search {
+            path: "test.txt".into(),
+            pattern: "foo".into(),
+            regex: false,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: Some(3),
+            literal: false,
+            globs: Vec::new(),
+            max_results: 1,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = make_tx_state(
+            &mut pending,
+            &mut deletions,
+            &mut existed,
+            &mut doc_cache,
+            &mut reads,
+            &mut searches,
+            &mut lints,
+            dir.path(),
+        );
+
+        execute_search_op(&op, &mut tx).unwrap();
+        // match_count reports the true total, not the truncated count
+        assert_eq!(searches[0].match_count, 3);
+        // matches is truncated to max_results
+        assert_eq!(searches[0].matches.len(), 1);
     }
 }

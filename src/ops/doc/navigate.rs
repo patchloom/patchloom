@@ -181,6 +181,9 @@ pub fn move_at_path(
     };
 
     // Insert at destination path.
+    if to_segments.is_empty() {
+        anyhow::bail!("empty to selector");
+    }
     let (parent_path, last) = split_last(to_segments);
     let parent = navigate_mut(root, parent_path, true)?;
     match last {
@@ -401,6 +404,20 @@ mod tests {
         move_at_path(&mut root, &segs("src"), &segs("dst.moved")).unwrap();
         assert!(root.get("src").is_none());
         assert_eq!(root["dst"]["moved"], json!(42));
+    }
+
+    #[test]
+    fn move_at_path_empty_to_selector_fails() {
+        let mut root = json!({"src": 42});
+        let result = move_at_path(&mut root, &segs("src"), &[]);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("empty to selector"),
+            "should report empty to selector"
+        );
     }
 
     #[test]
