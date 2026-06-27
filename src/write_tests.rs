@@ -776,6 +776,138 @@ mod error_handling {
     }
 }
 
+#[cfg(feature = "cli")]
+mod shell_escape_tests {
+    use super::*;
+
+    #[test]
+    fn simple_path_unchanged() {
+        assert_eq!(shell_escape("src/main.rs"), "src/main.rs");
+    }
+
+    #[test]
+    fn path_with_spaces_is_quoted() {
+        assert_eq!(shell_escape("src/my file.rs"), "'src/my file.rs'");
+    }
+
+    #[test]
+    fn path_with_single_quote_is_escaped() {
+        assert_eq!(shell_escape("it's a file.rs"), "'it'\\''s a file.rs'");
+    }
+
+    #[test]
+    fn dots_underscores_hyphens_slashes_safe() {
+        assert_eq!(shell_escape("a-b_c.d/e"), "a-b_c.d/e");
+    }
+}
+
+#[cfg(feature = "cli")]
+mod format_command_tests {
+    use super::*;
+
+    #[test]
+    fn no_format_flag_skips_formatting() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.format = Some("false".into()); // would fail if run
+        global.no_format = true;
+        // Should return Ok because no_format skips everything
+        run_format_command(&global, dir.path()).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_no_format_skips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.no_format = true;
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: Some("false".into()),
+            ..Default::default()
+        };
+        // no_format should prevent all formatting
+        run_format_command_ext(&global, dir.path(), None, Some(&config)).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_auto_false_skips() {
+        let dir = tempfile::tempdir().unwrap();
+        let global = test_global_flags();
+        let config = crate::config::FormatConfig {
+            auto: Some(false),
+            command: Some("false".into()),
+            ..Default::default()
+        };
+        // auto=false means skip formatting when no explicit --format
+        run_format_command_ext(&global, dir.path(), None, Some(&config)).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_auto_none_skips() {
+        let dir = tempfile::tempdir().unwrap();
+        let global = test_global_flags();
+        let config = crate::config::FormatConfig {
+            auto: None,
+            command: Some("false".into()),
+            ..Default::default()
+        };
+        run_format_command_ext(&global, dir.path(), None, Some(&config)).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_by_extension_runs_formatter() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello\n").unwrap();
+
+        let global = test_global_flags();
+        let mut by_ext = std::collections::HashMap::new();
+        // Use "true" as a no-op formatter that always succeeds
+        by_ext.insert("txt".to_string(), "true --".to_string());
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: None,
+            by_extension: by_ext,
+        };
+        // Should succeed (formatter "true" exits 0)
+        run_format_command_ext(&global, dir.path(), Some(&["test.txt"]), Some(&config)).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_by_extension_no_match_skips() {
+        let dir = tempfile::tempdir().unwrap();
+        let global = test_global_flags();
+        let mut by_ext = std::collections::HashMap::new();
+        by_ext.insert("rs".to_string(), "false".to_string());
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: None,
+            by_extension: by_ext,
+        };
+        // File has .txt extension, no formatter for .txt, should be a no-op
+        run_format_command_ext(&global, dir.path(), Some(&["test.txt"]), Some(&config)).unwrap();
+    }
+
+    #[test]
+    fn run_format_command_ext_formatter_failure_warns_not_bails() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+
+        let global = test_global_flags();
+        let mut by_ext = std::collections::HashMap::new();
+        // Use "false" as a formatter that always fails
+        by_ext.insert("rs".to_string(), "false --".to_string());
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: None,
+            by_extension: by_ext,
+        };
+        // Should NOT bail even though formatter fails (advisory formatting)
+        run_format_command_ext(&global, dir.path(), Some(&["test.rs"]), Some(&config)).unwrap();
+    }
+}
+
 mod format_preservation {
     #[allow(unused_imports)]
     use super::*;

@@ -674,29 +674,138 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
 
 /// Run a post-write format command if configured.
 ///
-/// Only runs when `global.apply` is true and `global.format` is `Some`.
-/// Returns the appropriate exit code: `SUCCESS` on success, `VALIDATION_FAILED`
-/// on format command failure.
+/// Checks `global.no_format` first (skips all formatting).
+/// If `global.format` is set (via CLI `--format` or `defaults.format`),
+/// runs that single command on the cwd.
+/// Otherwise, if a `FormatConfig` with `by_extension` entries is provided,
+/// runs per-extension formatters on the modified files.
+///
+/// Formatter errors are reported to stderr but do **not** cause a bail.
+/// This matches the design principle that formatting is advisory: the
+/// write operation already succeeded and the files are correct, just
+/// not yet formatted.
 #[cfg(feature = "cli")]
 pub fn run_format_command(
     global: &crate::cli::global::GlobalFlags,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
-    let cmd = match global.format.as_deref() {
-        Some(cmd) => cmd,
-        _ => return Ok(()),
-    };
-    let timeout_secs = global.format_timeout.unwrap_or(30);
-    let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
-    if !result.status.success() {
-        let stderr = if result.stderr_head.is_empty() {
-            String::new()
-        } else {
-            format!(": {}", result.stderr_head)
-        };
-        anyhow::bail!("format command failed ({}){stderr}", cmd);
+    run_format_command_ext(global, cwd, None, None)
+}
+
+/// Extended format runner that accepts an optional list of modified paths
+/// and an optional format configuration from `.patchloom.toml`.
+///
+/// `modified_paths` are relative paths (as stored by the tx engine).
+/// `format_config` provides per-extension formatter commands.
+#[cfg(feature = "cli")]
+pub fn run_format_command_ext(
+    global: &crate::cli::global::GlobalFlags,
+    cwd: &std::path::Path,
+    modified_paths: Option<&[&str]>,
+    format_config: Option<&crate::config::FormatConfig>,
+) -> anyhow::Result<()> {
+    if global.no_format {
+        return Ok(());
     }
+
+    let timeout_secs = global.format_timeout.unwrap_or(30);
+
+    // Priority 1: explicit --format command (whole-project)
+    if let Some(cmd) = global.format.as_deref() {
+        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
+        if !result.status.success() {
+            let stderr = if result.stderr_head.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", result.stderr_head)
+            };
+            anyhow::bail!("format command failed ({}){stderr}", cmd);
+        }
+        return Ok(());
+    }
+
+    // Priority 2: format config from .patchloom.toml
+    let config = match format_config {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+
+    // Check auto flag: if auto is not true and no explicit --format, skip
+    if config.auto != Some(true) {
+        return Ok(());
+    }
+
+    // Priority 2a: catch-all command
+    if let Some(ref cmd) = config.command {
+        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
+        if !result.status.success() {
+            eprintln!(
+                "warning: format command failed ({}): {}",
+                cmd,
+                result.stderr_head.trim()
+            );
+        }
+        return Ok(());
+    }
+
+    // Priority 2b: per-extension formatters
+    if config.by_extension.is_empty() {
+        return Ok(());
+    }
+
+    let paths = match modified_paths {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+
+    // Group modified files by extension
+    let mut by_ext: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    for path in paths {
+        if let Some(ext) = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            && config.by_extension.contains_key(ext)
+        {
+            by_ext.entry(ext).or_default().push(path);
+        }
+    }
+
+    // Run formatter for each extension group
+    for (ext, files) in &by_ext {
+        if let Some(cmd_template) = config.by_extension.get(*ext) {
+            for file in files {
+                let cmd = format!("{cmd_template} {}", shell_escape(file));
+                match crate::exec::run_with_timeout(&cmd, timeout_secs, cwd) {
+                    Ok(result) if !result.status.success() => {
+                        eprintln!(
+                            "warning: formatter for .{ext} failed on {file}: {}",
+                            result.stderr_head.trim()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("warning: formatter for .{ext} error on {file}: {e}");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Shell-escape a file path for safe inclusion in a command string.
+#[cfg(feature = "cli")]
+fn shell_escape(path: &str) -> String {
+    // If the path contains no special characters, return as-is
+    if path
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'/' || b == b'.' || b == b'_' || b == b'-')
+    {
+        return path.to_string();
+    }
+    // Otherwise, wrap in single quotes (escaping any embedded single quotes)
+    format!("'{}'", path.replace('\'', "'\\''"))
 }
 
 #[path = "write_tests.rs"]
