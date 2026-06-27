@@ -2022,3 +2022,163 @@ fn adapter_unchanged_returns_no_diff() {
     );
     assert!(!result.applied);
 }
+
+// ── replace_in_content tests ──────────────────────────────────
+
+#[test]
+fn replace_in_content_literal() {
+    let content = "fn hello() {}\nfn world() {}\n";
+    let result =
+        replace::replace_in_content(content, "hello", "greet", &ReplaceOptions::default()).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("fn greet()"));
+    assert!(!result.new_content.contains("fn hello()"));
+}
+
+#[test]
+fn replace_in_content_regex() {
+    let content = "version = \"1.2.3\"\n";
+    let opts = ReplaceOptions {
+        regex: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        r#"version = "\d+\.\d+\.\d+""#,
+        "version = \"2.0.0\"",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("2.0.0"));
+}
+
+#[test]
+fn replace_in_content_word_boundary() {
+    let content = "let setup = setup_config();\n";
+    let opts = ReplaceOptions {
+        word_boundary: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "setup", "init", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "let init = setup_config();\n");
+}
+
+#[test]
+fn replace_in_content_nth() {
+    let content = "aaa bbb aaa bbb aaa\n";
+    let opts = ReplaceOptions {
+        nth: Some(2),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "aaa", "xxx", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "aaa bbb xxx bbb aaa\n");
+}
+
+#[test]
+fn replace_in_content_insert_after() {
+    let content = "use std::io;\n\nfn main() {}\n";
+    let opts = ReplaceOptions {
+        insert_after: Some("\nuse std::fs;".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("use std::io;\nuse std::fs;"));
+}
+
+#[test]
+fn replace_in_content_insert_before() {
+    let content = "use std::io;\n\nfn main() {}\n";
+    let opts = ReplaceOptions {
+        insert_before: Some("use std::fs;\n".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("use std::fs;\nuse std::io;"));
+}
+
+#[test]
+fn replace_in_content_no_match_unchanged() {
+    let content = "fn hello() {}\n";
+    let result =
+        replace::replace_in_content(content, "nonexistent", "x", &ReplaceOptions::default())
+            .unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.new_content, content);
+}
+
+#[test]
+fn replace_in_content_whole_line() {
+    let content = "line one\nremove this\nline three\n";
+    let opts = ReplaceOptions {
+        whole_line: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "remove this", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(!result.new_content.contains("remove this"));
+    assert!(result.new_content.contains("line one"));
+    assert!(result.new_content.contains("line three"));
+}
+
+#[test]
+fn replace_in_content_range() {
+    let content = "aaa\nbbb\naaa\nbbb\naaa\n";
+    let opts = ReplaceOptions {
+        whole_line: true,
+        range: Some((2, Some(4))),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "aaa", "xxx", &opts).unwrap();
+    assert!(result.changed);
+    // Only the "aaa" on line 3 (within range 2-4) should be replaced
+    let lines: Vec<&str> = result.new_content.lines().collect();
+    assert_eq!(lines[0], "aaa"); // line 1, outside range
+    assert_eq!(lines[2], "xxx"); // line 3, inside range
+    assert_eq!(lines[4], "aaa"); // line 5, outside range
+}
+
+#[test]
+fn replace_in_content_if_exists_no_match() {
+    let content = "fn hello() {}\n";
+    let opts = ReplaceOptions {
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "nonexistent", "x", &opts).unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.new_content, content);
+}
+
+#[test]
+fn replace_in_content_case_insensitive() {
+    let content = "Hello World\n";
+    let opts = ReplaceOptions {
+        case_insensitive: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "hello", "Hi", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("Hi World"));
+}
+
+#[test]
+fn replace_in_content_empty_pattern_errors() {
+    let result = replace::replace_in_content("content", "", "x", &ReplaceOptions::default());
+    assert!(result.is_err());
+}
+
+#[test]
+fn replace_in_content_diff_is_populated() {
+    let content = "old text\n";
+    let result =
+        replace::replace_in_content(content, "old", "new", &ReplaceOptions::default()).unwrap();
+    assert!(result.changed);
+    assert!(!result.diff.is_empty());
+    assert!(result.diff.contains("-old text"));
+    assert!(result.diff.contains("+new text"));
+}

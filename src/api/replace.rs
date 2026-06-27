@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::containment::PathGuard;
 use crate::plan::Operation;
 
-use super::{ApplyMode, EditResult, ReplaceOptions};
+use super::{ApplyMode, ContentEditResult, EditResult, ReplaceOptions};
 
 /// Replace text in a file using literal or regex matching.
 ///
@@ -181,4 +181,85 @@ fn replace_write(
     } else {
         bail!("expected Replace operation")
     }
+}
+
+/// Replace text in a content string (no disk I/O).
+///
+/// Applies the same replacement logic as [`replace_text`] but operates on an
+/// in-memory string instead of a file path. Supports all [`ReplaceOptions`]
+/// features: regex, word boundary, nth, case insensitive, multiline,
+/// insert_before/after, whole_line, range, and if_exists.
+pub fn replace_in_content(
+    content: &str,
+    from: &str,
+    to: &str,
+    opts: &ReplaceOptions,
+) -> anyhow::Result<ContentEditResult> {
+    use crate::ops;
+    use anyhow::bail;
+
+    let is_regex = opts.regex;
+    if from.is_empty() && !is_regex {
+        bail!("empty search pattern");
+    }
+
+    let compiled_re = ops::replace::compile_replace_regex(
+        from,
+        is_regex,
+        opts.case_insensitive,
+        opts.multiline,
+        opts.word_boundary,
+    )?;
+
+    let direct_to = if opts.insert_before.is_none() && opts.insert_after.is_none() {
+        Some(to.to_string())
+    } else {
+        None
+    };
+    let replacement = ops::replace::replacement_text(
+        from,
+        &direct_to,
+        &opts.insert_before,
+        &opts.insert_after,
+        compiled_re.is_some(),
+    );
+
+    let parsed_range = opts.range;
+
+    let (new_content, count) = if opts.whole_line {
+        ops::replace::replace_whole_lines(
+            content,
+            from,
+            &replacement,
+            compiled_re.as_ref(),
+            opts.nth,
+            parsed_range,
+        )
+    } else {
+        ops::replace::replace_content(content, from, &replacement, compiled_re.as_ref(), opts.nth)
+    };
+    let new_content = new_content.into_owned();
+
+    if count == 0 && opts.if_exists {
+        return Ok(ContentEditResult {
+            original: content.to_string(),
+            new_content: content.to_string(),
+            diff: String::new(),
+            changed: false,
+        });
+    }
+
+    let changed = content != new_content;
+    let diff = if changed {
+        super::make_diff("<content>", content, &new_content)
+    } else {
+        String::new()
+    };
+
+    Ok(ContentEditResult {
+        original: content.to_string(),
+        new_content,
+        diff,
+        changed,
+    })
 }
