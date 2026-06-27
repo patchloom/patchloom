@@ -24,9 +24,16 @@ pub struct MoveResult {
 pub fn parse_position(s: Option<&str>) -> MovePosition {
     match s {
         Some("start") => MovePosition::Start,
-        Some(s) if s.starts_with("after:") => MovePosition::After(s[6..].to_string()),
-        Some(s) if s.starts_with("before:") => MovePosition::Before(s[7..].to_string()),
-        _ => MovePosition::End,
+        Some(s) => {
+            if let Some(name) = s.strip_prefix("after:") {
+                MovePosition::After(name.to_string())
+            } else if let Some(name) = s.strip_prefix("before:") {
+                MovePosition::Before(name.to_string())
+            } else {
+                MovePosition::End
+            }
+        }
+        None => MovePosition::End,
     }
 }
 
