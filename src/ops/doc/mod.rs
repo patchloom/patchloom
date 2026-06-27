@@ -180,7 +180,7 @@ fn try_preserve_yaml_array(
     };
     if applied {
         let result = file.to_string();
-        if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v.is_array()) {
+        if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *new_value) {
             return Ok(Some(result));
         }
     }
