@@ -68,7 +68,11 @@ fn execute_via_engine_inner<T: Serialize>(
     preview_diffs: bool,
 ) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    let options = ExecuteOptions { cwd: &cwd, global };
+    let options = ExecuteOptions {
+        cwd: &cwd,
+        global,
+        guard: None,
+    };
 
     let result = execute_single(op, options)?;
 

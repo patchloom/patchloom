@@ -22,6 +22,8 @@ pub struct ExecuteOptions<'a> {
     pub cwd: &'a Path,
     /// Global flags (apply mode, write policy, etc.).
     pub global: &'a GlobalFlags,
+    /// Optional path guard for containment validation.
+    pub guard: Option<&'a crate::containment::PathGuard>,
 }
 
 /// Result of a single-operation execution.
@@ -188,6 +190,16 @@ fn execute_plan_inner(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
+    // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
+    if let Some(g) = options.guard {
+        for op in &operations {
+            for p in op.declared_paths() {
+                g.check_path(p)
+                    .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+            }
+        }
+    }
+
     let plan = Plan {
         version: SCHEMA_VERSION.to_string(),
         operations,
@@ -224,7 +236,11 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_options<'a>(cwd: &'a Path, global: &'a GlobalFlags) -> ExecuteOptions<'a> {
-        ExecuteOptions { cwd, global }
+        ExecuteOptions {
+            cwd,
+            global,
+            guard: None,
+        }
     }
 
     #[test]

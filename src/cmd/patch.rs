@@ -326,7 +326,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         allow_conflicts: apply_options.allow_conflicts,
     };
 
-    let options = ExecuteOptions { cwd: &cwd, global };
+    let options = ExecuteOptions {
+        cwd: &cwd,
+        global,
+        guard: None,
+    };
     let result = match execute_single(op, options) {
         Ok(r) => r,
         Err(e) => {
