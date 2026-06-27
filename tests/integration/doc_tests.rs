@@ -1274,6 +1274,29 @@ fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
 }
 
 #[test]
+fn test_doc_diff_identical_json_output() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    fs::write(&a, r#"{"name":"same"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&a)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("should be valid JSON, got error: {e}, output: {stdout}"));
+    assert_eq!(v["identical"], serde_json::json!(true));
+}
+
+#[test]
 fn test_doc_delete_removes_key() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

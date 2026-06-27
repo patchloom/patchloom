@@ -107,8 +107,10 @@ pub(super) fn handle_ast_read(
     })?;
 
     let lines: Vec<&str> = source.lines().collect();
-    let start = sym.start_line.saturating_sub(1 + p.context);
-    let end = (sym.end_line + p.context).min(lines.len());
+    let start = sym
+        .start_line
+        .saturating_sub(1_usize.saturating_add(p.context));
+    let end = sym.end_line.saturating_add(p.context).min(lines.len());
     let content: String = lines[start..end].iter().map(|l| format!("{l}\n")).collect();
 
     let obj = serde_json::json!({

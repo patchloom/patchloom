@@ -617,7 +617,7 @@ mod edge_cases {
         };
         let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
         assert_eq!(code, exit::SUCCESS);
-        assert_eq!(output, "identical\n");
+        assert_eq!(output, "identical");
     }
 
     #[test]
