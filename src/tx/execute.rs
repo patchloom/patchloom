@@ -391,6 +391,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
 
+            if tx.deletions.contains(&src_path) {
+                anyhow::bail!("source file was deleted earlier in this transaction: {from}");
+            }
             if src_path.exists() && !src_path.is_file() {
                 anyhow::bail!("source is not a file: {from}");
             }
@@ -537,6 +540,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let source_path = tx.cwd.join(path);
             let dest_path = tx.cwd.join(dest_path_str);
             let same_file = to.is_none()
+                || source_path == dest_path
                 || matches!(
                     (source_path.canonicalize(), dest_path.canonicalize()),
                     (Ok(ref s), Ok(ref d)) if s == d
@@ -1452,6 +1456,107 @@ mod tests {
         assert!(
             result.is_err(),
             "prepend to deleted file should error, not resurrect"
+        );
+    }
+
+    #[test]
+    fn md_move_section_same_file_by_path_equality() {
+        // Regression: MdMoveSection with to=Some(same_path) must detect
+        // same-file via path equality, not just canonicalize (which fails
+        // for files created in-tx that don't exist on disk).
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("doc.md");
+        std::fs::write(&file, "# A\ntext a\n# B\ntext b\n").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        let mut tx = TxState {
+            pending: &mut pending,
+            deletions: &mut deletions,
+            existed_before: &mut existed,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut reads,
+            tx_searches: &mut searches,
+            tx_lints: &mut lints,
+            replace_hint: None,
+            cwd: dir.path(),
+            quiet: false,
+            structured: false,
+        };
+
+        let op = Operation::MdMoveSection {
+            path: "doc.md".into(),
+            heading: "# A".into(),
+            to: Some("doc.md".into()),
+            before: None,
+            after: Some("# B".into()),
+        };
+        execute_operation(&op, &mut tx).unwrap();
+        // Section A should appear after B, not be duplicated
+        let content = &pending[&file].1;
+        let a_pos = content.find("# A").unwrap();
+        let b_pos = content.find("# B").unwrap();
+        assert!(a_pos > b_pos, "section A should be after B: {content}");
+        // Section A should appear exactly once
+        assert_eq!(
+            content.matches("# A").count(),
+            1,
+            "section A should not be duplicated: {content}"
+        );
+    }
+
+    #[test]
+    fn rename_deleted_source_is_rejected() {
+        // Regression: FileRename of a source file deleted earlier in the
+        // same transaction should error, not silently create an empty file.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("victim.txt");
+        std::fs::write(&file, "content").unwrap();
+
+        let mut pending = HashMap::new();
+        let mut deletions = HashSet::new();
+        let mut existed = HashSet::new();
+        let mut doc_cache = HashMap::new();
+        let mut reads = Vec::new();
+        let mut searches = Vec::new();
+        let mut lints = Vec::new();
+
+        // Simulate deletion
+        pending.insert(file.clone(), ("content".to_string(), String::new()));
+        deletions.insert(file);
+        existed.insert(dir.path().join("victim.txt"));
+
+        let mut tx = TxState {
+            pending: &mut pending,
+            deletions: &mut deletions,
+            existed_before: &mut existed,
+            doc_cache: &mut doc_cache,
+            tx_reads: &mut reads,
+            tx_searches: &mut searches,
+            tx_lints: &mut lints,
+            replace_hint: None,
+            cwd: dir.path(),
+            quiet: false,
+            structured: false,
+        };
+
+        let op = Operation::FileRename {
+            from: "victim.txt".into(),
+            to: "dest.txt".into(),
+            force: false,
+        };
+        let result = execute_file_op(&op, &mut tx);
+        assert!(result.is_err(), "rename of deleted file should error");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("deleted earlier"),
+            "error should mention deletion: {msg}"
         );
     }
 }
