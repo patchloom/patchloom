@@ -520,7 +520,16 @@ pub(crate) fn execute_with_mode(
             let mut diff_buf = String::new();
             diff_values(&val_a, &val_b, &mut diff_buf, &mut entries);
             if entries.is_empty() {
-                return Ok(("identical\n".to_string(), exit::SUCCESS));
+                let out = match output_mode {
+                    OutputMode::Json => serde_json::to_string_pretty(&serde_json::json!({
+                        "identical": true, "differences": []
+                    }))?,
+                    OutputMode::Jsonl => serde_json::to_string(&serde_json::json!({
+                        "identical": true, "differences": []
+                    }))?,
+                    OutputMode::Text => "identical".to_string(),
+                };
+                return Ok((out, exit::SUCCESS));
             }
             match output_mode {
                 OutputMode::Json => Ok((serde_json::to_string_pretty(&entries)?, exit::SUCCESS)),

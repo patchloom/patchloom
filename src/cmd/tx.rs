@@ -192,9 +192,12 @@ fn commit_and_finalize(
         let output = build_full_tx_output("success", result, ctx.cwd);
         emit_output_json(&output, ctx.compact);
     } else if global.show_status() {
-        let n_changed = result.changes.len();
-        let n_deleted = result.deletions.len();
-        let total = n_changed + n_deleted;
+        let extra_deletions = result
+            .deletions
+            .iter()
+            .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
+            .count();
+        let total = result.changes.len() + extra_deletions;
         eprintln!("applied: {total} file(s) affected");
     }
     Ok(exit::SUCCESS)
@@ -437,7 +440,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         print_diffs(&result.changes, &cwd, global.should_color());
     }
     if !result.no_effective_changes && global.show_status() {
-        let n = result.changes.len() + result.deletions.len();
+        let extra_deletions = result
+            .deletions
+            .iter()
+            .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
+            .count();
+        let n = result.changes.len() + extra_deletions;
         eprintln!("{n} file(s) changed");
     }
 
