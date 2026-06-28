@@ -1021,7 +1021,7 @@ pub fn check_no_overlapping_spans(spans: &[(usize, usize)], names: &[&str]) -> a
     let mut overlaps: Vec<String> = Vec::new();
     for window in indexed.windows(2) {
         let (s1, e1, i1) = window[0];
-        let (s2, _e2, i2) = window[1];
+        let (s2, e2, i2) = window[1];
         // Overlap: second span starts before first span ends
         if s2 < e1 {
             let n1 = names.get(i1).copied().unwrap_or("?");
@@ -1033,7 +1033,7 @@ pub fn check_no_overlapping_spans(spans: &[(usize, usize)], names: &[&str]) -> a
                 e1,
                 n2,
                 s2 + 1,
-                _e2
+                e2
             ));
         }
     }

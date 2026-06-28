@@ -402,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn move_overlapping_spans_errors() {
+    fn move_adjacent_decorated_symbols_succeeds() {
         // Simulate two adjacent decorated functions where doc comments could
         // cause span overlap. In practice the spans from tree-sitter should
         // not overlap for well-formed code, but if full_symbol_span extends
