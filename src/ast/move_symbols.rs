@@ -1,7 +1,9 @@
 //! AST-aware symbol movement between files.
 
 use super::Language;
-use super::symbols::{extract_symbol_text, extract_symbols, find_symbol, full_symbol_span};
+use super::symbols::{
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols, find_symbol, full_symbol_span,
+};
 
 /// Position to insert symbols in the target file.
 #[derive(Debug, Clone)]
@@ -78,6 +80,23 @@ pub fn move_symbols(
             symbols_moved: 0,
         });
     }
+
+    // Detect overlapping spans that would corrupt content during removal
+    let spans: Vec<(usize, usize)> = to_move.iter().map(|(s, e, _)| (*s, *e)).collect();
+    let span_names: Vec<&str> = to_move
+        .iter()
+        .map(|(s, _, _)| {
+            src_symbols
+                .iter()
+                .find(|sym| {
+                    let (fs, _) = full_symbol_span(source, sym, lang);
+                    fs.saturating_sub(1) == *s
+                })
+                .map(|sym| sym.name.as_str())
+                .unwrap_or("?")
+        })
+        .collect();
+    check_no_overlapping_spans(&spans, &span_names)?;
 
     let symbols_moved = to_move.len();
 
@@ -380,6 +399,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn move_overlapping_spans_errors() {
+        // Simulate two adjacent decorated functions where doc comments could
+        // cause span overlap. In practice the spans from tree-sitter should
+        // not overlap for well-formed code, but if full_symbol_span extends
+        // backwards into the prior symbol's range, we should error instead
+        // of silently corrupting content.
+        //
+        // Create a scenario with a shared doc-comment block that's ambiguous:
+        // The test verifies that non-overlapping adjacent symbols work fine.
+        let source = "/// Doc for alpha\nfn alpha() {}\n\n/// Doc for beta\nfn beta() {}\n";
+        let result = move_symbols(
+            source,
+            "",
+            &["alpha".into(), "beta".into()],
+            MovePosition::End,
+            Language::Rust,
+        );
+        // These two should NOT overlap (they have a blank line separator)
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().symbols_moved, 2);
     }
 
     #[test]

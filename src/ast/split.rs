@@ -1,7 +1,9 @@
 //! AST-aware file splitting: distribute symbols across multiple target files.
 
 use super::Language;
-use super::symbols::{extract_symbol_text, extract_symbols, full_symbol_span};
+use super::symbols::{
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols, full_symbol_span,
+};
 
 /// Target specification for a split operation.
 #[derive(Debug)]
@@ -93,6 +95,16 @@ pub fn split_file(
     }
 
     let symbols_distributed = spans_to_remove.len();
+
+    // Detect overlapping spans that would corrupt content during removal
+    {
+        let span_names: Vec<&str> = all_symbols
+            .iter()
+            .filter(|s| sym_to_target.contains_key(s.name.as_str()))
+            .map(|s| s.name.as_str())
+            .collect();
+        check_no_overlapping_spans(&spans_to_remove, &span_names)?;
+    }
 
     // Remove distributed symbols from source (in reverse order)
     let mut src_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
@@ -346,6 +358,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn split_non_overlapping_adjacent_symbols() {
+        // Adjacent symbols with proper separation should split fine.
+        let source = "/// Doc A\nfn alpha() {}\n\n/// Doc B\nfn beta() {}\n\nfn gamma() {}\n";
+        let targets = vec![
+            SplitTarget {
+                path: "a.rs".into(),
+                symbols: vec!["alpha".into()],
+                prepend: None,
+            },
+            SplitTarget {
+                path: "b.rs".into(),
+                symbols: vec!["beta".into()],
+                prepend: None,
+            },
+        ];
+        let result = split_file(
+            source,
+            &targets,
+            &["gamma".into()],
+            None,
+            None,
+            true,
+            Language::Rust,
+        );
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.symbols_distributed, 2);
+        assert!(r.targets[0].1.contains("/// Doc A"));
+        assert!(r.targets[1].1.contains("/// Doc B"));
     }
 
     #[test]

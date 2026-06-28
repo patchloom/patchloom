@@ -1,7 +1,9 @@
 //! AST-aware symbol grouping: move symbols into named modules within a file.
 
 use super::Language;
-use super::symbols::{extract_symbol_text, extract_symbols, find_symbol, full_symbol_span};
+use super::symbols::{
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols, find_symbol, full_symbol_span,
+};
 
 /// Where to place a newly created module.
 #[derive(Debug, Clone)]
@@ -84,6 +86,25 @@ pub fn group_symbols(
     }
 
     let symbols_moved = to_move.len();
+
+    // Detect overlapping spans that would corrupt content during removal
+    {
+        let spans: Vec<(usize, usize)> = to_move.iter().map(|(s, e, _)| (*s, *e)).collect();
+        let span_names: Vec<&str> = to_move
+            .iter()
+            .map(|(s, _, _)| {
+                symbols
+                    .iter()
+                    .find(|sym| {
+                        let (fs, _) = full_symbol_span(source, sym, lang);
+                        fs.saturating_sub(1) == *s
+                    })
+                    .map(|sym| sym.name.as_str())
+                    .unwrap_or("?")
+            })
+            .collect();
+        check_no_overlapping_spans(&spans, &span_names)?;
+    }
 
     // Sort spans by start position (descending) for safe removal
     to_move.sort_by_key(|b| std::cmp::Reverse(b.0));
@@ -394,6 +415,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn group_non_overlapping_adjacent_symbols() {
+        // Adjacent symbols with proper separation should group fine.
+        let source = "/// Doc A\nfn alpha() {}\n\n/// Doc B\nfn beta() {}\n\nfn gamma() {}\n";
+        let spec = GroupSpec {
+            module: "m".into(),
+            symbols: vec!["alpha".into(), "beta".into()],
+            preamble: None,
+            position: GroupPosition::FirstSymbol,
+        };
+        let result = group_symbols(source, &spec, Language::Rust);
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.symbols_moved, 2);
+        assert!(r.content.contains("mod m {"));
     }
 
     #[test]

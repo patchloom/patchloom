@@ -1000,6 +1000,54 @@ pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize
     (first_line_0 + 1, sym.end_line) // back to 1-based
 }
 
+/// Detect overlapping spans in a set of 0-based `(start, end)` line ranges.
+///
+/// Returns `Err` listing the overlapping span pairs if any overlap, `Ok(())` otherwise.
+/// Spans are overlapping when one range's start falls strictly inside another range
+/// (i.e., `a.start < b.start < a.end` for sorted spans).
+pub fn check_no_overlapping_spans(spans: &[(usize, usize)], names: &[&str]) -> anyhow::Result<()> {
+    if spans.len() < 2 {
+        return Ok(());
+    }
+
+    // Sort by start, then by end (descending) to detect containment
+    let mut indexed: Vec<(usize, usize, usize)> = spans
+        .iter()
+        .enumerate()
+        .map(|(i, &(s, e))| (s, e, i))
+        .collect();
+    indexed.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+
+    let mut overlaps: Vec<String> = Vec::new();
+    for window in indexed.windows(2) {
+        let (s1, e1, i1) = window[0];
+        let (s2, _e2, i2) = window[1];
+        // Overlap: second span starts before first span ends
+        if s2 < e1 {
+            let n1 = names.get(i1).copied().unwrap_or("?");
+            let n2 = names.get(i2).copied().unwrap_or("?");
+            overlaps.push(format!(
+                "'{}' (lines {}-{}) and '{}' (lines {}-{})",
+                n1,
+                s1 + 1,
+                e1,
+                n2,
+                s2 + 1,
+                _e2
+            ));
+        }
+    }
+
+    if overlaps.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "overlapping symbol spans would corrupt content: {}",
+            overlaps.join("; ")
+        )
+    }
+}
+
 /// Check if a line is an annotation/attribute/decorator/doc-comment for a symbol.
 fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
     match lang {
@@ -1170,6 +1218,62 @@ pub fn filter_symbols<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_no_overlapping_spans_ok() {
+        // Non-overlapping spans should pass
+        let spans = vec![(0, 3), (4, 7), (8, 10)];
+        let names = vec!["a", "b", "c"];
+        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+    }
+
+    #[test]
+    fn check_no_overlapping_spans_adjacent_ok() {
+        // Adjacent (touching but not overlapping) spans should pass
+        let spans = vec![(0, 3), (3, 6), (6, 9)];
+        let names = vec!["a", "b", "c"];
+        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+    }
+
+    #[test]
+    fn check_no_overlapping_spans_detects_overlap() {
+        // Overlapping spans should error
+        let spans = vec![(0, 5), (3, 8)];
+        let names = vec!["foo", "bar"];
+        let err = check_no_overlapping_spans(&spans, &names).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("overlapping"), "error: {msg}");
+        assert!(
+            msg.contains("foo"),
+            "error should mention first symbol: {msg}"
+        );
+        assert!(
+            msg.contains("bar"),
+            "error should mention second symbol: {msg}"
+        );
+    }
+
+    #[test]
+    fn check_no_overlapping_spans_detects_containment() {
+        // One span fully inside another should error
+        let spans = vec![(0, 10), (2, 5)];
+        let names = vec!["outer", "inner"];
+        let err = check_no_overlapping_spans(&spans, &names).unwrap_err();
+        assert!(err.to_string().contains("overlapping"));
+    }
+
+    #[test]
+    fn check_no_overlapping_spans_single_ok() {
+        // Single span should always pass
+        let spans = vec![(0, 5)];
+        let names = vec!["only"];
+        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+    }
+
+    #[test]
+    fn check_no_overlapping_spans_empty_ok() {
+        assert!(check_no_overlapping_spans(&[], &[]).is_ok());
+    }
 
     #[test]
     fn extract_rust_symbols() {

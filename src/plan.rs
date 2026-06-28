@@ -869,6 +869,10 @@ pub fn parse_plan_auto(
 /// substitute template variables into each operation, and flatten the result into
 /// `plan.operations`. After this call, `plan.for_each` is `None`.
 ///
+/// Doubled braces (`{{` / `}}`) are treated as escape sequences and produce
+/// literal `{` / `}` in the output. For example, `{{path}}` becomes the
+/// literal string `{path}` rather than being substituted with the file path.
+///
 /// Escape a string for safe embedding inside a JSON string literal.
 ///
 /// The template substitution operates on the serialized JSON, replacing
@@ -975,14 +979,26 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_default();
 
+        // Protect escaped doubles `{{` / `}}` so they become literal braces
+        // in the output rather than being interpreted as template variables.
+        // Sentinel chars (\x00) are safe because they cannot appear in valid JSON.
+        let protected = template_ops_json
+            .replace("{{", "\x00LBRACE\x00")
+            .replace("}}", "\x00RBRACE\x00");
+
         // JSON-escape all substitution values so file paths containing
         // quotes, backslashes, or control characters don't produce invalid JSON.
-        let substituted = template_ops_json
+        let substituted = protected
             .replace("{path}", &json_escape(&rel_str))
             .replace("{dir}", &json_escape(&dir))
             .replace("{stem}", &json_escape(&stem))
             .replace("{ext}", &json_escape(&ext))
             .replace("{name}", &json_escape(&name));
+
+        // Restore sentinels to literal single braces.
+        let substituted = substituted
+            .replace("\x00LBRACE\x00", "{")
+            .replace("\x00RBRACE\x00", "}");
 
         let file_ops: Vec<Operation> = serde_json::from_str(&substituted)
             .map_err(|e| anyhow::anyhow!("for_each: template expansion failed: {e}"))?;
@@ -1183,6 +1199,87 @@ mod tests {
         let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(plan.for_each.is_none());
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn for_each_escape_preserves_literal_braces() {
+        // When a template value contains `{{path}}`, the doubled braces should
+        // produce a literal `{path}` in the output, not get substituted.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+
+        let json = r#"{
+            "version": "1",
+            "for_each": { "glob": "*.txt" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "from": "hello", "to": "{{path}} is literal"}
+            ]
+        }"#;
+        let mut plan = parse_plan(json).unwrap();
+        expand_for_each(&mut plan, dir.path()).unwrap();
+
+        assert_eq!(plan.operations.len(), 1);
+        // The `path` field should be the actual file path (substituted).
+        // The `to` field should contain a literal `{path}`, NOT the file path.
+        let op_json = serde_json::to_string(&plan.operations[0]).unwrap();
+        assert!(
+            op_json.contains(r#"{path} is literal"#),
+            "escaped braces should produce literal {{path}}: {op_json}"
+        );
+        assert!(
+            !op_json.contains("a.txt is literal"),
+            "escaped braces should NOT be substituted: {op_json}"
+        );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn for_each_escape_mixed_literal_and_template() {
+        // Mix of template variables and escaped braces in the same value.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("test.rs"), "x").unwrap();
+
+        let json = r#"{
+            "version": "1",
+            "for_each": { "glob": "*.rs" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "from": "x", "to": "file={{stem}}.{{ext}}"}
+            ]
+        }"#;
+        let mut plan = parse_plan(json).unwrap();
+        expand_for_each(&mut plan, dir.path()).unwrap();
+
+        let op_json = serde_json::to_string(&plan.operations[0]).unwrap();
+        // `{stem}` and `{ext}` should become literal, not substituted
+        assert!(
+            op_json.contains("file={stem}.{ext}"),
+            "escaped template vars should be literal: {op_json}"
+        );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn for_each_unescaped_braces_still_substitute() {
+        // Verify that normal (unescaped) template variables still work.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+        let json = r#"{
+            "version": "1",
+            "for_each": { "glob": "*.txt" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "from": "x", "to": "{stem}-{ext}"}
+            ]
+        }"#;
+        let mut plan = parse_plan(json).unwrap();
+        expand_for_each(&mut plan, dir.path()).unwrap();
+
+        let op_json = serde_json::to_string(&plan.operations[0]).unwrap();
+        assert!(
+            op_json.contains("hello-txt"),
+            "unescaped vars should substitute: {op_json}"
+        );
     }
 
     #[test]
