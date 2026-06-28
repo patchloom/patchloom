@@ -9,6 +9,8 @@ use crate::exec;
 use crate::plan::{self, Plan};
 use crate::write::{WritePolicy, atomic_create_new, atomic_write};
 use anyhow::Context;
+#[cfg(any(feature = "cli", feature = "files"))]
+use ignore::WalkBuilder;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -115,6 +117,105 @@ pub(crate) fn run_validate_steps(
         "validation",
         "validation_failed",
     )
+}
+
+/// Maximum file size (in bytes) to include in the collateral snapshot.
+/// Files above this threshold are extremely unlikely to be reformatted by
+/// standard formatters and snapshotting them wastes memory.
+const COLLATERAL_SNAPSHOT_MAX_SIZE: u64 = 1_048_576; // 1 MiB
+
+/// Snapshot the content of non-binary text files under `cwd` that are NOT
+/// already tracked by the transaction. This captures the pre-format state of
+/// files that a format step (e.g. `cargo fmt`) might modify as a side effect.
+///
+/// Only called when `strict` mode is active and the plan has format or
+/// validate steps, so the cost is opt-in.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn snapshot_non_tx_files(
+    cwd: &Path,
+    tx_paths: &HashSet<PathBuf>,
+) -> HashMap<PathBuf, String> {
+    let mut snapshot = HashMap::new();
+    crate::verbose!(
+        "tx: collateral snapshot: walking {} (tx_paths: {})",
+        cwd.display(),
+        tx_paths.len()
+    );
+    let walker = WalkBuilder::new(cwd).hidden(false).build();
+    for entry in walker.flatten() {
+        let path = entry.path().to_path_buf();
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+            continue;
+        }
+        if tx_paths.contains(&path) {
+            crate::verbose!(
+                "tx: collateral snapshot: skipping tx file {}",
+                path.display()
+            );
+            continue;
+        }
+        // Skip files above the size threshold.
+        if let Ok(meta) = std::fs::metadata(&path)
+            && meta.len() > COLLATERAL_SNAPSHOT_MAX_SIZE
+        {
+            crate::verbose!(
+                "tx: collateral snapshot: skipping large file {} ({} bytes)",
+                path.display(),
+                meta.len()
+            );
+            continue;
+        }
+        // Read bytes and skip binary files.
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        if crate::files::is_binary(&bytes) {
+            continue;
+        }
+        if let Ok(content) = String::from_utf8(bytes) {
+            crate::verbose!(
+                "tx: collateral snapshot: captured {} ({} bytes)",
+                path.display(),
+                content.len()
+            );
+            snapshot.insert(path, content);
+        }
+    }
+    crate::verbose!("tx: collateral snapshot: {} files captured", snapshot.len());
+    snapshot
+}
+
+/// Restore any files that were modified by format/validate steps but were
+/// not part of the transaction. Compares current content against the
+/// snapshot and writes back the original content for any files that changed.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
+    let noop_policy = WritePolicy::default();
+    let mut restored = 0usize;
+    for (path, original) in snapshot {
+        let current = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        if current != *original {
+            crate::verbose!(
+                "tx: collateral restore: reverting {} (changed by formatter)",
+                path.display()
+            );
+            if let Err(e) = atomic_write(path, original, &noop_policy) {
+                eprintln!(
+                    "tx: rollback: failed to restore collateral file {}: {e}",
+                    path.display()
+                );
+            } else {
+                restored += 1;
+            }
+        }
+    }
+    if restored > 0 {
+        crate::verbose!("tx: collateral restore: reverted {} file(s)", restored);
+    }
 }
 
 pub(crate) fn rollback_strict(
@@ -533,6 +634,16 @@ pub fn execute_plan_direct(
         return Ok(output);
     }
 
+    // Snapshot non-tx files before format/validate steps so we can restore
+    // collateral changes on strict rollback (#1111.7).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let collateral_snapshot = if strict && plan.has_lifecycle_steps() {
+        let tx_paths: HashSet<PathBuf> = result.changes.iter().map(|(p, _, _)| p.clone()).collect();
+        snapshot_non_tx_files(&effective_cwd, &tx_paths)
+    } else {
+        HashMap::new()
+    };
+
     // Run format steps, then validation steps.
     if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
         if strict {
@@ -542,6 +653,8 @@ pub fn execute_plan_direct(
                 &result.deletions,
                 &result.existed_before,
             );
+            #[cfg(any(feature = "cli", feature = "files"))]
+            restore_collateral_files(&collateral_snapshot);
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
             return Ok(build_error_output(err.kind, "rollback", &msg, None));
         }
@@ -802,5 +915,112 @@ mod tests {
         };
         let cwd = Path::new("/tmp");
         assert!(run_lifecycle(&plan, cwd, cwd).is_none());
+    }
+
+    // ---- snapshot / restore collateral (#1111.7) ----
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn snapshot_non_tx_files_captures_text_skips_binary_and_tx() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        // A text file not in the tx (should be captured).
+        let collateral = dir.path().join("other.rs");
+        std::fs::write(&collateral, "fn main() {}").unwrap();
+
+        // A binary file (should be skipped).
+        let binary = dir.path().join("image.png");
+        std::fs::write(&binary, b"\x89PNG\x00\x00").unwrap();
+
+        // A file that IS in the tx (should be skipped).
+        let tx_file = dir.path().join("changed.rs");
+        std::fs::write(&tx_file, "// changed").unwrap();
+
+        let mut tx_paths = HashSet::new();
+        tx_paths.insert(tx_file.clone());
+
+        let snapshot = snapshot_non_tx_files(dir.path(), &tx_paths);
+
+        assert!(
+            snapshot.contains_key(&collateral),
+            "collateral text file should be in snapshot"
+        );
+        assert_eq!(snapshot[&collateral], "fn main() {}");
+        assert!(
+            !snapshot.contains_key(&binary),
+            "binary file should not be in snapshot"
+        );
+        assert!(
+            !snapshot.contains_key(&tx_file),
+            "tx file should not be in snapshot"
+        );
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn restore_collateral_files_reverts_changed_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("bystander.rs");
+        std::fs::write(&file, "original content").unwrap();
+
+        // Build a snapshot with the original content.
+        let mut snapshot = HashMap::new();
+        snapshot.insert(file.clone(), "original content".to_string());
+
+        // Simulate a formatter modifying the file.
+        std::fs::write(&file, "reformatted content").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "reformatted content"
+        );
+
+        // Restore should revert the file.
+        restore_collateral_files(&snapshot);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "original content",
+            "collateral file should be restored to pre-format content"
+        );
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn restore_collateral_skips_unchanged_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("untouched.rs");
+        std::fs::write(&file, "same content").unwrap();
+
+        let mut snapshot = HashMap::new();
+        snapshot.insert(file.clone(), "same content".to_string());
+
+        // File was not modified by the formatter. restore should be a no-op.
+        restore_collateral_files(&snapshot);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "same content");
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn snapshot_skips_large_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        // Create a file just above the 1 MiB threshold.
+        let big_file = dir.path().join("huge.txt");
+        let big_content = "x".repeat(COLLATERAL_SNAPSHOT_MAX_SIZE as usize + 1);
+        std::fs::write(&big_file, &big_content).unwrap();
+
+        // Create a small file that should be captured.
+        let small_file = dir.path().join("small.txt");
+        std::fs::write(&small_file, "tiny").unwrap();
+
+        let snapshot = snapshot_non_tx_files(dir.path(), &HashSet::new());
+
+        assert!(
+            !snapshot.contains_key(&big_file),
+            "file above size cap should not be in snapshot"
+        );
+        assert!(
+            snapshot.contains_key(&small_file),
+            "small file should be in snapshot"
+        );
     }
 }

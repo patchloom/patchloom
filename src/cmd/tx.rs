@@ -163,6 +163,16 @@ fn commit_and_finalize(
         print_diffs(&result.changes, ctx.cwd, global.should_color());
     }
 
+    // Snapshot non-tx files before lifecycle steps so we can restore
+    // collateral changes on strict rollback (#1111.7).
+    let collateral_snapshot = if ctx.strict && ctx.plan.has_lifecycle_steps() {
+        let tx_paths: std::collections::HashSet<PathBuf> =
+            result.changes.iter().map(|(p, _, _)| p.clone()).collect();
+        crate::tx::snapshot_non_tx_files(ctx.cwd, &tx_paths)
+    } else {
+        std::collections::HashMap::new()
+    };
+
     if let Some(err) = run_lifecycle(ctx.plan, ctx.base_cwd, ctx.cwd) {
         if ctx.strict {
             crate::tx::rollback_strict(
@@ -171,6 +181,7 @@ fn commit_and_finalize(
                 &result.deletions,
                 &result.existed_before,
             );
+            crate::tx::restore_collateral_files(&collateral_snapshot);
             let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
             if ctx.structured {
                 emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, ctx.compact);
