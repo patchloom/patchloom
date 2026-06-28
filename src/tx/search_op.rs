@@ -236,6 +236,7 @@ mod tests {
         reads: &'a mut Vec<TxReadResult>,
         searches: &'a mut Vec<TxSearchResult>,
         lints: &'a mut Vec<TxLintResult>,
+        write_targets: &'a mut HashSet<PathBuf>,
         cwd: &'a Path,
     ) -> TxState<'a> {
         TxState {
@@ -246,6 +247,7 @@ mod tests {
             tx_reads: reads,
             tx_searches: searches,
             tx_lints: lints,
+            write_targets,
             replace_hint: None,
             cwd,
             quiet: true,
@@ -288,6 +290,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -297,6 +300,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -321,6 +325,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -330,6 +335,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -368,6 +374,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -377,6 +384,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -415,6 +423,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -424,6 +433,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -462,6 +472,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -471,6 +482,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -509,6 +521,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -518,6 +531,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -556,6 +570,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -565,6 +580,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -603,6 +619,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -612,6 +629,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -653,6 +671,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -662,6 +681,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -704,6 +724,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -713,6 +734,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -755,6 +777,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -764,6 +787,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -789,6 +813,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
         let mut tx = make_tx_state(
             &mut pending,
             &mut deletions,
@@ -797,6 +822,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
         execute_search_op(&op, &mut tx).unwrap();
@@ -838,6 +864,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
         let mut tx = make_tx_state(
             &mut pending,
             &mut deletions,
@@ -846,6 +873,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
         execute_search_op(&op, &mut tx).unwrap();

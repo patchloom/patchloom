@@ -25,6 +25,8 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 Segment::Wildcard => {
                     if let Some(arr) = val.as_array() {
                         next.extend(arr.iter());
+                    } else if let Some(obj) = val.as_object() {
+                        next.extend(obj.values());
                     }
                 }
                 Segment::Predicate {
@@ -33,6 +35,14 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 } => {
                     if let Some(arr) = val.as_array() {
                         for item in arr {
+                            if let Some(field) = item.get(key.as_str())
+                                && crate::selector::value_matches_str(field, pred_val)
+                            {
+                                next.push(item);
+                            }
+                        }
+                    } else if let Some(obj) = val.as_object() {
+                        for item in obj.values() {
                             if let Some(field) = item.get(key.as_str())
                                 && crate::selector::value_matches_str(field, pred_val)
                             {
@@ -138,5 +148,52 @@ mod tests {
         let sel = parse("items[id=x]").unwrap();
         let results = eval(&data, &sel);
         assert!(results.is_empty());
+    }
+
+    // ── object wildcard/predicate tests (#1111.6) ──────────────
+
+    #[test]
+    fn eval_wildcard_on_object_iterates_values() {
+        let data = json!({
+            "servers": {
+                "web": {"port": 80},
+                "api": {"port": 8080},
+                "db":  {"port": 5432}
+            }
+        });
+        let sel = parse("servers[*].port").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 3, "should match all 3 server ports");
+        let ports: Vec<i64> = results.iter().filter_map(|v| v.as_i64()).collect();
+        assert!(ports.contains(&80));
+        assert!(ports.contains(&8080));
+        assert!(ports.contains(&5432));
+    }
+
+    #[test]
+    fn eval_predicate_on_object_filters_values() {
+        let data = json!({
+            "services": {
+                "web": {"name": "web", "port": 80},
+                "api": {"name": "api", "port": 8080}
+            }
+        });
+        let sel = parse("services[name=api].port").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!(8080);
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_wildcard_on_nested_object() {
+        let data = json!({
+            "config": {
+                "dev":  {"debug": true},
+                "prod": {"debug": false}
+            }
+        });
+        let sel = parse("config[*].debug").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 2);
     }
 }
