@@ -1212,4 +1212,16 @@ body text
         let headings = parse_headings(content);
         assert_eq!(headings.len(), 0, "4-space indent should NOT be a heading");
     }
+
+    #[test]
+    fn upsert_bullet_trailing_spaces_on_content_line() {
+        // Regression: trim_end_matches included ' ' which would strip trailing
+        // spaces from the last content line, corrupting the insertion point.
+        let content = "# List\n- item with trailing spaces   \n";
+        let result = upsert_bullet_in(content, "List", "- new item").unwrap();
+        assert!(
+            result.contains("- item with trailing spaces   \n- new item\n"),
+            "trailing spaces must be preserved: {result}"
+        );
+    }
 }

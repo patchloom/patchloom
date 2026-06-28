@@ -285,6 +285,9 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             predicate: predicate.clone(),
         }),
         DocAction::Merge { file, stdin, value } => {
+            if *stdin && value.is_some() {
+                anyhow::bail!("merge: --stdin and --value are mutually exclusive");
+            }
             let merge_str = if *stdin {
                 std::io::read_to_string(std::io::stdin())?
             } else if let Some(v) = value {
