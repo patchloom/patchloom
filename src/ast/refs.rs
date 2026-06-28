@@ -250,14 +250,18 @@ fn is_definition_site(node: tree_sitter_lib::Node) -> bool {
     if let Some(parent) = node.parent()
         && DEFINITION_PARENT_KINDS.contains(&parent.kind())
     {
-        // Check if this node is the "name" field of the parent
-        // by checking the field name
+        // Use tree-sitter's field API: the "name" field points to the
+        // symbol being defined. Other identifier children (parameters,
+        // return types, etc.) are NOT definitions.
+        if let Some(name_node) = parent.child_by_field_name("name") {
+            return name_node.id() == node.id();
+        }
+        // Fallback for grammars without a "name" field: treat the first
+        // identifier child as the definition name.
         let mut cursor = parent.walk();
         for child in parent.children(&mut cursor) {
-            if child.id() == node.id() {
-                // This identifier is a direct child of a definition node.
-                // It's a definition if it's the name child (first identifier).
-                return true;
+            if IDENTIFIER_KINDS.contains(&child.kind()) {
+                return child.id() == node.id();
             }
         }
     }
@@ -486,5 +490,43 @@ int main() {
     fn ref_kind_serializes() {
         let json = serde_json::to_string(&RefKind::Definition).unwrap();
         assert_eq!(json, "\"definition\"");
+    }
+
+    #[test]
+    fn is_definition_site_only_matches_name_child() {
+        // Parameters inside a function definition should NOT be classified
+        // as definitions of the parameter name.
+        let source = r#"
+fn process(input: &str, count: usize) -> bool {
+    count > 0
+}
+
+fn main() {
+    process("hello", 5);
+}
+"#;
+        let refs = find_refs_in_source(source, "process", Language::Rust, "test.rs");
+        let defs: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        // "process" should have exactly one definition (the fn declaration)
+        assert_eq!(
+            defs.len(),
+            1,
+            "expected exactly 1 definition of 'process', got {defs:?}"
+        );
+
+        // "input" should NOT be classified as a definition (it's a parameter)
+        let input_refs = find_refs_in_source(source, "input", Language::Rust, "test.rs");
+        let input_defs: Vec<_> = input_refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        // Parameters are not definitions of top-level symbols
+        assert!(
+            input_defs.is_empty(),
+            "parameter 'input' should not be classified as a definition: {input_defs:?}"
+        );
     }
 }
