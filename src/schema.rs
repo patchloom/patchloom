@@ -538,6 +538,24 @@ pub fn operations_for_tier(tier: Tier) -> Vec<OperationSchema> {
         .collect()
 }
 
+/// Extract a human-readable type string from a JSON Schema `type` field.
+///
+/// Handles both `"type": "string"` (scalar) and `"type": ["string", "null"]`
+/// (nullable, produced by schemars for `Option<T>` fields).
+fn extract_type_str(schema: &serde_json::Value) -> String {
+    match schema.get("type") {
+        Some(t) if t.is_string() => t.as_str().unwrap().to_string(),
+        Some(t) if t.is_array() => t
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(" | "),
+        _ => "any".to_string(),
+    }
+}
+
 /// Generate a system prompt fragment describing available operations at this tier.
 ///
 /// The output is markdown text suitable for inclusion in an LLM system prompt.
@@ -567,7 +585,7 @@ pub fn system_prompt_for_tier(tier: Tier) -> String {
                 .unwrap_or_default();
 
             for (key, schema) in obj {
-                let type_str = schema.get("type").and_then(|t| t.as_str()).unwrap_or("any");
+                let type_str = extract_type_str(schema);
                 let desc = schema
                     .get("description")
                     .and_then(|d| d.as_str())
@@ -605,7 +623,7 @@ pub fn system_prompt_for_tier(tier: Tier) -> String {
     {
         out.push_str("**Fields:**\n\n");
         for (key, schema) in obj {
-            let type_str = schema.get("type").and_then(|t| t.as_str()).unwrap_or("any");
+            let type_str = extract_type_str(schema);
             let desc = schema
                 .get("description")
                 .and_then(|d| d.as_str())
