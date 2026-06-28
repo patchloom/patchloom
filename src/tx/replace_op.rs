@@ -39,7 +39,8 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
     );
     let use_regex = regex_mode || *case_insensitive || word_boundary;
-    let replacement = replacement_text(from, to, insert_before, insert_after, use_regex);
+    let replacement =
+        replacement_text(from, to, insert_before, insert_after, use_regex, regex_mode);
     let compiled_re = compile_replace_regex(
         from,
         regex_mode,

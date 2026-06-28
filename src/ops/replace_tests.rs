@@ -81,34 +81,77 @@ mod replace_tests {
 
         #[test]
         fn replacement_text_with_to() {
-            let result = replacement_text("from", &Some("to".into()), &None, &None, false);
+            let result = replacement_text("from", &Some("to".into()), &None, &None, false, false);
             assert_eq!(result, "to");
         }
 
         #[test]
         fn replacement_text_insert_before_literal() {
-            let result =
-                replacement_text("original", &None, &Some("PREFIX\n".into()), &None, false);
+            let result = replacement_text(
+                "original",
+                &None,
+                &Some("PREFIX\n".into()),
+                &None,
+                false,
+                false,
+            );
             assert_eq!(result, "PREFIX\noriginal");
         }
 
         #[test]
         fn replacement_text_insert_after_literal() {
-            let result =
-                replacement_text("original", &None, &None, &Some("\nSUFFIX".into()), false);
+            let result = replacement_text(
+                "original",
+                &None,
+                &None,
+                &Some("\nSUFFIX".into()),
+                false,
+                false,
+            );
             assert_eq!(result, "original\nSUFFIX");
         }
 
         #[test]
         fn replacement_text_insert_before_regex_anchor() {
-            let result = replacement_text("ignored", &None, &Some("PREFIX\n".into()), &None, true);
+            let result = replacement_text(
+                "ignored",
+                &None,
+                &Some("PREFIX\n".into()),
+                &None,
+                true,
+                true,
+            );
             assert_eq!(result, "PREFIX\n${0}");
         }
 
         #[test]
         fn replacement_text_insert_after_regex_anchor() {
-            let result = replacement_text("ignored", &None, &None, &Some("\nSUFFIX".into()), true);
+            let result = replacement_text(
+                "ignored",
+                &None,
+                &None,
+                &Some("\nSUFFIX".into()),
+                true,
+                true,
+            );
             assert_eq!(result, "${0}\nSUFFIX");
+        }
+
+        // Regression: dollar signs in replacement text must be preserved
+        // when case_insensitive/word_boundary compiles an internal regex.
+        #[test]
+        fn replacement_text_escapes_dollars_for_internal_regex() {
+            // use_match_anchor=true (internal regex), regex_mode=false (not user-requested)
+            let result = replacement_text("cost", &Some("$100".into()), &None, &None, true, false);
+            assert_eq!(result, "$$100");
+        }
+
+        #[test]
+        fn replacement_text_preserves_dollars_for_user_regex() {
+            // use_match_anchor=true, regex_mode=true (user explicitly requested regex)
+            let result =
+                replacement_text("(c)ost", &Some("$1ost".into()), &None, &None, true, true);
+            assert_eq!(result, "$1ost");
         }
 
         #[test]

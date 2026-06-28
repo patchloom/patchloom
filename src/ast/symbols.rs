@@ -402,30 +402,45 @@ pub fn rewrite_function_signature(
     let fn_node = find_fn_for_rewrite(root, source, old_name)?;
 
     // Build replacement sig from edit or keep original parts.
-    let vis = edit
-        .visibility
-        .as_deref()
-        .unwrap_or_else(|| child_text_by_kind(fn_node, "visibility", source).unwrap_or(""));
+    let vis = edit.visibility.as_deref().unwrap_or_else(|| {
+        child_text_by_kind(fn_node, "visibility_modifier", source).unwrap_or("")
+    });
     let params = edit
         .parameters
         .as_deref()
         .unwrap_or_else(|| child_text_by_kind(fn_node, "parameters", source).unwrap_or("()"));
+    // tree-sitter-rust has no "return_type" wrapper node. The return type is
+    // represented as a "->" child followed by a type child (e.g. "generic_type").
+    // Extract it from source: everything between the parameters close and the
+    // body (or node end), trimmed.
     let ret = edit
         .return_type
         .as_deref()
-        .unwrap_or_else(|| child_text_by_kind(fn_node, "return_type", source).unwrap_or(""));
+        .unwrap_or_else(|| extract_return_type(fn_node, source).unwrap_or(""));
+
+    // Preserve function qualifiers (async, unsafe, const, extern) from the
+    // original source. These appear between the visibility/start and "fn".
+    let qualifiers = extract_fn_qualifiers(fn_node, source);
 
     let vis_part = if vis.is_empty() {
         String::new()
     } else {
         format!("{} ", vis)
     };
+    let qual_part = if qualifiers.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", qualifiers)
+    };
     let ret_part = if ret.is_empty() {
         String::new()
     } else {
         format!(" {}", ret)
     };
-    let new_sig = format!("{}fn {}{}{}", vis_part, old_name, params, ret_part);
+    let new_sig = format!(
+        "{}{}fn {}{}{}",
+        vis_part, qual_part, old_name, params, ret_part
+    );
 
     // Use the same byte-range logic as replace to swap only the sig.
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
@@ -434,6 +449,51 @@ pub fn rewrite_function_signature(
     let before = &source[..start];
     let after = &source[sig_end..];
     Some(format!("{}{}{}", before, new_sig, after))
+}
+
+/// Extract the return type from a function_item node. tree-sitter-rust has no
+/// "return_type" wrapper; the return type is a `->` child followed by a type
+/// child (e.g. `generic_type`). Returns `"-> Type"` including the arrow.
+fn extract_return_type<'a>(fn_node: tree_sitter_lib::Node, source: &'a str) -> Option<&'a str> {
+    let mut cursor = fn_node.walk();
+    let mut arrow_start = None;
+    for child in fn_node.children(&mut cursor) {
+        if child.kind() == "->" {
+            arrow_start = Some(child.start_byte());
+            continue;
+        }
+        if let Some(a) = arrow_start {
+            // The child right after "->" is the type node.
+            return Some(source[a..child.end_byte()].trim_end());
+        }
+    }
+    None
+}
+
+/// Extract function qualifiers (async, unsafe, const, extern "C") from a
+/// function_item node by scanning the source text between the visibility
+/// (or node start) and the "fn" keyword. This is more robust than matching
+/// tree-sitter node kinds, which vary across grammar versions.
+fn extract_fn_qualifiers(fn_node: tree_sitter_lib::Node, source: &str) -> String {
+    let node_text = &source[fn_node.start_byte()..fn_node.end_byte()];
+    // Find "fn " (with trailing space) in the node text.
+    // Everything between the visibility and "fn " consists of qualifiers.
+    let fn_pos = match node_text.find("fn ") {
+        Some(pos) => pos,
+        None => return String::new(),
+    };
+    let prefix = &node_text[..fn_pos];
+    // Strip the visibility part (e.g., "pub ", "pub(crate) ") if present.
+    let vis = child_text_by_kind(fn_node, "visibility_modifier", source)
+        .or_else(|| child_text_by_kind(fn_node, "visibility", source));
+    let quals = if let Some(v) = vis {
+        // Remove the visibility and any trailing whitespace
+        let after_vis = prefix.strip_prefix(v).unwrap_or(prefix);
+        after_vis.trim()
+    } else {
+        prefix.trim()
+    };
+    quals.to_string()
 }
 
 // Small helper duplicated from internal for rewrite (to avoid exposing private).
@@ -1367,6 +1427,40 @@ struct Point {
         assert!(out.contains("pub(crate) fn old(x: u32, y: &str) -> String"));
         assert!(out.contains("fn other"));
         assert!(!out.contains("fn old(a: i32)"));
+    }
+
+    // Regression: rewrite_function_signature must preserve qualifiers
+    // (async, unsafe, const, extern) from the original function.
+    #[test]
+    fn rewrite_function_signature_preserves_async() {
+        let src = "pub async fn process(data: &[u8]) -> Result<()> { Ok(()) }";
+        let edit = FunctionSigEdit {
+            visibility: None,
+            parameters: Some("(input: &str)".to_string()),
+            return_type: None,
+        };
+        let res = rewrite_function_signature(src, "process", &edit);
+        let out = res.expect("rewrite should succeed");
+        assert!(
+            out.contains("pub async fn process(input: &str) -> Result<()>"),
+            "async qualifier should be preserved: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_function_signature_preserves_unsafe() {
+        let src = "pub unsafe fn dangerous(ptr: *const u8) {}";
+        let edit = FunctionSigEdit {
+            visibility: None,
+            parameters: Some("(ptr: *mut u8)".to_string()),
+            return_type: None,
+        };
+        let res = rewrite_function_signature(src, "dangerous", &edit);
+        let out = res.expect("rewrite should succeed");
+        assert!(
+            out.contains("pub unsafe fn dangerous(ptr: *mut u8)"),
+            "unsafe qualifier should be preserved: {out}"
+        );
     }
 
     // ── full_symbol_span tests ────────────────────────────────────

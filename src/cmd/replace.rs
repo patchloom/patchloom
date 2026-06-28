@@ -117,6 +117,7 @@ fn build_replacement(args: &ReplaceArgs) -> String {
         &args.insert_before,
         &args.insert_after,
         args.regex || args.case_insensitive || args.word_boundary,
+        args.regex,
     )
 }
 

@@ -149,18 +149,39 @@ pub fn replacement_text(
     insert_before: &Option<String>,
     insert_after: &Option<String>,
     use_match_anchor: bool,
+    regex_mode: bool,
 ) -> String {
     let anchor = if use_match_anchor { "${0}" } else { from };
 
+    // When a regex is compiled internally (case_insensitive / word_boundary)
+    // but the user did NOT request regex mode, dollar signs in user-provided
+    // replacement text must be escaped so caps.expand() treats them literally.
+    let needs_escape = use_match_anchor && !regex_mode;
+
     if let Some(text) = insert_before {
-        return format!("{text}{anchor}");
+        let safe = if needs_escape {
+            text.replace('$', "$$")
+        } else {
+            text.clone()
+        };
+        return format!("{safe}{anchor}");
     }
 
     if let Some(text) = insert_after {
-        return format!("{anchor}{text}");
+        let safe = if needs_escape {
+            text.replace('$', "$$")
+        } else {
+            text.clone()
+        };
+        return format!("{anchor}{safe}");
     }
 
-    to.clone().unwrap_or_default()
+    let raw = to.clone().unwrap_or_default();
+    if needs_escape {
+        raw.replace('$', "$$")
+    } else {
+        raw
+    }
 }
 
 fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> String {
