@@ -110,6 +110,20 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> S
     };
 
     if body_start >= body_end {
+        // Opening and closing braces may be on the same line (e.g.
+        // `mod foo { fn bar() {} }`).  Extract text between braces.
+        if body_start > 0 {
+            let brace_line = lines[body_start - 1];
+            if let Some(open) = brace_line.find('{') {
+                let after_open = &brace_line[open + 1..];
+                if let Some(close) = after_open.rfind('}') {
+                    let inner = after_open[..close].trim();
+                    if !inner.is_empty() {
+                        return inner.to_string();
+                    }
+                }
+            }
+        }
         return String::new();
     }
 
@@ -239,5 +253,18 @@ mod tests {
             result.target_content
         );
         assert!(result.target_content.contains("fn test_a()"));
+    }
+
+    #[test]
+    fn unwrap_single_line_module() {
+        // Regression: single-line modules returned empty body because
+        // body_start (line after `{`) >= body_end (line before `}`).
+        let source = "mod foo { fn bar() {} }\n";
+        let result = extract_to_file(source, "foo", None, true, None, Language::Rust).unwrap();
+        assert!(
+            result.target_content.contains("fn bar()"),
+            "single-line module body should be extracted, got: {:?}",
+            result.target_content
+        );
     }
 }
