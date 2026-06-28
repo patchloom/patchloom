@@ -200,12 +200,23 @@ pub(crate) fn format_results(
         };
         let has_ctx =
             args.context.is_some() || args.before_context.is_some() || args.after_context.is_some();
-        let mut first = true;
-        for m in &results.matches {
-            if has_ctx && !first {
-                out.push_str("--\n");
+        let mut prev_end: Option<(usize, usize)> = None; // (match index, last line covered)
+        for (mi, m) in results.matches.iter().enumerate() {
+            if has_ctx {
+                // Only print separator between non-contiguous groups,
+                // matching standard grep/ripgrep behavior (#1111).
+                let cur_start = m
+                    .line
+                    .saturating_sub(m.context_before.as_ref().map_or(0, |b| b.len()));
+                if let Some((prev_idx, prev_last_line)) = prev_end {
+                    let prev_path = &results.matches[prev_idx].path;
+                    if **prev_path != *m.path || cur_start > prev_last_line + 1 {
+                        out.push_str("--\n");
+                    }
+                }
+                let after_ctx_len = m.context_after.as_ref().map_or(0, |a| a.len());
+                prev_end = Some((mi, m.line + after_ctx_len));
             }
-            first = false;
             if let Some(ref before) = m.context_before {
                 for (j, ctx) in before.iter().enumerate() {
                     let ln = m.line - before.len() + j;
