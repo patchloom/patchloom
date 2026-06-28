@@ -90,18 +90,33 @@ pub fn reorder_symbols(
     }
 
     // Rebuild the scope section with symbols in the new order.
-    // Collect the text of each symbol in original order, keyed by name.
+    // Collect the text of each symbol (spans are already in new order after sort).
     let mut sym_texts: Vec<(&str, String)> = Vec::new();
     for span in &spans {
         let text: String = lines[span.start_0..span.end_0].join("\n");
         sym_texts.push((&span.name, text));
     }
 
-    // Now rebuild: prefix (before scope) + reordered symbols + suffix (after scope)
+    // Find the positional boundaries of all symbols (by line index).
+    let first_sym_start = spans
+        .iter()
+        .map(|s| s.start_0)
+        .min()
+        .unwrap_or(scope_start_0);
+    let last_sym_end = spans.iter().map(|s| s.end_0).max().unwrap_or(scope_end_0);
+
+    // Now rebuild: before-scope + scope-prefix + reordered symbols + scope-suffix + after-scope
     let mut result = String::new();
 
-    // Lines before the scope
+    // Lines before the scope (container preamble when using `inside`)
     for line in &lines[..scope_start_0] {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Scope prefix: non-symbol lines inside the scope before the first symbol
+    // (use statements, module-level comments, extern crate, etc.)
+    for line in &lines[scope_start_0..first_sym_start] {
         result.push_str(line);
         result.push('\n');
     }
@@ -115,7 +130,13 @@ pub fn reorder_symbols(
         result.push('\n');
     }
 
-    // Lines after the scope
+    // Scope suffix: non-symbol lines inside the scope after the last symbol
+    for line in &lines[last_sym_end..scope_end_0] {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Lines after the scope (closing brace, trailing content)
     for line in &lines[scope_end_0..] {
         result.push_str(line);
         result.push('\n');
@@ -392,5 +413,34 @@ mod tests {
     fn parse_strategy_invalid() {
         let v = serde_json::json!(42);
         assert!(parse_strategy(&v).is_err());
+    }
+
+    // Regression: reorder must preserve non-symbol content (use statements,
+    // module-level comments) that appears before the first symbol.
+    #[test]
+    fn reorder_preserves_use_statements() {
+        let source =
+            "use std::collections::HashMap;\n\n// Module doc\nfn zebra() {}\n\nfn alpha() {}\n";
+        let result =
+            reorder_symbols(source, None, &ReorderStrategy::Alphabetical, Language::Rust).unwrap();
+        assert!(
+            result.content.contains("use std::collections::HashMap;"),
+            "use statement should be preserved: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("// Module doc"),
+            "module comment should be preserved: {}",
+            result.content
+        );
+        let alpha_pos = result.content.find("fn alpha").unwrap();
+        let zebra_pos = result.content.find("fn zebra").unwrap();
+        assert!(alpha_pos < zebra_pos, "alpha should come before zebra");
+        // use statement should come before any function
+        let use_pos = result.content.find("use std").unwrap();
+        assert!(
+            use_pos < alpha_pos,
+            "use statement should remain before symbols"
+        );
     }
 }

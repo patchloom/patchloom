@@ -132,6 +132,7 @@ fn replace_write(
             &insert_before,
             &insert_after,
             compiled_re.is_some(),
+            is_regex,
         );
 
         let parsed_range = range.as_deref().map(|r| {
@@ -228,6 +229,7 @@ pub fn replace_in_content(
         &opts.insert_before,
         &opts.insert_after,
         compiled_re.is_some(),
+        is_regex,
     );
 
     let parsed_range = opts.range;
