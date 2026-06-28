@@ -102,8 +102,14 @@ pub fn reorder_symbols(
         .iter()
         .map(|s| s.start_0)
         .min()
-        .unwrap_or(scope_start_0);
-    let last_sym_end = spans.iter().map(|s| s.end_0).max().unwrap_or(scope_end_0);
+        .unwrap_or(scope_start_0)
+        .max(scope_start_0);
+    let last_sym_end = spans
+        .iter()
+        .map(|s| s.end_0)
+        .max()
+        .unwrap_or(scope_end_0)
+        .min(scope_end_0);
 
     // Now rebuild: before-scope + scope-prefix + reordered symbols + scope-suffix + after-scope
     let mut result = String::new();
@@ -442,5 +448,22 @@ mod tests {
             use_pos < alpha_pos,
             "use statement should remain before symbols"
         );
+    }
+
+    #[test]
+    fn reorder_inside_single_line_container_no_panic() {
+        // When children start on the same line as the container's opening brace,
+        // first_sym_start could be < scope_start_0 causing a slice panic.
+        let source = "mod m {\nfn b() {}\nfn a() {}\n}\n";
+        let result = reorder_symbols(
+            source,
+            Some("m"),
+            &ReorderStrategy::Alphabetical,
+            Language::Rust,
+        )
+        .unwrap();
+        let a_pos = result.content.find("fn a").unwrap();
+        let b_pos = result.content.find("fn b").unwrap();
+        assert!(a_pos < b_pos, "a should come before b: {}", result.content);
     }
 }

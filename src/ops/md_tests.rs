@@ -1174,4 +1174,42 @@ body text
         assert_eq!(headings.len(), 1);
         assert_eq!(headings[0].text, "Real heading");
     }
+
+    #[test]
+    fn parse_headings_empty_atx_heading() {
+        // CommonMark 4.2: "###" with no trailing text/space is a valid empty heading
+        let content = "###\nsome body\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1, "bare ### should be a level-3 heading");
+        assert_eq!(headings[0].level, 3);
+        assert_eq!(headings[0].text, "");
+    }
+
+    #[test]
+    fn parse_headings_tab_after_hashes() {
+        // CommonMark 4.2: opening # can be followed by spaces OR tabs
+        let content = "#\tTitle\nbody\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1, "tab after # should be accepted");
+        assert_eq!(headings[0].level, 1);
+        assert_eq!(headings[0].text, "Title");
+    }
+
+    #[test]
+    fn parse_headings_indented_up_to_3_spaces() {
+        // CommonMark 4.2: up to 3 spaces of leading indentation allowed
+        let content = "  ## Indented\nbody\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1, "2-space indent should be accepted");
+        assert_eq!(headings[0].level, 2);
+        assert_eq!(headings[0].text, "Indented");
+    }
+
+    #[test]
+    fn parse_headings_4_space_indent_rejected() {
+        // CommonMark 4.2: 4+ spaces is an indented code block, not a heading
+        let content = "    ## Not a heading\nbody\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 0, "4-space indent should NOT be a heading");
+    }
 }
