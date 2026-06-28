@@ -104,7 +104,18 @@ fn collect_rust_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut
 fn collect_python_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
     if node.kind() == "import_statement" || node.kind() == "import_from_statement" {
         if let Ok(text) = node.utf8_text(source.as_bytes()) {
-            let path = extract_path_from_text(text, &["from ", "import "], &[]);
+            // `from X import Y` must extract only the module path `X`, not
+            // `X import Y`.  Strip the `from ` prefix, then truncate at
+            // ` import `.  Plain `import X` just strips `import `.
+            let path = if node.kind() == "import_from_statement" {
+                let raw = extract_path_from_text(text, &["from "], &[]);
+                match raw.find(" import ") {
+                    Some(pos) => raw[..pos].to_string(),
+                    None => raw,
+                }
+            } else {
+                extract_path_from_text(text, &["import "], &[])
+            };
             imports.push(Import {
                 path,
                 line: node.start_position().row + 1,
@@ -238,7 +249,7 @@ fn collect_go_import_specs(node: tree_sitter_lib::Node, source: &str, imports: &
 fn collect_java_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
     if node.kind() == "import_declaration" {
         if let Ok(text) = node.utf8_text(source.as_bytes()) {
-            let path = extract_path_from_text(text, &["import ", "import static "], &[';']);
+            let path = extract_path_from_text(text, &["import static ", "import "], &[';']);
             imports.push(Import {
                 path,
                 line: node.start_position().row + 1,
@@ -639,5 +650,37 @@ namespace app {
             Some("react".to_string())
         );
         assert_eq!(extract_quoted_string("no quotes"), None);
+    }
+
+    #[test]
+    fn java_static_import_path_strips_static_keyword() {
+        // Regression: prefix order ["import ", "import static "] matched
+        // "import " first, leaving "static org.junit..." in the path.
+        let source = "import static org.junit.Assert.*;\n";
+        let imports = extract_imports(source, Language::Java);
+        assert_eq!(imports.len(), 1);
+        assert_eq!(
+            imports[0].path, "org.junit.Assert.*",
+            "static import path should not contain 'static '"
+        );
+    }
+
+    #[test]
+    fn python_from_import_extracts_module_only() {
+        // Regression: `from pathlib import Path` returned path
+        // "pathlib import Path" instead of "pathlib".
+        let source = "from pathlib import Path\nimport os\n";
+        let imports = extract_imports(source, Language::Python);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(
+            paths.contains(&"pathlib"),
+            "from-import should extract 'pathlib', got {:?}",
+            paths
+        );
+        assert!(
+            paths.contains(&"os"),
+            "plain import should extract 'os', got {:?}",
+            paths
+        );
     }
 }
