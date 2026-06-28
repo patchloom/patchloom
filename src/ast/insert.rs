@@ -12,6 +12,17 @@ pub struct InsertResult {
     pub inserted_at_line: usize,
 }
 
+/// Shared context for insert operations, grouping the common parameters
+/// derived from the source file.
+struct InsertContext<'a> {
+    source: &'a str,
+    content: &'a str,
+    symbols: &'a [SymbolDef],
+    lines: &'a [&'a str],
+    lang: Language,
+    eol: &'a str,
+}
+
 /// Position within a container (module, impl, etc.) to insert code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertPosition {
@@ -44,57 +55,43 @@ pub fn insert_code(
     let symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
+    let ctx = InsertContext {
+        source,
+        content,
+        symbols: &symbols,
+        lines: &lines,
+        lang,
+        eol,
+    };
+
     if let Some(container_name) = inside {
-        insert_inside(
-            source,
-            content,
-            container_name,
-            position,
-            &symbols,
-            &lines,
-            eol,
-        )
+        insert_inside(&ctx, container_name, position)
     } else if let Some(after_name) = after {
-        insert_adjacent(
-            source, content, after_name, true, &symbols, &lines, lang, eol,
-        )
+        insert_adjacent(&ctx, after_name, true)
     } else {
         let before_name = before.unwrap();
-        insert_adjacent(
-            source,
-            content,
-            before_name,
-            false,
-            &symbols,
-            &lines,
-            lang,
-            eol,
-        )
+        insert_adjacent(&ctx, before_name, false)
     }
 }
 
 /// Insert content inside a named container (mod, impl, struct, etc.).
 fn insert_inside(
-    source: &str,
-    content: &str,
+    ctx: &InsertContext<'_>,
     container_name: &str,
     position: InsertPosition,
-    symbols: &[SymbolDef],
-    lines: &[&str],
-    eol: &str,
 ) -> anyhow::Result<InsertResult> {
-    let sym = find_symbol(symbols, container_name)
+    let sym = find_symbol(ctx.symbols, container_name)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", container_name))?;
 
     let start_idx = sym.start_line.saturating_sub(1);
-    let end_idx = sym.end_line.min(lines.len());
+    let end_idx = sym.end_line.min(ctx.lines.len());
 
     // Single-line container (e.g. `mod foo {}`): the opening `{` and closing
     // `}` are on the same line.  Both Start and End behave the same: split
     // the line at the braces and insert content between them.
     let close_line_idx = end_idx.saturating_sub(1);
     if close_line_idx <= start_idx {
-        let container_line = lines[start_idx];
+        let container_line = ctx.lines[start_idx];
         if let Some(open) = container_line.find('{')
             && let Some(close_rel) = container_line[open + 1..].rfind('}')
         {
@@ -105,27 +102,27 @@ fn insert_inside(
             // Use container line indent + 4 spaces for the body.
             let line_indent = container_line.len() - container_line.trim_start().len();
             let body_indent = format!("{}{}", &container_line[..line_indent], "    ");
-            let adjusted = indent_content(content, &body_indent, eol);
+            let adjusted = indent_content(ctx.content, &body_indent, ctx.eol);
 
             let mut result = String::new();
-            for line in &lines[..start_idx] {
+            for line in &ctx.lines[..start_idx] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
             result.push_str(before_brace);
-            result.push_str(eol);
+            result.push_str(ctx.eol);
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
             result.push_str(after_brace);
-            result.push_str(eol);
-            for line in &lines[start_idx + 1..] {
+            result.push_str(ctx.eol);
+            for line in &ctx.lines[start_idx + 1..] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
-            if !source.ends_with('\n') && result.ends_with('\n') {
-                result.truncate(result.len() - eol.len());
+            if !ctx.source.ends_with('\n') && result.ends_with('\n') {
+                result.truncate(result.len() - ctx.eol.len());
             }
             return Ok(InsertResult {
                 content: result,
@@ -135,8 +132,8 @@ fn insert_inside(
     }
 
     // Detect the indentation level inside the container.
-    let container_indent = detect_indent(lines, start_idx, end_idx);
-    let adjusted = indent_content(content, &container_indent, eol);
+    let container_indent = detect_indent(ctx.lines, start_idx, end_idx);
+    let adjusted = indent_content(ctx.content, &container_indent, ctx.eol);
 
     let mut result = String::new();
 
@@ -145,30 +142,30 @@ fn insert_inside(
             // Insert before the closing brace of the container.
             // The closing brace is typically on end_line (1-based), i.e. end_idx - 1 (0-based).
 
-            for line in &lines[..close_line_idx] {
+            for line in &ctx.lines[..close_line_idx] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
             // Add a blank line before if the previous content doesn't end with one
-            if close_line_idx > 0 && !lines[close_line_idx - 1].trim().is_empty() {
-                result.push_str(eol);
+            if close_line_idx > 0 && !ctx.lines[close_line_idx - 1].trim().is_empty() {
+                result.push_str(ctx.eol);
             }
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
-            for line in &lines[close_line_idx..] {
+            for line in &ctx.lines[close_line_idx..] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
             let inserted_at = close_line_idx + 1; // 1-based
 
             // Preserve trailing newline behavior
-            if !source.ends_with('\n') && result.ends_with('\n') {
-                result.truncate(result.len() - eol.len());
+            if !ctx.source.ends_with('\n') && result.ends_with('\n') {
+                result.truncate(result.len() - ctx.eol.len());
             }
 
             Ok(InsertResult {
@@ -179,33 +176,34 @@ fn insert_inside(
         InsertPosition::Start => {
             // Insert after the opening brace/line of the container.
             // We look for the first line after start_line that ends with '{' or ':'
-            let insert_after_idx = find_opening_line(lines, start_idx, end_idx);
+            let insert_after_idx = find_opening_line(ctx.lines, start_idx, end_idx);
 
-            for line in &lines[..=insert_after_idx] {
+            for line in &ctx.lines[..=insert_after_idx] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
             // Add blank line if next line is not blank
-            if insert_after_idx + 1 < lines.len() && !lines[insert_after_idx + 1].trim().is_empty()
+            if insert_after_idx + 1 < ctx.lines.len()
+                && !ctx.lines[insert_after_idx + 1].trim().is_empty()
             {
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
-            for line in &lines[insert_after_idx + 1..] {
+            for line in &ctx.lines[insert_after_idx + 1..] {
                 result.push_str(line);
-                result.push_str(eol);
+                result.push_str(ctx.eol);
             }
 
             let inserted_at = insert_after_idx + 2; // 1-based
 
-            if !source.ends_with('\n') && result.ends_with('\n') {
-                result.truncate(result.len() - eol.len());
+            if !ctx.source.ends_with('\n') && result.ends_with('\n') {
+                result.truncate(result.len() - ctx.eol.len());
             }
 
             Ok(InsertResult {
@@ -217,72 +215,66 @@ fn insert_inside(
 }
 
 /// Insert content after or before a named symbol.
-#[allow(clippy::too_many_arguments)]
 fn insert_adjacent(
-    source: &str,
-    content: &str,
+    ctx: &InsertContext<'_>,
     symbol_name: &str,
     after: bool,
-    symbols: &[SymbolDef],
-    lines: &[&str],
-    lang: Language,
-    eol: &str,
 ) -> anyhow::Result<InsertResult> {
-    let sym = find_symbol(symbols, symbol_name)
+    let sym = find_symbol(ctx.symbols, symbol_name)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol_name))?;
 
     // Use the symbol's indentation level for the new content
     let sym_start_idx = sym.start_line.saturating_sub(1);
-    let indent = if sym_start_idx < lines.len() {
-        let line = lines[sym_start_idx];
+    let indent = if sym_start_idx < ctx.lines.len() {
+        let line = ctx.lines[sym_start_idx];
         let trimmed = line.trim_start();
         &line[..line.len() - trimmed.len()]
     } else {
         ""
     };
-    let adjusted = indent_content(content, indent, eol);
+    let adjusted = indent_content(ctx.content, indent, ctx.eol);
 
     let mut result = String::new();
     let inserted_at;
 
     if after {
-        let end_idx = sym.end_line.min(lines.len());
-        for line in &lines[..end_idx] {
+        let end_idx = sym.end_line.min(ctx.lines.len());
+        for line in &ctx.lines[..end_idx] {
             result.push_str(line);
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
-        result.push_str(eol);
+        result.push_str(ctx.eol);
         result.push_str(&adjusted);
         if !adjusted.ends_with('\n') {
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
         inserted_at = end_idx + 1; // 1-based
-        for line in &lines[end_idx..] {
+        for line in &ctx.lines[end_idx..] {
             result.push_str(line);
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
     } else {
-        // Before — use full_symbol_span to include attributes and doc comments.
-        let (full_start, _) = full_symbol_span(source, sym, lang);
+        // Before: use full_symbol_span to include attributes and doc comments.
+        let (full_start, _) = full_symbol_span(ctx.source, sym, ctx.lang);
         let start_idx = full_start.saturating_sub(1);
-        for line in &lines[..start_idx] {
+        for line in &ctx.lines[..start_idx] {
             result.push_str(line);
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
         result.push_str(&adjusted);
         if !adjusted.ends_with('\n') {
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
-        result.push_str(eol);
+        result.push_str(ctx.eol);
         inserted_at = start_idx + 1; // 1-based
-        for line in &lines[start_idx..] {
+        for line in &ctx.lines[start_idx..] {
             result.push_str(line);
-            result.push_str(eol);
+            result.push_str(ctx.eol);
         }
     }
 
-    if !source.ends_with('\n') && result.ends_with('\n') {
-        result.truncate(result.len() - eol.len());
+    if !ctx.source.ends_with('\n') && result.ends_with('\n') {
+        result.truncate(result.len() - ctx.eol.len());
     }
 
     Ok(InsertResult {

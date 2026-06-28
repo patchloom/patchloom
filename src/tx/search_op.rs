@@ -242,39 +242,8 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tx::execute::{CachedDoc, TxState};
-    use crate::tx::output::{TxLintResult, TxReadResult, TxSearchResult};
-    use std::collections::{HashMap, HashSet};
-    use std::path::Path;
+    use crate::tx::TxStateFixture;
     use tempfile::TempDir;
-
-    #[allow(clippy::too_many_arguments)]
-    fn make_tx_state<'a>(
-        pending: &'a mut HashMap<PathBuf, (String, String)>,
-        deletions: &'a mut HashSet<PathBuf>,
-        existed_before: &'a mut HashSet<PathBuf>,
-        doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
-        reads: &'a mut Vec<TxReadResult>,
-        searches: &'a mut Vec<TxSearchResult>,
-        lints: &'a mut Vec<TxLintResult>,
-        write_targets: &'a mut HashSet<PathBuf>,
-        cwd: &'a Path,
-    ) -> TxState<'a> {
-        TxState {
-            pending,
-            deletions,
-            existed_before,
-            doc_cache,
-            tx_reads: reads,
-            tx_searches: searches,
-            tx_lints: lints,
-            write_targets,
-            replace_hint: None,
-            cwd,
-            quiet: true,
-            structured: false,
-        }
-    }
 
     fn search_op(path: &str, pattern: &str) -> Operation {
         Operation::Search {
@@ -304,31 +273,13 @@ mod tests {
 
         let op = search_op("test.txt", "two");
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches.len(), 1);
-        assert_eq!(searches[0].match_count, 1);
-        assert_eq!(searches[0].matches[0].line, 2);
+        drop(tx);
+        assert_eq!(f.searches.len(), 1);
+        assert_eq!(f.searches[0].match_count, 1);
+        assert_eq!(f.searches[0].matches[0].line, 2);
     }
 
     #[test]
@@ -339,29 +290,11 @@ mod tests {
 
         let op = search_op("test.txt", "nonexistent");
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 0);
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 0);
     }
 
     #[test]
@@ -388,29 +321,11 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 2);
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 2);
     }
 
     #[test]
@@ -437,29 +352,11 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 1);
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 1);
     }
 
     #[test]
@@ -486,29 +383,11 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 2); // "keep" and "keep too"
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 2); // "keep" and "keep too"
     }
 
     #[test]
@@ -535,27 +414,8 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let result = execute_search_op(&op, &mut tx);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("assert_count"));
@@ -584,27 +444,8 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let result = execute_search_op(&op, &mut tx);
         assert!(result.is_err());
     }
@@ -633,29 +474,11 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        let m = &searches[0].matches[0];
+        drop(tx);
+        let m = &f.searches[0].matches[0];
         assert_eq!(m.line, 3);
         assert_eq!(m.context_before, vec!["bbb"]);
         assert_eq!(m.context_after, vec!["ddd"]);
@@ -685,32 +508,14 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
+        drop(tx);
         // match_count reports the true total (5 matches), not the truncated count
-        assert_eq!(searches[0].match_count, 5);
+        assert_eq!(f.searches[0].match_count, 5);
         // matches vec is truncated to max_results
-        assert_eq!(searches[0].matches.len(), 2);
+        assert_eq!(f.searches[0].matches.len(), 2);
     }
 
     #[test]
@@ -738,32 +543,14 @@ mod tests {
             custom_ignore_filenames: Vec::new(),
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
+        drop(tx);
         // match_count reports the true total, not the truncated count
-        assert_eq!(searches[0].match_count, 3);
+        assert_eq!(f.searches[0].match_count, 3);
         // matches is truncated to max_results
-        assert_eq!(searches[0].matches.len(), 1);
+        assert_eq!(f.searches[0].matches.len(), 1);
     }
 
     #[test]
@@ -791,30 +578,12 @@ mod tests {
             custom_ignore_filenames: vec![],
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         // Should not panic even when match is near end of file
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 1);
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 1);
     }
 
     #[test]
@@ -827,28 +596,12 @@ mod tests {
 
         // Pattern "foo.bar" should match both lines (dot is regex wildcard)
         let op = search_op("test.txt", "foo.bar");
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(
-            searches[0].match_count, 2,
+            f.searches[0].match_count, 2,
             "regex dot should match any char, yielding 2 matches"
         );
     }
@@ -878,28 +631,12 @@ mod tests {
             exclude_patterns: Vec::new(),
             custom_ignore_filenames: Vec::new(),
         };
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         execute_search_op(&op, &mut tx).unwrap();
-        assert_eq!(searches[0].match_count, 1);
-        let ctx_after = &searches[0].matches[0].context_after;
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 1);
+        let ctx_after = &f.searches[0].matches[0].context_after;
         assert_eq!(
             ctx_after,
             &["eee"],

@@ -365,7 +365,7 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 - `make check` is the full gate. Nothing merges unless it passes.
 - All commits require a `Signed-off-by` line (DCO). Use `git commit -s`.
 - Keep `main.rs` thin. No business logic in `main.rs` or `lib.rs`.
-- Prefer returning exit codes over panicking. Never use `unwrap()` in non-test code.
+- Prefer returning exit codes over panicking. Never use `unwrap()` or `expect()` in non-test code; use `?` with `anyhow::Context` or `.ok_or_else(|| anyhow!("msg"))?` instead. Exception: `expect()` is acceptable on infallible internal invariants (e.g. `Mutex::lock`, compile-time-constant `Regex::new`) where failure indicates a logic bug, not a runtime condition.
 - `unsafe_code = "deny"` is enforced via `[lints.rust]` in Cargo.toml. No unsafe Rust.
 - Use `anyhow::Context` to add context to errors rather than custom `.map_err()` chains.
 
