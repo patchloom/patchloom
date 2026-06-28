@@ -24,6 +24,12 @@ pub struct ExplainArgs {
 }
 
 pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "explain: path={:?}, stdin={}, format={:?}",
+        args.path,
+        args.stdin,
+        args.format
+    );
     let (input, path) = if args.stdin {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;

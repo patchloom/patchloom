@@ -1042,6 +1042,176 @@ fn test_verbose_status_emits_trace() {
         .stderr(predicate::str::contains("[patchloom] status:"));
 }
 
+#[test]
+fn test_verbose_read_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\nworld\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("read")
+        .arg("f.txt")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] read:"));
+}
+
+#[test]
+fn test_verbose_read_with_lines_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("read")
+        .arg("f.txt")
+        .arg("--lines")
+        .arg("1-2")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("[patchloom] read:").and(predicate::str::contains("lines=")),
+        );
+}
+
+#[test]
+fn test_verbose_doc_get_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("data.json"),
+        r#"{"name": "test", "version": "1.0"}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("get")
+        .arg("data.json")
+        .arg("name")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("[patchloom] doc:")
+                .and(predicate::str::contains("doc: get/select")),
+        );
+}
+
+#[test]
+fn test_verbose_doc_set_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name": "test"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("set")
+        .arg("data.json")
+        .arg("name")
+        .arg("updated")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("[patchloom] doc:").and(predicate::str::contains("doc: set")),
+        );
+}
+
+#[test]
+fn test_verbose_doc_has_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("d.json"), r#"{"a": 1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("has")
+        .arg("d.json")
+        .arg("a")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] doc: has"));
+}
+
+#[test]
+fn test_verbose_doc_keys_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("d.json"), r#"{"a": 1, "b": 2}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("keys")
+        .arg("d.json")
+        .arg(".")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] doc: keys"));
+}
+
+#[test]
+fn test_verbose_doc_flatten_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("d.json"), r#"{"a": {"b": 1}}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("flatten")
+        .arg("d.json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] doc: flatten"));
+}
+
+#[test]
+fn test_verbose_explain_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    let plan = "version: '1'\noperations:\n  - op: create_file\n    path: f.txt\n    content: hi\n";
+    fs::write(dir.path().join("plan.yaml"), plan).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("explain")
+        .arg(dir.path().join("plan.yaml"))
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] explain:"));
+}
+
+#[test]
+fn test_verbose_schema_emits_trace() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("schema")
+        .arg("--quiet")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] schema:"));
+}
+
 // ---------------------------------------------------------------------------
 // schema command
 // ---------------------------------------------------------------------------

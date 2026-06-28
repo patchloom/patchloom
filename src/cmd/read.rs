@@ -62,6 +62,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
 }
 
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("read: files={:?}, lines={:?}", args.files, args.lines);
     let cwd = global.resolve_cwd()?;
     let structured = global.json || global.jsonl;
 
