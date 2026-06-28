@@ -171,6 +171,7 @@ fn execute_md_op(
 // ---------------------------------------------------------------------------
 
 pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("md: action={:?}", std::mem::discriminant(&args.action));
     match args.action {
         MdAction::ReplaceSection {
             file,
@@ -178,6 +179,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             stdin,
             content,
         } => {
+            crate::verbose!("md: replace-section file={}, heading={:?}", file, heading);
             let replacement = read_content(stdin, &content)?;
             let op = Operation::MdReplaceSection {
                 path: file.clone(),
@@ -199,6 +201,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             stdin,
             content,
         } => {
+            crate::verbose!(
+                "md: insert-after-heading file={}, heading={:?}",
+                file,
+                heading
+            );
             let insertion = read_content(stdin, &content)?;
             let op = Operation::MdInsertAfterHeading {
                 path: file.clone(),
@@ -220,6 +227,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             stdin,
             content,
         } => {
+            crate::verbose!(
+                "md: insert-before-heading file={}, heading={:?}",
+                file,
+                heading
+            );
             let insertion = read_content(stdin, &content)?;
             let op = Operation::MdInsertBeforeHeading {
                 path: file.clone(),
@@ -240,6 +252,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             heading,
             bullet,
         } => {
+            crate::verbose!("md: upsert-bullet file={}, heading={:?}", file, heading);
             let op = Operation::MdUpsertBullet {
                 path: file.clone(),
                 heading: heading.clone(),
@@ -255,6 +268,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::DedupeHeadings { file } => {
+            crate::verbose!("md: dedupe-headings file={}", file);
             // Pre-read to compute removed headings for side-channel output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
@@ -321,6 +335,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::LintAgents { file } => {
+            crate::verbose!("md: lint-agents file={}", file);
             let cwd = global.resolve_cwd()?;
             let path = cwd.join(&file);
             let content =
@@ -353,6 +368,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::TableAppend { file, heading, row } => {
+            crate::verbose!("md: table-append file={}, heading={:?}", file, heading);
             // Pre-validate: distinguish "heading not found" (NO_MATCHES)
             // from "no table under heading" (error), which the engine
             // conflates into a single None.
@@ -405,6 +421,12 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             before,
             after,
         } => {
+            crate::verbose!(
+                "md: move-section file={}, heading={:?}, to={:?}",
+                file,
+                heading,
+                to
+            );
             // Validate exactly one of --before or --after.
             if before.is_none() && after.is_none() {
                 anyhow::bail!("exactly one of --before or --after must be provided");

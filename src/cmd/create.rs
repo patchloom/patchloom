@@ -40,6 +40,7 @@ struct CreateOutput {
 }
 
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("create: file={}, force={}", args.file, args.force);
     if args.content.is_some() && args.stdin {
         bail!("--content and --stdin cannot be combined");
     }

@@ -9,6 +9,27 @@ use std::path::PathBuf;
 /// If `path` is a directory, walks it (respecting `.gitignore`) and searches
 /// each non-binary file, mirroring the standalone `search` command behavior.
 pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+    crate::verbose!(
+        "search_op: path={}, pattern_len={}, regex={}, case_insensitive={}",
+        if let Operation::Search { path, .. } = op {
+            path.as_str()
+        } else {
+            "<unknown>"
+        },
+        if let Operation::Search { pattern, .. } = op {
+            pattern.len()
+        } else {
+            0
+        },
+        matches!(op, Operation::Search { regex: true, .. }),
+        matches!(
+            op,
+            Operation::Search {
+                case_insensitive: true,
+                ..
+            }
+        ),
+    );
     let Operation::Search {
         path,
         pattern,
