@@ -10,6 +10,20 @@ use std::path::Path;
 
 /// Execute a replace operation within a transaction.
 pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    crate::verbose!(
+        "replace_op: target={}, from_len={}, mode={}",
+        op.declared_paths().first().unwrap_or(&"<glob>"),
+        if let Operation::Replace { from, .. } = op {
+            from.len()
+        } else {
+            0
+        },
+        if let Operation::Replace { mode, .. } = op {
+            mode.as_deref().unwrap_or("literal")
+        } else {
+            "unknown"
+        }
+    );
     let Operation::Replace {
         glob,
         path,

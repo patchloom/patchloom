@@ -40,6 +40,12 @@ struct UndoPreviewOutput {
 }
 
 pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "undo: list={}, session={:?}, apply={}",
+        args.list,
+        args.session,
+        args.apply
+    );
     let cwd = global.resolve_cwd()?;
 
     if args.list {
@@ -137,7 +143,9 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Apply restore.
+    crate::verbose!("undo: restoring session {}", timestamp);
     let restored = backup::restore_session(&cwd, &timestamp)?;
+    crate::verbose!("undo: restored {} file(s)", restored);
     if global.show_status() {
         eprintln!("restored {restored} file(s) from session {timestamp}");
     }

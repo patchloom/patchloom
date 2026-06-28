@@ -165,6 +165,12 @@ fn emit_patch_files_output(
 }
 
 pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "patch: action={:?}, apply={}, check={}",
+        std::mem::discriminant(&args.action),
+        global.apply,
+        global.check
+    );
     let (file, stdin_flag, merge_mode, apply_options) = match &args.action {
         PatchAction::Check { file, stdin } => {
             (file.clone(), *stdin, false, ApplyHunksOptions::default())
@@ -213,6 +219,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
+    crate::verbose!("patch: diff text length={}", diff_text.len());
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
@@ -221,6 +228,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
+    crate::verbose!(
+        "patch: parsed {} file(s), merge_mode={}",
+        patch_files.len(),
+        merge_mode
+    );
     let cwd = global.resolve_cwd()?;
 
     if matches!(args.action, PatchAction::Check { .. }) {

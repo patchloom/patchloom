@@ -51,6 +51,14 @@ fn run_lifecycle_steps(
 ) -> Result<(), LifecycleError> {
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, (cmd, timeout, required)) in steps.enumerate() {
+        crate::verbose!(
+            "tx: running {} step {}: {:?} (timeout={}s, required={})",
+            label,
+            index + 1,
+            cmd,
+            timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS),
+            required
+        );
         let timeout_secs = timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
         let result = exec::run_with_timeout(&cmd, timeout_secs, cwd);
         match result {

@@ -377,6 +377,7 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
 }
 
 pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("batch: input={}", args.input);
     // Read input.
     let input = if args.input == "-" {
         std::io::read_to_string(std::io::stdin())?
@@ -395,6 +396,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         operations.push(parse_line(trimmed, i + 1)?);
     }
 
+    crate::verbose!("batch: parsed {} operations from input", operations.len());
     if operations.is_empty() {
         if global.json || global.jsonl {
             global.emit_json(&serde_json::json!({

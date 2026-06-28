@@ -836,6 +836,213 @@ fn test_no_verbose_by_default() {
 }
 
 // ---------------------------------------------------------------------------
+// Verbose coverage: verify --verbose emits diagnostic traces for key commands.
+// Each test checks that the command-specific verbose prefix appears on stderr,
+// ensuring the verbose! calls added in #1117 are reachable.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_verbose_replace_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "aaa\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("replace")
+        .arg("aaa")
+        .arg("--to")
+        .arg("bbb")
+        .arg("f.txt")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] replace:"));
+}
+
+#[test]
+fn test_verbose_tx_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "old\n").unwrap();
+
+    let plan =
+        "version: '1'\noperations:\n  - op: replace\n    path: f.txt\n    from: old\n    to: new\n";
+    fs::write(dir.path().join("plan.yaml"), plan).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("tx")
+        .arg(dir.path().join("plan.yaml"))
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(
+            predicate::str::contains("[patchloom] tx:")
+                .and(predicate::str::contains("[patchloom] tx: executing plan")),
+        );
+}
+
+#[test]
+fn test_verbose_create_emits_trace() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("create")
+        .arg(dir.path().join("new.txt"))
+        .arg("--content")
+        .arg("hello")
+        .arg("--apply")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] create:"));
+}
+
+#[test]
+fn test_verbose_delete_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "x\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("delete")
+        .arg(dir.path().join("f.txt"))
+        .arg("--apply")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] delete:"));
+}
+
+#[test]
+fn test_verbose_tidy_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "no newline").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("tidy")
+        .arg("check")
+        .arg(dir.path().join("f.txt"))
+        .assert()
+        .stderr(predicate::str::contains("[patchloom] tidy:"));
+}
+
+#[test]
+fn test_verbose_batch_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "aaa\n").unwrap();
+
+    let batch_input = "replace f.txt aaa bbb\n";
+    fs::write(dir.path().join("ops.batch"), batch_input).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("batch")
+        .arg(dir.path().join("ops.batch"))
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] batch:"));
+}
+
+#[test]
+fn test_verbose_md_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\nHello\n\n## Section\n\nBody\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("md")
+        .arg("replace-section")
+        .arg(dir.path().join("doc.md"))
+        .arg("--heading")
+        .arg("Section")
+        .arg("--content")
+        .arg("New body\n")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] md:"));
+}
+
+#[test]
+fn test_verbose_patch_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
+
+    let diff_text = "--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n line1\n-line2\n+LINE2\n line3\n";
+    fs::write(dir.path().join("fix.patch"), diff_text).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("patch")
+        .arg("apply")
+        .arg(dir.path().join("fix.patch"))
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] patch:"));
+}
+
+#[test]
+fn test_verbose_status_emits_trace() {
+    // status requires a git repo
+    let dir = TempDir::new().unwrap();
+
+    // init a git repo
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    fs::write(dir.path().join("f.txt"), "initial\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("status")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] status:"));
+}
+
+// ---------------------------------------------------------------------------
 // schema command
 // ---------------------------------------------------------------------------
 

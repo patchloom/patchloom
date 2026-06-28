@@ -148,6 +148,12 @@ fn commit_and_finalize(
     global: &GlobalFlags,
     show_diffs: bool,
 ) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "tx: committing {} changes, {} deletions, strict={}",
+        result.changes.len(),
+        result.deletions.len(),
+        ctx.strict
+    );
     if let Err(err) = crate::tx::commit_changes(
         &result.changes,
         &result.deletions,
@@ -221,6 +227,12 @@ fn commit_and_finalize(
 pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let structured = global.json || global.jsonl;
     let compact = global.jsonl;
+    crate::verbose!(
+        "tx: plan={}, apply={}, check={}",
+        args.plan,
+        global.apply,
+        global.check
+    );
 
     // 1. Read plan from file or stdin.
     let plan_path = if args.plan == "-" {
@@ -238,6 +250,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             anyhow::anyhow!("failed to read plan file '{}': {e}", plan_path.display())
         })?
     };
+
+    crate::verbose!("tx: plan text length={}", plan_text.len());
 
     // 2. Parse plan (JSON, YAML, or TOML).
     let plan_path_hint = if args.plan == "-" {
@@ -272,6 +286,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         return Ok(exit::PARSE_ERROR);
     }
+
+    crate::verbose!(
+        "tx: parsed plan with {} operations, strict={:?}",
+        plan.operations.len(),
+        plan.strict
+    );
 
     // 3. Validate plan and resolve working directory.
     let (cwd, strict, _resolved_global) =
@@ -346,6 +366,8 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else {
         Vec::new()
     };
+
+    crate::verbose!("tx: cwd={}, strict={}", cwd.display(), strict);
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut result =

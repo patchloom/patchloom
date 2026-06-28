@@ -119,7 +119,14 @@ pub(crate) fn collect_status(
 }
 
 pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("status: checking {} path(s)", args.paths.len());
     let out = collect_status(&args.paths, global)?;
+    crate::verbose!(
+        "status: {} modified, {} created, {} deleted",
+        out.modified.len(),
+        out.created.len(),
+        out.deleted.len()
+    );
 
     if !global.emit_json(&out)? && !global.quiet {
         for f in &out.modified {

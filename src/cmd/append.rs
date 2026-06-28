@@ -35,6 +35,7 @@ struct AppendOutput {
 }
 
 pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("append: file={}", args.file);
     if args.content.is_some() && args.stdin {
         bail!("--content and --stdin cannot be combined");
     }

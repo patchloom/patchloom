@@ -171,8 +171,10 @@ fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
 }
 
 pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("tidy: action={:?}", std::mem::discriminant(&args.action));
     match args.action {
         TidyAction::Check { paths } => {
+            crate::verbose!("tidy: checking {} path(s)", paths.len());
             let issues = collect_issues(&paths, global)?;
             if !global.quiet || global.json || global.jsonl {
                 render_issues(&issues, global);
@@ -189,6 +191,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             indent,
             lines,
         } => {
+            crate::verbose!("tidy: fixing {} path(s)", paths.len());
             if dedent.is_some() && indent.is_some() {
                 anyhow::bail!("--dedent and --indent cannot both be set");
             }
@@ -241,6 +244,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 },
             );
 
+            crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
             if dirty_rel_paths.is_empty() {
                 // No changes: emit structured output (matching old behavior)
                 // and exit.

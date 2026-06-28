@@ -140,6 +140,7 @@ pub fn execute_precomputed(
     changes: Vec<PrecomputedChange>,
     options: ExecuteOptions<'_>,
 ) -> ExecutionResult {
+    crate::verbose!("engine: execute_precomputed changes={}", changes.len());
     use crate::write::{apply_policy, policy_from_flags};
     use std::collections::{HashMap, HashSet};
 
@@ -160,6 +161,10 @@ pub fn execute_precomputed(
     }
 
     let no_effective_changes = result_changes.is_empty();
+    crate::verbose!(
+        "engine: precomputed effective_changes={}",
+        result_changes.len()
+    );
     let exec_result = super::output::TxExecResult {
         changes: result_changes,
         deletions: HashSet::new(),
@@ -185,6 +190,11 @@ fn execute_plan_inner(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
+    crate::verbose!(
+        "engine: execute_plan_inner ops={}, guard={}",
+        operations.len(),
+        options.guard.is_some()
+    );
     // Validate TidyFix-specific constraints (dedent + indent mutual exclusion).
     for op in &operations {
         if let Operation::TidyFix { dedent, indent, .. } = op

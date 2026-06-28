@@ -39,6 +39,12 @@ struct RenameOutput {
 }
 
 pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "rename: from={}, to={}, force={}",
+        args.from,
+        args.to,
+        args.force
+    );
     let cwd = global.resolve_cwd()?;
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
