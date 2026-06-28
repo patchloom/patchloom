@@ -616,6 +616,54 @@ fn test_patch_malformed_file_fails() {
         .stderr(predicate::str::contains("parse error"));
 }
 
+// Regression: merge-check exit code was SUCCESS when both a conflict (resolved
+// via --allow-conflicts) and a hard error (hunk not locatable) occurred in a
+// multi-file patch.  The error was masked because `has_conflicts && allow_conflicts`
+// short-circuited before checking for errors.
+#[test]
+fn test_patch_merge_check_allow_conflicts_still_exits_5_on_error() {
+    let dir = TempDir::new().unwrap();
+    // File A: will produce a conflict (content diverged from patch context).
+    let file_a = dir.path().join("a.txt");
+    fs::write(&file_a, "line1\ncompletely different\nline3\n").unwrap();
+    // File B: does not exist, so merge will fail entirely (error status).
+
+    let patch_file = dir.path().join("multi.patch");
+    fs::write(
+        &patch_file,
+        "\
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ line1
+-old line
++new line
+ line3
+--- a/b.txt
++++ b/b.txt
+@@ -1,3 +1,3 @@
+ alpha
+-beta
++gamma
+ delta
+",
+    )
+    .unwrap();
+    // With --allow-conflicts, the conflict on a.txt is acceptable, but the
+    // error on b.txt should still produce a non-zero exit code (AMBIGUOUS=5).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("merge")
+        .arg(&patch_file)
+        .arg("--check")
+        .arg("--allow-conflicts")
+        .assert()
+        .code(5);
+}
+
 // ---------------------------------------------------------------------------
 // --jsonl + count/files-with-matches (bug fix: count_only + jsonl)
 // ---------------------------------------------------------------------------
