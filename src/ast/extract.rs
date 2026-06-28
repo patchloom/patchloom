@@ -94,9 +94,18 @@ pub fn extract_to_file(
 fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> String {
     // Find the opening brace line
     let mut body_start = sym_start_0;
+    let mut brace_line_tail: Option<&str> = None;
     for (i, line) in lines.iter().enumerate().take(sym_end_0).skip(sym_start_0) {
         let trimmed = line.trim();
         if trimmed.contains('{') {
+            // Check if there is code after the `{` on the same line.
+            if let Some(open) = line.find('{') {
+                let after = line[open + 1..].trim();
+                // Ignore if the rest is just `}` or empty (handled below).
+                if !after.is_empty() && !after.starts_with('}') {
+                    brace_line_tail = Some(line[open + 1..].trim_end());
+                }
+            }
             body_start = i + 1;
             break;
         }
@@ -138,19 +147,27 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> S
         .unwrap_or(0);
 
     // Un-indent
-    body_lines
-        .iter()
-        .map(|line| {
-            if line.trim().is_empty() {
-                String::new()
-            } else if line.len() >= min_indent {
-                line[min_indent..].to_string()
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut parts: Vec<String> = Vec::new();
+
+    // Prepend any code that was on the same line as the opening `{`.
+    if let Some(tail) = brace_line_tail {
+        let trimmed = tail.trim();
+        // Strip trailing `}` if the closing brace is also on this tail
+        // (already handled by the single-line branch above, but be safe).
+        parts.push(trimmed.to_string());
+    }
+
+    parts.extend(body_lines.iter().map(|line| {
+        if line.trim().is_empty() {
+            String::new()
+        } else if line.len() >= min_indent {
+            line[min_indent..].to_string()
+        } else {
+            line.to_string()
+        }
+    }));
+
+    parts.join("\n")
 }
 
 #[cfg(test)]
@@ -264,6 +281,23 @@ mod tests {
         assert!(
             result.target_content.contains("fn bar()"),
             "single-line module body should be extracted, got: {:?}",
+            result.target_content
+        );
+    }
+
+    #[test]
+    fn unwrap_module_preserves_brace_line_content() {
+        // Code after the opening `{` on the same line should be preserved.
+        let source = "mod foo { use bar::*;\n    fn baz() {}\n}\n";
+        let result = extract_to_file(source, "foo", None, true, None, Language::Rust).unwrap();
+        assert!(
+            result.target_content.contains("use bar::*;"),
+            "content on the brace line should be preserved, got: {:?}",
+            result.target_content
+        );
+        assert!(
+            result.target_content.contains("fn baz()"),
+            "body content should also be present, got: {:?}",
             result.target_content
         );
     }

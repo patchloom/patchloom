@@ -224,8 +224,12 @@ pub fn backup_write_files(
     if let Err(e) = write_result {
         // Auto-restore from backup on partial write failure so the caller
         // does not end up with a half-written batch.
-        if let Some(ref ts) = backup_ts {
-            let _ = restore_session(cwd, ts);
+        if let Some(ref ts) = backup_ts
+            && let Err(restore_err) = restore_session(cwd, ts)
+        {
+            return Err(e.context(format!(
+                "write failed AND auto-restore also failed: {restore_err}"
+            )));
         }
         return Err(e);
     }
