@@ -290,6 +290,10 @@ pub fn update_matching(
                 for item in arr.iter_mut() {
                     count += update_matching(item, rest, new_val);
                 }
+            } else if let Some(obj) = value.as_object_mut() {
+                for item in obj.values_mut() {
+                    count += update_matching(item, rest, new_val);
+                }
             }
             count
         }
@@ -300,6 +304,15 @@ pub fn update_matching(
             let mut count = 0;
             if let Some(arr) = value.as_array_mut() {
                 for item in arr.iter_mut() {
+                    let matches = item
+                        .get(key.as_str())
+                        .is_some_and(|field| selector::value_matches_str(field, pred_val));
+                    if matches {
+                        count += update_matching(item, rest, new_val);
+                    }
+                }
+            } else if let Some(obj) = value.as_object_mut() {
+                for item in obj.values_mut() {
                     let matches = item
                         .get(key.as_str())
                         .is_some_and(|field| selector::value_matches_str(field, pred_val));

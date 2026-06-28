@@ -412,6 +412,38 @@ impl GlobalFlags {
             ..Default::default()
         }
     }
+
+    /// Create a copy of `base` with `respect_editorconfig` overridden.
+    ///
+    /// Used by the tx engine when a plan-level `write_policy` sets
+    /// `respect_editorconfig`, since EditorConfig properties must be
+    /// resolved during `policy_from_flags` construction, not after (#1111.3).
+    pub fn with_editorconfig(base: &GlobalFlags, ec: bool) -> Self {
+        GlobalFlags {
+            cwd: base.cwd.clone(),
+            json: base.json,
+            jsonl: base.jsonl,
+            quiet: base.quiet,
+            glob: base.glob.clone(),
+            exclude: base.exclude.clone(),
+            ignore_file: base.ignore_file.clone(),
+            files_from: base.files_from.clone(),
+            diff: base.diff,
+            apply: base.apply,
+            check: base.check,
+            ensure_final_newline: base.ensure_final_newline,
+            normalize_eol: base.normalize_eol,
+            trim_trailing_whitespace: base.trim_trailing_whitespace,
+            collapse_blanks: base.collapse_blanks,
+            respect_editorconfig: ec,
+            confirm: base.confirm,
+            no_format: base.no_format,
+            format: base.format.clone(),
+            format_timeout: base.format_timeout,
+            verbose: base.verbose,
+            color: base.color,
+        }
+    }
 }
 
 #[cfg(test)]

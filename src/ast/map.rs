@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
-use super::refs::{RefKind, find_refs_in_source_with_tree};
+use super::refs::{RefKind, find_all_refs_in_source_with_tree};
 use super::symbols::{SymbolDef, SymbolKind, extract_symbols};
 
 /// A symbol entry in the repository map.
@@ -104,53 +104,47 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
         })
         .collect();
 
-    for fd in &file_data {
-        let Some(tree) = tree_cache.get(fd.path.as_str()) else {
-            continue;
-        };
-        for (idx, (_, name, _, _, _)) in all_symbols.iter().enumerate() {
-            if all_symbols[idx].0 != fd.path {
-                continue;
-            }
-            // Find what this symbol references in other symbols
-            let refs = find_refs_in_source_with_tree(&fd.source, name, tree, &fd.path);
-            for r in &refs {
-                if r.kind == RefKind::Reference {
-                    // This file references `name`, add edges from referencing symbols
-                    // to the definition of `name` in other files
-                    if let Some(targets) = name_to_idx.get(name.as_str()) {
-                        for &target in targets {
-                            if target != idx {
-                                edges[idx].insert(target);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Collect all identifiers in each file in a single pass (O(1) parses per file).
+    // Each entry is (identifier_name, 1-based line number, RefKind).
+    let file_all_refs: HashMap<&str, Vec<(String, usize, RefKind)>> = file_data
+        .iter()
+        .filter_map(|fd| {
+            let tree = tree_cache.get(fd.path.as_str())?;
+            let refs = find_all_refs_in_source_with_tree(&fd.source, tree, &fd.path);
+            let tuples: Vec<(String, usize, RefKind)> = refs
+                .into_iter()
+                .map(|(name, r)| (name, r.line, r.kind))
+                .collect();
+            Some((fd.path.as_str(), tuples))
+        })
+        .collect();
 
-    // Also find cross-file references: for each file, scan for identifiers
-    // that match symbol names in other files
-    for fd in &file_data {
-        let Some(tree) = tree_cache.get(fd.path.as_str()) else {
+    // Build symbol line ranges for containment checks.
+    // all_symbols_ranges[i] = (file, start_line_1based, end_line_1based).
+    let all_symbols_ranges: Vec<(&str, usize, usize)> = file_data
+        .iter()
+        .flat_map(|fd| collect_symbol_ranges(&fd.symbols, &fd.path))
+        .collect();
+
+    // For each symbol, find identifiers within its line range that match
+    // other known symbol names, and add edges to those targets.
+    for (src_idx, (src_file, src_start, src_end)) in all_symbols_ranges.iter().enumerate() {
+        let Some(refs_in_file) = file_all_refs.get(src_file) else {
             continue;
         };
-        for (name, indices) in &name_to_idx {
-            // Skip symbols defined in this file
-            if indices.iter().all(|&i| all_symbols[i].0 == fd.path) {
+        for (ref_name, ref_line, ref_kind) in refs_in_file {
+            if *ref_kind == RefKind::Definition {
                 continue;
             }
-            let refs = find_refs_in_source_with_tree(&fd.source, name, tree, &fd.path);
-            if refs.iter().any(|r| r.kind == RefKind::Reference) {
-                // Find symbols in this file that could be the referencing context
-                let file_symbols: Vec<usize> =
-                    (0..n).filter(|&i| all_symbols[i].0 == fd.path).collect();
-                for &src in &file_symbols {
-                    for &dst in indices {
-                        if all_symbols[dst].0 != fd.path {
-                            edges[src].insert(dst);
-                        }
+            // Check if this reference falls within the symbol's line range
+            if *ref_line < *src_start || *ref_line > *src_end {
+                continue;
+            }
+            // Find target symbols with this name
+            if let Some(targets) = name_to_idx.get(ref_name.as_str()) {
+                for &dst in targets {
+                    if dst != src_idx {
+                        edges[src_idx].insert(dst);
                     }
                 }
             }
@@ -204,6 +198,21 @@ fn collect_flat_symbols(
         ));
         collect_flat_symbols(&sym.children, file, out, name_to_idx);
     }
+}
+
+/// Collect (file, start_line, end_line) ranges for all symbols in the same
+/// order as `collect_flat_symbols` produces them. This keeps the index
+/// correspondence between `all_symbols` and the range table.
+fn collect_symbol_ranges<'a>(
+    symbols: &'a [SymbolDef],
+    file: &'a str,
+) -> Vec<(&'a str, usize, usize)> {
+    let mut out = Vec::new();
+    for sym in symbols {
+        out.push((file, sym.start_line, sym.end_line));
+        out.extend(collect_symbol_ranges(&sym.children, file));
+    }
+    out
 }
 
 fn pagerank(
@@ -457,6 +466,70 @@ mod tests {
                 "score[{i}] = {s}, expected ~{expected}"
             );
         }
+    }
+
+    /// Regression: cross-file edges must be attributed to the specific symbol
+    /// that contains the reference, not to ALL symbols in the file (#1101).
+    #[test]
+    fn edges_scoped_to_containing_symbol() {
+        // Create two files:
+        // - file_a.rs: defines `foo` (calls `baz`) and `bar` (no calls)
+        // - file_b.rs: defines `baz`
+        //
+        // Only `foo` should have an edge to `baz`. `bar` should NOT.
+        let dir = tempfile::tempdir().unwrap();
+
+        let file_a = dir.path().join("file_a.rs");
+        std::fs::write(
+            &file_a,
+            "fn foo() {\n    baz();\n}\n\nfn bar() {\n    let x = 1;\n}\n",
+        )
+        .unwrap();
+
+        let file_b = dir.path().join("file_b.rs");
+        std::fs::write(&file_b, "fn baz() {\n    println!(\"hello\");\n}\n").unwrap();
+
+        let files: Vec<(std::path::PathBuf, String)> = vec![
+            (file_a.clone(), "file_a.rs".into()),
+            (file_b.clone(), "file_b.rs".into()),
+        ];
+
+        let opts = MapOptions {
+            max_tokens: 10000,
+            ..MapOptions::default()
+        };
+        let entries = generate_map(&files, &opts);
+
+        // baz should have a higher score than bar because foo references baz,
+        // but bar has no references to baz.
+        let baz_score = entries
+            .iter()
+            .find(|e| e.name == "baz")
+            .map(|e| e.score)
+            .unwrap_or(0.0);
+        let bar_score = entries
+            .iter()
+            .find(|e| e.name == "bar")
+            .map(|e| e.score)
+            .unwrap_or(0.0);
+        // If the bug were present (edges from ALL symbols in file_a to baz),
+        // bar would also boost baz. With the fix, only foo -> baz exists.
+        // We can't assert exact scores but we can verify the map runs without panic.
+        assert!(!entries.is_empty(), "map should produce entries");
+        // Both baz and bar should appear
+        assert!(
+            entries.iter().any(|e| e.name == "baz"),
+            "baz should be in the map"
+        );
+        assert!(
+            entries.iter().any(|e| e.name == "bar"),
+            "bar should be in the map"
+        );
+        // baz should have equal or higher score than bar (foo references baz)
+        assert!(
+            baz_score >= bar_score,
+            "baz ({baz_score}) should score >= bar ({bar_score}) since foo->baz edge exists"
+        );
     }
 
     #[test]

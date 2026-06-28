@@ -74,21 +74,30 @@ pub(crate) fn read_and_probe(
     Ok(true)
 }
 
-/// Update the current content for a file in the pending map.
-/// If the file was previously marked for deletion, unmark it (the latest
-/// intent is to write, not delete).
+/// Update the current content for a file in the pending map and mark it
+/// as a write target. If the file was previously marked for deletion,
+/// unmark it (the latest intent is to write, not delete).
 pub(crate) fn update_file_content(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
+    write_targets: &mut HashSet<PathBuf>,
     path: &Path,
     new_content: String,
 ) {
     deletions.remove(path);
+    write_targets.insert(path.to_path_buf());
     if let Some((_, current)) = pending.get_mut(path) {
         *current = new_content;
     } else {
         pending.insert(path.to_path_buf(), (String::new(), new_content));
     }
+}
+
+/// Mark a file as targeted by a write operation. Write policy is only
+/// applied to files in this set, not to files loaded solely for reading
+/// (#1108).
+pub(crate) fn mark_write_target(write_targets: &mut HashSet<PathBuf>, path: &Path) {
+    write_targets.insert(path.to_path_buf());
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +108,7 @@ pub(crate) fn update_file_content(
 pub(crate) fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
+    write_targets: &mut HashSet<PathBuf>,
     path: PathBuf,
     cached: CachedDoc,
 ) -> anyhow::Result<()> {
@@ -109,7 +119,7 @@ pub(crate) fn flush_doc_cache_entry(
         &cached.format,
     )
     .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
-    update_file_content(pending, deletions, &path, new_content);
+    update_file_content(pending, deletions, write_targets, &path, new_content);
     Ok(())
 }
 
@@ -118,10 +128,11 @@ pub(crate) fn flush_doc_cache_entry(
 pub(crate) fn flush_doc_cache(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
+    write_targets: &mut HashSet<PathBuf>,
     doc_cache: &mut HashMap<PathBuf, CachedDoc>,
 ) -> anyhow::Result<()> {
     for (path, cached) in doc_cache.drain() {
-        flush_doc_cache_entry(pending, deletions, path, cached)?;
+        flush_doc_cache_entry(pending, deletions, write_targets, path, cached)?;
     }
     Ok(())
 }
@@ -143,7 +154,13 @@ pub(crate) fn apply_md_heading_op(
     let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
     let new_content = op(file_content, heading, extra)
         .ok_or_else(|| anyhow::anyhow!("{err_label} not found: {heading}"))?;
-    update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+    update_file_content(
+        tx.pending,
+        tx.deletions,
+        tx.write_targets,
+        &file_path,
+        new_content,
+    );
     Ok(())
 }
 
@@ -219,6 +236,10 @@ pub(crate) struct TxState<'a> {
     pub(crate) tx_reads: &'a mut Vec<TxReadResult>,
     pub(crate) tx_searches: &'a mut Vec<TxSearchResult>,
     pub(crate) tx_lints: &'a mut Vec<TxLintResult>,
+    /// Files targeted by write operations (Replace, TidyFix, Doc mutations,
+    /// Md mutations, Patch, AST transforms, etc.). Write policy is only
+    /// applied to these files, not to files loaded solely for reading (#1108).
+    pub(crate) write_targets: &'a mut HashSet<PathBuf>,
     pub(crate) replace_hint: Option<String>,
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
@@ -322,7 +343,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
-            update_file_content(tx.pending, tx.deletions, &file_path, combined);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &file_path,
+                combined,
+            );
         }
 
         Operation::FilePrepend { path, content } => {
@@ -338,7 +365,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
-            update_file_content(tx.pending, tx.deletions, &file_path, combined);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &file_path,
+                combined,
+            );
         }
 
         Operation::FileCreate {
@@ -354,14 +387,26 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
                     let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
                 }
-                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    content.clone(),
+                );
             } else {
                 let exists_in_tx =
                     tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
                 if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
                     anyhow::bail!("file already exists: {path}");
                 }
-                update_file_content(tx.pending, tx.deletions, &file_path, content.clone());
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    content.clone(),
+                );
             }
         }
 
@@ -382,7 +427,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.pending.remove(&file_path);
                 tx.deletions.remove(&file_path);
             } else {
-                update_file_content(tx.pending, tx.deletions, &file_path, String::new());
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    String::new(),
+                );
                 tx.deletions.insert(file_path);
             }
         }
@@ -432,7 +483,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
 
             // Write content to destination.
-            update_file_content(tx.pending, tx.deletions, &dst_path, content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &dst_path,
+                content,
+            );
 
             // Delete source (same logic as file.delete for tx-created files).
             let created_in_tx = match tx.pending.get(&src_path) {
@@ -443,7 +500,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.pending.remove(&src_path);
                 tx.deletions.remove(&src_path);
             } else {
-                update_file_content(tx.pending, tx.deletions, &src_path, String::new());
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &src_path,
+                    String::new(),
+                );
                 tx.deletions.insert(src_path);
             }
         }
@@ -557,9 +620,21 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     .ok_or_else(|| {
                         anyhow::anyhow!("md.move_section: heading or target not found")
                     })?;
-            update_file_content(tx.pending, tx.deletions, &source_path, new_source);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &source_path,
+                new_source,
+            );
             if !same_file {
-                update_file_content(tx.pending, tx.deletions, &dest_path, new_dest);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &dest_path,
+                    new_dest,
+                );
             }
         }
 
@@ -567,7 +642,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_path = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
-            update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &file_path,
+                new_content,
+            );
         }
 
         Operation::TidyFix {
@@ -580,6 +661,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             lines,
         } => {
             let file_path = tx.cwd.join(path);
+            mark_write_target(tx.write_targets, &file_path);
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?.to_owned();
             let policy = WritePolicy {
                 ensure_final_newline: ensure_final_newline.unwrap_or(true),
@@ -606,7 +688,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             }
 
             if content != new {
-                update_file_content(tx.pending, tx.deletions, &file_path, new);
+                update_file_content(tx.pending, tx.deletions, tx.write_targets, &file_path, new);
             }
         }
 
@@ -644,7 +726,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     );
                 }
                 let file_path = tx.cwd.join(&result.path);
-                update_file_content(tx.pending, tx.deletions, &file_path, result.content);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    result.content,
+                );
             }
         }
 
@@ -684,7 +772,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
             match result {
                 Some(r) if r.replacements > 0 => {
-                    update_file_content(tx.pending, tx.deletions, &abs, r.content);
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &abs,
+                        r.content,
+                    );
                     return Ok(r.replacements);
                 }
                 _ => {
@@ -696,7 +790,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                         let new_content = re.replace_all(content, new_name.as_str()).to_string();
                         let count = re.find_iter(content).count();
                         if count > 0 {
-                            update_file_content(tx.pending, tx.deletions, &abs, new_content);
+                            update_file_content(
+                                tx.pending,
+                                tx.deletions,
+                                tx.write_targets,
+                                &abs,
+                                new_content,
+                            );
                             return Ok(count);
                         }
                     }
@@ -725,7 +825,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             )?;
             match result {
                 Some(r) if r.replacements > 0 => {
-                    update_file_content(tx.pending, tx.deletions, &abs, r.content);
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &abs,
+                        r.content,
+                    );
                     return Ok(r.replacements);
                 }
                 Some(_) => anyhow::bail!(
@@ -767,7 +873,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 pos,
                 lang_val,
             )?;
-            update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs,
+                result.content,
+            );
             return Ok(1);
         }
 
@@ -794,7 +906,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 preamble.as_deref(),
                 lang_val,
             )?;
-            update_file_content(tx.pending, tx.deletions, &abs, result.content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs,
+                result.content,
+            );
             return Ok(1);
         }
 
@@ -832,7 +950,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 file_content = result.content;
             }
             if total_changes > 0 {
-                update_file_content(tx.pending, tx.deletions, &abs, file_content);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &abs,
+                    file_content,
+                );
             }
             return Ok(total_changes);
         }
@@ -858,7 +982,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 lang_val,
             )?;
             if result.symbols_reordered > 0 {
-                update_file_content(tx.pending, tx.deletions, &abs, result.content);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &abs,
+                    result.content,
+                );
             }
             return Ok(result.symbols_reordered);
         }
@@ -893,7 +1023,13 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             };
             let result = crate::ast::group::group_symbols(file_content, &spec, lang_val)?;
             if result.symbols_moved > 0 {
-                update_file_content(tx.pending, tx.deletions, &abs, result.content);
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &abs,
+                    result.content,
+                );
             }
             return Ok(result.symbols_moved);
         }
@@ -931,8 +1067,20 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 pos,
                 lang_val,
             )?;
-            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
-            update_file_content(tx.pending, tx.deletions, &abs_target, result.target_content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs_source,
+                result.source_content,
+            );
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs_target,
+                result.target_content,
+            );
             return Ok(result.symbols_moved);
         }
 
@@ -969,8 +1117,20 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 prepend.as_deref(),
                 lang_val,
             )?;
-            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
-            update_file_content(tx.pending, tx.deletions, &abs_target, result.target_content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs_source,
+                result.source_content,
+            );
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs_target,
+                result.target_content,
+            );
             return Ok(1);
         }
 
@@ -1008,12 +1168,19 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 exhaustive,
                 lang_val,
             )?;
-            update_file_content(tx.pending, tx.deletions, &abs_source, result.source_content);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs_source,
+                result.source_content,
+            );
             for (target_path, target_content) in &result.targets {
                 let abs_target = tx.cwd.join(target_path);
                 update_file_content(
                     tx.pending,
                     tx.deletions,
+                    tx.write_targets,
                     &abs_target,
                     target_content.clone(),
                 );
@@ -1039,6 +1206,19 @@ fn build_write_policy(
     global: &GlobalFlags,
     path: &Path,
 ) -> anyhow::Result<WritePolicy> {
+    // If the plan explicitly sets respect_editorconfig, build the policy
+    // with that flag applied. This must happen before policy_from_flags
+    // because EditorConfig properties are resolved during construction,
+    // not during apply_override (#1111.3).
+    let effective_global;
+    let global = if let Some(ov) = &plan.write_policy
+        && let Some(ec) = ov.respect_editorconfig
+    {
+        effective_global = GlobalFlags::with_editorconfig(global, ec);
+        &effective_global
+    } else {
+        global
+    };
     let mut write_policy = crate::write::policy_from_flags(global, Some(path));
     if let Some(ov) = &plan.write_policy {
         write_policy.apply_override(ov)?;
@@ -1065,6 +1245,7 @@ pub(crate) fn execute_and_collect(
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
     let mut existed_before: HashSet<PathBuf> = HashSet::new();
+    let mut write_targets: HashSet<PathBuf> = HashSet::new();
     let mut has_non_idempotent_replace = false;
     let mut total_replace_matches = 0usize;
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
@@ -1090,7 +1271,12 @@ pub(crate) fn execute_and_collect(
             has_non_idempotent_replace = true;
         }
         if op_needs_doc_flush(op) {
-            flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+            flush_doc_cache(
+                &mut pending,
+                &mut deletions,
+                &mut write_targets,
+                &mut doc_cache,
+            )?;
         }
         let mut tx = TxState {
             pending: &mut pending,
@@ -1100,6 +1286,7 @@ pub(crate) fn execute_and_collect(
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             tx_lints: &mut tx_lints,
+            write_targets: &mut write_targets,
             replace_hint: None,
             cwd,
             quiet,
@@ -1128,10 +1315,21 @@ pub(crate) fn execute_and_collect(
         }
     }
 
-    flush_doc_cache(&mut pending, &mut deletions, &mut doc_cache)?;
+    flush_doc_cache(
+        &mut pending,
+        &mut deletions,
+        &mut write_targets,
+        &mut doc_cache,
+    )?;
 
     let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
     for (path, (original, current)) in &pending {
+        // Skip write policy for files that were only loaded for reading
+        // (Read/Search operations). Write policy is only applied to files
+        // targeted by at least one write operation (#1108).
+        if !write_targets.contains(path) {
+            continue;
+        }
         let write_policy = build_write_policy(plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
         if *original != *final_content {
@@ -1262,13 +1460,21 @@ mod tests {
         let path = PathBuf::from("/fake/file.txt");
         let mut pending = HashMap::new();
         let mut deletions = HashSet::new();
+        let mut write_targets = HashSet::new();
         pending.insert(path.clone(), ("original".to_string(), "old".to_string()));
 
-        update_file_content(&mut pending, &mut deletions, &path, "new content".into());
+        update_file_content(
+            &mut pending,
+            &mut deletions,
+            &mut write_targets,
+            &path,
+            "new content".into(),
+        );
 
         let (orig, cur) = &pending[&path];
         assert_eq!(orig, "original"); // original preserved
         assert_eq!(cur, "new content");
+        assert!(write_targets.contains(&path));
     }
 
     #[test]
@@ -1276,12 +1482,20 @@ mod tests {
         let path = PathBuf::from("/fake/new_file.txt");
         let mut pending = HashMap::new();
         let mut deletions = HashSet::new();
+        let mut write_targets = HashSet::new();
 
-        update_file_content(&mut pending, &mut deletions, &path, "content".into());
+        update_file_content(
+            &mut pending,
+            &mut deletions,
+            &mut write_targets,
+            &path,
+            "content".into(),
+        );
 
         let (orig, cur) = &pending[&path];
         assert!(orig.is_empty()); // no original for new files
         assert_eq!(cur, "content");
+        assert!(write_targets.contains(&path));
     }
 
     #[test]
@@ -1289,11 +1503,19 @@ mod tests {
         let path = PathBuf::from("/fake/file.txt");
         let mut pending = HashMap::new();
         let mut deletions = HashSet::new();
+        let mut write_targets = HashSet::new();
         deletions.insert(path.clone());
 
-        update_file_content(&mut pending, &mut deletions, &path, "revived".into());
+        update_file_content(
+            &mut pending,
+            &mut deletions,
+            &mut write_targets,
+            &path,
+            "revived".into(),
+        );
 
         assert!(!deletions.contains(&path));
+        assert!(write_targets.contains(&path));
     }
 
     // ---- path_err ----
@@ -1386,6 +1608,7 @@ mod tests {
         let mut tx_reads = Vec::new();
         let mut tx_searches = Vec::new();
         let mut tx_lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         // Simulate: file was loaded and then deleted in this tx.
         let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
@@ -1400,6 +1623,7 @@ mod tests {
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             tx_lints: &mut tx_lints,
+            write_targets: &mut write_targets,
             replace_hint: None,
             quiet: false,
             structured: false,
@@ -1435,6 +1659,7 @@ mod tests {
         let mut tx_reads = Vec::new();
         let mut tx_searches = Vec::new();
         let mut tx_lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
         deletions.insert(file.clone());
@@ -1448,6 +1673,7 @@ mod tests {
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             tx_lints: &mut tx_lints,
+            write_targets: &mut write_targets,
             replace_hint: None,
             quiet: false,
             structured: false,
@@ -1480,6 +1706,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = TxState {
             pending: &mut pending,
@@ -1489,6 +1716,7 @@ mod tests {
             tx_reads: &mut reads,
             tx_searches: &mut searches,
             tx_lints: &mut lints,
+            write_targets: &mut write_targets,
             replace_hint: None,
             cwd: dir.path(),
             quiet: false,
@@ -1531,6 +1759,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         // Simulate deletion
         pending.insert(file.clone(), ("content".to_string(), String::new()));
@@ -1545,6 +1774,7 @@ mod tests {
             tx_reads: &mut reads,
             tx_searches: &mut searches,
             tx_lints: &mut lints,
+            write_targets: &mut write_targets,
             replace_hint: None,
             cwd: dir.path(),
             quiet: false,
@@ -1562,6 +1792,54 @@ mod tests {
         assert!(
             msg.contains("deleted earlier"),
             "error should mention deletion: {msg}"
+        );
+    }
+
+    /// Regression: files loaded for Read/Search operations should not be
+    /// modified by write policy (e.g. ensure_final_newline) (#1108).
+    #[test]
+    fn read_only_files_skip_write_policy() {
+        let dir = TempDir::new().unwrap();
+        // Create a file WITHOUT a trailing newline.
+        let file = dir.path().join("readonly.txt");
+        std::fs::write(&file, "no trailing newline").unwrap();
+
+        // Build a plan that only reads the file, with ensure_final_newline active.
+        let plan = Plan {
+            version: crate::plan::SCHEMA_VERSION.to_string(),
+            operations: vec![Operation::Read {
+                path: "readonly.txt".into(),
+                lines: None,
+            }],
+            write_policy: Some(crate::write::WritePolicyOverride {
+                ensure_final_newline: Some(true),
+                ..Default::default()
+            }),
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            cwd: None,
+            for_each: None,
+        };
+
+        let global = GlobalFlags {
+            ensure_final_newline: true,
+            ..GlobalFlags::default()
+        };
+        let result = execute_and_collect(&plan, dir.path(), &global, true, false).unwrap();
+
+        // The file should NOT appear in changes since it was only read.
+        assert!(
+            result.changes.is_empty(),
+            "read-only file should not be modified by write policy, got {} changes",
+            result.changes.len()
+        );
+        // Verify the file on disk is unchanged.
+        let on_disk = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            on_disk, "no trailing newline",
+            "file on disk should be unchanged"
         );
     }
 }

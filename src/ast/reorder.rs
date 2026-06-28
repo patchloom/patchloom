@@ -1,5 +1,7 @@
 //! AST-aware symbol reordering within a file or scope.
 
+use std::collections::HashMap;
+
 use super::Language;
 use super::symbols::{SymbolDef, SymbolKind, extract_symbols, find_symbol, full_symbol_span};
 
@@ -91,10 +93,30 @@ pub fn reorder_symbols(
     }
 
     // Rebuild the scope section with symbols in the new order.
-    // Collect the text of each symbol (spans are already in new order after sort).
+    // Collect the text of each symbol, including any inter-symbol content
+    // (comments, blank lines) that follows it but precedes the next symbol.
+    // This ensures inter-symbol content moves with its preceding symbol (#1111.2).
+
+    // Build original-order spans sorted by position for gap detection
+    let mut positional_spans: Vec<(usize, usize, &str)> = spans
+        .iter()
+        .map(|s| (s.start_0, s.end_0, s.name.as_str()))
+        .collect();
+    positional_spans.sort_by_key(|s| s.0);
+
+    // Map each symbol name to its text (symbol + trailing inter-symbol gap)
+    let mut sym_text_map: HashMap<&str, String> = HashMap::new();
+    for (idx, &(start, _end, name)) in positional_spans.iter().enumerate() {
+        // Include lines from this symbol's start up to (but not including)
+        // the next symbol's start. The last symbol keeps only its own lines.
+        let effective_end = positional_spans.get(idx + 1).map(|s| s.0).unwrap_or(_end);
+        let text: String = lines[start..effective_end].join(eol);
+        sym_text_map.insert(name, text);
+    }
+
     let mut sym_texts: Vec<(&str, String)> = Vec::new();
     for span in &spans {
-        let text: String = lines[span.start_0..span.end_0].join(eol);
+        let text = sym_text_map.remove(span.name.as_str()).unwrap_or_default();
         sym_texts.push((&span.name, text));
     }
 
@@ -478,6 +500,43 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Regression: inter-symbol comments between functions must be preserved
+    /// and move with the preceding symbol during reordering (#1111.2).
+    #[test]
+    fn reorder_preserves_inter_symbol_comments() {
+        let source = "fn charlie() {}\n// charlie's note\n\nfn alpha() {}\n// alpha's note\n\nfn bravo() {}\n";
+        let result =
+            reorder_symbols(source, None, &ReorderStrategy::Alphabetical, Language::Rust).unwrap();
+        // After reordering: alpha (with its trailing note), bravo, charlie (with its trailing note)
+        let alpha_pos = result.content.find("fn alpha").unwrap();
+        let bravo_pos = result.content.find("fn bravo").unwrap();
+        let charlie_pos = result.content.find("fn charlie").unwrap();
+        assert!(alpha_pos < bravo_pos, "alpha < bravo");
+        assert!(bravo_pos < charlie_pos, "bravo < charlie");
+
+        // Both comments should be preserved
+        assert!(
+            result.content.contains("// alpha's note"),
+            "alpha's note should be preserved: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("// charlie's note"),
+            "charlie's note should be preserved: {}",
+            result.content
+        );
+
+        // alpha's note should be between alpha and bravo (it follows alpha)
+        let alpha_note_pos = result.content.find("// alpha's note").unwrap();
+        assert!(
+            alpha_note_pos > alpha_pos && alpha_note_pos < bravo_pos,
+            "alpha's note should follow alpha: {} < {} < {}",
+            alpha_pos,
+            alpha_note_pos,
+            bravo_pos
+        );
     }
 
     #[test]

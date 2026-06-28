@@ -86,9 +86,16 @@ mod basic {
     fn update_file_content_inserts_missing_pending_entry() {
         let mut pending = HashMap::new();
         let mut deletions = HashSet::new();
+        let mut write_targets = HashSet::new();
         let path = PathBuf::from("created.txt");
 
-        update_file_content(&mut pending, &mut deletions, &path, "brand new".to_string());
+        update_file_content(
+            &mut pending,
+            &mut deletions,
+            &mut write_targets,
+            &path,
+            "brand new".to_string(),
+        );
 
         assert_eq!(
             pending.get(&path),

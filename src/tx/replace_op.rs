@@ -73,7 +73,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         };
         if match_count > 0 {
             let owned = replaced.into_owned();
-            update_file_content(tx.pending, tx.deletions, &file_path, owned);
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &file_path,
+                owned,
+            );
             Ok(match_count)
         } else if !regex_mode && (before_context.is_some() || after_context.is_some()) {
             // Tier 3: Use context-based fallback when exact match fails.
@@ -97,7 +103,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         to_text,
                         &content[anchor.start_offset + anchor.matched_text.len()..]
                     );
-                    update_file_content(tx.pending, tx.deletions, &file_path, new_content);
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &file_path,
+                        new_content,
+                    );
                     tx.replace_hint = Some(format!(
                         "fallback matched via {:?} strategy in {}",
                         anchor.strategy, p,
@@ -193,7 +205,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             };
             total_matches += match_count;
             if match_count > 0 {
-                update_file_content(tx.pending, tx.deletions, &file_path, replaced.into_owned());
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    replaced.into_owned(),
+                );
             }
         }
         Ok(total_matches)
@@ -221,6 +239,7 @@ mod tests {
         reads: &'a mut Vec<TxReadResult>,
         searches: &'a mut Vec<TxSearchResult>,
         lints: &'a mut Vec<TxLintResult>,
+        write_targets: &'a mut HashSet<PathBuf>,
         cwd: &'a Path,
     ) -> TxState<'a> {
         TxState {
@@ -231,6 +250,7 @@ mod tests {
             tx_reads: reads,
             tx_searches: searches,
             tx_lints: lints,
+            write_targets,
             replace_hint: None,
             cwd,
             quiet: true,
@@ -270,6 +290,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -279,6 +300,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -319,6 +341,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -328,6 +351,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -367,6 +391,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -376,6 +401,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -416,6 +442,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -425,6 +452,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -463,6 +491,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -472,6 +501,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -513,6 +543,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -522,6 +553,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -565,6 +597,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
 
         let mut tx = make_tx_state(
             &mut pending,
@@ -574,6 +607,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
@@ -624,6 +658,7 @@ mod tests {
         let mut reads = Vec::new();
         let mut searches = Vec::new();
         let mut lints = Vec::new();
+        let mut write_targets = HashSet::new();
         let mut tx = make_tx_state(
             &mut pending,
             &mut deletions,
@@ -632,6 +667,7 @@ mod tests {
             &mut reads,
             &mut searches,
             &mut lints,
+            &mut write_targets,
             dir.path(),
         );
 
