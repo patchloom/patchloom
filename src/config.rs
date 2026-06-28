@@ -135,7 +135,15 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
     }
 
     // Defaults: config provides defaults, CLI flags win.
-    if !global.apply && config.defaults.apply == Some(true) {
+    // Only apply config's defaults.apply if no explicit mode flag was set.
+    // If the user passed --check or --diff, they explicitly want a non-apply mode
+    // and the config should not override that.
+    if !global.apply
+        && !global.check
+        && !global.diff
+        && !global.confirm
+        && config.defaults.apply == Some(true)
+    {
         global.apply = true;
     }
     if global.format.is_none() {
@@ -544,6 +552,47 @@ color = "always"
         assert!(!global.apply);
         apply_config(&mut global, &config);
         assert!(global.apply);
+    }
+
+    // Regression: defaults.apply must not override explicit --check or --diff.
+    #[test]
+    fn apply_config_apply_default_respects_check_flag() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            check: true, // user explicitly passed --check
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        apply_config(&mut global, &config);
+        assert!(
+            !global.apply,
+            "defaults.apply should not override explicit --check"
+        );
+    }
+
+    #[test]
+    fn apply_config_apply_default_respects_diff_flag() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            diff: true, // user explicitly passed --diff
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        apply_config(&mut global, &config);
+        assert!(
+            !global.apply,
+            "defaults.apply should not override explicit --diff"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! AST-aware code insertion: insert code at structurally-defined positions.
 
 use super::Language;
-use super::symbols::{SymbolDef, extract_symbols, find_symbol};
+use super::symbols::{SymbolDef, extract_symbols, find_symbol, full_symbol_span};
 
 /// Result of an AST insert operation.
 #[derive(Debug)]
@@ -46,10 +46,10 @@ pub fn insert_code(
     if let Some(container_name) = inside {
         insert_inside(source, content, container_name, position, &symbols, &lines)
     } else if let Some(after_name) = after {
-        insert_adjacent(source, content, after_name, true, &symbols, &lines)
+        insert_adjacent(source, content, after_name, true, &symbols, &lines, lang)
     } else {
         let before_name = before.unwrap();
-        insert_adjacent(source, content, before_name, false, &symbols, &lines)
+        insert_adjacent(source, content, before_name, false, &symbols, &lines, lang)
     }
 }
 
@@ -159,6 +159,7 @@ fn insert_adjacent(
     after: bool,
     symbols: &[SymbolDef],
     lines: &[&str],
+    lang: Language,
 ) -> anyhow::Result<InsertResult> {
     let sym = find_symbol(symbols, symbol_name)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol_name))?;
@@ -194,8 +195,9 @@ fn insert_adjacent(
             result.push('\n');
         }
     } else {
-        // Before
-        let start_idx = sym.start_line.saturating_sub(1);
+        // Before — use full_symbol_span to include attributes and doc comments.
+        let (full_start, _) = full_symbol_span(source, sym, lang);
+        let start_idx = full_start.saturating_sub(1);
         for line in &lines[..start_idx] {
             result.push_str(line);
             result.push('\n');
@@ -379,6 +381,30 @@ mod tests {
         let baz_pos = result.content.find("fn baz").unwrap();
         let bar_pos = result.content.find("fn bar").unwrap();
         assert!(baz_pos < bar_pos);
+    }
+
+    // Regression: "before" insertion must go before attributes/doc comments,
+    // not between them and the symbol definition.
+    #[test]
+    fn insert_before_preserves_attributes() {
+        let source = "/// Important docs\n#[test]\nfn target() {}\n";
+        let result = insert_code(
+            source,
+            "fn new_fn() {}",
+            None,
+            None,
+            Some("target"),
+            InsertPosition::End, // "End" with adjacent=before inserts before target
+            Language::Rust,
+        )
+        .unwrap();
+        let new_pos = result.content.find("fn new_fn").unwrap();
+        let doc_pos = result.content.find("/// Important").unwrap();
+        assert!(
+            new_pos < doc_pos,
+            "new_fn should be inserted before the doc comment, not after it: {}",
+            result.content
+        );
     }
 
     #[test]
