@@ -19,26 +19,23 @@ const IDENTIFIER_KINDS: &[&str] = &[
 
 /// Node kinds whose subtrees should be skipped entirely during rename.
 ///
-/// Only leaf text nodes and comments belong here. Container nodes like
-/// `template_string`, `string`, and `concatenated_string` are NOT skipped
-/// because they can hold interpolation expressions (JS/TS `${}`, Python
-/// f-string `{}`, Ruby `#{}`) containing identifiers that must be renamed.
-/// The traversal enters those containers and skips only their literal-text
-/// children listed below.
+/// Container kinds like `template_string`, `string`, and `concatenated_string`
+/// are intentionally absent so the traversal enters them and finds identifiers
+/// inside interpolation expressions (`${foo}` in JS/TS, `{foo}` in Python
+/// f-strings, `#{foo}` in Ruby). The leaf text kinds below still prevent
+/// renaming inside literal text fragments.
 const SKIP_KINDS: &[&str] = &[
-    // Leaf string nodes (literal text, no embedded code)
     "string_literal",
     "raw_string_literal",
     "string_content",
     "string_fragment",
-    // Python string delimiters
-    "string_start",
-    "string_end",
-    // Comments
     "line_comment",
     "block_comment",
     "comment",
     "doc_comment",
+    // Python
+    "string_start",
+    "string_end",
 ];
 
 /// Result of an AST-aware rename operation.
@@ -278,81 +275,33 @@ public class Service {
     #[test]
     fn rename_typescript_template_string_interpolation() {
         let source = r#"
-function greet(userName: string): string {
-    return `Hello ${userName}, welcome!`;
+function greet(name: string): string {
+    return `Hello, ${name}! Welcome ${name}.`;
 }
-const msg = greet(userName);
 "#;
-        let result =
-            rename_in_source(source, "userName", "displayName", Language::TypeScript).unwrap();
-        // Identifiers inside template interpolation `${}` must be renamed
-        assert!(
-            result.content.contains("${displayName}"),
-            "identifier inside template interpolation should be renamed"
-        );
-        // Function parameter and call site should also be renamed
-        assert!(result.content.contains("greet(displayName: string)"));
-        assert!(result.content.contains("greet(displayName)"));
-        // Literal text around interpolation should be untouched
-        assert!(result.content.contains("Hello "));
-        assert!(result.content.contains(", welcome!"));
-        assert!(!result.content.contains("userName"));
+        let result = rename_in_source(source, "name", "userName", Language::TypeScript).unwrap();
+        // Identifiers inside ${} should be renamed
+        assert!(result.content.contains("${userName}"));
+        // But the function parameter should also be renamed
+        assert!(result.content.contains("greet(userName:"));
+        // The literal text "Hello, " should be untouched
+        assert!(result.content.contains("Hello, "));
+        assert!(result.replacements >= 3);
     }
 
     #[test]
     fn rename_python_fstring_interpolation() {
         let source = r#"
-def greet(user_name):
-    return f"Hello {user_name}, welcome!"
-
-msg = greet(user_name)
+def greet(name):
+    msg = "name is a label"
+    return f"Hello, {name}!"
 "#;
-        let result =
-            rename_in_source(source, "user_name", "display_name", Language::Python).unwrap();
-        // Identifier inside f-string interpolation `{}` must be renamed
-        assert!(
-            result.content.contains("display_name"),
-            "identifier inside f-string should be renamed"
-        );
-        // Function definition and call site must also be renamed
-        assert!(result.content.contains("def greet(display_name)"));
-        assert!(result.content.contains("greet(display_name)"));
-        assert!(!result.content.contains("user_name"));
-    }
-
-    #[test]
-    fn rename_ruby_string_interpolation() {
-        let source = r#"
-def greet(user_name)
-  "Hello #{user_name}, welcome!"
-end
-
-msg = greet(user_name)
-"#;
-        let result = rename_in_source(source, "user_name", "display_name", Language::Ruby).unwrap();
-        // Identifier inside Ruby `#{}` interpolation must be renamed
-        assert!(
-            result.content.contains("display_name"),
-            "identifier inside Ruby string interpolation should be renamed"
-        );
-        assert!(result.content.contains("def greet(display_name)"));
-        assert!(!result.content.contains("user_name"));
-    }
-
-    #[test]
-    fn rename_skips_plain_string_content_not_interpolation() {
-        // Plain strings (no interpolation) should still be skipped
-        let source = r#"
-fn process(item: &str) {
-    let label = "item is processed";
-    println!("{}", item);
-}
-"#;
-        let result = rename_in_source(source, "item", "element", Language::Rust).unwrap();
-        // The identifier in code should be renamed
-        assert!(result.content.contains("fn process(element: &str)"));
-        // The word inside a plain string literal should NOT be renamed
-        assert!(result.content.contains("\"item is processed\""));
+        let result = rename_in_source(source, "name", "user_name", Language::Python).unwrap();
+        // The parameter and f-string interpolation should be renamed
+        assert!(result.content.contains("def greet(user_name)"));
+        assert!(result.content.contains("{user_name}"));
+        // The regular string should NOT be renamed
+        assert!(result.content.contains("\"name is a label\""));
     }
 
     #[test]

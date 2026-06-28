@@ -1888,6 +1888,35 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
     client.cancel().await.unwrap();
 }
 
+// Regression: before_context and after_context were not validated for size
+// in the replace_text MCP handler, while from/to/insert_before/insert_after were.
+#[tokio::test]
+async fn test_mcp_replace_whole_line_insert_before_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.txt"), "prefix needle suffix\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "data.txt",
+            "from": "needle",
+            "insert_before": "BEFORE\n",
+            "whole_line": true
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "whole_line + insert_before should be rejected: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_append_file_round_trip() {
     if !has_mcp_support() {

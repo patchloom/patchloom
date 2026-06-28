@@ -956,6 +956,18 @@ pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize
 
         if is_annotation_line(trimmed, lang) {
             first_line_0 = i;
+        } else if lang == Language::Rust {
+            // Check if this line is part of a multiline `#[...]` attribute.
+            // E.g., `#[cfg_attr(\n  feature = "serde",\n  derive(Serialize)\n)]`
+            // Line `)]` doesn't match is_annotation_line but is the closing
+            // of a multiline attribute block.
+            if let Some(attr_start) = find_rust_multiline_attr_start(&lines, i) {
+                first_line_0 = attr_start;
+                // Jump the backward walk past all lines we've consumed
+                i = attr_start;
+                continue;
+            }
+            break;
         } else {
             break;
         }
@@ -996,6 +1008,38 @@ fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
         }
         _ => false,
     }
+}
+
+/// Check whether the lines starting at `from_0` (0-indexed, walking backwards)
+/// form the interior/closing of a multiline Rust `#[...]` attribute.
+///
+/// Scans backwards from `from_0`, tracking bracket depth (`[` / `]`). If
+/// we reach a line that starts with `#[` and bracket depth balances to zero,
+/// this is a multiline attribute and we return the 0-based index of the
+/// opening `#[` line. Otherwise returns `None`.
+fn find_rust_multiline_attr_start(lines: &[&str], from_0: usize) -> Option<usize> {
+    // Count `]` minus `[` on the starting line. A closing `)]` has depth +1.
+    let mut depth: i32 = 0;
+    for j in (0..=from_0).rev() {
+        let trimmed = lines[j].trim();
+        // Count brackets on this line (] increases depth, [ decreases it
+        // since we're walking backwards from the closing side).
+        for ch in trimmed.chars() {
+            if ch == ']' {
+                depth += 1;
+            } else if ch == '[' {
+                depth -= 1;
+            }
+        }
+        if trimmed.starts_with("#[") && depth <= 0 {
+            return Some(j);
+        }
+        // Safety: don't walk more than 20 lines back for a single attribute
+        if from_0 - j > 20 {
+            break;
+        }
+    }
+    None
 }
 
 /// Extract the text of a symbol from source, using the full span (including
@@ -1621,6 +1665,49 @@ struct Point {
         let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
         let (start, _) = full_symbol_span(source, foo, Language::Rust);
         assert_eq!(start, 3); // #[test] on line 3, not line 1
+    }
+
+    // Regression: multiline Rust attributes like #[cfg_attr(\n  ...\n)]
+    // were not recognized by the backward walk because is_annotation_line
+    // only matches lines starting with #[.  The fix uses bracket depth
+    // tracking to find the opening #[ from interior/closing lines.
+    #[test]
+    fn full_span_multiline_rust_attribute() {
+        let source = "\
+#[cfg_attr(
+    feature = \"serde\",
+    derive(Serialize, Deserialize)
+)]
+struct Config {
+    name: String,
+}
+";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = symbols.iter().find(|s| s.name == "Config").unwrap();
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(
+            start, 1,
+            "multiline #[cfg_attr(...)] should be included in Config's span"
+        );
+    }
+
+    #[test]
+    fn full_span_multiline_attribute_with_stacked_single() {
+        let source = "\
+#[derive(Debug)]
+#[cfg_attr(
+    feature = \"serde\",
+    derive(Serialize)
+)]
+pub struct Foo {}
+";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = symbols.iter().find(|s| s.name == "Foo").unwrap();
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(
+            start, 1,
+            "both #[derive(Debug)] and the multiline #[cfg_attr] should be included"
+        );
     }
 
     #[test]

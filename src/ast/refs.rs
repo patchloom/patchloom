@@ -64,22 +64,18 @@ const IDENTIFIER_KINDS: &[&str] = &[
 
 /// Node kinds whose subtrees should be skipped (strings, comments).
 ///
-/// Only leaf text nodes and comments belong here. Container nodes like
-/// `template_string`, `string`, and `concatenated_string` are NOT skipped
-/// because they can hold interpolation expressions (JS/TS `${}`, Python
-/// f-string `{}`, Ruby `#{}`) containing identifiers that must be found.
-/// The traversal enters those containers and skips only their literal-text
-/// children listed below.
+/// Container kinds like `template_string` and `string` are intentionally
+/// absent so the traversal enters them and finds identifiers inside
+/// interpolation expressions (JS/TS `${}`, Python f-string `{}`, Ruby `#{}`).
 const SKIP_KINDS: &[&str] = &[
     // Leaf string nodes (literal text, no embedded code)
     "string_literal",
     "raw_string_literal",
     "string_content",
     "string_fragment",
-    // Python string delimiters
+    // Python
     "string_start",
     "string_end",
-    // Comments
     "line_comment",
     "block_comment",
     "comment",

@@ -73,6 +73,7 @@ pub enum ReplaceValidationError {
     NthZero,
     RangeRequiresWholeLine,
     WholeLineMultilineConflict,
+    WholeLineInsertConflict,
     Mode(ReplaceModeError),
 }
 
@@ -89,6 +90,12 @@ impl std::fmt::Display for ReplaceValidationError {
             Self::RangeRequiresWholeLine => write!(f, "range requires whole_line"),
             Self::WholeLineMultilineConflict => {
                 write!(f, "whole_line and multiline cannot be combined")
+            }
+            Self::WholeLineInsertConflict => {
+                write!(
+                    f,
+                    "whole_line cannot be combined with insert_before or insert_after (would drop non-matched line content)"
+                )
             }
             Self::Mode(e) => match e {
                 ReplaceModeError::MissingMode => {
@@ -138,6 +145,9 @@ pub fn validate_replace_args(
     }
     if p.whole_line && p.multiline {
         return Err(ReplaceValidationError::WholeLineMultilineConflict);
+    }
+    if p.whole_line && (p.has_insert_before || p.has_insert_after) {
+        return Err(ReplaceValidationError::WholeLineInsertConflict);
     }
     validate_replace_mode(p.has_to, p.has_insert_before, p.has_insert_after)
         .map_err(ReplaceValidationError::Mode)

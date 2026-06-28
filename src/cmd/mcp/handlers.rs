@@ -255,6 +255,12 @@ impl PatchloomService {
             if let Some(ref ia) = p.insert_after {
                 validate_content_size("insert_after", ia)?;
             }
+            if let Some(ref bc) = p.before_context {
+                validate_content_size("before_context", bc)?;
+            }
+            if let Some(ref ac) = p.after_context {
+                validate_content_size("after_context", ac)?;
+            }
 
             crate::ops::replace::validate_replace_args(
                 &crate::ops::replace::ReplaceValidationParams {
