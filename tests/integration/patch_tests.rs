@@ -313,6 +313,32 @@ fn test_patch_merge_check_exits_8_on_conflict() {
 }
 
 #[test]
+fn test_patch_merge_check_allow_conflicts_exits_0() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    // With --allow-conflicts, --check should predict that apply would succeed
+    // (conflicts are acceptable), so exit 0 instead of 8.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("merge")
+        .arg(&patch_file)
+        .arg("--check")
+        .arg("--allow-conflicts")
+        .assert()
+        .code(0);
+}
+
+#[test]
 fn test_patch_merge_allow_conflicts_writes_markers() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
