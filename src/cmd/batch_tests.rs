@@ -417,7 +417,7 @@ mod error_handling {
     #[test]
     fn parse_line_extra_args_rejected() {
         let err = parse_line(r#"file.delete old.txt extra"#, 1).unwrap_err();
-        assert!(err.to_string().contains("requires exactly 1 arguments"));
+        assert!(err.to_string().contains("requires exactly 1 argument"));
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod error_handling {
         for line in &one_arg_ops {
             let err = parse_line(line, 1).unwrap_err();
             assert!(
-                err.to_string().contains("requires exactly 1 arguments"),
+                err.to_string().contains("requires exactly 1 argument"),
                 "expected rejection for '{line}', got: {err}"
             );
         }

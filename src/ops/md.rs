@@ -427,7 +427,7 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
     // Find the end of actual content within the body, before any trailing
     // blank lines. This ensures the new bullet is grouped with existing
     // bullets rather than placed after a blank line separator.
-    let trimmed_body = body.trim_end_matches(['\n', '\r', ' ']);
+    let trimmed_body = body.trim_end_matches(['\n', '\r']);
     let content_end = body_start + trimmed_body.len();
     // Find the next line boundary after content_end (include the trailing \n of
     // the last non-blank line so the bullet goes on a new line, not appended).
@@ -644,6 +644,13 @@ pub(crate) fn has_dangerous_git_add_dot(line: &str) -> bool {
         let after = abs + needle.len();
         if after >= line.len() || line.as_bytes()[after].is_ascii_whitespace() {
             return true;
+        }
+        // "git add ./" is equivalent to "git add ." — catch it too.
+        if line.as_bytes()[after] == b'/' {
+            let after_slash = after + 1;
+            if after_slash >= line.len() || line.as_bytes()[after_slash].is_ascii_whitespace() {
+                return true;
+            }
         }
         start = abs + 1;
     }

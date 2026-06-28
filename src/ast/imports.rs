@@ -75,11 +75,21 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
     let insert_after = find_import_insert_point(&lines, lang);
 
     let mut result = String::new();
+
+    // None means "insert before the very first line"
+    if insert_after.is_none() && !lines.is_empty() {
+        for new_imp in &new_imports {
+            result.push_str(new_imp);
+            result.push('\n');
+        }
+        result.push('\n');
+    }
+
     for (i, line) in lines.iter().enumerate() {
         result.push_str(line);
         result.push('\n');
 
-        if i == insert_after {
+        if insert_after == Some(i) {
             // If there were no imports before, add a blank line
             if existing.is_empty() && !line.is_empty() {
                 result.push('\n');
@@ -91,7 +101,7 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
         }
     }
 
-    // Handle edge case: empty file or insert at line 0
+    // Handle edge case: empty file
     if lines.is_empty() {
         for new_imp in &new_imports {
             result.push_str(new_imp);
@@ -233,7 +243,10 @@ fn format_import(import: &str, lang: Language) -> String {
 }
 
 /// Find the 0-based line index after which new imports should be inserted.
-fn find_import_insert_point(lines: &[&str], lang: Language) -> usize {
+///
+/// Returns `None` when imports should go before the very first line
+/// (e.g. file starts directly with code, no leading comments).
+fn find_import_insert_point(lines: &[&str], lang: Language) -> Option<usize> {
     // Strategy: find the last import line. If none, find the end of leading
     // comments/doc attributes.
     let mut last_import_line = None;
@@ -245,7 +258,7 @@ fn find_import_insert_point(lines: &[&str], lang: Language) -> usize {
     }
 
     if let Some(idx) = last_import_line {
-        return idx;
+        return Some(idx);
     }
 
     // No existing imports: insert after leading comments, doc strings, shebang,
@@ -263,12 +276,14 @@ fn find_import_insert_point(lines: &[&str], lang: Language) -> usize {
         {
             continue;
         }
-        // First non-comment, non-blank line: insert before it
-        return if i > 0 { i - 1 } else { 0 };
+        // First non-comment, non-blank line: insert before it.
+        // When i == 0 (file starts directly with code), return None
+        // to signal "insert before the first line".
+        return if i > 0 { Some(i - 1) } else { None };
     }
 
     // All comments/blank lines: insert at end
-    if lines.is_empty() { 0 } else { lines.len() - 1 }
+    Some(if lines.is_empty() { 0 } else { lines.len() - 1 })
 }
 
 #[cfg(test)]
@@ -346,6 +361,26 @@ mod tests {
         let result = add_imports(source, &["use std::io;".into()], Language::Rust);
         assert_eq!(result.added, 1);
         assert!(result.content.contains("use std::io;"));
+    }
+
+    #[test]
+    fn add_import_file_starts_with_code_no_comments() {
+        // When a file starts directly with code (no comments, blanks, or
+        // existing imports), the new import must be placed BEFORE the code.
+        let source = "fn main() {}\n";
+        let result = add_imports(source, &["use std::io".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        let lines: Vec<&str> = result.content.lines().collect();
+        let import_pos = lines
+            .iter()
+            .position(|l| l.contains("use std::io"))
+            .unwrap();
+        let code_pos = lines.iter().position(|l| l.contains("fn main")).unwrap();
+        assert!(
+            import_pos < code_pos,
+            "import (line {import_pos}) must appear before code (line {code_pos}): {:?}",
+            lines,
+        );
     }
 
     #[test]

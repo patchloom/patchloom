@@ -84,8 +84,12 @@ fn print_human_summary(plan: &Plan, strict: bool) {
             parts.push(match eol.as_str() {
                 "lf" => "normalize EOL to LF",
                 "crlf" => "normalize EOL to CRLF",
+                "cr" => "normalize EOL to CR",
                 _ => "normalize EOL",
             });
+        }
+        if wp.collapse_blanks == Some(true) {
+            parts.push("collapse blank lines");
         }
         if !parts.is_empty() {
             println!("\nWrite policy: {}", parts.join(", "));
