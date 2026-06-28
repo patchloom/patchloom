@@ -2973,3 +2973,80 @@ async fn test_mcp_execute_plan_for_each() {
     assert_eq!(b.trim(), "new", "b.txt should be updated: {b}");
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_replace_case_insensitive_no_false_warnings() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // File has uppercase "TODO" but the replace uses lowercase "todo" with
+    // case_insensitive=true. Before the fix, validate_edit_nth would report
+    // a false "pattern not found" warning because it uses case-sensitive
+    // content.contains(from).
+    fs::write(dir.path().join("code.rs"), "// TODO: fix this\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "from": "todo",
+            "to": "DONE",
+            "case_insensitive": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "case-insensitive replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "replace ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "should change file: {val}");
+
+    // Verify the replacement actually happened.
+    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+    assert!(
+        content.contains("DONE"),
+        "case-insensitive replace should have replaced TODO: {content}"
+    );
+
+    // Verify no spurious warning text in the response.
+    let response_text = format!("{val}");
+    assert!(
+        !response_text.contains("not found"),
+        "should not produce false 'pattern not found' warning: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_md_dedupe_headings() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "# Title\n\nFirst content\n\n# Title\n\nDuplicate content\n\n## Sub\n\nBody\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_dedupe_headings",
+        serde_json::json!({"path": "doc.md"}),
+    )
+    .await;
+    assert!(!is_error, "md_dedupe_headings should succeed: {val}");
+    assert_eq!(val["ok"], true, "md_dedupe ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    // Count occurrences of "# Title" (level-1 heading).
+    let title_count =
+        content.matches("\n# Title").count() + if content.starts_with("# Title") { 1 } else { 0 };
+    assert_eq!(
+        title_count, 1,
+        "should have removed duplicate heading, got: {content}"
+    );
+    client.cancel().await.unwrap();
+}

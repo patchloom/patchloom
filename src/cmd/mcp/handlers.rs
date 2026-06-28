@@ -277,7 +277,10 @@ impl PatchloomService {
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
             // Tier 2: pre-validate structured file edits and collect warnings.
-            let validation_warnings = if !p.regex {
+            // Skip when case_insensitive or word_boundary is set: validate_edit_nth
+            // uses literal `content.contains(from)` which is case-sensitive and
+            // ignores word boundaries, producing false "pattern not found" errors.
+            let validation_warnings = if !p.regex && !p.case_insensitive && !p.word_boundary {
                 let abs = svc.cwd().join(&p.path);
                 if let Ok(content) = std::fs::read_to_string(&abs) {
                     let to_str = p.to.as_deref().unwrap_or("");

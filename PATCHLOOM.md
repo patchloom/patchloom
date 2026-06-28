@@ -13,6 +13,7 @@
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
 | Move a heading section (same file or cross-file) | `md_move_section` |
+| Remove duplicate headings | `md_dedupe_headings` |
 | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |
 | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |

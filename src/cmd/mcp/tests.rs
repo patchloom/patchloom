@@ -117,7 +117,11 @@ mod basic {
         );
         assert!(names.contains(&"ast_split"), "missing ast_split tool");
         // 32 base tools + 14 AST tools = 46
-        assert_eq!(names.len(), 52, "expected 52 tools, got {}", names.len());
+        assert!(
+            names.contains(&"md_dedupe_headings"),
+            "missing md_dedupe_headings tool"
+        );
+        assert_eq!(names.len(), 53, "expected 53 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
