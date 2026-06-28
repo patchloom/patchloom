@@ -942,4 +942,24 @@ mod regression {
         let result = parse_file_path("--- a/src/main.rs\t2024-06-01 12:00:00.000 +0000");
         assert_eq!(result, "src/main.rs");
     }
+
+    #[test]
+    fn parse_patches_deletion_uses_minus_path() {
+        // Regression: deletion patches have `+++ /dev/null` so the path must
+        // come from the `---` line.  Previously the parser always read from
+        // `+++`, producing "/dev/null" as the file path.
+        let diff = "\
+--- a/old_file.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line one
+-line two
+";
+        let patches = parse_patch(diff).expect("should parse deletion patch");
+        assert_eq!(patches.len(), 1);
+        assert_eq!(
+            patches[0].path, "old_file.txt",
+            "path should come from --- line for deletions"
+        );
+    }
 }

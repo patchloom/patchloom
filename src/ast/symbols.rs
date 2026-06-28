@@ -617,7 +617,12 @@ fn extract_rust(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind
             Some((SymbolKind::Trait, name.to_string()))
         }
         "impl_item" => {
-            let name = child_text_by_kind(node, "type_identifier", source)?;
+            // Use the `type` field to get the impl target, not the first
+            // `type_identifier` child.  For `impl Display for Foo`, the
+            // first `type_identifier` is the trait (`Display`), but the
+            // `type` field always points to the target type (`Foo`).
+            let type_node = node.child_by_field_name("type")?;
+            let name = type_node.utf8_text(source.as_bytes()).ok()?;
             Some((SymbolKind::Impl, name.to_string()))
         }
         "const_item" => {
@@ -724,28 +729,29 @@ fn extract_go(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, 
             let name = child_text_by_kinds(node, &["field_identifier", "identifier"], source)?;
             Some((SymbolKind::Method, name.to_string()))
         }
-        "type_declaration" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "type_spec" {
-                    let name =
-                        child_text_by_kinds(child, &["type_identifier", "identifier"], source)?;
-                    let mut inner = child.walk();
-                    for grandchild in child.children(&mut inner) {
-                        match grandchild.kind() {
-                            "struct_type" => {
-                                return Some((SymbolKind::Struct, name.to_string()));
-                            }
-                            "interface_type" => {
-                                return Some((SymbolKind::Interface, name.to_string()));
-                            }
-                            _ => {}
-                        }
+        // Match `type_spec` and `type_alias` instead of `type_declaration` so
+        // grouped `type ( A struct{...}; B = int )` blocks emit one symbol
+        // per spec.  `visit_node` naturally recurses into the parent
+        // `type_declaration`.
+        "type_spec" => {
+            let name = child_text_by_kinds(node, &["type_identifier", "identifier"], source)?;
+            let mut inner = node.walk();
+            for grandchild in node.children(&mut inner) {
+                match grandchild.kind() {
+                    "struct_type" => {
+                        return Some((SymbolKind::Struct, name.to_string()));
                     }
-                    return Some((SymbolKind::Type, name.to_string()));
+                    "interface_type" => {
+                        return Some((SymbolKind::Interface, name.to_string()));
+                    }
+                    _ => {}
                 }
             }
-            None
+            Some((SymbolKind::Type, name.to_string()))
+        }
+        "type_alias" => {
+            let name = child_text_by_kinds(node, &["type_identifier", "identifier"], source)?;
+            Some((SymbolKind::Type, name.to_string()))
         }
         _ => None,
     }
@@ -1100,6 +1106,39 @@ impl Foo {
     }
 
     #[test]
+    fn rust_impl_trait_extracts_type_not_trait() {
+        // Regression: `impl Display for Foo` returned "Display" (the trait)
+        // because child_text_by_kind found the first type_identifier.
+        // The fix uses child_by_field_name("type") to get the target type.
+        let source = r#"
+use std::fmt;
+
+struct Foo;
+
+impl fmt::Display for Foo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Foo")
+    }
+}
+"#;
+        let symbols = extract_symbols(source, Language::Rust);
+        let impl_sym = symbols.iter().find(|s| s.kind == SymbolKind::Impl).unwrap();
+        assert_eq!(
+            impl_sym.name, "Foo",
+            "impl target should be Foo, not the trait"
+        );
+    }
+
+    #[test]
+    fn rust_impl_without_trait() {
+        // Inherent impl (no trait) should still extract the type name.
+        let source = "struct Bar;\nimpl Bar { fn go(&self) {} }\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let impl_sym = symbols.iter().find(|s| s.kind == SymbolKind::Impl).unwrap();
+        assert_eq!(impl_sym.name, "Bar");
+    }
+
+    #[test]
     fn extract_python_symbols() {
         let source = r#"
 class MyClass:
@@ -1153,6 +1192,23 @@ type Config struct {
         let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"main"));
         assert!(names.contains(&"Config"));
+    }
+
+    #[test]
+    fn go_grouped_type_declaration() {
+        // Regression: grouped `type (...)` blocks only returned the first type_spec.
+        // The fix matches `type_spec` instead of `type_declaration` so visit_node
+        // recurses into each spec independently.
+        let source = "package main\n\ntype (\n\tPoint struct{ X, Y int }\n\tReader interface{ Read([]byte) (int, error) }\n\tAlias = int\n)\n";
+        let symbols = extract_symbols(source, Language::Go);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Point"), "missing Point, got {:?}", names);
+        assert!(names.contains(&"Reader"), "missing Reader, got {:?}", names);
+        assert!(names.contains(&"Alias"), "missing Alias, got {:?}", names);
+        let point = symbols.iter().find(|s| s.name == "Point").unwrap();
+        assert_eq!(point.kind, SymbolKind::Struct);
+        let reader = symbols.iter().find(|s| s.name == "Reader").unwrap();
+        assert_eq!(reader.kind, SymbolKind::Interface);
     }
 
     #[test]
