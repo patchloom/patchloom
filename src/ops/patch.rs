@@ -235,8 +235,10 @@ pub struct PatchApplyFileResult {
 }
 
 pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
+    let eol = detect_eol(original);
     let mut src_lines: Vec<String> = original.lines().map(String::from).collect();
-    let had_final_newline = original.ends_with('\n') || original.is_empty();
+    let had_final_newline =
+        original.ends_with('\n') || original.ends_with("\r\n") || original.is_empty();
     let mut offset: isize = 0;
 
     for (hunk_idx, hunk) in hunks.iter().enumerate() {
@@ -302,7 +304,7 @@ pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
         offset = offset.saturating_add(delta);
     }
 
-    Ok(join_lines(&src_lines, had_final_newline))
+    Ok(join_lines_with(&src_lines, had_final_newline, eol))
 }
 
 pub fn apply_hunks_with_options(
@@ -352,8 +354,9 @@ pub fn apply_hunks_with_options(
 }
 
 pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError> {
+    let eol = detect_eol(ours);
     let mut src_lines: Vec<String> = ours.lines().map(String::from).collect();
-    let had_final_newline = ours.ends_with('\n') || ours.is_empty();
+    let had_final_newline = ours.ends_with('\n') || ours.ends_with("\r\n") || ours.is_empty();
     let mut offset: isize = 0;
     let mut conflicts = Vec::new();
     for (hunk_idx, hunk) in hunks.iter().enumerate() {
@@ -388,7 +391,7 @@ pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError
         );
     }
     Ok(MergeResult {
-        content: join_lines(&src_lines, had_final_newline),
+        content: join_lines_with(&src_lines, had_final_newline, eol),
         conflicts,
     })
 }
@@ -483,17 +486,24 @@ fn locate_by_context_anchors(haystack: &[&str], hunk: &Hunk, expected: isize) ->
     Some(pos)
 }
 fn hunk_context_anchors(hunk: &Hunk) -> (Vec<String>, Vec<String>) {
+    // Prefix: leading context lines before the first change.
     let mut prefix_ctx = Vec::new();
-    let mut suffix_ctx = Vec::new();
-    let mut in_change = false;
     for pl in &hunk.lines {
         match pl {
-            PatchLine::Context(s) if !in_change => prefix_ctx.push(s.clone()),
-            PatchLine::Remove(_) | PatchLine::Add(_) => in_change = true,
-            PatchLine::Context(s) if in_change => suffix_ctx.push(s.clone()),
-            _ => {}
+            PatchLine::Context(s) => prefix_ctx.push(s.clone()),
+            _ => break,
         }
     }
+    // Suffix: trailing context lines after the last change.
+    // Scan backwards so mid-hunk context between change blocks is excluded.
+    let mut suffix_ctx = Vec::new();
+    for pl in hunk.lines.iter().rev() {
+        match pl {
+            PatchLine::Context(s) => suffix_ctx.push(s.clone()),
+            _ => break,
+        }
+    }
+    suffix_ctx.reverse();
     (prefix_ctx, suffix_ctx)
 }
 fn merge_three_way(
@@ -588,15 +598,26 @@ fn find_match_global(haystack: &[&str], needle: &[&str]) -> Option<usize> {
     }
     None
 }
-fn join_lines(lines: &[String], final_newline: bool) -> String {
+fn join_lines_with(lines: &[String], final_newline: bool, eol: &str) -> String {
     if lines.is_empty() {
         return String::new();
     }
-    let mut out = lines.join("\n");
+    let mut out = lines.join(eol);
     if final_newline {
-        out.push('\n');
+        out.push_str(eol);
     }
     out
+}
+
+/// Detect dominant line ending in the original text.
+fn detect_eol(text: &str) -> &'static str {
+    let crlf = text.matches("\r\n").count();
+    let lf_only = text.matches('\n').count().saturating_sub(crlf);
+    if crlf > 0 && crlf >= lf_only {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 fn find_match(haystack: &[&str], needle: &[&str], expected: isize, fuzz: usize) -> Option<usize> {

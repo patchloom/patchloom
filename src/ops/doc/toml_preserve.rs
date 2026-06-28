@@ -111,7 +111,9 @@ fn json_to_toml_value(val: &serde_json::Value) -> toml_edit::Value {
             toml_edit::Value::InlineTable(t)
         }
         serde_json::Value::Null => {
-            // TOML has no null; use empty string as fallback.
+            // TOML has no null type.  Warn instead of silently converting
+            // to empty string, which corrupts round-trip data.
+            eprintln!("warning: TOML has no null type; value converted to empty string");
             toml_edit::Value::from("")
         }
     }
@@ -239,7 +241,9 @@ mod tests {
     }
 
     #[test]
-    fn json_to_toml_value_handles_null() {
+    fn json_to_toml_value_null_maps_to_empty_string_with_warning() {
+        // TOML has no null type.  Null is converted to empty string with a
+        // warning on stderr (previously silent).
         let val = json_to_toml_value(&serde_json::Value::Null);
         assert_eq!(val.as_str(), Some(""), "null should map to empty string");
     }
