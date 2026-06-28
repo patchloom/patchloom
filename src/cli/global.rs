@@ -341,12 +341,25 @@ impl GlobalFlags {
                 .lock()
                 .lines()
                 .map_while(Result::ok)
+                .enumerate()
+                .map(|(i, l)| {
+                    let l = l.trim().to_string();
+                    // Strip UTF-8 BOM from the first line (if piped from a BOM file)
+                    if i == 0 {
+                        l.strip_prefix('\u{FEFF}').unwrap_or(&l).to_string()
+                    } else {
+                        l
+                    }
+                })
                 .filter(|l| !l.is_empty())
                 .collect()
         } else {
-            std::fs::read_to_string(source)
-                .map_err(|e| anyhow::anyhow!("failed to read --files-from '{}': {e}", source))?
+            let content = std::fs::read_to_string(source)
+                .map_err(|e| anyhow::anyhow!("failed to read --files-from '{}': {e}", source))?;
+            let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
+            content
                 .lines()
+                .map(|l| l.trim())
                 .filter(|l| !l.is_empty())
                 .map(String::from)
                 .collect()
@@ -561,5 +574,44 @@ mod tests {
         };
         let err = g.resolve_cwd().unwrap_err().to_string();
         assert!(err.contains("not a directory"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn read_files_from_trims_whitespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "  src/main.rs  \n  lib.rs\t\n").unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
+    }
+
+    #[test]
+    fn read_files_from_strips_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "\u{FEFF}src/main.rs\nlib.rs\n").unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
+    }
+
+    #[test]
+    fn read_files_from_whitespace_only_lines_filtered() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "src/main.rs\n   \nlib.rs\n").unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
     }
 }

@@ -196,15 +196,27 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
             // Collect the full block
             let block_start = i;
             let mut block_lines: Vec<&str> = vec![line];
+            let mut terminated = false;
             i += 1;
             while i < lines.len() {
                 block_lines.push(lines[i]);
                 if is_multiline_import_end(lines[i], lang) {
+                    terminated = true;
                     break;
                 }
                 i += 1;
             }
             i += 1;
+
+            // If the block was never terminated, output all collected
+            // lines without filtering to avoid silently dropping code.
+            if !terminated {
+                for bl in &block_lines {
+                    result.push_str(bl);
+                    result.push_str(eol);
+                }
+                continue;
+            }
 
             // Check if any names in this block should be removed
             let block_text: String = block_lines
@@ -237,7 +249,9 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
                     // Check if this line contains a name to remove
                     let line_name = bt.trim_end_matches(',').trim();
                     let base_name = line_name.split_whitespace().next().unwrap_or("");
-                    if remove_name_set.contains(base_name)
+                    let alias = line_name.split_whitespace().nth(2);
+                    if (remove_name_set.contains(base_name)
+                        || alias.is_some_and(|a| remove_name_set.contains(a)))
                         && bt != block_lines[0].trim()
                         && !is_multiline_import_end(bl, lang)
                     {
@@ -384,7 +398,9 @@ fn is_multiline_import_end(line: &str, lang: Language) -> bool {
     match lang {
         Language::Python => trimmed == ")" || trimmed.ends_with(')'),
         Language::Rust => trimmed.ends_with("};") || trimmed == "};",
-        Language::TypeScript | Language::JavaScript => trimmed.contains('}'),
+        Language::TypeScript | Language::JavaScript => {
+            trimmed.ends_with('}') || trimmed.ends_with("};") || trimmed.contains("} from")
+        }
         Language::Go => trimmed == ")",
         _ => false,
     }
@@ -424,6 +440,13 @@ fn extract_names_from_block(block: &str) -> Vec<String> {
         if !base.is_empty() {
             names.push(base.to_string());
         }
+        // Also include aliases so removal by alias name works (e.g. "ClassA as A" → also push "A")
+        let mut words = name.split_whitespace();
+        if let (Some(_), Some(kw), Some(alias)) = (words.next(), words.next(), words.next())
+            && kw.eq_ignore_ascii_case("as")
+        {
+            names.push(alias.to_string());
+        }
     }
     names
 }
@@ -452,9 +475,24 @@ fn find_import_insert_point(lines: &[&str], lang: Language) -> Option<usize> {
     // comments/doc attributes.
     let mut last_import_line = None;
 
-    for (i, line) in lines.iter().enumerate() {
-        if is_top_level_import(line, lang) {
+    let mut i = 0;
+    while i < lines.len() {
+        if is_top_level_import(lines[i], lang) {
             last_import_line = Some(i);
+            i += 1;
+        } else if is_multiline_import_start(lines[i], lang) {
+            // Scan forward to find the end of the multi-line block
+            i += 1;
+            while i < lines.len() {
+                if is_multiline_import_end(lines[i], lang) {
+                    last_import_line = Some(i);
+                    break;
+                }
+                i += 1;
+            }
+            i += 1;
+        } else {
+            i += 1;
         }
     }
 
@@ -468,7 +506,10 @@ fn find_import_insert_point(lines: &[&str], lang: Language) -> Option<usize> {
         let trimmed = line.trim();
         if trimmed.is_empty()
             || trimmed.starts_with("//")
-            || trimmed.starts_with('#')
+            || (trimmed.starts_with('#')
+                && (trimmed.starts_with("#!/")  // shebang (all languages)
+                    || trimmed.starts_with("#!["  ) // Rust inner/crate attributes
+                    || matches!(lang, Language::Python | Language::Ruby | Language::Shell)))
             || trimmed.starts_with("/*")
             || trimmed.starts_with('*')
             || trimmed.starts_with("*/")
@@ -786,5 +827,130 @@ mod tests {
         let result = dedupe_imports(source, Language::Rust);
         assert_eq!(result.deduped, 0, "scoped use is not a duplicate");
         assert_eq!(result.content, source);
+    }
+
+    // ── bug-fix regression tests ─────────────────────────────────
+
+    #[test]
+    fn remove_imports_unterminated_block_preserves_code() {
+        // A1: An opening `use std::collections::{` with no closing `};`
+        // must not cause later code to be silently dropped.
+        let source =
+            "use std::collections::{\n    HashMap,\nfn main() {\n    let x = HashMap::new();\n}\n";
+        let result = remove_imports(source, &["HashMap".into()], Language::Rust);
+        assert!(
+            result.content.contains("fn main()"),
+            "code after unterminated block must be preserved: {}",
+            result.content,
+        );
+        assert!(
+            result.content.contains("HashMap"),
+            "content inside unterminated block must not be filtered: {}",
+            result.content,
+        );
+    }
+
+    #[test]
+    fn add_import_rust_attribute_not_separated() {
+        // A2: A new import must NOT be inserted between #[cfg(test)] and its target.
+        let source = "#[cfg(test)]\nmod tests {\n    fn test() {}\n}\n";
+        let result = add_imports(source, &["use std::io".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        let lines: Vec<&str> = result.content.lines().collect();
+        let import_pos = lines
+            .iter()
+            .position(|l| l.contains("use std::io"))
+            .expect("import should be present");
+        let attr_pos = lines
+            .iter()
+            .position(|l| l.contains("#[cfg(test)]"))
+            .expect("attribute should be present");
+        let mod_pos = lines
+            .iter()
+            .position(|l| l.contains("mod tests"))
+            .expect("mod tests should be present");
+        assert!(
+            import_pos < attr_pos,
+            "import (line {import_pos}) must be before attribute (line {attr_pos})",
+        );
+        assert!(
+            attr_pos < mod_pos,
+            "attribute (line {attr_pos}) must be directly before mod (line {mod_pos})",
+        );
+    }
+
+    #[test]
+    fn add_import_rust_inner_attribute_preserved() {
+        // Rust inner attributes (#![...]) must be skipped when finding the insert
+        // point, so imports go after them, not before.
+        let source = "#![allow(dead_code)]\n\nfn main() {}\n";
+        let result = add_imports(source, &["use std::io".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        let lines: Vec<&str> = result.content.lines().collect();
+        let import_pos = lines
+            .iter()
+            .position(|l| l.contains("use std::io"))
+            .expect("import should be present");
+        let attr_pos = lines
+            .iter()
+            .position(|l| l.contains("#![allow(dead_code)]"))
+            .expect("inner attribute should be present");
+        assert!(
+            import_pos > attr_pos,
+            "import (line {import_pos}) must be after inner attribute (line {attr_pos})",
+        );
+    }
+
+    #[test]
+    fn ts_multiline_import_end_type_annotation() {
+        // A3: A `}` inside a type annotation must not prematurely end the import.
+        let source = "import {\n    useState,\n    Component, // has { props: {} } shape\n    useEffect\n} from 'react';\n\nconst x = 1;\n";
+        let imports = list_imports(source, Language::TypeScript);
+        assert_eq!(
+            imports.len(),
+            1,
+            "multi-line import should be a single entry, not split by embedded braces: {imports:?}",
+        );
+        assert!(imports[0].text.contains("useEffect"));
+    }
+
+    #[test]
+    fn add_import_after_multiline_block() {
+        // A4: New imports must be placed after existing multi-line blocks.
+        let source = "use std::collections::{\n    HashMap,\n    HashSet,\n};\n\nfn main() {}\n";
+        let result = add_imports(source, &["use std::io".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        let lines: Vec<&str> = result.content.lines().collect();
+        let block_end = lines
+            .iter()
+            .position(|l| l.trim() == "};")
+            .expect("closing }; should be present");
+        let new_import = lines
+            .iter()
+            .position(|l| l.contains("use std::io"))
+            .expect("new import should be present");
+        assert!(
+            new_import > block_end,
+            "new import (line {new_import}) must be after multi-line block end (line {block_end})",
+        );
+    }
+
+    #[test]
+    fn remove_imports_aliased_python() {
+        // A5: Removing by alias name should work for `Name as Alias` imports.
+        let source =
+            "from module import (\n    ClassA as A,\n    ClassB,\n)\n\ndef main():\n    pass\n";
+        let result = remove_imports(source, &["A".into()], Language::Python);
+        assert_eq!(result.removed, 1);
+        assert!(
+            !result.content.contains("ClassA"),
+            "ClassA as A should be removed: {}",
+            result.content,
+        );
+        assert!(
+            result.content.contains("ClassB"),
+            "ClassB should be preserved: {}",
+            result.content,
+        );
     }
 }
