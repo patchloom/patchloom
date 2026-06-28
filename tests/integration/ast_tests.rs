@@ -287,6 +287,46 @@ fn test_ast_search_jsonl_output() {
     }
 }
 
+// Regression: --max-results limited per-file but not globally, so N files
+// with matches could produce up to N * max_results total.
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_max_results_limits_globally() {
+    let dir = TempDir::new().unwrap();
+    // Create two files, each with 3 function_item matches.
+    fs::write(
+        dir.path().join("a.rs"),
+        "fn a1() {}\nfn a2() {}\nfn a3() {}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("b.rs"),
+        "fn b1() {}\nfn b2() {}\nfn b3() {}\n",
+    )
+    .unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "ast",
+            "search",
+            "(function_item) @fn",
+            ".",
+            "--jsonl",
+            "--max-results",
+            "2",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let count = text.lines().count();
+    assert!(
+        count <= 2,
+        "max-results 2 should produce at most 2 results globally, got {count}"
+    );
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_map_jsonl_per_entry_output() {
