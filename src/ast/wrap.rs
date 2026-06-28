@@ -38,7 +38,10 @@ pub fn wrap_code(
     let (start_idx, end_idx) = if let Some(symbol_names) = symbols_arg {
         find_symbol_range(source, symbol_names, lang)?
     } else {
-        parse_line_range_to_indices(lines_arg.unwrap(), source_lines.len())?
+        parse_line_range_to_indices(
+            lines_arg.expect("mode_count==1 guarantees Some"),
+            source_lines.len(),
+        )?
     };
 
     // Extract the code to wrap

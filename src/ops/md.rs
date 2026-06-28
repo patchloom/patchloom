@@ -649,7 +649,7 @@ pub(crate) fn strip_inline_code(line: &str) -> Cow<'_, str> {
         } else {
             // Advance by one UTF-8 character, not one byte.
             // `bytes[i] as char` corrupts multi-byte UTF-8 (e.g. é → Ã©).
-            let ch = line[i..].chars().next().unwrap();
+            let ch = line[i..].chars().next().expect("i < len guarantees char");
             result.push(ch);
             i += ch.len_utf8();
         }

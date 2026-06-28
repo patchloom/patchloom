@@ -544,10 +544,10 @@ pub fn operations_for_tier(tier: Tier) -> Vec<OperationSchema> {
 /// (nullable, produced by schemars for `Option<T>` fields).
 fn extract_type_str(schema: &serde_json::Value) -> String {
     match schema.get("type") {
-        Some(t) if t.is_string() => t.as_str().unwrap().to_string(),
+        Some(t) if t.is_string() => t.as_str().expect("is_string guard").to_string(),
         Some(t) if t.is_array() => t
             .as_array()
-            .unwrap()
+            .expect("is_array guard")
             .iter()
             .filter_map(|v| v.as_str())
             .collect::<Vec<_>>()
