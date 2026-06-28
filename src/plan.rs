@@ -865,14 +865,6 @@ pub fn parse_plan_auto(
 // for_each expansion
 // ---------------------------------------------------------------------------
 
-/// Expand a plan's `for_each` block: match files via glob, apply exclude/filter,
-/// substitute template variables into each operation, and flatten the result into
-/// `plan.operations`. After this call, `plan.for_each` is `None`.
-///
-/// Doubled braces (`{{` / `}}`) are treated as escape sequences and produce
-/// literal `{` / `}` in the output. For example, `{{path}}` becomes the
-/// literal string `{path}` rather than being substituted with the file path.
-///
 /// Escape a string for safe embedding inside a JSON string literal.
 ///
 /// The template substitution operates on the serialized JSON, replacing
@@ -887,7 +879,15 @@ fn json_escape(s: &str) -> String {
     quoted[1..quoted.len() - 1].to_string()
 }
 
+/// Expand a plan's `for_each` block: match files via glob, apply exclude/filter,
+/// substitute template variables into each operation, and flatten the result into
+/// `plan.operations`. After this call, `plan.for_each` is `None`.
+///
 /// Template variables: `{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`.
+///
+/// Doubled braces (`{{` / `}}`) are treated as escape sequences and produce
+/// literal `{` / `}` in the output. For example, `{{path}}` becomes the
+/// literal string `{path}` rather than being substituted with the file path.
 #[cfg(feature = "cli")]
 pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result<()> {
     let fe = match plan.for_each.take() {
@@ -954,6 +954,14 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     // 4. Serialize template operations once, then substitute per file.
     let template_ops_json = serde_json::to_string(&plan.operations)?;
 
+    // Protect escaped doubles `{{` / `}}` so they become literal braces
+    // in the output rather than being interpreted as template variables.
+    // Sentinel chars (\x00) are safe because they cannot appear in valid JSON.
+    // Hoisted outside the loop since template_ops_json is invariant.
+    let protected = template_ops_json
+        .replace("{{", "\x00LBRACE\x00")
+        .replace("}}", "\x00RBRACE\x00");
+
     let mut expanded = Vec::with_capacity(matched.len() * plan.operations.len());
     for file_path in &matched {
         let rel = file_path
@@ -978,13 +986,6 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .extension()
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_default();
-
-        // Protect escaped doubles `{{` / `}}` so they become literal braces
-        // in the output rather than being interpreted as template variables.
-        // Sentinel chars (\x00) are safe because they cannot appear in valid JSON.
-        let protected = template_ops_json
-            .replace("{{", "\x00LBRACE\x00")
-            .replace("}}", "\x00RBRACE\x00");
 
         // JSON-escape all substitution values so file paths containing
         // quotes, backslashes, or control characters don't produce invalid JSON.
