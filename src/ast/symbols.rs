@@ -107,30 +107,24 @@ pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Ve
 
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").
 pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a SymbolDef> {
-    if let Some((parent, child)) = name.split_once("::") {
-        // Qualified name: find parent, then child
+    if let Some((parent, rest)) = name.split_once("::") {
+        // Qualified name: find parent, then recurse into children
         for sym in symbols {
             if sym.name == parent {
-                for c in &sym.children {
-                    if c.name == child {
-                        return Some(c);
-                    }
-                }
+                return find_symbol(&sym.children, rest);
             }
         }
         None
     } else {
-        // Unqualified: search top-level, then children
+        // Unqualified: search top-level first (BFS), then recurse
         for sym in symbols {
             if sym.name == name {
                 return Some(sym);
             }
         }
         for sym in symbols {
-            for c in &sym.children {
-                if c.name == name {
-                    return Some(c);
-                }
+            if let Some(found) = find_symbol(&sym.children, name) {
+                return Some(found);
             }
         }
         None
@@ -1333,6 +1327,47 @@ impl Server {
 "#;
         let symbols = extract_symbols(source, Language::Rust);
         find_symbol(&symbols, "start").expect("should find 'start' via unqualified search");
+    }
+
+    /// find_symbol should recurse into deeply nested children, not just
+    /// one level (#1111 item 5).
+    #[test]
+    fn find_symbol_deeply_nested() {
+        // Build a 3-level hierarchy: mod > struct > method
+        let inner = SymbolDef {
+            name: "deep_method".into(),
+            kind: SymbolKind::Method,
+            start_line: 3,
+            end_line: 4,
+            signature: "fn deep_method()".into(),
+            children: Vec::new(),
+            depth: 2,
+        };
+        let mid = SymbolDef {
+            name: "MidStruct".into(),
+            kind: SymbolKind::Struct,
+            start_line: 2,
+            end_line: 5,
+            signature: "struct MidStruct".into(),
+            children: vec![inner],
+            depth: 1,
+        };
+        let outer = SymbolDef {
+            name: "outer_mod".into(),
+            kind: SymbolKind::Module,
+            start_line: 1,
+            end_line: 6,
+            signature: "mod outer_mod".into(),
+            children: vec![mid],
+            depth: 0,
+        };
+        let symbols = vec![outer];
+
+        // Unqualified search should find a deeply nested symbol
+        find_symbol(&symbols, "deep_method").expect("should find deeply nested symbol");
+
+        // Qualified search with multiple :: should work recursively
+        find_symbol(&symbols, "outer_mod::MidStruct").expect("should find qualified nested symbol");
     }
 
     #[test]
