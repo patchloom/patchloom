@@ -60,8 +60,11 @@ pub(crate) fn collect_status(
         .arg("--no-renames")
         .arg("--untracked-files=all")
         .arg("-z");
-    for path in paths {
-        cmd.arg("--").arg(path);
+    if !paths.is_empty() {
+        cmd.arg("--");
+        for path in paths {
+            cmd.arg(path);
+        }
     }
     let output = cmd
         .output()
