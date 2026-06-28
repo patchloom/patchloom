@@ -513,8 +513,8 @@ mod tests {
             "error should mention the actual type 'string', got: {msg}"
         );
         assert!(
-            msg.contains("a"),
-            "error should mention the key 'a', got: {msg}"
+            msg.contains("'b'"),
+            "error should mention the failing key 'b', got: {msg}"
         );
     }
 }
