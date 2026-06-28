@@ -262,6 +262,18 @@ pub fn parse_value(s: &str) -> serde_json::Value {
 /// allocating a new `String` via `format!()` at every recursion level.
 /// The buffer is extended and truncated as the recursion descends and
 /// ascends, so only leaf paths produce a final `String::clone()`.
+/// Append a key to the path buffer, quoting it if it contains separator
+/// characters (`.`, `[`, `]`) to prevent ambiguity in flattened paths.
+fn push_key_quoted(buf: &mut String, k: &str) {
+    if k.contains('.') || k.contains('[') || k.contains(']') || k.contains('"') {
+        buf.push('"');
+        buf.push_str(&k.replace('"', "\\\""));
+        buf.push('"');
+    } else {
+        buf.push_str(k);
+    }
+}
+
 pub fn flatten_value<'a>(
     value: &'a serde_json::Value,
     buf: &mut String,
@@ -274,7 +286,7 @@ pub fn flatten_value<'a>(
                 if !buf.is_empty() {
                     buf.push('.');
                 }
-                buf.push_str(k);
+                push_key_quoted(buf, k);
                 flatten_value(v, buf, out);
                 buf.truncate(restore);
             }
@@ -323,7 +335,7 @@ pub fn diff_values(
                 if !buf.is_empty() {
                     buf.push('.');
                 }
-                buf.push_str(k);
+                push_key_quoted(buf, k);
                 if let Some(vb) = mb.get(k) {
                     diff_values(va, vb, buf, out);
                 } else {
@@ -342,7 +354,7 @@ pub fn diff_values(
                     if !buf.is_empty() {
                         buf.push('.');
                     }
-                    buf.push_str(k);
+                    push_key_quoted(buf, k);
                     out.push(DiffEntry {
                         path: buf.clone(),
                         kind: "added",

@@ -536,7 +536,7 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Some(SearchFileResult { display, matches })
     });
 
-    for result in &file_results {
+    'outer: for result in &file_results {
         for m in &result.matches {
             total_matches += 1;
             if global.json || global.jsonl {
@@ -559,6 +559,11 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 for cap in &m.captures {
                     println!("  @{} = \"{}\"", cap.name, cap.text);
                 }
+            }
+            if let Some(max) = args.max_results
+                && total_matches >= max
+            {
+                break 'outer;
             }
         }
     }

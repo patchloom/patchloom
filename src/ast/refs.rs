@@ -68,10 +68,14 @@ const IDENTIFIER_KINDS: &[&str] = &[
 /// absent so the traversal enters them and finds identifiers inside
 /// interpolation expressions (JS/TS `${}`, Python f-string `{}`, Ruby `#{}`).
 const SKIP_KINDS: &[&str] = &[
+    // Leaf string nodes (literal text, no embedded code)
     "string_literal",
     "raw_string_literal",
     "string_content",
     "string_fragment",
+    // Python
+    "string_start",
+    "string_end",
     "line_comment",
     "block_comment",
     "comment",
@@ -439,6 +443,84 @@ int main() {
         // Comment should be skipped
         for r in &refs {
             assert!(!r.context.starts_with("//"), "comment should not be a ref");
+        }
+    }
+
+    #[test]
+    fn find_refs_typescript_template_interpolation() {
+        let source = r#"
+function greet(userName: string): string {
+    return `Hello ${userName}, welcome!`;
+}
+const msg = greet(userName);
+"#;
+        let refs = find_refs_in_source(source, "userName", Language::TypeScript, "test.ts");
+        // Should find: param definition, template interpolation ref, call-site ref
+        assert!(
+            refs.len() >= 3,
+            "should find at least 3 refs (param + interpolation + call), got {}",
+            refs.len()
+        );
+        // At least one ref should come from the template string line
+        let template_refs: Vec<_> = refs.iter().filter(|r| r.context.contains('`')).collect();
+        assert!(
+            !template_refs.is_empty(),
+            "should find a ref inside template string interpolation"
+        );
+    }
+
+    #[test]
+    fn find_refs_python_fstring_interpolation() {
+        let source = r#"
+def greet(user_name):
+    return f"Hello {user_name}, welcome!"
+
+msg = greet(user_name)
+"#;
+        let refs = find_refs_in_source(source, "user_name", Language::Python, "test.py");
+        // Should find: param definition, f-string interpolation ref, call-site ref
+        assert!(
+            refs.len() >= 3,
+            "should find at least 3 refs (param + fstring + call), got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn find_refs_ruby_string_interpolation() {
+        let source = r#"
+def greet(user_name)
+  "Hello #{user_name}, welcome!"
+end
+
+msg = greet(user_name)
+"#;
+        let refs = find_refs_in_source(source, "user_name", Language::Ruby, "test.rb");
+        // Should find: param, string interpolation ref, call-site ref
+        assert!(
+            refs.len() >= 3,
+            "should find at least 3 refs (param + interpolation + call), got {}",
+            refs.len()
+        );
+    }
+
+    #[test]
+    fn find_refs_skips_plain_string_not_interpolation() {
+        // Plain Rust string literals should still be skipped
+        let source = r#"
+fn target() {}
+
+fn main() {
+    let s = "target";
+    target();
+}
+"#;
+        let refs = find_refs_in_source(source, "target", Language::Rust, "test.rs");
+        for r in &refs {
+            assert!(
+                !r.context.contains("\"target\""),
+                "plain string literal should be skipped"
+            );
         }
     }
 
