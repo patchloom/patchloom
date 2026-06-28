@@ -35,13 +35,19 @@ pub fn replace_in_symbol(
         None => return Ok(None),
     };
 
+    // Detect dominant line ending to preserve it in the output.
+    let eol = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let lines: Vec<&str> = source.lines().collect();
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(lines.len());
 
     let body: String = lines[start_idx..end_idx]
         .iter()
-        .map(|l| format!("{l}\n"))
+        .map(|l| format!("{l}{eol}"))
         .collect();
 
     // Perform replacement within the body
@@ -69,18 +75,19 @@ pub fn replace_in_symbol(
     let mut result = String::new();
     for line in &lines[..start_idx] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
     result.push_str(&new_body);
-    // new_body already has trailing newlines; add suffix
+    // new_body already has trailing line endings; add suffix
     for line in &lines[end_idx..] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Preserve original trailing newline behavior
-    if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+    let ends_with_eol = source.ends_with('\n') || source.ends_with("\r\n");
+    if !ends_with_eol && result.ends_with(eol) {
+        result.truncate(result.len() - eol.len());
     }
 
     Ok(Some(ScopedReplaceResult {
@@ -159,6 +166,21 @@ fn bar() {
         let result =
             replace_in_symbol(source, "nonexistent", "x", "y", false, Language::Rust).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn replace_preserves_crlf_line_endings() {
+        let source = "fn foo() {\r\n    let x = 1;\r\n    let y = 1;\r\n}\r\n\r\nfn bar() {\r\n    let x = 1;\r\n}\r\n";
+        let result = replace_in_symbol(source, "foo", "1", "42", false, Language::Rust)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.replacements, 2);
+        // All CRLF line endings must be preserved
+        assert!(result.content.contains("\r\n"), "CRLF should be preserved");
+        assert!(!result.content.contains("\r\n\n"), "no mixed line endings");
+        // Verify no bare LF where CRLF was expected
+        let without_cr = result.content.replace("\r\n", "");
+        assert!(!without_cr.contains('\n'), "no bare LF in CRLF content");
     }
 
     #[test]
