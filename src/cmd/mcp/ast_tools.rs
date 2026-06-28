@@ -566,7 +566,7 @@ pub(super) fn handle_ast_impact(
         "symbol": p.symbol,
         "depth": p.depth,
         "impact": nodes,
-        "direct_count": nodes.len(),
+        "total_count": nodes.len(),
     });
     let json = serde_json::to_string_pretty(&obj)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;

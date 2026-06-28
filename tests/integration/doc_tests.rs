@@ -1195,7 +1195,7 @@ fn test_doc_diff_shows_changes() {
         .arg(&a)
         .arg(&b)
         .assert()
-        .success()
+        .code(2)
         .stdout(predicate::str::contains("~ name"));
 }
 
@@ -1248,7 +1248,7 @@ fn test_doc_diff_jsonl_outputs_one_entry_per_line() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status.code(), Some(2));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<serde_json::Value> = stdout
         .lines()
@@ -1294,6 +1294,33 @@ fn test_doc_diff_identical_json_output() {
     let v: serde_json::Value = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|e| panic!("should be valid JSON, got error: {e}, output: {stdout}"));
     assert_eq!(v["identical"], serde_json::json!(true));
+}
+
+// Regression: doc diff with differences must return exit code 2 (CHANGES_DETECTED),
+// not 0 (SUCCESS). Identical files still return 0.
+#[test]
+fn test_doc_diff_exit_code_changes_detected_json() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.json");
+    let b = dir.path().join("b.json");
+    fs::write(&a, r#"{"key":"old"}"#).unwrap();
+    fs::write(&b, r#"{"key":"new"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("diff")
+        .arg(&a)
+        .arg(&b)
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "doc diff with differences should exit 2 (CHANGES_DETECTED)"
+    );
 }
 
 #[test]

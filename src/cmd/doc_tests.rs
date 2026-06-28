@@ -471,7 +471,7 @@ mod basic {
             file_b: b,
         };
         let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(output.contains("~ name"), "should show changed: {output}");
         assert!(
             output.contains("- removed"),

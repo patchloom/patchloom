@@ -1,5 +1,16 @@
 use crate::selector;
 
+fn value_type_name(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 pub fn navigate_mut<'a>(
     root: &'a mut serde_json::Value,
     segments: &[selector::Segment],
@@ -10,10 +21,15 @@ pub fn navigate_mut<'a>(
         current = match seg {
             selector::Segment::Key(k) => {
                 if create {
-                    // Convert null root (e.g. empty YAML) to an empty object
-                    // so intermediate keys can be created.
+                    // Convert null or non-object intermediates to an empty
+                    // object so child keys can be created.
                     if current.is_null() {
                         *current = serde_json::Value::Object(serde_json::Map::new());
+                    } else if !current.is_object() {
+                        anyhow::bail!(
+                            "expected object at key '{k}', found {}",
+                            value_type_name(current)
+                        );
                     }
                     let needs_create = match current.as_object() {
                         Some(obj) => !obj.contains_key(k.as_str()),
@@ -468,5 +484,24 @@ mod tests {
         assert_eq!(count, 2);
         assert_eq!(root["items"][0]["v"], json!(0));
         assert_eq!(root["items"][1]["v"], json!(0));
+    }
+
+    // Regression: navigate_mut with create=true should produce a clear error
+    // when an intermediate value is a non-object (e.g. string), not a generic
+    // "expected object" that omits the actual type.
+    #[test]
+    fn navigate_mut_error_on_non_object_intermediate() {
+        let mut root = json!({"a": "scalar"});
+        let path = segs("a.b");
+        let err = navigate_mut(&mut root, &path, true).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("string"),
+            "error should mention the actual type 'string', got: {msg}"
+        );
+        assert!(
+            msg.contains("a"),
+            "error should mention the key 'a', got: {msg}"
+        );
     }
 }
