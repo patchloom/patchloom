@@ -420,8 +420,7 @@ mod tests {
             Language::Rust,
         );
         // These two should NOT overlap (they have a blank line separator)
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().symbols_moved, 2);
+        assert_eq!(result.expect("move should succeed").symbols_moved, 2);
     }
 
     #[test]

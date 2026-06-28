@@ -1224,7 +1224,7 @@ mod tests {
         // Non-overlapping spans should pass
         let spans = vec![(0, 3), (4, 7), (8, 10)];
         let names = vec!["a", "b", "c"];
-        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+        check_no_overlapping_spans(&spans, &names).unwrap();
     }
 
     #[test]
@@ -1232,7 +1232,7 @@ mod tests {
         // Adjacent (touching but not overlapping) spans should pass
         let spans = vec![(0, 3), (3, 6), (6, 9)];
         let names = vec!["a", "b", "c"];
-        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+        check_no_overlapping_spans(&spans, &names).unwrap();
     }
 
     #[test]
@@ -1267,12 +1267,12 @@ mod tests {
         // Single span should always pass
         let spans = vec![(0, 5)];
         let names = vec!["only"];
-        assert!(check_no_overlapping_spans(&spans, &names).is_ok());
+        check_no_overlapping_spans(&spans, &names).unwrap();
     }
 
     #[test]
     fn check_no_overlapping_spans_empty_ok() {
-        assert!(check_no_overlapping_spans(&[], &[]).is_ok());
+        check_no_overlapping_spans(&[], &[]).unwrap();
     }
 
     #[test]
