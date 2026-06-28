@@ -309,6 +309,7 @@ fn collect_ruby_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut
             line: node.start_position().row + 1,
             raw: text.trim().to_string(),
         });
+        return; // Don't recurse into children of a matched require call
     }
 
     let mut cursor = node.walk();
