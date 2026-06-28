@@ -18,13 +18,17 @@ const IDENTIFIER_KINDS: &[&str] = &[
 ];
 
 /// Node kinds whose subtrees should be skipped entirely during rename.
+///
+/// Container kinds like `template_string`, `string`, and `concatenated_string`
+/// are intentionally absent so the traversal enters them and finds identifiers
+/// inside interpolation expressions (`${foo}` in JS/TS, `{foo}` in Python
+/// f-strings, `#{foo}` in Ruby). The leaf text kinds below still prevent
+/// renaming inside literal text fragments.
 const SKIP_KINDS: &[&str] = &[
     "string_literal",
     "raw_string_literal",
-    "string",
     "string_content",
     "string_fragment",
-    "template_string",
     "line_comment",
     "block_comment",
     "comment",
@@ -32,8 +36,6 @@ const SKIP_KINDS: &[&str] = &[
     // Python
     "string_start",
     "string_end",
-    "concatenated_string",
-    "interpolation",
 ];
 
 /// Result of an AST-aware rename operation.
@@ -268,6 +270,38 @@ public class Service {
         assert!(result.content.contains("\"processOrder called\""));
         assert!(result.content.contains("// processOrder"));
         assert!(result.replacements >= 3);
+    }
+
+    #[test]
+    fn rename_typescript_template_string_interpolation() {
+        let source = r#"
+function greet(name: string): string {
+    return `Hello, ${name}! Welcome ${name}.`;
+}
+"#;
+        let result = rename_in_source(source, "name", "userName", Language::TypeScript).unwrap();
+        // Identifiers inside ${} should be renamed
+        assert!(result.content.contains("${userName}"));
+        // But the function parameter should also be renamed
+        assert!(result.content.contains("greet(userName:"));
+        // The literal text "Hello, " should be untouched
+        assert!(result.content.contains("Hello, "));
+        assert!(result.replacements >= 3);
+    }
+
+    #[test]
+    fn rename_python_fstring_interpolation() {
+        let source = r#"
+def greet(name):
+    msg = "name is a label"
+    return f"Hello, {name}!"
+"#;
+        let result = rename_in_source(source, "name", "user_name", Language::Python).unwrap();
+        // The parameter and f-string interpolation should be renamed
+        assert!(result.content.contains("def greet(user_name)"));
+        assert!(result.content.contains("{user_name}"));
+        // The regular string should NOT be renamed
+        assert!(result.content.contains("\"name is a label\""));
     }
 
     #[test]

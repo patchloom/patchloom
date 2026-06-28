@@ -674,6 +674,14 @@ mod dedent_indent {
     }
 
     #[test]
+    fn dedent_auto_tab_indented_file() {
+        // Auto dedent must handle tab-indented files, not just space-indented.
+        let input = "\t\tline1\n\t\t\tline2\n\t\tline3\n";
+        let result = dedent_content(input, "auto", None);
+        assert_eq!(result, "line1\n\tline2\nline3\n");
+    }
+
+    #[test]
     fn dedent_with_line_range() {
         let input = "    line1\n    line2\n    line3\n    line4\n";
         let result = dedent_content(input, "4", Some((2, Some(3))));

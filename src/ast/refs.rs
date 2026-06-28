@@ -63,13 +63,15 @@ const IDENTIFIER_KINDS: &[&str] = &[
 ];
 
 /// Node kinds whose subtrees should be skipped (strings, comments).
+///
+/// Container kinds like `template_string` and `string` are intentionally
+/// absent so the traversal enters them and finds identifiers inside
+/// interpolation expressions (JS/TS `${}`, Python f-string `{}`, Ruby `#{}`).
 const SKIP_KINDS: &[&str] = &[
     "string_literal",
     "raw_string_literal",
-    "string",
     "string_content",
     "string_fragment",
-    "template_string",
     "line_comment",
     "block_comment",
     "comment",

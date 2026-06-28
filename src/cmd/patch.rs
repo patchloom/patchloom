@@ -281,7 +281,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         });
     }
 
-    if merge_mode && (global.check || (!global.apply && !global.should_apply())) {
+    if merge_mode && (global.check || (!global.apply && !global.confirm)) {
         let check_options = ApplyHunksOptions {
             on_stale: OnStale::Merge,
             allow_conflicts: true,
@@ -310,12 +310,14 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
         emit_patch_files_output(global, all_ok, &results)?;
-        return Ok(if results.iter().any(|r| r.status == "conflict") {
-            exit::CONFLICTS
-        } else if all_ok {
-            exit::SUCCESS
-        } else {
+        let has_errors = results.iter().any(|r| r.status == "error");
+        let has_conflicts = results.iter().any(|r| r.status == "conflict");
+        return Ok(if has_errors {
             exit::AMBIGUOUS
+        } else if has_conflicts && !apply_options.allow_conflicts {
+            exit::CONFLICTS
+        } else {
+            exit::SUCCESS
         });
     }
 

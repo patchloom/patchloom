@@ -412,7 +412,7 @@ fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> St
             if !in_range(i) || line.trim().is_empty() {
                 line.to_string()
             } else {
-                let leading_spaces = line.len() - line.trim_start_matches(' ').len();
+                let leading_spaces = line.len() - line.trim_start().len();
                 let strip = n.min(leading_spaces);
                 line[strip..].to_string()
             }
