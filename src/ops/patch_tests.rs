@@ -962,4 +962,60 @@ mod regression {
             "path should come from --- line for deletions"
         );
     }
+
+    #[test]
+    fn hunk_context_anchors_mid_hunk_context_excluded_from_suffix() {
+        // Regression: mid-hunk context between two change blocks was included
+        // in the suffix, degrading merge fallback accuracy.
+        let hunk = Hunk {
+            old_start: 1,
+            old_count: 5,
+            new_start: 1,
+            new_count: 5,
+            lines: vec![
+                PatchLine::Context("before".into()),
+                PatchLine::Remove("old1".into()),
+                PatchLine::Add("new1".into()),
+                PatchLine::Context("mid".into()),
+                PatchLine::Remove("old2".into()),
+                PatchLine::Add("new2".into()),
+                PatchLine::Context("after".into()),
+            ],
+        };
+        let (prefix, suffix) = hunk_context_anchors(&hunk);
+        assert_eq!(
+            prefix,
+            vec!["before"],
+            "prefix should be leading context only"
+        );
+        assert_eq!(
+            suffix,
+            vec!["after"],
+            "suffix should be trailing context only, not mid-hunk context"
+        );
+    }
+
+    #[test]
+    fn apply_hunks_preserves_crlf() {
+        // Regression: apply_hunks converted CRLF to LF by splitting on
+        // .lines() and rejoining with \n.
+        let original = "line1\r\nline2\r\nline3\r\n";
+        let hunk = Hunk {
+            old_start: 2,
+            old_count: 1,
+            new_start: 2,
+            new_count: 1,
+            lines: vec![
+                PatchLine::Remove("line2".into()),
+                PatchLine::Add("replaced".into()),
+            ],
+        };
+        let result = apply_hunks(original, &[hunk]).expect("should apply");
+        assert!(
+            result.contains("\r\n"),
+            "CRLF should be preserved, got: {:?}",
+            result
+        );
+        assert_eq!(result, "line1\r\nreplaced\r\nline3\r\n");
+    }
 }
