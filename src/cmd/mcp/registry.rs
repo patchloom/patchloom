@@ -198,6 +198,13 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         ],
     },
     McpToolMeta {
+        tool_name: "md_dedupe_headings",
+        op_name: "md.dedupe_headings",
+        description: "Remove duplicate markdown headings in a file. Keeps the first occurrence of each heading. Example: {\"path\": \"README.md\"}",
+        has_strict: false,
+        validations: &[FieldValidation::Path("path")],
+    },
+    McpToolMeta {
         tool_name: "move_file",
         op_name: "file.rename",
         description: "Move or rename a file. Use force=true to overwrite existing. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}",
