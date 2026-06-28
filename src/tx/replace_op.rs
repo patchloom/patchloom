@@ -1,4 +1,4 @@
-use super::execute::{TxState, read_file_content, update_file_content};
+use super::execute::{TxState, read_and_probe, read_file_content, update_file_content};
 use crate::ops::replace::{
     compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
 };
@@ -196,15 +196,21 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
 
         for file_path in candidate_paths {
-            let content = match read_file_content(tx.pending, tx.existed_before, &file_path) {
-                Ok(c) => c.to_owned(),
+            match read_and_probe(tx.pending, tx.existed_before, &file_path) {
+                Ok(false) => continue, // binary file, skip
+                Ok(true) => {}
                 Err(e) => {
                     if !tx.structured && !tx.quiet {
                         eprintln!("tx: replace: skipping {}: {e}", file_path.display());
                     }
                     continue;
                 }
-            };
+            }
+            let content = tx
+                .pending
+                .get(&file_path)
+                .map(|(_, c)| c.clone())
+                .expect("read_and_probe guarantees entry exists in pending");
             let (replaced, match_count) = if *whole_line {
                 replace_whole_lines(
                     &content,
@@ -476,6 +482,43 @@ mod tests {
         assert!(
             result.contains("/// Process input."),
             "insert_before text must be present, got: {result}"
+        );
+    }
+
+    #[test]
+    fn replace_glob_skips_binary_files() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("text.txt"), "hello world").unwrap();
+        std::fs::write(dir.path().join("binary.dat"), b"hello\x00world").unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*".into()),
+            mode: None,
+            from: "hello".into(),
+            to: Some("goodbye".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1); // only text.txt matched
+        assert_eq!(f.pending[&dir.path().join("text.txt")].1, "goodbye world");
+        assert!(
+            !f.pending.contains_key(&dir.path().join("binary.dat")),
+            "binary file should be skipped, not loaded into pending"
         );
     }
 

@@ -28,6 +28,8 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
     // `---` delimiter.
     let mut in_frontmatter = false;
     let mut is_first_line = true;
+    // Track HTML block comments (CommonMark type 2): <!-- ... -->
+    let mut in_html_comment = false;
     content.lines().enumerate().filter(move |(_, line)| {
         // YAML frontmatter handling: must start on the very first line.
         if is_first_line {
@@ -77,7 +79,30 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
                 }
             }
         }
-        fence.is_none()
+        if fence.is_some() {
+            return false;
+        }
+
+        // HTML block comment handling (CommonMark type 2): skip lines
+        // inside <!-- ... -->. Only checked outside fenced code blocks.
+        if in_html_comment {
+            if line.contains("-->") {
+                in_html_comment = false;
+            }
+            return false;
+        }
+        let comment_trimmed = trimmed.trim_start_matches(' ');
+        let comment_indent = line.len() - comment_trimmed.len();
+        if comment_indent <= 3 && comment_trimmed.starts_with("<!--") {
+            if !line.contains("-->") {
+                in_html_comment = true;
+                return false;
+            }
+            // Single-line comment (<!-- ... --> on one line): skip just this line.
+            return false;
+        }
+
+        true
     })
 }
 
@@ -301,6 +326,7 @@ pub fn move_section_in(
     if same_file {
         // Same-file reorder: remove the section first, then insert into
         // the resulting content. This avoids complex offset adjustment.
+        let eol = crate::write::detect_eol(source_content);
         let without_section = format!(
             "{}{}",
             &source_content[..section_start],
@@ -315,12 +341,12 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(without_section.len() + section_text.len() + 2);
                     out.push_str(&without_section[..dest_body_end]);
-                    if !out.ends_with("\n\n") && !out.is_empty() {
-                        out.push('\n');
+                    if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                        out.push_str(eol);
                     }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
-                        out.push('\n');
+                        out.push_str(eol);
                     }
                     out.push_str(&without_section[dest_body_end..]);
                     out
@@ -333,6 +359,7 @@ pub fn move_section_in(
         Some((result.clone(), result))
     } else {
         // Cross-file move: remove from source, insert into dest.
+        let eol = crate::write::detect_eol(dest_content);
         let new_source = format!(
             "{}{}",
             &source_content[..section_start],
@@ -345,12 +372,12 @@ pub fn move_section_in(
                     let mut out =
                         String::with_capacity(dest_content.len() + section_text.len() + 2);
                     out.push_str(&dest_content[..dest_body_end]);
-                    if !out.ends_with("\n\n") && !out.is_empty() {
-                        out.push('\n');
+                    if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                        out.push_str(eol);
                     }
                     out.push_str(section_text);
                     if !section_text.ends_with('\n') {
-                        out.push('\n');
+                        out.push_str(eol);
                     }
                     out.push_str(&dest_content[dest_body_end..]);
                     out
@@ -365,13 +392,14 @@ pub fn move_section_in(
 }
 
 pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
     if !replacement.is_empty() {
         out.push_str(replacement);
         if !replacement.ends_with('\n') {
-            out.push('\n');
+            out.push_str(eol);
         }
     }
     out.push_str(&content[body_end..]);
@@ -379,18 +407,20 @@ pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Op
 }
 
 pub fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
     let (body_start, _) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len());
     out.push_str(&content[..body_start]);
     out.push_str(insertion);
     if !insertion.is_empty() && !insertion.ends_with('\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     out.push_str(&content[body_start..]);
     Some(out)
 }
 
 pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
     let query = normalize_heading_query(heading);
@@ -403,10 +433,10 @@ pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -
             if !insertion.is_empty() {
                 out.push_str(insertion);
                 if !insertion.ends_with('\n') {
-                    out.push('\n');
+                    out.push_str(eol);
                 }
-                if !out.ends_with("\n\n") {
-                    out.push('\n');
+                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+                    out.push_str(eol);
                 }
             }
             out.push_str(&content[heading_start..]);
@@ -427,6 +457,7 @@ fn strip_bullet_prefix(s: &str) -> &str {
 }
 
 pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
     let body = &content[body_start..body_end];
 
@@ -473,14 +504,14 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
     let mut out = String::with_capacity(content.len() + normalized.len() + 4);
     out.push_str(&content[..insert_at]);
     if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     out.push_str(&normalized);
-    out.push('\n');
+    out.push_str(eol);
     // Preserve the blank line separator before the next heading.
     let remainder = &content[insert_at..];
-    if remainder.starts_with('#') && !out.ends_with("\n\n") {
-        out.push('\n');
+    if remainder.starts_with('#') && !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+        out.push_str(eol);
     }
     out.push_str(remainder);
     Some(out)
@@ -545,6 +576,7 @@ pub fn table_append_in(
     body_end: usize,
     row: &str,
 ) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
     let body = &content[body_start..body_end];
     let mut last_data_end: Option<usize> = None;
     let mut in_table = false;
@@ -588,11 +620,11 @@ pub fn table_append_in(
     // this, files that lack a trailing newline get the new row fused
     // onto the last existing data row.
     if insert_pos > 0 && content.as_bytes().get(insert_pos - 1) != Some(&b'\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     out.push_str(row);
     if !row.ends_with('\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     out.push_str(&content[insert_pos..]);
     Some(out)

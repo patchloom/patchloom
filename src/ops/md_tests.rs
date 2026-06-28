@@ -388,6 +388,49 @@ mod line_endings {
     }
 
     #[test]
+    fn replace_section_crlf_preserves_endings() {
+        let content = "# Title\r\nOld body\r\n# Next\r\nKeep\r\n";
+        let result = replace_section_in(content, "Title", "New body").unwrap();
+        // All newlines should be CRLF; no bare LF allowed.
+        let bare_lf = result.replace("\r\n", "").contains('\n');
+        assert!(!bare_lf, "found bare LF in CRLF output: {:?}", result);
+        assert!(result.contains("New body\r\n"));
+    }
+
+    #[test]
+    fn upsert_bullet_crlf_preserves_endings() {
+        let content = "# List\r\n- item1\r\n";
+        let result = upsert_bullet_in(content, "List", "- item2").unwrap();
+        let bare_lf = result.replace("\r\n", "").contains('\n');
+        assert!(!bare_lf, "found bare LF in CRLF output: {:?}", result);
+        assert!(result.contains("- item2\r\n"));
+    }
+
+    #[test]
+    fn insert_after_heading_crlf_preserves_endings() {
+        let content = "# Title\r\nExisting\r\n";
+        let result = insert_after_heading_in(content, "Title", "Inserted").unwrap();
+        let bare_lf = result.replace("\r\n", "").contains('\n');
+        assert!(!bare_lf, "found bare LF in CRLF output: {:?}", result);
+        assert!(result.contains("Inserted\r\n"));
+    }
+
+    #[test]
+    fn table_append_crlf_complete_line_endings() {
+        let content = "# T\r\n| H |\r\n|---|\r\n| v |\r\n";
+        let (start, end) = find_section(content, "T").unwrap();
+        let result = table_append_in(content, start, end, "| new |").unwrap();
+        // Count LF and CRLF occurrences; they should be equal.
+        let lf_count = result.matches('\n').count();
+        let crlf_count = result.matches("\r\n").count();
+        assert_eq!(
+            lf_count, crlf_count,
+            "all newlines must be CRLF: lf={}, crlf={}, result={:?}",
+            lf_count, crlf_count, result
+        );
+    }
+
+    #[test]
     fn find_section_crlf_returns_correct_body() {
         let content = "## Heading One\r\n\r\nBody text.\r\n## Next\r\n";
         let (start, end) = find_section(content, "Heading One").unwrap();
@@ -697,6 +740,24 @@ mod edge_cases {
     }
 
     #[test]
+    fn heading_inside_html_comment_ignored() {
+        let content = "# Real One\nbody\n<!--\n## Hidden\n-->\n# Real Two\nmore\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Real One");
+        assert_eq!(headings[1].text, "Real Two");
+    }
+
+    #[test]
+    fn single_line_html_comment_with_heading_ignored() {
+        let content = "# Before\n<!-- ## Not a heading -->\n# After\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Before");
+        assert_eq!(headings[1].text, "After");
+    }
+
+    #[test]
     fn find_section_empty_body() {
         // Heading immediately followed by another heading => empty body
         let content = "# A\n# B\n";
@@ -821,6 +882,39 @@ mod edge_cases {
 
         let (c_start, c_end) = find_section(content, "C").unwrap();
         assert_eq!(&content[c_start..c_end], "body\n");
+    }
+
+    #[test]
+    fn html_comment_inside_fenced_block_not_treated_as_comment() {
+        // A <!-- inside a fenced code block must NOT activate the HTML
+        // comment filter. If it did, lines after the fence close would
+        // be silently swallowed until a --> appeared.
+        let content = "# Before\n```html\n<!-- this is code -->\n# Fake\n```\n# After\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Before");
+        assert_eq!(headings[1].text, "After");
+    }
+
+    #[test]
+    fn html_comment_spanning_lines_hides_heading() {
+        // A multi-line HTML comment should hide any heading inside it.
+        let content = "# Real\n<!--\n# Hidden\n-->\n# Also Real\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Real");
+        assert_eq!(headings[1].text, "Also Real");
+    }
+
+    #[test]
+    fn single_line_html_comment_heading_skipped() {
+        // A single-line <!-- ... --> that looks like a heading marker
+        // should be filtered out entirely.
+        let content = "# Top\n<!-- # Not a heading -->\n# Bottom\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].text, "Top");
+        assert_eq!(headings[1].text, "Bottom");
     }
 }
 
