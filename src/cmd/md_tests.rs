@@ -700,6 +700,16 @@ mod security {
     }
 
     #[test]
+    fn has_dangerous_git_add_dot_slash() {
+        // "git add ./" is equivalent to "git add ." and should be caught.
+        assert!(has_dangerous_git_add_dot("git add ./"));
+        assert!(has_dangerous_git_add_dot("git add ./ && git commit"));
+        // But "git add ./foo" is explicit file staging and is safe.
+        assert!(!has_dangerous_git_add_dot("git add ./foo"));
+        assert!(!has_dangerous_git_add_dot("git add ./src/main.rs"));
+    }
+
+    #[test]
     fn lint_agents_allows_git_add_dotfile() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("AGENTS.md");

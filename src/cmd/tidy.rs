@@ -59,7 +59,7 @@ fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
     let mut issues = Vec::new();
 
     // Check missing final newline.
-    if !data.ends_with(b"\n") {
+    if !data.is_empty() && !data.ends_with(b"\n") {
         issues.push(TidyIssue {
             path: path_str.clone(),
             issue: "missing final newline",
@@ -387,6 +387,21 @@ mod tests {
         assert!(
             issues.iter().any(|i| i.issue == "missing final newline"),
             "expected missing final newline issue, got: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn empty_file_no_missing_newline() {
+        // Regression: empty files should not be flagged for "missing final newline"
+        // since they have no content at all.
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("empty.txt");
+        std::fs::write(&file, b"").unwrap();
+
+        let issues = check_file(&file, true);
+        assert!(
+            !issues.iter().any(|i| i.issue == "missing final newline"),
+            "empty file should not be flagged for missing final newline: {issues:?}"
         );
     }
 
