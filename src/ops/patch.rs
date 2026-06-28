@@ -37,7 +37,13 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             return Err(format!("expected +++ line after --- at line {}", i + 1));
         }
 
-        let path = parse_file_path(lines[i + 1]);
+        // For deletions the `+++` line is `/dev/null`; take path from `---`.
+        let plus_path = parse_file_path(lines[i + 1]);
+        let path = if plus_path == "/dev/null" {
+            parse_file_path(lines[i])
+        } else {
+            plus_path
+        };
         i += 2;
 
         let mut hunks: Vec<Hunk> = Vec::new();
