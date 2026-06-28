@@ -179,18 +179,18 @@ fn extract_body<'a>(source: &'a str, sym: &SymbolDef) -> &'a str {
     if start >= lines.len() || start >= end {
         return "";
     }
-    let line_sep_len = if source.contains("\r\n") { 2 } else { 1 };
-    let start_byte: usize = source
-        .lines()
-        .take(start)
-        .map(|l| l.len() + line_sep_len)
-        .sum();
-    let end_byte: usize = source
-        .lines()
-        .take(end)
-        .map(|l| l.len() + line_sep_len)
-        .sum();
-    &source[start_byte..end_byte.min(source.len())]
+    let offsets = crate::ast::symbols::compute_line_byte_offsets(source);
+    let start_byte = if start < offsets.len() {
+        offsets[start]
+    } else {
+        source.len()
+    };
+    let end_byte = if end < offsets.len() {
+        offsets[end]
+    } else {
+        source.len()
+    };
+    &source[start_byte..end_byte]
 }
 
 /// Render changes as human-readable text.
