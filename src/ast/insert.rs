@@ -105,27 +105,27 @@ fn insert_inside(
             // Use container line indent + 4 spaces for the body.
             let line_indent = container_line.len() - container_line.trim_start().len();
             let body_indent = format!("{}{}", &container_line[..line_indent], "    ");
-            let adjusted = indent_content(content, &body_indent);
+            let adjusted = indent_content(content, &body_indent, eol);
 
             let mut result = String::new();
             for line in &lines[..start_idx] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(before_brace);
-            result.push('\n');
+            result.push_str(eol);
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(after_brace);
-            result.push('\n');
+            result.push_str(eol);
             for line in &lines[start_idx + 1..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             if !source.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
             return Ok(InsertResult {
                 content: result,
