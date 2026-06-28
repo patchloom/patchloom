@@ -609,6 +609,19 @@ mod edge_cases {
         assert_eq!(find_match_global(&haystack, &needle), None);
     }
 
+    // Regression: needle longer than haystack caused a panic because
+    // saturating_sub produced 0 as max_start, then the loop tried to
+    // slice haystack[0..needle.len()] which was out of bounds.
+    #[test]
+    fn find_match_global_needle_longer_than_haystack() {
+        let haystack: Vec<&str> = vec![];
+        let needle: Vec<&str> = vec!["A", "B", "C"];
+        assert_eq!(find_match_global(&haystack, &needle), None);
+
+        let short_haystack: Vec<&str> = vec!["A"];
+        assert_eq!(find_match_global(&short_haystack, &needle), None);
+    }
+
     #[test]
     fn locate_by_context_anchors_no_context_returns_none() {
         // Hunk has no context lines at all → cannot locate

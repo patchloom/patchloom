@@ -590,7 +590,10 @@ fn find_match_global(haystack: &[&str], needle: &[&str]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
     }
-    let max_start = haystack.len().saturating_sub(needle.len());
+    if needle.len() > haystack.len() {
+        return None;
+    }
+    let max_start = haystack.len() - needle.len();
     for pos in 0..=max_start {
         if haystack[pos..pos + needle.len()] == *needle {
             return Some(pos);
