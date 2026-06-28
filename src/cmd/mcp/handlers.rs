@@ -209,7 +209,7 @@ impl PatchloomService {
                     exit::CHANGES_DETECTED
                 };
                 let output = serde_json::json!({
-                    "ok": true,
+                    "ok": matched,
                     "status": status,
                     "assert_count": {
                         "expected": expected,

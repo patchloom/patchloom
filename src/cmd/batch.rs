@@ -310,8 +310,9 @@ fn parse_position_keyword(
 
 fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {
     if args.len() != expected {
+        let s = if expected == 1 { "" } else { "s" };
         anyhow::bail!(
-            "line {line_num}: '{op}' requires exactly {expected} arguments, got {}",
+            "line {line_num}: '{op}' requires exactly {expected} argument{s}, got {}",
             args.len()
         );
     }
