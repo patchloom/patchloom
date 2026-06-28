@@ -1,7 +1,7 @@
 //! AST-aware code wrapping: wrap existing code in a block (module, impl, etc.).
 
 use super::Language;
-use super::symbols::{extract_symbols, find_symbol};
+use super::symbols::{extract_symbols, find_symbol, full_symbol_span};
 
 /// Result of a wrap operation.
 #[derive(Debug)]
@@ -144,8 +144,9 @@ fn find_symbol_range(
     for name in symbol_names {
         let sym = find_symbol(&symbols, name)
             .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", name))?;
-        let start = sym.start_line.saturating_sub(1);
-        let end = sym.end_line;
+        let (full_start, full_end) = full_symbol_span(source, sym, lang);
+        let start = full_start.saturating_sub(1);
+        let end = full_end;
         if start < min_start {
             min_start = start;
         }
@@ -306,6 +307,35 @@ mod tests {
             Language::Rust,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn wrap_includes_doc_comments_and_attributes() {
+        // Doc comments and attributes above a symbol must be included in the wrap
+        let source = "/// Helper docs\n#[inline]\nfn helper() {\n    42\n}\n";
+        let result = wrap_code(
+            source,
+            Some(&["helper".into()]),
+            None,
+            "mod utils",
+            None,
+            Language::Rust,
+        )
+        .unwrap();
+        // The doc comment and attribute must be inside the module wrapper
+        let wrapper_pos = result.content.find("mod utils {").unwrap();
+        let doc_pos = result.content.find("/// Helper docs").unwrap();
+        let attr_pos = result.content.find("#[inline]").unwrap();
+        assert!(
+            doc_pos > wrapper_pos,
+            "doc comment should be inside wrapper: {}",
+            result.content
+        );
+        assert!(
+            attr_pos > wrapper_pos,
+            "attribute should be inside wrapper: {}",
+            result.content
+        );
     }
 
     #[test]

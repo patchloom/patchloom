@@ -30,10 +30,9 @@ pub fn list_imports(source: &str, lang: Language) -> Vec<ImportStatement> {
     let mut imports = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if is_import_line(trimmed, lang) {
+        if is_top_level_import(line, lang) {
             imports.push(ImportStatement {
-                text: trimmed.to_string(),
+                text: line.trim().to_string(),
                 line: i + 1,
             });
         }
@@ -126,7 +125,7 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
 
     for line in &lines {
         let trimmed = line.trim();
-        if is_import_line(trimmed, lang) && remove_set.contains(&normalize_import(trimmed)) {
+        if is_top_level_import(line, lang) && remove_set.contains(&normalize_import(trimmed)) {
             removed += 1;
             continue;
         }
@@ -156,7 +155,7 @@ pub fn dedupe_imports(source: &str, lang: Language) -> ImportsResult {
 
     for line in &lines {
         let trimmed = line.trim();
-        if is_import_line(trimmed, lang) {
+        if is_top_level_import(line, lang) {
             let normalized = normalize_import(trimmed);
             if seen.contains(&normalized) {
                 deduped += 1;
@@ -179,6 +178,18 @@ pub fn dedupe_imports(source: &str, lang: Language) -> ImportsResult {
         removed: 0,
         deduped,
     }
+}
+
+/// Check if a line is a top-level import (no leading whitespace).
+///
+/// Scoped imports inside function bodies, impl blocks, or modules are
+/// indented and should not be treated as top-level imports.
+fn is_top_level_import(line: &str, lang: Language) -> bool {
+    let first = line.as_bytes().first().copied().unwrap_or(b' ');
+    if first == b' ' || first == b'\t' {
+        return false;
+    }
+    is_import_line(line.trim(), lang)
 }
 
 /// Check if a line is an import/use statement for the given language.
@@ -228,8 +239,7 @@ fn find_import_insert_point(lines: &[&str], lang: Language) -> usize {
     let mut last_import_line = None;
 
     for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if is_import_line(trimmed, lang) {
+        if is_top_level_import(line, lang) {
             last_import_line = Some(i);
         }
     }
@@ -343,5 +353,66 @@ mod tests {
         let source = "import os\nfrom pathlib import Path\n\ndef main():\n    pass\n";
         let imports = list_imports(source, Language::Python);
         assert_eq!(imports.len(), 2);
+    }
+
+    #[test]
+    fn scoped_use_not_treated_as_top_level() {
+        // Scoped `use` inside a function body should be ignored by all import functions
+        let source =
+            "use std::io;\n\nfn main() {\n    use std::fmt;\n    println!(\"hello\");\n}\n";
+        let imports = list_imports(source, Language::Rust);
+        assert_eq!(imports.len(), 1, "scoped use should not be listed");
+        assert_eq!(imports[0].text, "use std::io;");
+    }
+
+    #[test]
+    fn add_import_not_inside_function() {
+        // New imports must be inserted at the top level, not inside a function body
+        let source =
+            "use std::io;\n\nfn main() {\n    use std::fmt;\n    println!(\"hello\");\n}\n";
+        let result = add_imports(source, &["use std::fs".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        // The new import should appear after the existing top-level import (line 1),
+        // not after the scoped import inside main()
+        let lines: Vec<&str> = result.content.lines().collect();
+        let fs_line = lines
+            .iter()
+            .position(|l| l.trim() == "use std::fs;")
+            .expect("use std::fs; should be present");
+        let fn_line = lines
+            .iter()
+            .position(|l| l.trim().starts_with("fn main"))
+            .expect("fn main should be present");
+        assert!(
+            fs_line < fn_line,
+            "new import at line {} should be before fn main at line {}",
+            fs_line,
+            fn_line
+        );
+    }
+
+    #[test]
+    fn remove_import_ignores_scoped_use() {
+        // remove_imports should not remove scoped `use` inside function bodies
+        let source =
+            "use std::fmt;\n\nfn main() {\n    use std::fmt;\n    println!(\"hello\");\n}\n";
+        let result = remove_imports(source, &["use std::fmt".into()], Language::Rust);
+        assert_eq!(result.removed, 1);
+        // The scoped `use std::fmt;` inside main() should remain
+        assert!(
+            result.content.contains("    use std::fmt;"),
+            "scoped use should be preserved: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn dedupe_ignores_scoped_use() {
+        // A scoped `use` that duplicates a top-level `use` should NOT be removed
+        let source =
+            "use std::fmt;\n\nfn main() {\n    use std::fmt;\n    println!(\"hello\");\n}\n";
+        let result = dedupe_imports(source, Language::Rust);
+        assert_eq!(result.deduped, 0, "scoped use is not a duplicate");
+        assert_eq!(result.content, source);
     }
 }

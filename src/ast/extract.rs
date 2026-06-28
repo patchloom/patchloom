@@ -96,7 +96,7 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> S
     let mut body_start = sym_start_0;
     for (i, line) in lines.iter().enumerate().take(sym_end_0).skip(sym_start_0) {
         let trimmed = line.trim();
-        if trimmed.ends_with('{') {
+        if trimmed.contains('{') {
             body_start = i + 1;
             break;
         }
@@ -223,5 +223,21 @@ mod tests {
         let result = extract_to_file(source, "tests", None, false, None, Language::Rust).unwrap();
         assert!(result.target_content.contains("/// Doc comment."));
         assert!(result.target_content.contains("#[cfg(test)]"));
+    }
+
+    #[test]
+    fn unwrap_module_with_trailing_comment_on_brace_line() {
+        // Opening brace line has a trailing comment: `mod tests { // test module`
+        // The brace detection must still find it
+        let source =
+            "mod tests { // test module\n    fn test_a() {\n        assert!(true);\n    }\n}\n";
+        let result = extract_to_file(source, "tests", None, true, None, Language::Rust).unwrap();
+        // The mod declaration line should NOT leak into the unwrapped body
+        assert!(
+            !result.target_content.contains("mod tests"),
+            "mod declaration should not appear in unwrapped body: {}",
+            result.target_content
+        );
+        assert!(result.target_content.contains("fn test_a()"));
     }
 }
