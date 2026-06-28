@@ -36,7 +36,6 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 /// Available with the `files` feature (for pure library use without the
 /// CLI) or the `cli` feature.
 #[cfg(any(feature = "cli", feature = "files"))]
-#[allow(clippy::result_large_err)]
 pub fn execute_plan(
     plan: crate::plan::Plan,
     cwd: &Path,

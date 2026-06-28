@@ -1648,33 +1648,12 @@ mod tests {
         let file = dir.path().join("victim.txt");
         std::fs::write(&file, "original").unwrap();
 
-        let mut pending = HashMap::new();
-        let mut existed_before = HashSet::new();
-        let mut deletions = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut tx_reads = Vec::new();
-        let mut tx_searches = Vec::new();
-        let mut tx_lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
+        let mut f = TxStateFixture::new();
         // Simulate: file was loaded and then deleted in this tx.
-        let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
-        deletions.insert(file.clone());
+        let _ = read_file_content(&mut f.pending, &mut f.existed_before, &file).unwrap();
+        f.deletions.insert(file.clone());
 
-        let mut tx = TxState {
-            cwd: dir.path(),
-            pending: &mut pending,
-            existed_before: &mut existed_before,
-            deletions: &mut deletions,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut tx_reads,
-            tx_searches: &mut tx_searches,
-            tx_lints: &mut tx_lints,
-            write_targets: &mut write_targets,
-            replace_hint: None,
-            quiet: false,
-            structured: false,
-        };
+        let mut tx = f.state(dir.path());
 
         let op = Operation::FileAppend {
             path: "victim.txt".into(),
@@ -1699,32 +1678,11 @@ mod tests {
         let file = dir.path().join("victim.txt");
         std::fs::write(&file, "original").unwrap();
 
-        let mut pending = HashMap::new();
-        let mut existed_before = HashSet::new();
-        let mut deletions = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut tx_reads = Vec::new();
-        let mut tx_searches = Vec::new();
-        let mut tx_lints = Vec::new();
-        let mut write_targets = HashSet::new();
+        let mut f = TxStateFixture::new();
+        let _ = read_file_content(&mut f.pending, &mut f.existed_before, &file).unwrap();
+        f.deletions.insert(file.clone());
 
-        let _ = read_file_content(&mut pending, &mut existed_before, &file).unwrap();
-        deletions.insert(file.clone());
-
-        let mut tx = TxState {
-            cwd: dir.path(),
-            pending: &mut pending,
-            existed_before: &mut existed_before,
-            deletions: &mut deletions,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut tx_reads,
-            tx_searches: &mut tx_searches,
-            tx_lints: &mut tx_lints,
-            write_targets: &mut write_targets,
-            replace_hint: None,
-            quiet: false,
-            structured: false,
-        };
+        let mut tx = f.state(dir.path());
 
         let op = Operation::FilePrepend {
             path: "victim.txt".into(),
@@ -1746,29 +1704,8 @@ mod tests {
         let file = dir.path().join("doc.md");
         std::fs::write(&file, "# A\ntext a\n# B\ntext b\n").unwrap();
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = TxState {
-            pending: &mut pending,
-            deletions: &mut deletions,
-            existed_before: &mut existed,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut reads,
-            tx_searches: &mut searches,
-            tx_lints: &mut lints,
-            write_targets: &mut write_targets,
-            replace_hint: None,
-            cwd: dir.path(),
-            quiet: false,
-            structured: false,
-        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
 
         let op = Operation::MdMoveSection {
             path: "doc.md".into(),
@@ -1778,8 +1715,9 @@ mod tests {
             after: Some("# B".into()),
         };
         execute_operation(&op, &mut tx).unwrap();
+        drop(tx);
         // Section A should appear after B, not be duplicated
-        let content = &pending[&file].1;
+        let content = &f.pending[&file].1;
         let a_pos = content.find("# A").unwrap();
         let b_pos = content.find("# B").unwrap();
         assert!(a_pos > b_pos, "section A should be after B: {content}");
@@ -1799,34 +1737,14 @@ mod tests {
         let file = dir.path().join("victim.txt");
         std::fs::write(&file, "content").unwrap();
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
+        let mut f = TxStateFixture::new();
         // Simulate deletion
-        pending.insert(file.clone(), ("content".to_string(), String::new()));
-        deletions.insert(file);
-        existed.insert(dir.path().join("victim.txt"));
+        f.pending
+            .insert(file.clone(), ("content".to_string(), String::new()));
+        f.deletions.insert(file);
+        f.existed_before.insert(dir.path().join("victim.txt"));
 
-        let mut tx = TxState {
-            pending: &mut pending,
-            deletions: &mut deletions,
-            existed_before: &mut existed,
-            doc_cache: &mut doc_cache,
-            tx_reads: &mut reads,
-            tx_searches: &mut searches,
-            tx_lints: &mut lints,
-            write_targets: &mut write_targets,
-            replace_hint: None,
-            cwd: dir.path(),
-            quiet: false,
-            structured: false,
-        };
+        let mut tx = f.state(dir.path());
 
         let op = Operation::FileRename {
             from: "victim.txt".into(),

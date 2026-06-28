@@ -69,7 +69,7 @@ pub fn insert_code(
     } else if let Some(after_name) = after {
         insert_adjacent(&ctx, after_name, true)
     } else {
-        let before_name = before.unwrap();
+        let before_name = before.expect("mode_count==1 guarantees Some");
         insert_adjacent(&ctx, before_name, false)
     }
 }

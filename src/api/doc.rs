@@ -140,7 +140,10 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
 
     match query_get(&value, selector)? {
         QueryResult::NoMatch => bail!("selector '{}' matched nothing", selector),
-        QueryResult::Values(vals) if vals.len() == 1 => Ok(vals.into_iter().next().unwrap()),
+        QueryResult::Values(vals) if vals.len() == 1 => Ok(vals
+            .into_iter()
+            .next()
+            .expect("len()==1 guarantees element")),
         QueryResult::Values(vals) => Ok(serde_json::Value::Array(vals)),
     }
 }

@@ -493,7 +493,6 @@ pub(crate) fn validate_and_prepare_plan(
     Ok((effective_cwd, strict, global))
 }
 
-#[allow(clippy::result_large_err)]
 pub fn execute_plan_direct(
     plan: Plan,
     cwd: &Path,

@@ -368,11 +368,11 @@ impl GlobalFlags {
 
     /// Test helper with cwd set (simulates --cwd for cmd unit tests).
     /// Builds on with_cwd and forces color=Never for test determinism.
-    #[allow(clippy::field_reassign_with_default)]
     pub fn test_with_cwd(dir: &std::path::Path) -> Self {
-        let mut g = Self::with_cwd(dir);
-        g.color = ColorMode::Never;
-        g
+        GlobalFlags {
+            color: ColorMode::Never,
+            ..Self::with_cwd(dir)
+        }
     }
 
     /// Test helper with apply=true (for write cmd tests that want mutation).
