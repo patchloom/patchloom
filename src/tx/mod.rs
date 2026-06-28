@@ -39,6 +39,8 @@ pub(crate) use validate::validate_operation;
 pub(crate) use execute::execute_and_collect;
 // Test-only re-exports for src/cmd/tx.rs tests
 #[cfg(test)]
+pub(crate) use execute::TxStateFixture;
+#[cfg(test)]
 pub(crate) use execute::{path_err, read_and_probe, read_file_content, update_file_content};
 
 // lifecycle.rs

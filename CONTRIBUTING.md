@@ -54,7 +54,7 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 
 - Run `cargo fmt` before every commit.
 - `cargo clippy --all-targets --all-features -- -D warnings` must produce zero warnings.
-- Never use `unwrap()` in non-test code; use `anyhow::Context` for error context.
+- Never use `unwrap()` or `expect()` in non-test code; use `?` with `anyhow::Context` or `.ok_or_else(|| anyhow!("msg"))?`. Exception: `expect()` is acceptable on infallible internal invariants (e.g. `Mutex::lock`).
 - `unsafe_code = "deny"` is enforced in `Cargo.toml`.
 - All commits require a `Signed-off-by` line ([DCO](https://developercertificate.org/)). Use `git commit -s`.
 

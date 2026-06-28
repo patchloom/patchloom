@@ -246,6 +246,53 @@ pub(crate) struct TxState<'a> {
     pub(crate) structured: bool,
 }
 
+/// Test fixture that owns all the storage behind a `TxState`, avoiding
+/// the need to declare 8+ `let mut` bindings in every test.
+#[cfg(test)]
+pub(crate) struct TxStateFixture {
+    pub pending: HashMap<PathBuf, (String, String)>,
+    pub deletions: HashSet<PathBuf>,
+    pub existed_before: HashSet<PathBuf>,
+    pub doc_cache: HashMap<PathBuf, CachedDoc>,
+    pub reads: Vec<TxReadResult>,
+    pub searches: Vec<TxSearchResult>,
+    pub lints: Vec<TxLintResult>,
+    pub write_targets: HashSet<PathBuf>,
+}
+
+#[cfg(test)]
+impl TxStateFixture {
+    pub fn new() -> Self {
+        Self {
+            pending: HashMap::new(),
+            deletions: HashSet::new(),
+            existed_before: HashSet::new(),
+            doc_cache: HashMap::new(),
+            reads: Vec::new(),
+            searches: Vec::new(),
+            lints: Vec::new(),
+            write_targets: HashSet::new(),
+        }
+    }
+
+    pub fn state<'a>(&'a mut self, cwd: &'a Path) -> TxState<'a> {
+        TxState {
+            pending: &mut self.pending,
+            deletions: &mut self.deletions,
+            existed_before: &mut self.existed_before,
+            doc_cache: &mut self.doc_cache,
+            tx_reads: &mut self.reads,
+            tx_searches: &mut self.searches,
+            tx_lints: &mut self.lints,
+            write_targets: &mut self.write_targets,
+            replace_hint: None,
+            cwd,
+            quiet: true,
+            structured: false,
+        }
+    }
+}
+
 // execute_replace_op extracted to tx/replace_op.rs (#906).
 pub(crate) use super::replace_op::execute_replace_op;
 

@@ -238,39 +238,8 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
 mod tests {
     use super::*;
     use crate::plan::Operation;
-    use crate::tx::execute::{CachedDoc, TxState};
-    use crate::tx::output::{TxLintResult, TxReadResult, TxSearchResult};
-    use std::collections::{HashMap, HashSet};
-    use std::path::PathBuf;
+    use crate::tx::TxStateFixture;
     use tempfile::TempDir;
-
-    #[allow(clippy::too_many_arguments)]
-    fn make_tx_state<'a>(
-        pending: &'a mut HashMap<PathBuf, (String, String)>,
-        deletions: &'a mut HashSet<PathBuf>,
-        existed_before: &'a mut HashSet<PathBuf>,
-        doc_cache: &'a mut HashMap<PathBuf, CachedDoc>,
-        reads: &'a mut Vec<TxReadResult>,
-        searches: &'a mut Vec<TxSearchResult>,
-        lints: &'a mut Vec<TxLintResult>,
-        write_targets: &'a mut HashSet<PathBuf>,
-        cwd: &'a Path,
-    ) -> TxState<'a> {
-        TxState {
-            pending,
-            deletions,
-            existed_before,
-            doc_cache,
-            tx_reads: reads,
-            tx_searches: searches,
-            tx_lints: lints,
-            write_targets,
-            replace_hint: None,
-            cwd,
-            quiet: true,
-            structured: false,
-        }
-    }
 
     #[test]
     fn replace_literal_match() {
@@ -297,30 +266,12 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(count, 1);
-        assert_eq!(pending[&file].1, "goodbye world");
+        assert_eq!(f.pending[&file].1, "goodbye world");
     }
 
     #[test]
@@ -348,27 +299,8 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
         assert_eq!(count, 0);
     }
@@ -398,30 +330,12 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(count, 1);
-        assert_eq!(pending[&file].1, "fooNUMbar");
+        assert_eq!(f.pending[&file].1, "fooNUMbar");
     }
 
     #[test]
@@ -449,30 +363,12 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(count, 1);
-        assert_eq!(pending[&file].1, "hi World");
+        assert_eq!(f.pending[&file].1, "hi World");
     }
 
     #[test]
@@ -498,27 +394,8 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let result = execute_replace_op(&op, &mut tx);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("'path' or 'glob'"));
@@ -550,31 +427,13 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(count, 2); // a.txt and b.txt matched
         // c.rs should not be modified
-        assert!(!pending.contains_key(&dir.path().join("c.rs")));
+        assert!(!f.pending.contains_key(&dir.path().join("c.rs")));
     }
 
     #[test]
@@ -604,30 +463,12 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
         assert_eq!(count, 1);
-        let result = &pending[&file].1;
+        let result = &f.pending[&file].1;
         assert!(
             result.contains("fn process(input: Vec<u8>)"),
             "original function signature must be preserved, got: {result}"
@@ -665,26 +506,8 @@ mod tests {
             if_exists: false,
         };
 
-        let mut pending = HashMap::new();
-        let mut deletions = HashSet::new();
-        let mut existed = HashSet::new();
-        let mut doc_cache = HashMap::new();
-        let mut reads = Vec::new();
-        let mut searches = Vec::new();
-        let mut lints = Vec::new();
-        let mut write_targets = HashSet::new();
-        let mut tx = make_tx_state(
-            &mut pending,
-            &mut deletions,
-            &mut existed,
-            &mut doc_cache,
-            &mut reads,
-            &mut searches,
-            &mut lints,
-            &mut write_targets,
-            dir.path(),
-        );
-
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
         let err = execute_replace_op(&op, &mut tx).unwrap_err();
         assert!(
             err.to_string().contains("range requires whole_line"),
