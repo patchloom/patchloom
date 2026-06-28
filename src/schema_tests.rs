@@ -34,7 +34,7 @@ mod basic {
 
     #[test]
     fn operation_schemas_non_empty() {
-        let schemas = operation_schemas();
+        let schemas = operation_schemas().unwrap();
         assert!(!schemas.is_empty());
         // Every schema must have a name, description, and valid JSON parameters.
         for schema in &schemas {
@@ -54,7 +54,7 @@ mod basic {
 
     #[test]
     fn operation_schemas_have_unique_names() {
-        let schemas = operation_schemas();
+        let schemas = operation_schemas().unwrap();
         let mut names: Vec<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
         names.sort();
         let original_len = names.len();
@@ -64,8 +64,8 @@ mod basic {
 
     #[test]
     fn weak_tier_returns_subset() {
-        let all = operation_schemas();
-        let weak = operations_for_tier(Tier::Weak);
+        let all = operation_schemas().unwrap();
+        let weak = operations_for_tier(Tier::Weak).unwrap();
         assert!(
             weak.len() < all.len(),
             "weak should be a proper subset of all"
@@ -83,8 +83,8 @@ mod basic {
 
     #[test]
     fn medium_tier_includes_weak() {
-        let weak = operations_for_tier(Tier::Weak);
-        let medium = operations_for_tier(Tier::Medium);
+        let weak = operations_for_tier(Tier::Weak).unwrap();
+        let medium = operations_for_tier(Tier::Medium).unwrap();
         assert!(medium.len() >= weak.len());
         let weak_names: Vec<&str> = weak.iter().map(|o| o.name.as_str()).collect();
         for name in &weak_names {
@@ -97,8 +97,8 @@ mod basic {
 
     #[test]
     fn strong_tier_returns_all() {
-        let all = operation_schemas();
-        let strong = operations_for_tier(Tier::Strong);
+        let all = operation_schemas().unwrap();
+        let strong = operations_for_tier(Tier::Strong).unwrap();
         assert_eq!(
             strong.len(),
             all.len(),
@@ -108,7 +108,7 @@ mod basic {
 
     #[test]
     fn weak_tier_has_expected_ops() {
-        let weak = operations_for_tier(Tier::Weak);
+        let weak = operations_for_tier(Tier::Weak).unwrap();
         let names: Vec<&str> = weak.iter().map(|o| o.name.as_str()).collect();
         assert!(names.contains(&"replace"), "weak tier must include replace");
         assert!(
@@ -127,7 +127,7 @@ mod basic {
 
     #[test]
     fn medium_tier_has_expected_ops() {
-        let medium = operations_for_tier(Tier::Medium);
+        let medium = operations_for_tier(Tier::Medium).unwrap();
         let names: Vec<&str> = medium.iter().map(|o| o.name.as_str()).collect();
         assert!(
             names.contains(&"doc.set"),
@@ -145,7 +145,7 @@ mod basic {
 
     #[test]
     fn strong_tier_has_expected_ops() {
-        let strong = operations_for_tier(Tier::Strong);
+        let strong = operations_for_tier(Tier::Strong).unwrap();
         let names: Vec<&str> = strong.iter().map(|o| o.name.as_str()).collect();
         assert!(names.contains(&"search"), "strong tier must include search");
         assert!(
@@ -156,7 +156,7 @@ mod basic {
 
     #[test]
     fn system_prompt_for_weak_tier() {
-        let prompt = system_prompt_for_tier(Tier::Weak);
+        let prompt = system_prompt_for_tier(Tier::Weak).unwrap();
         assert!(prompt.contains("tier: weak"));
         assert!(prompt.contains("replace"));
         assert!(prompt.contains("file.create"));
@@ -167,7 +167,7 @@ mod basic {
 
     #[test]
     fn system_prompt_for_strong_tier() {
-        let prompt = system_prompt_for_tier(Tier::Strong);
+        let prompt = system_prompt_for_tier(Tier::Strong).unwrap();
         assert!(prompt.contains("tier: strong"));
         assert!(prompt.contains("replace"));
         assert!(prompt.contains("doc.set"));
@@ -186,7 +186,7 @@ mod basic {
 
     #[test]
     fn system_prompt_includes_write_policy() {
-        let prompt = system_prompt_for_tier(Tier::Strong);
+        let prompt = system_prompt_for_tier(Tier::Strong).unwrap();
         assert!(prompt.contains("write_policy"));
         assert!(prompt.contains("collapse_blanks"));
         assert!(prompt.contains("ensure_final_newline"));
@@ -194,13 +194,13 @@ mod basic {
 
     #[test]
     fn system_prompt_includes_version() {
-        let prompt = system_prompt_for_tier(Tier::Medium);
+        let prompt = system_prompt_for_tier(Tier::Medium).unwrap();
         assert!(prompt.contains(&format!("format version: {INTENT_FORMAT_VERSION}")));
     }
 
     #[test]
     fn schemas_have_required_fields() {
-        let schemas = operation_schemas();
+        let schemas = operation_schemas().unwrap();
         for schema in &schemas {
             let required = schema.parameters.get("required");
             assert!(
@@ -213,7 +213,7 @@ mod basic {
 
     #[test]
     fn operation_examples_include_op_field() {
-        for schema in operation_schemas() {
+        for schema in operation_schemas().unwrap() {
             for ex in &schema.examples {
                 let op = ex
                     .args
@@ -236,7 +236,7 @@ mod basic {
 
     #[test]
     fn operation_schema_serializes_to_json() {
-        let schemas = operation_schemas();
+        let schemas = operation_schemas().unwrap();
         let json = serde_json::to_string_pretty(&schemas).unwrap();
         assert!(!json.is_empty());
         // Roundtrip: deserialize back.
@@ -542,7 +542,7 @@ mod basic {
             ));
         }
 
-        let schemas = operation_schemas();
+        let schemas = operation_schemas().unwrap();
         let schema_map: std::collections::HashMap<&str, &OperationSchema> =
             schemas.iter().map(|s| (s.name.as_str(), s)).collect();
 
@@ -626,7 +626,7 @@ mod type_extraction {
     fn system_prompt_does_not_show_any_for_optional_params() {
         // The system prompt should show real types (string, boolean, etc.)
         // for optional parameters, not "any".
-        let prompt = system_prompt_for_tier(Tier::Strong);
+        let prompt = system_prompt_for_tier(Tier::Strong).unwrap();
         // Count occurrences of ": any" — there should be very few.
         let any_count = prompt.matches(": any").count();
         // Some fields genuinely have no type (e.g., `value` in doc.set

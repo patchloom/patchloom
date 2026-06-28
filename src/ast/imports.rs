@@ -729,7 +729,7 @@ mod tests {
         let imports = list_imports(source, Language::Go);
         assert_eq!(imports.len(), 1, "Go import block should be one entry");
         assert!(imports[0].text.contains("fmt"));
-        assert!(imports[0].text.contains("os"));
+        assert!(imports[0].text.contains("\"os\""));
     }
 
     #[test]

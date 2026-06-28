@@ -232,7 +232,7 @@ mod basic {
         }
 
         fn op_schema_keys(op_name: &str) -> std::collections::BTreeSet<String> {
-            let schema = operation_variant_schema(op_name);
+            let schema = operation_variant_schema(op_name).unwrap();
             schema
                 .get("properties")
                 .and_then(|p| p.as_object())
