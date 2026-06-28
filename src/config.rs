@@ -171,6 +171,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.color = match color.as_str() {
             "always" => crate::cli::global::ColorMode::Always,
             "never" => crate::cli::global::ColorMode::Never,
+            "auto" => crate::cli::global::ColorMode::Auto,
             invalid => {
                 eprintln!("{}", invalid_output_color_warning(invalid));
                 crate::cli::global::ColorMode::Auto
@@ -476,6 +477,22 @@ color = "always"
 
     #[test]
     #[cfg(feature = "cli")]
+    // Regression: color = "auto" in config produced a spurious warning because
+    // the match only handled "always" and "never", falling through to the
+    // invalid-value catch-all for "auto".
+    fn apply_config_color_auto_no_warning() {
+        let config = ProjectConfig {
+            output: Output {
+                color: Some("auto".into()),
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+        assert!(matches!(global.color, crate::cli::global::ColorMode::Auto));
+    }
+
+    #[test]
     fn apply_config_unknown_color_value_stays_auto() {
         let config = ProjectConfig {
             output: Output {
