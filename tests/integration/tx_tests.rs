@@ -6702,3 +6702,78 @@ fn test_tx_for_each_no_matches_produces_empty_plan() {
         .assert()
         .code(0);
 }
+
+#[test]
+fn test_tx_for_each_escaped_braces_produce_literal() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old value\n").unwrap();
+
+    // `{{path}}` should become literal `{path}` in the replacement text,
+    // NOT the matched file path.
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "*.txt"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "old value",
+            "to": "literal {{path}} here"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("a.txt")).unwrap();
+    assert!(
+        content.contains("literal {path} here"),
+        "escaped braces should produce literal braces: {content}"
+    );
+    assert!(
+        !content.contains("literal a.txt here"),
+        "escaped braces should NOT be substituted: {content}"
+    );
+}
+
+#[test]
+fn test_tx_for_each_mixed_escaped_and_template_vars() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.rs"), "placeholder\n").unwrap();
+
+    // Mix of template variables (substituted) and escaped braces (literal).
+    let plan = serde_json::json!({
+        "version": "1",
+        "for_each": {
+            "glob": "*.rs"
+        },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "from": "placeholder",
+            "to": "file={stem} ext={ext} literal={{name}}"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("test.rs")).unwrap();
+    assert!(
+        content.contains("file=test ext=rs literal={name}"),
+        "mixed escaped and template vars: {content}"
+    );
+}
