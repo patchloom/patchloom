@@ -115,18 +115,30 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
     let nf_lines: Vec<(usize, &str)> = non_fenced_lines(content).collect();
 
     for (pos, &(idx, line)) in nf_lines.iter().enumerate() {
-        // ATX heading: starts with #
-        if line.starts_with('#') {
-            let hashes = line.bytes().take_while(|&b| b == b'#').count();
-            if hashes > 6 || hashes >= line.len() {
+        // ATX heading: optional 0-3 spaces then 1-6 '#' then space/tab/EOL
+        let stripped = line.trim_start_matches(' ');
+        let indent = line.len() - stripped.len();
+        if indent <= 3 && stripped.starts_with('#') {
+            let hashes = stripped.bytes().take_while(|&b| b == b'#').count();
+            if hashes > 6 {
                 continue;
             }
-            if line.as_bytes()[hashes] != b' ' {
+            // After the hashes: must be end-of-line, space, or tab
+            if hashes < stripped.len()
+                && stripped.as_bytes()[hashes] != b' '
+                && stripped.as_bytes()[hashes] != b'\t'
+            {
                 continue;
             }
+            let text = if hashes >= stripped.len() {
+                // Empty heading (line is only '#' characters)
+                String::new()
+            } else {
+                strip_atx_closing(stripped[hashes + 1..].trim_start())
+            };
             headings.push(HeadingInfo {
                 level: hashes,
-                text: strip_atx_closing(&line[hashes + 1..]),
+                text,
                 line_start: idx,
                 body_line: idx + 1,
                 line_end: 0,
