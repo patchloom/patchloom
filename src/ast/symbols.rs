@@ -964,7 +964,6 @@ fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
         Language::Rust => {
             trimmed.starts_with("#[")
                 || trimmed.starts_with("///")
-                || trimmed.starts_with("//!")
                 || trimmed.starts_with("/**")
                 || trimmed.starts_with("* ")
                 || trimmed == "*/"
@@ -995,27 +994,50 @@ fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
 
 /// Extract the text of a symbol from source, using the full span (including
 /// attributes and doc comments).
+/// Compute the byte offset of the start of each line in `source`.
+/// Returns a vector where `offsets[i]` is the byte position of the start of
+/// line `i` (0-indexed). `offsets[lines.len()]` is `source.len()`, so that
+/// `source[offsets[i]..offsets[i+1]]` gives line `i` including its line ending.
+pub(crate) fn compute_line_byte_offsets(source: &str) -> Vec<usize> {
+    let mut offsets = vec![0usize];
+    let bytes = source.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            offsets.push(i + 1);
+            i += 1;
+        } else if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            offsets.push(i + 2);
+            i += 2;
+        } else if bytes[i] == b'\r' {
+            offsets.push(i + 1);
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    offsets
+}
+
 pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language) -> &'a str {
     let (full_start, full_end) = full_symbol_span(source, sym, lang);
     let lines: Vec<&str> = source.lines().collect();
     let start_0 = full_start.saturating_sub(1);
     let end_0 = full_end.min(lines.len());
 
-    // Find byte offsets. str::lines() strips both \n and \r\n, so line.len()
-    // excludes the line ending. We must account for the actual ending size.
-    let line_ending_len = if source.contains("\r\n") { 2 } else { 1 };
-    let mut byte_start = 0;
-    for line in &lines[..start_0] {
-        byte_start += line.len() + line_ending_len;
-    }
-
-    let mut byte_end = byte_start;
-    for line in &lines[start_0..end_0] {
-        byte_end += line.len() + line_ending_len;
-    }
-
-    // Don't go past source length
-    byte_end = byte_end.min(source.len());
+    // Compute byte offsets by scanning the actual source bytes rather than
+    // assuming uniform line endings (files may mix \r\n and \n).
+    let line_offsets = compute_line_byte_offsets(source);
+    let byte_start = if start_0 < line_offsets.len() {
+        line_offsets[start_0]
+    } else {
+        source.len()
+    };
+    let byte_end = if end_0 < line_offsets.len() {
+        line_offsets[end_0]
+    } else {
+        source.len()
+    };
 
     &source[byte_start..byte_end]
 }
@@ -1522,6 +1544,20 @@ struct Point {
         assert_eq!(start, 1);
     }
 
+    // Regression: //! inner doc comments belong to the module, not the
+    // following symbol. full_symbol_span must not absorb them.
+    #[test]
+    fn full_span_excludes_inner_doc_comments() {
+        let source = "//! Module-level doc.\nstruct Config {}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let sym = symbols.iter().find(|s| s.name == "Config").unwrap();
+        let (start, _) = full_symbol_span(source, sym, Language::Rust);
+        assert_eq!(
+            start, 2,
+            "inner doc comment //! should not be included in Config's span"
+        );
+    }
+
     #[test]
     fn full_span_stops_at_unrelated_code() {
         let source = "fn bar() {}\n\n#[test]\nfn foo() {}\n";
@@ -1540,6 +1576,25 @@ struct Point {
         assert!(text.contains("#[test]"));
         assert!(text.contains("fn foo()"));
         assert!(!text.contains("fn bar"));
+    }
+
+    // Regression: extract_symbol_text used a global line-ending heuristic
+    // that produced wrong byte offsets on files with mixed \r\n and \n endings.
+    #[test]
+    fn extract_symbol_text_mixed_line_endings() {
+        // First line uses \r\n, rest use \n.
+        let source = "fn first() {}\r\nfn second() {\n    42\n}\n";
+        let symbols = extract_symbols(source, Language::Rust);
+        let second = symbols.iter().find(|s| s.name == "second").unwrap();
+        let text = extract_symbol_text(source, second, Language::Rust);
+        assert!(
+            text.contains("fn second()"),
+            "should contain fn second(): {text:?}"
+        );
+        assert!(
+            !text.contains("fn first()"),
+            "should not contain fn first(): {text:?}"
+        );
     }
 
     // ── find_function_span tests ──────────────────────────────────

@@ -618,7 +618,8 @@ mod edge_cases {
 
     #[test]
     fn strip_inline_code_unmatched_backtick() {
-        assert_eq!(strip_inline_code("before `after"), "before after");
+        // Unmatched backtick is kept as literal text (correct per CommonMark).
+        assert_eq!(strip_inline_code("before `after"), "before `after");
     }
 
     #[test]
@@ -630,12 +631,24 @@ mod edge_cases {
 
     #[test]
     fn strip_inline_code_adjacent_backticks() {
-        assert_eq!(strip_inline_code("``"), "");
+        // Two backticks with no matching closing run is unmatched.
+        assert_eq!(strip_inline_code("``"), "``");
     }
 
     #[test]
     fn strip_inline_code_only_backtick_content() {
         assert_eq!(strip_inline_code("`code`"), "");
+    }
+
+    // Regression: double-backtick code spans should strip their content.
+    #[test]
+    fn strip_inline_code_double_backtick_span() {
+        assert_eq!(strip_inline_code("Use ``git add .`` safely"), "Use  safely");
+    }
+
+    #[test]
+    fn strip_inline_code_triple_backtick_span() {
+        assert_eq!(strip_inline_code("Run ```git add .``` here"), "Run  here");
     }
 
     #[test]

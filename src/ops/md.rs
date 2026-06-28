@@ -566,25 +566,53 @@ pub fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<St
 }
 
 /// Strip inline code spans (between backticks) from a line so that
-/// we don't false-positive on code examples.
+/// we don't false-positive on code examples. Handles multi-backtick
+/// spans (e.g. `` `code` ``, ``` ``code`` ```).
 pub(crate) fn strip_inline_code(line: &str) -> Cow<'_, str> {
     if !line.contains('`') {
         return Cow::Borrowed(line);
     }
     let mut result = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(open) = rest.find('`') {
-        result.push_str(&rest[..open]);
-        let after_open = &rest[open + 1..];
-        if let Some(close) = after_open.find('`') {
-            rest = &after_open[close + 1..];
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            // Count the opening backtick run length.
+            let run_start = i;
+            while i < bytes.len() && bytes[i] == b'`' {
+                i += 1;
+            }
+            let run_len = i - run_start;
+            // Find the matching closing run of the same length.
+            let mut found = false;
+            let mut j = i;
+            while j < bytes.len() {
+                if bytes[j] == b'`' {
+                    let close_start = j;
+                    while j < bytes.len() && bytes[j] == b'`' {
+                        j += 1;
+                    }
+                    if j - close_start == run_len {
+                        // Matched closing run — skip the entire span.
+                        i = j;
+                        found = true;
+                        break;
+                    }
+                    // Different run length — not a match, continue searching.
+                } else {
+                    j += 1;
+                }
+            }
+            if !found {
+                // Unmatched backtick run — keep the rest as-is.
+                result.push_str(&line[run_start..]);
+                return Cow::Owned(result);
+            }
         } else {
-            // Unmatched backtick — keep the rest as-is.
-            rest = after_open;
-            break;
+            result.push(bytes[i] as char);
+            i += 1;
         }
     }
-    result.push_str(rest);
     Cow::Owned(result)
 }
 
