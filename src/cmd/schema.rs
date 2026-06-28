@@ -48,8 +48,8 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let ops = match tier {
-        Some(t) => schema::operations_for_tier(t),
-        None => schema::operation_schemas(),
+        Some(t) => schema::operations_for_tier(t)?,
+        None => schema::operation_schemas()?,
     };
 
     match args.format {
@@ -85,8 +85,8 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         SchemaFormat::Prompt => {
             let prompt = match tier {
-                Some(t) => schema::system_prompt_for_tier(t),
-                None => schema::system_prompt_for_tier(Tier::Strong),
+                Some(t) => schema::system_prompt_for_tier(t)?,
+                None => schema::system_prompt_for_tier(Tier::Strong)?,
             };
             if global.quiet {
                 return Ok(exit::SUCCESS);

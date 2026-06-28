@@ -14,14 +14,15 @@
 //! assert!(schema::is_compatible_version("1"));
 //!
 //! // Get operations for medium-tier models
-//! let ops = schema::operations_for_tier(Tier::Medium);
+//! let ops = schema::operations_for_tier(Tier::Medium).unwrap();
 //! assert!(!ops.is_empty());
 //!
 //! // Generate a system prompt fragment
-//! let prompt = schema::system_prompt_for_tier(Tier::Medium);
+//! let prompt = schema::system_prompt_for_tier(Tier::Medium).unwrap();
 //! assert!(prompt.contains("replace"));
 //! ```
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 /// Cached full JSON Schema for `plan::Operation` (tagged enum).
@@ -41,14 +42,14 @@ static OPERATION_FULL_SCHEMA: std::sync::LazyLock<serde_json::Value> =
 /// rename value (e.g., `"doc.set"`). This function finds the matching variant,
 /// clones it, strips the `op` discriminator property (not needed for standalone
 /// schema consumers), and removes top-level `$schema`/`title` for compactness.
-pub fn operation_variant_schema(op_name: &str) -> serde_json::Value {
+pub fn operation_variant_schema(op_name: &str) -> anyhow::Result<serde_json::Value> {
     let schema = &*OPERATION_FULL_SCHEMA;
 
     // Navigate: schema.oneOf[i].properties.op.const == op_name
     let one_of = schema
         .get("oneOf")
         .and_then(|v| v.as_array())
-        .unwrap_or_else(|| panic!("Operation schema missing oneOf array"));
+        .context("Operation schema missing oneOf array")?;
 
     for variant in one_of {
         let op_const = variant
@@ -69,11 +70,11 @@ pub fn operation_variant_schema(op_name: &str) -> serde_json::Value {
                 obj.remove("$schema");
                 obj.remove("title");
             }
-            return v;
+            return Ok(v);
         }
     }
 
-    panic!("Operation variant \'{op_name}\' not found in oneOf schema");
+    anyhow::bail!("Operation variant '{op_name}' not found in oneOf schema");
 }
 
 /// The current intent format version. Consumers check this at startup to
@@ -489,27 +490,29 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
 ];
 
 /// Return the complete registry of all patchloom operations with schemas.
-pub fn operation_schemas() -> Vec<OperationSchema> {
+pub fn operation_schemas() -> anyhow::Result<Vec<OperationSchema>> {
     #[allow(unused_mut)]
     let mut all: Vec<&OpMeta> = OPERATION_REGISTRY.iter().collect();
     #[cfg(feature = "ast")]
     all.extend(AST_OPERATION_REGISTRY.iter());
 
     all.into_iter()
-        .map(|meta| OperationSchema {
-            name: meta.name.into(),
-            description: meta.description.into(),
-            parameters: operation_variant_schema(meta.name),
-            min_tier: meta.tier,
-            examples: meta
-                .examples
-                .iter()
-                .map(|(desc, json)| OperationExample {
-                    description: (*desc).into(),
-                    args: serde_json::from_str(json)
-                        .unwrap_or_else(|e| panic!("bad example JSON for {}: {e}", meta.name)),
-                })
-                .collect(),
+        .map(|meta| {
+            Ok(OperationSchema {
+                name: meta.name.into(),
+                description: meta.description.into(),
+                parameters: operation_variant_schema(meta.name)?,
+                min_tier: meta.tier,
+                examples: meta
+                    .examples
+                    .iter()
+                    .map(|(desc, json)| OperationExample {
+                        description: (*desc).into(),
+                        args: serde_json::from_str(json)
+                            .unwrap_or_else(|e| panic!("bad example JSON for {}: {e}", meta.name)),
+                    })
+                    .collect(),
+            })
         })
         .collect()
 }
@@ -531,11 +534,11 @@ pub fn plan_write_policy_schema() -> serde_json::Value {
 }
 
 /// Get operations available at a given capability tier (includes all lower tiers).
-pub fn operations_for_tier(tier: Tier) -> Vec<OperationSchema> {
-    operation_schemas()
+pub fn operations_for_tier(tier: Tier) -> anyhow::Result<Vec<OperationSchema>> {
+    Ok(operation_schemas()?
         .into_iter()
         .filter(|op| op.min_tier <= tier)
-        .collect()
+        .collect())
 }
 
 /// Extract a human-readable type string from a JSON Schema `type` field.
@@ -559,8 +562,8 @@ fn extract_type_str(schema: &serde_json::Value) -> String {
 /// Generate a system prompt fragment describing available operations at this tier.
 ///
 /// The output is markdown text suitable for inclusion in an LLM system prompt.
-pub fn system_prompt_for_tier(tier: Tier) -> String {
-    let ops = operations_for_tier(tier);
+pub fn system_prompt_for_tier(tier: Tier) -> anyhow::Result<String> {
+    let ops = operations_for_tier(tier)?;
     let mut out = String::new();
 
     out.push_str(&format!(
@@ -637,7 +640,7 @@ pub fn system_prompt_for_tier(tier: Tier) -> String {
         out.push('\n');
     }
 
-    out
+    Ok(out)
 }
 
 #[path = "schema_tests.rs"]

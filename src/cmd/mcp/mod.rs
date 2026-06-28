@@ -121,7 +121,7 @@ impl PatchloomService {
         // its input schema from the corresponding Operation variant and uses
         // the generic `handle_simple_op` dispatcher.
         for meta in MCP_TOOL_REGISTRY {
-            let mut schema = crate::schema::operation_variant_schema(meta.op_name);
+            let mut schema = crate::schema::operation_variant_schema(meta.op_name)?;
             if meta.has_strict {
                 schema = inject_strict_into_schema(schema);
             }
