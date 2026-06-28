@@ -266,25 +266,45 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             file,
             selector,
             value,
-        } => Ok(Operation::DocSet {
-            path: file.clone(),
-            selector: selector.clone(),
-            value: parse_value(value),
-        }),
-        DocAction::Delete { file, selector } => Ok(Operation::DocDelete {
-            path: file.clone(),
-            selector: selector.clone(),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: set file={}, selector={:?}, value={:?}",
+                file,
+                selector,
+                value
+            );
+            Ok(Operation::DocSet {
+                path: file.clone(),
+                selector: selector.clone(),
+                value: parse_value(value),
+            })
+        }
+        DocAction::Delete { file, selector } => {
+            crate::verbose!("doc: delete file={}, selector={:?}", file, selector);
+            Ok(Operation::DocDelete {
+                path: file.clone(),
+                selector: selector.clone(),
+            })
+        }
         DocAction::DeleteWhere {
             file,
             selector,
             predicate,
-        } => Ok(Operation::DocDeleteWhere {
-            path: file.clone(),
-            selector: selector.clone(),
-            predicate: predicate.clone(),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: delete-where file={}, selector={:?}, predicate={:?}",
+                file,
+                selector,
+                predicate
+            );
+            Ok(Operation::DocDeleteWhere {
+                path: file.clone(),
+                selector: selector.clone(),
+                predicate: predicate.clone(),
+            })
+        }
         DocAction::Merge { file, stdin, value } => {
+            crate::verbose!("doc: merge file={}, stdin={}", file, stdin);
             if *stdin && value.is_some() {
                 anyhow::bail!("merge: --stdin and --value are mutually exclusive");
             }
@@ -304,43 +324,78 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             file,
             selector,
             value,
-        } => Ok(Operation::DocAppend {
-            path: file.clone(),
-            selector: selector.clone(),
-            value: parse_value(value),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: append file={}, selector={:?}, value={:?}",
+                file,
+                selector,
+                value
+            );
+            Ok(Operation::DocAppend {
+                path: file.clone(),
+                selector: selector.clone(),
+                value: parse_value(value),
+            })
+        }
         DocAction::Prepend {
             file,
             selector,
             value,
-        } => Ok(Operation::DocPrepend {
-            path: file.clone(),
-            selector: selector.clone(),
-            value: parse_value(value),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: prepend file={}, selector={:?}, value={:?}",
+                file,
+                selector,
+                value
+            );
+            Ok(Operation::DocPrepend {
+                path: file.clone(),
+                selector: selector.clone(),
+                value: parse_value(value),
+            })
+        }
         DocAction::Update {
             file,
             selector,
             value,
-        } => Ok(Operation::DocUpdate {
-            path: file.clone(),
-            selector: selector.clone(),
-            value: parse_value(value),
-        }),
-        DocAction::Move { file, from, to } => Ok(Operation::DocMove {
-            path: file.clone(),
-            from: from.clone(),
-            to: to.clone(),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: update file={}, selector={:?}, value={:?}",
+                file,
+                selector,
+                value
+            );
+            Ok(Operation::DocUpdate {
+                path: file.clone(),
+                selector: selector.clone(),
+                value: parse_value(value),
+            })
+        }
+        DocAction::Move { file, from, to } => {
+            crate::verbose!("doc: move file={}, from={:?}, to={:?}", file, from, to);
+            Ok(Operation::DocMove {
+                path: file.clone(),
+                from: from.clone(),
+                to: to.clone(),
+            })
+        }
         DocAction::Ensure {
             file,
             selector,
             value,
-        } => Ok(Operation::DocEnsure {
-            path: file.clone(),
-            selector: selector.clone(),
-            value: parse_value(value),
-        }),
+        } => {
+            crate::verbose!(
+                "doc: ensure file={}, selector={:?}, value={:?}",
+                file,
+                selector,
+                value
+            );
+            Ok(Operation::DocEnsure {
+                path: file.clone(),
+                selector: selector.clone(),
+                value: parse_value(value),
+            })
+        }
         _ => anyhow::bail!("not a write action"),
     }
 }
@@ -403,6 +458,7 @@ pub(crate) fn execute_with_mode(
 ) -> anyhow::Result<(String, u8)> {
     match action {
         DocAction::Get { file, selector } | DocAction::Select { file, selector } => {
+            crate::verbose!("doc: get/select file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_get(&root, selector)? {
                 crate::ops::doc::query::QueryResult::NoMatch => {
@@ -416,6 +472,7 @@ pub(crate) fn execute_with_mode(
         }
 
         DocAction::Has { file, selector } => {
+            crate::verbose!("doc: has file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             let found = crate::ops::doc::query::query_has(&root, selector)?;
             let output = match output_mode {
@@ -434,6 +491,7 @@ pub(crate) fn execute_with_mode(
         }
 
         DocAction::Keys { file, selector } => {
+            crate::verbose!("doc: keys file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_keys(&root, selector)? {
                 crate::ops::doc::query::QueryKeysResult::NoMatch => {
@@ -459,6 +517,7 @@ pub(crate) fn execute_with_mode(
         }
 
         DocAction::Len { file, selector } => {
+            crate::verbose!("doc: len file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_len(&root, selector)? {
                 crate::ops::doc::query::QueryLenResult::NoMatch => {
@@ -480,6 +539,7 @@ pub(crate) fn execute_with_mode(
         }
 
         DocAction::Flatten { file } => {
+            crate::verbose!("doc: flatten file={}", file);
             let root = load_file(file)?;
             let mut entries = Vec::new();
             let mut path_buf = String::new();
@@ -517,6 +577,7 @@ pub(crate) fn execute_with_mode(
         }
 
         DocAction::Diff { file_a, file_b } => {
+            crate::verbose!("doc: diff file_a={}, file_b={}", file_a, file_b);
             let val_a = load_file(file_a)?;
             let val_b = load_file(file_b)?;
             let mut entries = Vec::new();
@@ -605,7 +666,7 @@ pub(crate) fn execute_with_mode(
 // ---------------------------------------------------------------------------
 
 pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    crate::verbose!("doc: running doc command");
+    crate::verbose!("doc: action={:?}", std::mem::discriminant(&args.action));
 
     if args.action.is_write() {
         let display_path = args.action.file_path().unwrap_or("").to_string();

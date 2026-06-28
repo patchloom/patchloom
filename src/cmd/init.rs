@@ -27,6 +27,7 @@ const AGENT_FILES: &[&str] = &[
 ];
 
 pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!("init: yes={}", args.yes);
     let cwd = global.resolve_cwd()?;
     let auto_yes = args.yes;
     let quiet = global.quiet;

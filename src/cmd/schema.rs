@@ -33,6 +33,12 @@ pub enum SchemaFormat {
 }
 
 pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "schema: format={:?}, tier={:?}, examples={}",
+        args.format,
+        args.tier,
+        args.examples
+    );
     let tier: Option<Tier> = match &args.tier {
         Some(s) => {
             let t: Tier = s.parse().map_err(|e: String| anyhow::anyhow!("{e}"))?;
