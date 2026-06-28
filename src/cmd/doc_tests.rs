@@ -789,4 +789,23 @@ mod security {
         }
         assert!(cursor.is_object());
     }
+
+    #[test]
+    fn execute_with_mode_rejects_write_action() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "t.json", r#"{"a":1}"#);
+        let action = DocAction::Delete {
+            file: path,
+            selector: "a".into(),
+        };
+        let result = execute_with_mode(&action, OutputMode::Text);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("write operations require"),
+            "should reject write actions routed through execute_with_mode"
+        );
+    }
 }

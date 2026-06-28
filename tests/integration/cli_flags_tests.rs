@@ -1185,6 +1185,60 @@ fn test_verbose_doc_flatten_emits_trace() {
 }
 
 #[test]
+fn test_verbose_doc_len_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("d.json"), r#"{"items": [1, 2, 3]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("len")
+        .arg("d.json")
+        .arg("items")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] doc: len"));
+}
+
+#[test]
+fn test_verbose_doc_diff_emits_trace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"x": 1}"#).unwrap();
+    fs::write(dir.path().join("b.json"), r#"{"x": 2}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("doc")
+        .arg("diff")
+        .arg("a.json")
+        .arg("b.json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .stderr(predicate::str::contains("[patchloom] doc: diff"));
+}
+
+#[test]
+fn test_verbose_init_emits_trace() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--verbose")
+        .arg("init")
+        .arg("--yes")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("[patchloom] init:"));
+}
+
+#[test]
 fn test_verbose_explain_emits_trace() {
     let dir = TempDir::new().unwrap();
     let plan = "version: '1'\noperations:\n  - op: create_file\n    path: f.txt\n    content: hi\n";
