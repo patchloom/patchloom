@@ -614,13 +614,7 @@ fn join_lines_with(lines: &[String], final_newline: bool, eol: &str) -> String {
 
 /// Detect dominant line ending in the original text.
 fn detect_eol(text: &str) -> &'static str {
-    let crlf = text.matches("\r\n").count();
-    let lf_only = text.matches('\n').count().saturating_sub(crlf);
-    if crlf > 0 && crlf >= lf_only {
-        "\r\n"
-    } else {
-        "\n"
-    }
+    crate::write::detect_eol(text)
 }
 
 fn find_match(haystack: &[&str], needle: &[&str], expected: isize, fuzz: usize) -> Option<usize> {

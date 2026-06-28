@@ -46,6 +46,7 @@ pub fn list_imports(source: &str, lang: Language) -> Vec<ImportStatement> {
 /// Skips imports that already exist. Inserts at the appropriate position
 /// (after existing imports, or after module doc comments).
 pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> ImportsResult {
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = source.lines().collect();
     let existing = list_imports(source, lang);
     let existing_texts: std::collections::HashSet<String> =
@@ -80,23 +81,23 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
     if insert_after.is_none() && !lines.is_empty() {
         for new_imp in &new_imports {
             result.push_str(new_imp);
-            result.push('\n');
+            result.push_str(eol);
         }
-        result.push('\n');
+        result.push_str(eol);
     }
 
     for (i, line) in lines.iter().enumerate() {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
 
         if insert_after == Some(i) {
             // If there were no imports before, add a blank line
             if existing.is_empty() && !line.is_empty() {
-                result.push('\n');
+                result.push_str(eol);
             }
             for new_imp in &new_imports {
                 result.push_str(new_imp);
-                result.push('\n');
+                result.push_str(eol);
             }
         }
     }
@@ -105,13 +106,13 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
     if lines.is_empty() {
         for new_imp in &new_imports {
             result.push_str(new_imp);
-            result.push('\n');
+            result.push_str(eol);
         }
     }
 
     // Preserve trailing newline behavior
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     ImportsResult {
@@ -124,6 +125,7 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
 
 /// Remove specific import statements from source code.
 pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language) -> ImportsResult {
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = source.lines().collect();
     let remove_set: std::collections::HashSet<String> = imports_to_remove
         .iter()
@@ -140,12 +142,12 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
             continue;
         }
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Preserve trailing newline behavior
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     ImportsResult {
@@ -158,6 +160,7 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
 
 /// Deduplicate import statements in source code.
 pub fn dedupe_imports(source: &str, lang: Language) -> ImportsResult {
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = source.lines().collect();
     let mut seen = std::collections::HashSet::new();
     let mut result = String::new();
@@ -174,12 +177,12 @@ pub fn dedupe_imports(source: &str, lang: Language) -> ImportsResult {
             seen.insert(normalized);
         }
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Preserve trailing newline behavior
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     ImportsResult {
@@ -439,6 +442,57 @@ mod tests {
             "scoped use should be preserved: {}",
             result.content
         );
+    }
+
+    #[test]
+    fn add_import_preserves_crlf() {
+        let source = "use std::io;\r\n\r\nfn main() {}\r\n";
+        let result = add_imports(source, &["use std::fs".into()], Language::Rust);
+        assert_eq!(result.added, 1);
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn remove_import_preserves_crlf() {
+        let source = "use std::io;\r\nuse std::fs;\r\n\r\nfn main() {}\r\n";
+        let result = remove_imports(source, &["use std::io".into()], Language::Rust);
+        assert_eq!(result.removed, 1);
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dedupe_import_preserves_crlf() {
+        let source = "use std::io;\r\nuse std::fs;\r\nuse std::io;\r\n\r\nfn main() {}\r\n";
+        let result = dedupe_imports(source, Language::Rust);
+        assert_eq!(result.deduped, 1);
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
     }
 
     #[test]

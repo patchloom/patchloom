@@ -15,13 +15,36 @@ pub struct HeadingInfo {
     pub line_end: usize,
 }
 
-/// Iterate over lines that are NOT inside fenced code blocks.
+/// Iterate over lines that are NOT inside fenced code blocks or YAML
+/// frontmatter.
 /// Yields `(0-based line index, line content)` pairs, skipping lines
-/// within ```` ``` ```` or `~~~` fenced regions.
+/// within ```` ``` ```` or `~~~` fenced regions, and skipping YAML
+/// frontmatter (`---` delimited block at the very start of the file).
 pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
     // Track the fence character and minimum length required to close.
     let mut fence: Option<(u8, usize)> = None;
+    // Detect YAML frontmatter: first line must be exactly `---` (with
+    // optional trailing whitespace). If present, skip until the closing
+    // `---` delimiter.
+    let mut in_frontmatter = false;
+    let mut is_first_line = true;
     content.lines().enumerate().filter(move |(_, line)| {
+        // YAML frontmatter handling: must start on the very first line.
+        if is_first_line {
+            is_first_line = false;
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                in_frontmatter = true;
+                return false;
+            }
+        } else if in_frontmatter {
+            let trimmed = line.trim();
+            if trimmed == "---" || trimmed == "..." {
+                in_frontmatter = false;
+            }
+            return false;
+        }
+
         // CommonMark: fences can be indented 0-3 spaces.
         let trimmed = line.trim_start_matches(' ');
         let indent = line.len() - trimmed.len();

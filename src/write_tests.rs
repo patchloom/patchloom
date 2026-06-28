@@ -8,6 +8,40 @@ fn test_global_flags() -> GlobalFlags {
     GlobalFlags::test_default()
 }
 
+mod detect_eol_tests {
+    use super::*;
+
+    #[test]
+    fn detect_eol_lf_only() {
+        assert_eq!(detect_eol("line1\nline2\nline3\n"), "\n");
+    }
+
+    #[test]
+    fn detect_eol_crlf_only() {
+        assert_eq!(detect_eol("line1\r\nline2\r\nline3\r\n"), "\r\n");
+    }
+
+    #[test]
+    fn detect_eol_mixed_crlf_dominant() {
+        assert_eq!(detect_eol("line1\r\nline2\nline3\r\n"), "\r\n");
+    }
+
+    #[test]
+    fn detect_eol_mixed_lf_dominant() {
+        assert_eq!(detect_eol("line1\nline2\r\nline3\n"), "\n");
+    }
+
+    #[test]
+    fn detect_eol_empty_string() {
+        assert_eq!(detect_eol(""), "\n");
+    }
+
+    #[test]
+    fn detect_eol_no_newlines() {
+        assert_eq!(detect_eol("no newlines here"), "\n");
+    }
+}
+
 mod basic {
     use super::*;
 

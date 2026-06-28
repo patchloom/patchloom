@@ -37,6 +37,7 @@ pub fn group_symbols(
     spec: &GroupSpec,
     lang: Language,
 ) -> anyhow::Result<GroupResult> {
+    let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
@@ -90,8 +91,9 @@ pub fn group_symbols(
     // Build the module content: indent each symbol by 4 spaces
     let mut module_body = String::new();
     if let Some(preamble) = &spec.preamble {
-        module_body.push_str(&indent_text(preamble, "    "));
-        module_body.push_str("\n\n");
+        module_body.push_str(&indent_text(preamble, "    ", eol));
+        module_body.push_str(eol);
+        module_body.push_str(eol);
     }
 
     // Collect texts in original order (we sorted descending for removal)
@@ -103,11 +105,11 @@ pub fn group_symbols(
 
     for (i, (_, text)) in texts_in_order.iter().enumerate() {
         if i > 0 {
-            module_body.push('\n');
+            module_body.push_str(eol);
         }
         let trimmed = text.trim_end_matches('\n');
-        module_body.push_str(&indent_text(trimmed, "    "));
-        module_body.push('\n');
+        module_body.push_str(&indent_text(trimmed, "    ", eol));
+        module_body.push_str(eol);
     }
 
     // Remove symbols from source (in reverse order to preserve offsets)
@@ -124,7 +126,7 @@ pub fn group_symbols(
     if module_exists {
         // Find the existing module's closing brace in modified_lines
         // Re-parse to find the module in modified source
-        let modified_source = modified_lines.join("\n");
+        let modified_source = modified_lines.join(eol);
         let mod_symbols = extract_symbols(&modified_source, lang);
         if let Some(mod_sym) = find_symbol(&mod_symbols, &spec.module) {
             let close_line_0 = mod_sym.end_line.saturating_sub(1);
@@ -143,9 +145,9 @@ pub fn group_symbols(
                 }
                 result_lines.push(line.to_string());
             }
-            let mut result = result_lines.join("\n");
+            let mut result = result_lines.join(eol);
             if source.ends_with('\n') && !result.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
             return Ok(GroupResult {
                 content: result,
@@ -156,7 +158,7 @@ pub fn group_symbols(
     }
 
     // Build the module block for a new module
-    let module_block = format!("mod {} {{\n{}}}\n", spec.module, module_body);
+    let module_block = format!("mod {} {{{eol}{}}}{eol}", spec.module, module_body);
 
     // Insert new module at the specified position
     let insert_idx = match &spec.position {
@@ -185,7 +187,7 @@ pub fn group_symbols(
         }
         GroupPosition::End => modified_lines.len(),
         GroupPosition::After(sym_name) => {
-            let modified_source = modified_lines.join("\n");
+            let modified_source = modified_lines.join(eol);
             let mod_symbols = extract_symbols(&modified_source, lang);
             if let Some(sym) = find_symbol(&mod_symbols, sym_name) {
                 sym.end_line.min(modified_lines.len())
@@ -215,12 +217,12 @@ pub fn group_symbols(
         }
     }
 
-    let mut result = modified_lines.join("\n");
+    let mut result = modified_lines.join(eol);
     if source.ends_with('\n') && !result.ends_with('\n') {
-        result.push('\n');
+        result.push_str(eol);
     }
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     Ok(GroupResult {
@@ -230,7 +232,7 @@ pub fn group_symbols(
     })
 }
 
-fn indent_text(text: &str, indent: &str) -> String {
+fn indent_text(text: &str, indent: &str, eol: &str) -> String {
     text.lines()
         .map(|line| {
             if line.trim().is_empty() {
@@ -240,7 +242,7 @@ fn indent_text(text: &str, indent: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join(eol)
 }
 
 #[cfg(test)]
@@ -370,6 +372,28 @@ mod tests {
         assert!(mod_pos < trailing_pos);
         assert!(result.module_created);
         assert_eq!(result.symbols_moved, 1);
+    }
+
+    #[test]
+    fn group_preserves_crlf_line_endings() {
+        let source = "fn foo() {}\r\n\r\nfn bar() {}\r\n\r\nfn baz() {}\r\n";
+        let spec = GroupSpec {
+            module: "helpers".into(),
+            symbols: vec!["foo".into(), "bar".into()],
+            preamble: None,
+            position: GroupPosition::FirstSymbol,
+        };
+        let result = group_symbols(source, &spec, Language::Rust).unwrap();
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub fn split_file(
     require_exhaustive: bool,
     lang: Language,
 ) -> anyhow::Result<SplitResult> {
+    let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
@@ -81,10 +82,10 @@ pub fn split_file(
         if let Some(&target_idx) = sym_to_target.get(sym.name.as_str()) {
             let text = extract_symbol_text(source, sym, lang);
             if !target_contents[target_idx].is_empty() {
-                target_contents[target_idx].push('\n');
+                target_contents[target_idx].push_str(eol);
             }
             target_contents[target_idx].push_str(text.trim_end_matches('\n'));
-            target_contents[target_idx].push('\n');
+            target_contents[target_idx].push_str(eol);
 
             let (full_start, full_end) = full_symbol_span(source, sym, lang);
             spans_to_remove.push((full_start.saturating_sub(1), full_end.min(lines.len())));
@@ -120,9 +121,9 @@ pub fn split_file(
         }
     }
 
-    let mut source_content = src_lines.join("\n");
+    let mut source_content = src_lines.join(eol);
     if source.ends_with('\n') && !source_content.ends_with('\n') {
-        source_content.push('\n');
+        source_content.push_str(eol);
     }
 
     // Build final target contents with prepend
@@ -134,13 +135,13 @@ pub fn split_file(
             if let Some(pre) = &spec.prepend {
                 final_content.push_str(pre);
                 if !pre.ends_with('\n') {
-                    final_content.push('\n');
+                    final_content.push_str(eol);
                 }
-                final_content.push('\n');
+                final_content.push_str(eol);
             }
             final_content.push_str(content);
             if !final_content.ends_with('\n') {
-                final_content.push('\n');
+                final_content.push_str(eol);
             }
             (spec.path.clone(), final_content)
         })
@@ -303,6 +304,48 @@ mod tests {
         .unwrap();
         assert!(result.targets[0].1.contains("/// Alpha doc."));
         assert!(result.targets[0].1.contains("#[test]"));
+    }
+
+    #[test]
+    fn split_preserves_crlf_line_endings() {
+        let source = "fn alpha() {}\r\n\r\nfn beta() {}\r\n\r\nfn gamma() {}\r\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let result = split_file(
+            source,
+            &targets,
+            &["beta".into(), "gamma".into()],
+            None,
+            None,
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        // Source content should preserve CRLF
+        let bytes = result.source_content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF in source at byte {i}: {:?}",
+                    result.source_content
+                );
+            }
+        }
+        // Target content should preserve CRLF
+        let target_bytes = result.targets[0].1.as_bytes();
+        for (i, &b) in target_bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && target_bytes[i - 1] == b'\r',
+                    "bare LF in target at byte {i}: {:?}",
+                    result.targets[0].1
+                );
+            }
+        }
     }
 
     #[test]

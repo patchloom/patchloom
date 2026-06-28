@@ -325,8 +325,10 @@ fn find_block_entries_end(lines: &[&str], first_entry: usize, entry_indent: &str
             end = i + 1;
             continue;
         }
-        if trimmed.starts_with('#') && cur_indent >= indent_len {
-            // Comment at or deeper than entry indent: part of the array.
+        if trimmed.starts_with('#') {
+            // Comment line: include regardless of indentation. YAML
+            // comments between entries often have reduced indent (e.g.
+            // a top-level comment between indented entries).
             end = i + 1;
             continue;
         }
@@ -564,6 +566,22 @@ mod tests {
         let lines: Vec<&str> = yaml.lines().collect();
         // Should NOT include the blank line between array and next key.
         assert_eq!(find_block_entries_end(&lines, 1, "  "), 3);
+    }
+
+    #[test]
+    fn find_block_entries_end_comment_at_reduced_indent() {
+        // A comment with less indentation than the entries should NOT
+        // prematurely end the block (#1110).
+        let yaml = "items:\n  - one\n# reduced indent comment\n  - two\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 4);
+    }
+
+    #[test]
+    fn find_block_entries_end_comment_at_entry_indent() {
+        let yaml = "items:\n  - one\n  # same indent comment\n  - two\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 4);
     }
 
     // -----------------------------------------------------------------------
