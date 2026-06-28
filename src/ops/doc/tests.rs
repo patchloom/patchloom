@@ -418,6 +418,24 @@ mod basic {
     }
 
     #[test]
+    fn flatten_value_quotes_dot_keys() {
+        // Regression: keys containing '.' were unquoted, making "a.b" (single
+        // key) indistinguishable from nested a -> b.
+        let val = json!({"a.b": 1, "normal": {"nested": 2}});
+        let mut buf = String::new();
+        let mut out = Vec::new();
+        flatten_value(&val, &mut buf, &mut out);
+        let paths: Vec<&str> = out.iter().map(|(p, _)| p.as_str()).collect();
+        // Dot-key should be quoted
+        assert!(
+            paths.contains(&r#""a.b""#),
+            "dot-containing key should be quoted: {paths:?}"
+        );
+        // Normal nested path should NOT be quoted
+        assert!(paths.contains(&"normal.nested"));
+    }
+
+    #[test]
     fn diff_values_detects_changes() {
         let a = json!({"x": 1, "y": 2});
         let b = json!({"x": 1, "y": 3, "z": 4});
