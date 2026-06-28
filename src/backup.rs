@@ -400,8 +400,11 @@ pub fn prune_old_backups(project_root: &Path) -> anyhow::Result<usize> {
         if let Some(nanos_str) = dir_name.split('_').next()
             && let Ok(nanos) = nanos_str.parse::<u128>()
         {
-            let created = std::time::Duration::from_nanos(nanos as u64);
-            if now.saturating_sub(created) > max_age {
+            // Compare using u128 nanos directly to avoid u128→u64 truncation.
+            let now_nanos = now.as_nanos();
+            let age_nanos = now_nanos.saturating_sub(nanos);
+            let max_age_nanos = max_age.as_nanos();
+            if age_nanos > max_age_nanos {
                 let _ = std::fs::remove_dir_all(entry.path());
                 pruned += 1;
             }
@@ -573,6 +576,33 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let pruned = prune_old_backups(dir.path()).unwrap();
         assert_eq!(pruned, 0);
+    }
+
+    #[test]
+    fn prune_old_backups_handles_large_nanos_without_truncation() {
+        let dir = TempDir::new().unwrap();
+
+        // Create a fake session with a timestamp that exceeds u64::MAX nanos.
+        // u64::MAX nanos = ~584 years from epoch (around year 2554).
+        // Use a value > u64::MAX to verify no truncation occurs.
+        let huge_nanos: u128 = u64::MAX as u128 + 1_000_000_000;
+        let ts_str = format!("{huge_nanos}_0");
+        let future_dir = dir.path().join(BACKUP_DIR).join(&ts_str);
+        std::fs::create_dir_all(&future_dir).unwrap();
+        std::fs::write(future_dir.join("manifest.json"), "[]").unwrap();
+
+        // This session is far in the future, so pruning should NOT remove it.
+        // Before the fix, `as u64` truncation would make the timestamp wrap
+        // around to near-epoch, causing it to appear very old and get pruned.
+        let pruned = prune_old_backups(dir.path()).unwrap();
+        assert_eq!(
+            pruned, 0,
+            "future session with u128 timestamp should not be pruned"
+        );
+        assert!(
+            future_dir.exists(),
+            "directory should still exist after prune"
+        );
     }
 
     #[test]

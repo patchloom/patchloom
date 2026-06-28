@@ -384,24 +384,30 @@ pub fn anchor_match(
         }
 
         // If we have before_context, verify the preceding line matches.
+        // For multi-line context, compare only the last line (the one
+        // immediately before the target region).
         if let Some(before) = before_context {
             if i == 0 {
                 continue;
             }
             let prev = lines[i - 1].trim();
-            if strsim::jaro_winkler(prev, before.trim()) < 0.8 {
+            let before_line = before.lines().last().unwrap_or(before).trim();
+            if strsim::jaro_winkler(prev, before_line) < 0.8 {
                 continue;
             }
         }
 
         // If we have after_context, check the line after the candidate region.
+        // For multi-line context, compare only the first line (the one
+        // immediately after the target region).
         if let Some(after) = after_context {
             let end_idx = i + target_lines.len();
             if end_idx >= lines.len() {
                 continue;
             }
             let next = lines[end_idx].trim();
-            if strsim::jaro_winkler(next, after.trim()) < 0.8 {
+            let after_line = after.lines().next().unwrap_or(after).trim();
+            if strsim::jaro_winkler(next, after_line) < 0.8 {
                 continue;
             }
         }
@@ -1098,6 +1104,41 @@ mod tests {
         let result = resolve_with_fallback("", "fn hello()", None, None);
         let err = result.unwrap_err();
         assert_eq!(err.kind, EditErrorKind::NoMatch);
+    }
+
+    #[test]
+    fn anchor_match_multiline_before_context() {
+        // Multi-line before_context should use the last line for matching,
+        // not the entire multi-line string.
+        let content = "fn setup() {}\nfn target() {}\nfn cleanup() {}\n";
+        let result = anchor_match(
+            content,
+            "fn target() {}",
+            Some("fn other() {}\nfn setup() {}"),
+            None,
+        );
+        assert!(
+            result.is_some(),
+            "anchor_match should match using the last line of multi-line before_context"
+        );
+        assert_eq!(result.unwrap().matched_text, "fn target() {}");
+    }
+
+    #[test]
+    fn anchor_match_multiline_after_context() {
+        // Multi-line after_context should use the first line for matching.
+        let content = "fn setup() {}\nfn target() {}\nfn cleanup() {}\n";
+        let result = anchor_match(
+            content,
+            "fn target() {}",
+            None,
+            Some("fn cleanup() {}\nfn extra() {}"),
+        );
+        assert!(
+            result.is_some(),
+            "anchor_match should match using the first line of multi-line after_context"
+        );
+        assert_eq!(result.unwrap().matched_text, "fn target() {}");
     }
 
     // Static assertions: types must be Send + Sync.

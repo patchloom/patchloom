@@ -39,10 +39,18 @@ pub fn parse(input: &str) -> Result<Selector, String> {
         if bytes[i] == b'[' {
             i += 1; // skip '['
             let start = i;
-            while i < len && bytes[i] != b']' {
-                i += 1;
+            let mut depth = 1u32;
+            while i < len && depth > 0 {
+                if bytes[i] == b'[' {
+                    depth += 1;
+                } else if bytes[i] == b']' {
+                    depth -= 1;
+                }
+                if depth > 0 {
+                    i += 1;
+                }
             }
-            if i >= len {
+            if depth > 0 {
                 return Err("unclosed bracket in selector".to_string());
             }
             let content = &input[start..i];
@@ -217,6 +225,39 @@ mod tests {
                 Segment::Predicate {
                     key: "url".into(),
                     value: "a=b".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_predicate_value_with_brackets() {
+        // A predicate value containing brackets (e.g. regex character class)
+        // should be parsed correctly without truncating at the inner `]`.
+        let sel = parse("items[pattern=[0-9]]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                Segment::Predicate {
+                    key: "pattern".into(),
+                    value: "[0-9]".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_nested_brackets_in_value() {
+        // Deeply nested brackets should be handled.
+        let sel = parse("data[regex=[a[b]c]]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("data".into()),
+                Segment::Predicate {
+                    key: "regex".into(),
+                    value: "[a[b]c]".into(),
                 },
             ]
         );
