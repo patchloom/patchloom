@@ -264,7 +264,13 @@ fn find_yaml_key_line(lines: &[&str], key_path: &[String]) -> Option<usize> {
             let trimmed = line.trim_start();
             let indent = line.len() - trimmed.len();
             if indent < min_indent {
-                continue;
+                // Blank lines and comments do not indicate scope exit.
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    continue;
+                }
+                // A non-blank, non-comment line at lower indent means we
+                // left the parent key's scope.  Stop searching.
+                break;
             }
             if trimmed == key_colon || trimmed.starts_with(&key_colon_sp) {
                 search_start = i + 1;
@@ -930,5 +936,25 @@ mod tests {
         let lines: Vec<&str> = yaml.lines().collect();
         let result = find_yaml_key_line(&lines, &["name".into()]);
         assert_eq!(result, Some(0));
+    }
+
+    #[test]
+    fn find_yaml_key_line_does_not_escape_into_sibling() {
+        // Regression: searching for ["a", "target"] found "target:" under
+        // "b:" because lines with indent < min_indent were skipped instead
+        // of stopping the search.
+        let yaml = "a:\n  x: 1\nb:\n  target:\n    value: found_me\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_yaml_key_line(&lines, &["a".into(), "target".into()]);
+        assert_eq!(result, None, "should not find 'target' under sibling 'b'");
+    }
+
+    #[test]
+    fn find_yaml_key_line_finds_child_within_scope() {
+        // Positive test: the key IS within the parent's scope.
+        let yaml = "a:\n  target:\n    value: here\nb:\n  other: 1\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        let result = find_yaml_key_line(&lines, &["a".into(), "target".into()]);
+        assert_eq!(result, Some(1), "should find 'target' under 'a'");
     }
 }
