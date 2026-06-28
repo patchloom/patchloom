@@ -302,8 +302,8 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
 }
 
 pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
-    let (path, mutation) =
-        crate::plan::op_to_doc_mutation(op).expect("execute_doc_op called with non-doc operation");
+    let (path, mutation) = crate::plan::op_to_doc_mutation(op)
+        .ok_or_else(|| anyhow::anyhow!("execute_doc_op called with non-doc operation"))?;
     let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
         .map_err(path_err(path))?;
 

@@ -385,8 +385,7 @@ mod tests {
             true,
             Language::Rust,
         );
-        assert!(result.is_ok());
-        let r = result.unwrap();
+        let r = result.expect("split should succeed");
         assert_eq!(r.symbols_distributed, 2);
         assert!(r.targets[0].1.contains("/// Doc A"));
         assert!(r.targets[1].1.contains("/// Doc B"));

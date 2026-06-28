@@ -428,8 +428,7 @@ mod tests {
             position: GroupPosition::FirstSymbol,
         };
         let result = group_symbols(source, &spec, Language::Rust);
-        assert!(result.is_ok());
-        let r = result.unwrap();
+        let r = result.expect("group_symbols should succeed");
         assert_eq!(r.symbols_moved, 2);
         assert!(r.content.contains("mod m {"));
     }

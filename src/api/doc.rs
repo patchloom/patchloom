@@ -57,8 +57,8 @@ fn doc_write(
     use crate::write::WritePolicy;
 
     // Extract the mutation from the operation.
-    let (_, mutation) =
-        crate::plan::op_to_doc_mutation(&op).expect("doc_write called with non-doc operation");
+    let (_, mutation) = crate::plan::op_to_doc_mutation(&op)
+        .ok_or_else(|| anyhow::anyhow!("doc_write called with non-doc operation"))?;
 
     let path_str = path.to_string_lossy().into_owned();
     let format = ops::doc::detect_format(&path_str)?;
