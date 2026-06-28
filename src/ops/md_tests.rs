@@ -652,6 +652,15 @@ mod edge_cases {
     }
 
     #[test]
+    fn strip_inline_code_preserves_non_ascii_utf8() {
+        // Multi-byte UTF-8 characters (é, ñ, 日) outside code spans must
+        // not be corrupted by byte-to-char casting.
+        assert_eq!(strip_inline_code("café `code` résumé"), "café  résumé");
+        assert_eq!(strip_inline_code("日本語テスト"), "日本語テスト");
+        assert_eq!(strip_inline_code("`hidden` naïve"), " naïve");
+    }
+
+    #[test]
     fn git_add_dot_empty_string() {
         assert!(!has_dangerous_git_add_dot(""));
     }
@@ -851,6 +860,20 @@ mod error_handling {
         let content = "# API\nJust text\n";
         let (start, end) = find_section(content, "API").unwrap();
         assert!(table_append_in(content, start, end, "| b | 2 |").is_none());
+    }
+
+    #[test]
+    fn is_separator_row_rejects_dashless_cells() {
+        // A row like "| |" or "| : |" has no dashes and is not a valid
+        // CommonMark table separator. Each cell must contain at least one dash.
+        use super::is_separator_row;
+        assert!(!is_separator_row("|  |"), "spaces only");
+        assert!(!is_separator_row("| : |"), "colon only");
+        assert!(!is_separator_row("| : : |"), "colons and spaces");
+        // Valid separators should still pass.
+        assert!(is_separator_row("| --- |"));
+        assert!(is_separator_row("| :--: | --- |"));
+        assert!(is_separator_row("|---|"));
     }
 
     #[test]

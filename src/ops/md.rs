@@ -496,9 +496,12 @@ fn is_separator_row(line: &str) -> bool {
     if t.len() < 3 || !t.starts_with('|') || !t.ends_with('|') {
         return false;
     }
-    t[1..t.len() - 1]
-        .chars()
-        .all(|c| matches!(c, '-' | ':' | '|' | ' '))
+    let inner = &t[1..t.len() - 1];
+    if !inner.chars().all(|c| matches!(c, '-' | ':' | '|' | ' ')) {
+        return false;
+    }
+    // Each cell must contain at least one dash per CommonMark spec.
+    inner.split('|').all(|cell| cell.contains('-'))
 }
 
 pub fn table_append_in(
@@ -609,8 +612,11 @@ pub(crate) fn strip_inline_code(line: &str) -> Cow<'_, str> {
                 return Cow::Owned(result);
             }
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            // Advance by one UTF-8 character, not one byte.
+            // `bytes[i] as char` corrupts multi-byte UTF-8 (e.g. é → Ã©).
+            let ch = line[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
         }
     }
     Cow::Owned(result)

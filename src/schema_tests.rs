@@ -596,6 +596,50 @@ mod error_handling {
     }
 }
 
+mod type_extraction {
+    use super::*;
+
+    #[test]
+    fn extract_type_str_scalar() {
+        let schema = serde_json::json!({"type": "string"});
+        assert_eq!(extract_type_str(&schema), "string");
+    }
+
+    #[test]
+    fn extract_type_str_nullable_array() {
+        // schemars generates {"type": ["string", "null"]} for Option<String>.
+        let schema = serde_json::json!({"type": ["string", "null"]});
+        let result = extract_type_str(&schema);
+        assert!(
+            result.contains("string") && result.contains("null"),
+            "expected 'string | null' or similar, got '{result}'"
+        );
+    }
+
+    #[test]
+    fn extract_type_str_missing() {
+        let schema = serde_json::json!({"description": "no type"});
+        assert_eq!(extract_type_str(&schema), "any");
+    }
+
+    #[test]
+    fn system_prompt_does_not_show_any_for_optional_params() {
+        // The system prompt should show real types (string, boolean, etc.)
+        // for optional parameters, not "any".
+        let prompt = system_prompt_for_tier(Tier::Strong);
+        // Count occurrences of ": any" — there should be very few.
+        let any_count = prompt.matches(": any").count();
+        // Some fields genuinely have no type (e.g., `value` in doc.set
+        // accepts any JSON), but the majority should have real types.
+        // If nullable fields show "any", this count will be very high.
+        assert!(
+            any_count < 15,
+            "too many 'any' types in system prompt ({any_count}); \
+             nullable fields may not be rendering correctly"
+        );
+    }
+}
+
 // Static assertion: types must be Send + Sync.
 const _: () = {
     fn _assert<T: Send + Sync>() {}
