@@ -68,6 +68,51 @@ fn insert_inside(
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(lines.len());
 
+    // Single-line container (e.g. `mod foo {}`): the opening `{` and closing
+    // `}` are on the same line.  Both Start and End behave the same: split
+    // the line at the braces and insert content between them.
+    let close_line_idx = end_idx.saturating_sub(1);
+    if close_line_idx <= start_idx {
+        let container_line = lines[start_idx];
+        if let Some(open) = container_line.find('{')
+            && let Some(close_rel) = container_line[open + 1..].rfind('}')
+        {
+            let close = open + 1 + close_rel;
+            let before_brace = &container_line[..=open]; // up to and including `{`
+            let after_brace = &container_line[close..]; // from `}` onward
+
+            // Use container line indent + 4 spaces for the body.
+            let line_indent = container_line.len() - container_line.trim_start().len();
+            let body_indent = format!("{}{}", &container_line[..line_indent], "    ");
+            let adjusted = indent_content(content, &body_indent);
+
+            let mut result = String::new();
+            for line in &lines[..start_idx] {
+                result.push_str(line);
+                result.push('\n');
+            }
+            result.push_str(before_brace);
+            result.push('\n');
+            result.push_str(&adjusted);
+            if !adjusted.ends_with('\n') {
+                result.push('\n');
+            }
+            result.push_str(after_brace);
+            result.push('\n');
+            for line in &lines[start_idx + 1..] {
+                result.push_str(line);
+                result.push('\n');
+            }
+            if !source.ends_with('\n') && result.ends_with('\n') {
+                result.pop();
+            }
+            return Ok(InsertResult {
+                content: result,
+                inserted_at_line: start_idx + 2, // 1-based, after the opening brace
+            });
+        }
+    }
+
     // Detect the indentation level inside the container.
     let container_indent = detect_indent(lines, start_idx, end_idx);
     let adjusted = indent_content(content, &container_indent);
@@ -78,7 +123,6 @@ fn insert_inside(
         InsertPosition::End => {
             // Insert before the closing brace of the container.
             // The closing brace is typically on end_line (1-based), i.e. end_idx - 1 (0-based).
-            let close_line_idx = end_idx.saturating_sub(1);
 
             for line in &lines[..close_line_idx] {
                 result.push_str(line);
@@ -507,5 +551,55 @@ mod tests {
         let world_pos = result.content.find("function world").unwrap();
         assert!(hello_pos < middle_pos);
         assert!(middle_pos < world_pos);
+    }
+
+    #[test]
+    fn insert_inside_single_line_container_end() {
+        // Single-line container: `mod foo {}` with both braces on one line.
+        let source = "mod foo {}\n";
+        let content = "fn bar() {}";
+        let result = insert_code(
+            source,
+            content,
+            Some("foo"),
+            None,
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        // Content must be INSIDE the module, between { and }.
+        let open = result.content.find('{').unwrap();
+        let close = result.content.rfind('}').unwrap();
+        let bar_pos = result.content.find("fn bar").unwrap();
+        assert!(
+            bar_pos > open && bar_pos < close,
+            "fn bar should be inside braces, got:\n{}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn insert_inside_single_line_container_start() {
+        let source = "mod foo {}\n";
+        let content = "use bar::*;";
+        let result = insert_code(
+            source,
+            content,
+            Some("foo"),
+            None,
+            None,
+            InsertPosition::Start,
+            Language::Rust,
+        )
+        .unwrap();
+        let open = result.content.find('{').unwrap();
+        let close = result.content.rfind('}').unwrap();
+        let use_pos = result.content.find("use bar").unwrap();
+        assert!(
+            use_pos > open && use_pos < close,
+            "use statement should be inside braces, got:\n{}",
+            result.content
+        );
     }
 }
