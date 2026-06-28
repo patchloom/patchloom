@@ -377,6 +377,27 @@ mod basic {
     }
 
     #[test]
+    fn merge_rejects_stdin_and_value_together() {
+        // Regression: --stdin and --value are mutually exclusive. Previously
+        // providing both silently ignored --value.
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
+        let action = DocAction::Merge {
+            file: path,
+            stdin: true,
+            value: Some(r#"{"b": 2}"#.into()),
+        };
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let result = run_doc(action, &global);
+        assert!(result.is_err(), "merge --stdin --value should fail");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("mutually exclusive"),
+            "error should mention mutual exclusivity: {err_msg}"
+        );
+    }
+
+    #[test]
     fn ensure_creates_missing_key() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
