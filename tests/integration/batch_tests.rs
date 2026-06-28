@@ -204,7 +204,7 @@ fn test_batch_extra_args_fail() {
         .arg("--apply")
         .assert()
         .code(1)
-        .stderr(predicates::str::contains("requires exactly 1 arguments"));
+        .stderr(predicates::str::contains("requires exactly 1 argument"));
 }
 
 #[test]
