@@ -587,7 +587,22 @@ fn node_signature(node: tree_sitter_lib::Node, source: &str) -> String {
         end -= 1;
     }
     let raw = &source[start..end];
-    let sig = match raw.find('{') {
+    // Find the body-opening `{` that is NOT inside parentheses or brackets.
+    // This avoids truncating at destructured parameters like `function foo({a, b}) {`.
+    let mut depth: i32 = 0;
+    let mut body_brace = None;
+    for (i, ch) in raw.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = (depth - 1).max(0),
+            '{' if depth == 0 => {
+                body_brace = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let sig = match body_brace {
         Some(brace) => raw[..brace].trim(),
         None => raw.lines().next().unwrap_or(raw).trim(),
     };
@@ -1909,6 +1924,23 @@ pub struct Foo {}
             !text.contains("fn first()"),
             "extracted text should not contain 'fn first()', got: {:?}",
             text
+        );
+    }
+
+    #[test]
+    fn node_signature_skips_destructuring_brace() {
+        // Regression: node_signature truncated at the first '{' which is the
+        // destructuring brace in JS/TS, not the body brace.
+        let source = "function foo({a, b}) {\n  return a + b;\n}\n";
+        let syms = extract_symbols(source, Language::JavaScript);
+        let foo = syms
+            .iter()
+            .find(|s| s.name == "foo")
+            .expect("foo not found");
+        assert!(
+            foo.signature.contains("{a, b}"),
+            "signature should include destructured params: {:?}",
+            foo.signature
         );
     }
 }
