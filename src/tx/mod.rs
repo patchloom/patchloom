@@ -46,6 +46,8 @@ pub use lifecycle::{CommitError, RestoreFailGuard, execute_plan_direct};
 pub(crate) use lifecycle::{
     commit_changes, rollback_strict, run_lifecycle, validate_and_prepare_plan,
 };
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) use lifecycle::{restore_collateral_files, snapshot_non_tx_files};
 
 #[cfg(feature = "cli")]
 use clap::Args;

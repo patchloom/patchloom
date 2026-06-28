@@ -6777,3 +6777,118 @@ fn test_tx_for_each_mixed_escaped_and_template_vars() {
         "mixed escaped and template vars: {content}"
     );
 }
+
+// ---- #1111.7: strict rollback restores collateral files ----
+
+/// Regression (#1111.7): when a format step modifies files outside the
+/// transaction and a subsequent validate step fails, strict mode should
+/// restore not only the tx-tracked files but also the collateral files
+/// that the formatter touched.
+#[test]
+fn test_tx_strict_rollback_restores_collateral_files() {
+    let dir = TempDir::new().unwrap();
+
+    // File modified by the tx.
+    let tx_file = dir.path().join("target.txt");
+    fs::write(&tx_file, "original tx content\n").unwrap();
+
+    // Bystander file that the "formatter" will modify.
+    let bystander = dir.path().join("bystander.txt");
+    fs::write(&bystander, "original bystander content\n").unwrap();
+
+    // The format step modifies the bystander then succeeds.
+    // The validate step fails, triggering strict rollback.
+    // Use relative paths so the plan cwd (the tempdir) is the walk root.
+    let format_cmd = "printf 'reformatted bystander\\n' > bystander.txt";
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "strict": true,
+        "operations": [{
+            "op": "replace",
+            "path": "target.txt",
+            "from": "original tx content",
+            "to": "modified tx content"
+        }],
+        "format": [{
+            "cmd": format_cmd
+        }],
+        "validate": [{
+            "cmd": shell_exit_1(),
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    // The tx file should be restored.
+    assert_eq!(
+        fs::read_to_string(&tx_file).unwrap(),
+        "original tx content\n",
+        "tx file should be restored on strict rollback"
+    );
+    // The bystander (collateral) file should also be restored.
+    assert_eq!(
+        fs::read_to_string(&bystander).unwrap(),
+        "original bystander content\n",
+        "collateral file modified by formatter should be restored on strict rollback"
+    );
+}
+
+/// Verify that when strict mode is off, collateral files are NOT restored
+/// (the formatter's changes are kept).
+#[test]
+fn test_tx_non_strict_keeps_collateral_files() {
+    let dir = TempDir::new().unwrap();
+
+    let tx_file = dir.path().join("target.txt");
+    fs::write(&tx_file, "original\n").unwrap();
+
+    let bystander = dir.path().join("bystander.txt");
+    fs::write(&bystander, "untouched\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "strict": false,
+        "operations": [{
+            "op": "replace",
+            "path": "target.txt",
+            "from": "original",
+            "to": "changed"
+        }],
+        "format": [{
+            "cmd": "printf 'formatted\\n' > bystander.txt"
+        }],
+        "validate": [{
+            "cmd": shell_exit_1(),
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .code(6); // VALIDATION_FAILED, not ROLLBACK
+
+    // In non-strict mode, the formatter's changes are kept.
+    assert_eq!(
+        fs::read_to_string(&bystander).unwrap(),
+        "formatted\n",
+        "in non-strict mode, formatter changes should persist"
+    );
+}

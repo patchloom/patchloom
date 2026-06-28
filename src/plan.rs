@@ -47,6 +47,15 @@ pub struct Plan {
     pub for_each: Option<ForEach>,
 }
 
+impl Plan {
+    /// Returns `true` if the plan has any format or validate steps that could
+    /// modify files outside the transaction scope.
+    pub fn has_lifecycle_steps(&self) -> bool {
+        self.format.as_ref().is_some_and(|v| !v.is_empty())
+            || self.validate.as_ref().is_some_and(|v| !v.is_empty())
+    }
+}
+
 /// Glob-driven batch expansion: apply the same set of operations to every
 /// file matching a glob pattern, with template variable substitution.
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
@@ -1027,6 +1036,77 @@ mod tests {
         assert_eq!(json_escape("he said \"hi\"\n"), r#"he said \"hi\"\n"#);
         // Plain string (no escaping needed)
         assert_eq!(json_escape("hello"), "hello");
+    }
+
+    #[test]
+    fn has_lifecycle_steps_none() {
+        let plan = Plan {
+            version: SCHEMA_VERSION.to_string(),
+            operations: Vec::new(),
+            format: None,
+            validate: None,
+            verify: None,
+            cwd: None,
+            strict: None,
+            write_policy: None,
+            for_each: None,
+        };
+        assert!(!plan.has_lifecycle_steps());
+    }
+
+    #[test]
+    fn has_lifecycle_steps_empty_vecs() {
+        let plan = Plan {
+            version: SCHEMA_VERSION.to_string(),
+            operations: Vec::new(),
+            format: Some(Vec::new()),
+            validate: Some(Vec::new()),
+            verify: None,
+            cwd: None,
+            strict: None,
+            write_policy: None,
+            for_each: None,
+        };
+        assert!(!plan.has_lifecycle_steps());
+    }
+
+    #[test]
+    fn has_lifecycle_steps_with_format() {
+        let plan = Plan {
+            version: SCHEMA_VERSION.to_string(),
+            operations: Vec::new(),
+            format: Some(vec![FormatStep {
+                cmd: "cargo fmt".into(),
+                timeout: None,
+            }]),
+            validate: None,
+            verify: None,
+            cwd: None,
+            strict: None,
+            write_policy: None,
+            for_each: None,
+        };
+        assert!(plan.has_lifecycle_steps());
+    }
+
+    #[test]
+    fn has_lifecycle_steps_with_validate() {
+        let plan = Plan {
+            version: SCHEMA_VERSION.to_string(),
+            operations: Vec::new(),
+            format: None,
+            validate: Some(vec![ValidationStep {
+                cmd: "cargo clippy".into(),
+                timeout: None,
+                required: Some(true),
+            }]),
+            verify: None,
+            cwd: None,
+            strict: None,
+            write_policy: None,
+            for_each: None,
+        };
+        assert!(plan.has_lifecycle_steps());
     }
 
     #[test]
