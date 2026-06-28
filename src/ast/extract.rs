@@ -28,6 +28,7 @@ pub fn extract_to_file(
     prepend: Option<&str>,
     lang: Language,
 ) -> anyhow::Result<ExtractResult> {
+    let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
     let sym = find_symbol(&symbols, symbol)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol))?;
@@ -39,7 +40,7 @@ pub fn extract_to_file(
 
     // Extract the symbol's content for the target file
     let target_body = if unwrap && sym.kind == SymbolKind::Module {
-        unwrap_module_body(&lines, sym.start_line.saturating_sub(1), end_0)
+        unwrap_module_body(&lines, sym.start_line.saturating_sub(1), end_0, eol)
     } else {
         let text = extract_symbol_text(source, sym, lang);
         text.to_string()
@@ -52,13 +53,13 @@ pub fn extract_to_file(
     if let Some(pre) = prepend {
         target_content.push_str(pre);
         if !pre.ends_with('\n') {
-            target_content.push('\n');
+            target_content.push_str(eol);
         }
-        target_content.push('\n');
+        target_content.push_str(eol);
     }
     target_content.push_str(&target_body);
     if !target_content.ends_with('\n') {
-        target_content.push('\n');
+        target_content.push_str(eol);
     }
 
     // Build source content with the symbol removed or replaced
@@ -78,9 +79,9 @@ pub fn extract_to_file(
         }
     }
 
-    let mut source_content = source_lines.join("\n");
+    let mut source_content = source_lines.join(eol);
     if source.ends_with('\n') && !source_content.ends_with('\n') {
-        source_content.push('\n');
+        source_content.push_str(eol);
     }
 
     Ok(ExtractResult {
@@ -91,7 +92,7 @@ pub fn extract_to_file(
 }
 
 /// Extract the body of a module, removing the wrapper and un-indenting.
-fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> String {
+fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol: &str) -> String {
     // Find the opening brace line
     let mut body_start = sym_start_0;
     let mut brace_line_tail: Option<&str> = None;
@@ -167,7 +168,7 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize) -> S
         }
     }));
 
-    parts.join("\n")
+    parts.join(eol)
 }
 
 #[cfg(test)]
@@ -270,6 +271,34 @@ mod tests {
             result.target_content
         );
         assert!(result.target_content.contains("fn test_a()"));
+    }
+
+    #[test]
+    fn extract_preserves_crlf_line_endings() {
+        let source = "fn foo() {\r\n    42\r\n}\r\n\r\nfn bar() {}\r\n";
+        let result = extract_to_file(source, "foo", None, false, None, Language::Rust).unwrap();
+        // Source content should preserve CRLF
+        let bytes = result.source_content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF in source at byte {i}: {:?}",
+                    result.source_content
+                );
+            }
+        }
+        // Target content should preserve CRLF
+        let target_bytes = result.target_content.as_bytes();
+        for (i, &b) in target_bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && target_bytes[i - 1] == b'\r',
+                    "bare LF in target at byte {i}: {:?}",
+                    result.target_content
+                );
+            }
+        }
     }
 
     #[test]

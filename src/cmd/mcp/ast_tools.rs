@@ -141,89 +141,53 @@ pub(super) fn handle_ast_rename(
     let target = cwd.join(&p.path);
     let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
 
-    let mut global = GlobalFlags::with_cwd_and_json(&cwd);
-    global.apply = true;
+    let global = GlobalFlags::with_cwd_and_json(&cwd);
 
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    let mut total_replacements = 0usize;
-    let mut files_changed = 0usize;
-    let mut backup = crate::backup::BackupSession::new(&cwd)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
+    // Pre-filter to files with matches, build one AstRename op per file,
+    // then execute as a batch through the tx engine for backup/rollback (#1100).
+    let mut operations = Vec::new();
     for path in &paths {
-        svc.check_path(
-            &path
-                .strip_prefix(&cwd)
-                .unwrap_or(path)
-                .display()
-                .to_string(),
-        )?;
+        let rel = path
+            .strip_prefix(&cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        svc.check_path(&rel)?;
 
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         let source = std::fs::read_to_string(path)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
 
-        let result = if lang.has_grammar() {
+        let has_match = if lang.has_grammar() {
             crate::ast::rename::rename_in_source(&source, &p.old_name, &p.new_name, lang)
+                .is_some_and(|r| r.replacements > 0)
         } else {
-            None
+            false
+        } || {
+            crate::ops::replace::compile_replace_regex(&p.old_name, false, false, false, true)
+                .ok()
+                .flatten()
+                .is_some_and(|re| re.is_match(&source))
         };
 
-        let (new_content, count) = match result {
-            Some(r) if r.replacements > 0 => (r.content, r.replacements),
-            Some(_) => continue, // grammar parsed but no code identifiers found; skip file
-            None => {
-                // Try word-boundary fallback
-                let re = crate::ops::replace::compile_replace_regex(
-                    &p.old_name,
-                    false,
-                    false,
-                    false,
-                    true,
-                )
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-                if let Some(re) = re {
-                    let count = re.find_iter(&source).count();
-                    if count > 0 {
-                        let new = re.replace_all(&source, p.new_name.as_str());
-                        (new.into_owned(), count)
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
-        };
-
-        total_replacements += count;
-        files_changed += 1;
-        let policy = crate::write::policy_from_flags(&global, Some(path));
-        backup
-            .save_before_write(path)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        crate::write::atomic_write(path, &new_content, &policy)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        if has_match {
+            operations.push(crate::plan::Operation::AstRename {
+                path: rel,
+                old_name: p.old_name.clone(),
+                new_name: p.new_name.clone(),
+                lang: p.lang.clone(),
+            });
+        }
     }
 
-    backup
-        .finalize()
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-    if total_replacements == 0 {
+    if operations.is_empty() {
         return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
     }
 
-    let obj = serde_json::json!({
-        "ok": true,
-        "files_changed": files_changed,
-        "replacements": total_replacements,
-    });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    svc.run_ops(operations, None)
 }
 
 pub(super) fn handle_ast_validate(
@@ -581,58 +545,16 @@ pub(super) fn handle_ast_replace(
     validate_param_size("from", &p.from)?;
     validate_content_size("to", &p.to)?;
     validate_param_size("symbol", &p.symbol)?;
-    let cwd = svc.cwd().to_path_buf();
-    let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
-    let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
-
-    let source = std::fs::read_to_string(&target)
-        .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
-
-    let result =
-        crate::ast::replace::replace_in_symbol(&source, &p.symbol, &p.from, &p.to, p.regex, lang)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-    let result = match result {
-        Some(r) => r,
-        None => {
-            return exit_code_to_result(
-                exit::NO_MATCHES,
-                "",
-                &format!("Symbol '{}' not found in {}.", p.symbol, p.path),
-            );
-        }
+    // Route through the tx engine for backup/rollback safety (#1100).
+    let op = crate::plan::Operation::AstReplace {
+        path: p.path,
+        symbol: p.symbol,
+        from: p.from,
+        to: p.to,
+        regex: p.regex,
+        lang: p.lang,
     };
-
-    if result.replacements == 0 {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No matches within symbol.");
-    }
-
-    // Write the file
-    let mut global = GlobalFlags::with_cwd(&cwd);
-    global.apply = true;
-    let policy = crate::write::policy_from_flags(&global, Some(&target));
-    let mut backup = crate::backup::BackupSession::new(&cwd)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    backup
-        .save_before_write(&target)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    crate::write::atomic_write(&target, &result.content, &policy)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    backup
-        .finalize()
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-    let obj = serde_json::json!({
-        "ok": true,
-        "symbol": p.symbol,
-        "replacements": result.replacements,
-        "start_line": result.start_line,
-        "end_line": result.end_line,
-    });
-    let json = serde_json::to_string_pretty(&obj)
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    svc.run_one_op(op, None)
 }
 
 pub(super) fn handle_ast_insert(

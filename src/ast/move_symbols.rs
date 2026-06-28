@@ -45,6 +45,7 @@ pub fn move_symbols(
     position: MovePosition,
     lang: Language,
 ) -> anyhow::Result<MoveResult> {
+    let eol = crate::write::detect_eol(source);
     let src_symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
@@ -98,23 +99,24 @@ pub fn move_symbols(
         src_lines.drain(*start_0..drain_end);
     }
 
-    let mut source_result = src_lines.join("\n");
+    let mut source_result = src_lines.join(eol);
     if source.ends_with('\n') && !source_result.ends_with('\n') {
-        source_result.push('\n');
+        source_result.push_str(eol);
     }
 
     // Build text to insert into target
     let mut insert_text = String::new();
     for (i, text) in ordered_texts.iter().enumerate() {
         if i > 0 {
-            insert_text.push('\n');
+            insert_text.push_str(eol);
         }
         insert_text.push_str(text.trim_end_matches('\n'));
-        insert_text.push('\n');
+        insert_text.push_str(eol);
     }
 
-    // Insert into target
-    let target_result = insert_into_target(target, &insert_text, &position, lang)?;
+    // Insert into target (use target's EOL style, not source's)
+    let target_eol = crate::write::detect_eol(target);
+    let target_result = insert_into_target(target, &insert_text, &position, lang, target_eol)?;
 
     Ok(MoveResult {
         source_content: source_result,
@@ -128,6 +130,7 @@ fn insert_into_target(
     insert_text: &str,
     position: &MovePosition,
     lang: Language,
+    eol: &str,
 ) -> anyhow::Result<String> {
     if target.is_empty() {
         return Ok(insert_text.to_string());
@@ -139,15 +142,15 @@ fn insert_into_target(
         MovePosition::End => {
             let mut result = target.to_string();
             if !result.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
-            result.push('\n');
+            result.push_str(eol);
             result.push_str(insert_text);
             Ok(result)
         }
         MovePosition::Start => {
             let mut result = insert_text.to_string();
-            result.push('\n');
+            result.push_str(eol);
             result.push_str(target);
             Ok(result)
         }
@@ -159,16 +162,16 @@ fn insert_into_target(
             let mut result = String::new();
             for line in &lines[..end_0] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
-            result.push('\n');
+            result.push_str(eol);
             result.push_str(insert_text);
             for line in &lines[end_0..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             if !target.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
             Ok(result)
         }
@@ -181,16 +184,16 @@ fn insert_into_target(
             let mut result = String::new();
             for line in &lines[..start_0] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(insert_text);
-            result.push('\n');
+            result.push_str(eol);
             for line in &lines[start_0..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             if !target.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
             Ok(result)
         }
@@ -341,6 +344,42 @@ mod tests {
         let last_pos = result.target_content.find("fn last").unwrap();
         assert!(first_pos < moved_pos);
         assert!(moved_pos < last_pos);
+    }
+
+    #[test]
+    fn move_preserves_crlf_line_endings() {
+        let source = "fn foo() {}\r\n\r\nfn bar() {}\r\n";
+        let target = "fn existing() {}\r\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["foo".into()],
+            MovePosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        // Source content should preserve CRLF
+        let bytes = result.source_content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF in source at byte {i}: {:?}",
+                    result.source_content
+                );
+            }
+        }
+        // Target content should preserve CRLF
+        let target_bytes = result.target_content.as_bytes();
+        for (i, &b) in target_bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && target_bytes[i - 1] == b'\r',
+                    "bare LF in target at byte {i}: {:?}",
+                    result.target_content
+                );
+            }
+        }
     }
 
     #[test]

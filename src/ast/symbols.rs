@@ -107,30 +107,24 @@ pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Ve
 
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").
 pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a SymbolDef> {
-    if let Some((parent, child)) = name.split_once("::") {
-        // Qualified name: find parent, then child
+    if let Some((parent, rest)) = name.split_once("::") {
+        // Qualified name: find parent, then recurse into children
         for sym in symbols {
             if sym.name == parent {
-                for c in &sym.children {
-                    if c.name == child {
-                        return Some(c);
-                    }
-                }
+                return find_symbol(&sym.children, rest);
             }
         }
         None
     } else {
-        // Unqualified: search top-level, then children
+        // Unqualified: search top-level first (BFS), then recurse
         for sym in symbols {
             if sym.name == name {
                 return Some(sym);
             }
         }
         for sym in symbols {
-            for c in &sym.children {
-                if c.name == name {
-                    return Some(c);
-                }
+            if let Some(found) = find_symbol(&sym.children, name) {
+                return Some(found);
             }
         }
         None
@@ -715,20 +709,21 @@ fn extract_ts_js(
             let name = child_text_by_kinds(node, &["type_identifier", "identifier"], source)?;
             Some((SymbolKind::Enum, name.to_string()))
         }
-        "lexical_declaration" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "variable_declarator" {
-                    if let Some(first) = node.child(0)
-                        && first.utf8_text(source.as_bytes()).ok() != Some("const")
-                    {
-                        return None;
-                    }
-                    let name = child_text_by_kind(child, "identifier", source)?;
-                    return Some((SymbolKind::Const, name.to_string()));
-                }
+        // Match individual variable_declarator nodes instead of the parent
+        // lexical_declaration so that `const a = 1, b = 2` emits one symbol
+        // per declarator (#1104). visit_node recurses into lexical_declaration
+        // children naturally (same pattern as Go grouped type declarations).
+        "variable_declarator" => {
+            if let Some(parent) = node.parent()
+                && parent.kind() == "lexical_declaration"
+                && let Some(first) = parent.child(0)
+                && first.utf8_text(source.as_bytes()).ok() == Some("const")
+            {
+                let name = child_text_by_kind(node, "identifier", source)?;
+                Some((SymbolKind::Const, name.to_string()))
+            } else {
+                None
             }
-            None
         }
         _ => None,
     }
@@ -983,6 +978,20 @@ pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize
                 continue;
             }
             break;
+        } else if lang == Language::Python
+            || lang == Language::TypeScript
+            || lang == Language::JavaScript
+            || lang == Language::Java
+            || lang == Language::Kotlin
+        {
+            // Check if this line is a continuation of a multiline decorator,
+            // e.g. `@decorator(\n  arg1,\n  arg2\n)` (#1103).
+            if let Some(dec_start) = find_multiline_decorator_start(&lines, i) {
+                first_line_0 = dec_start;
+                i = dec_start;
+                continue;
+            }
+            break;
         } else {
             break;
         }
@@ -1050,6 +1059,32 @@ fn find_rust_multiline_attr_start(lines: &[&str], from_0: usize) -> Option<usize
             return Some(j);
         }
         // Safety: don't walk more than 20 lines back for a single attribute
+        if from_0 - j > 20 {
+            break;
+        }
+    }
+    None
+}
+
+/// Check whether the lines starting at `from_0` form the interior/closing
+/// of a multiline decorator (e.g. `@decorator(\n  arg1,\n  arg2\n)`).
+///
+/// Scans backwards from `from_0`, tracking parenthesis depth. If we reach
+/// a line starting with `@` and parens balance, returns that line index.
+fn find_multiline_decorator_start(lines: &[&str], from_0: usize) -> Option<usize> {
+    let mut depth: i32 = 0;
+    for j in (0..=from_0).rev() {
+        let trimmed = lines[j].trim();
+        for ch in trimmed.chars() {
+            if ch == ')' {
+                depth += 1;
+            } else if ch == '(' {
+                depth -= 1;
+            }
+        }
+        if trimmed.starts_with('@') && depth <= 0 {
+            return Some(j);
+        }
         if from_0 - j > 20 {
             break;
         }
@@ -1294,6 +1329,47 @@ impl Server {
         find_symbol(&symbols, "start").expect("should find 'start' via unqualified search");
     }
 
+    /// find_symbol should recurse into deeply nested children, not just
+    /// one level (#1111 item 5).
+    #[test]
+    fn find_symbol_deeply_nested() {
+        // Build a 3-level hierarchy: mod > struct > method
+        let inner = SymbolDef {
+            name: "deep_method".into(),
+            kind: SymbolKind::Method,
+            start_line: 3,
+            end_line: 4,
+            signature: "fn deep_method()".into(),
+            children: Vec::new(),
+            depth: 2,
+        };
+        let mid = SymbolDef {
+            name: "MidStruct".into(),
+            kind: SymbolKind::Struct,
+            start_line: 2,
+            end_line: 5,
+            signature: "struct MidStruct".into(),
+            children: vec![inner],
+            depth: 1,
+        };
+        let outer = SymbolDef {
+            name: "outer_mod".into(),
+            kind: SymbolKind::Module,
+            start_line: 1,
+            end_line: 6,
+            signature: "mod outer_mod".into(),
+            children: vec![mid],
+            depth: 0,
+        };
+        let symbols = vec![outer];
+
+        // Unqualified search should find a deeply nested symbol
+        find_symbol(&symbols, "deep_method").expect("should find deeply nested symbol");
+
+        // Qualified search with multiple :: should work recursively
+        find_symbol(&symbols, "outer_mod::MidStruct").expect("should find qualified nested symbol");
+    }
+
     #[test]
     fn symbol_kind_from_str() {
         assert_eq!(
@@ -1398,6 +1474,35 @@ const MAX_RETRIES = 5;
         // Enum
         let status = symbols.iter().find(|s| s.name == "Status").unwrap();
         assert_eq!(status.kind, SymbolKind::Enum);
+    }
+
+    /// Multi-declarator `const a = 1, b = 2, c = 3;` should emit one symbol
+    /// per declarator, not just the first one (#1104).
+    #[test]
+    fn extract_typescript_multi_declarator_const() {
+        let source = "const a = 1, b = 2, c = 3;\n";
+        let symbols = extract_symbols(source, Language::TypeScript);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"a"), "should find const a: {names:?}");
+        assert!(names.contains(&"b"), "should find const b: {names:?}");
+        assert!(names.contains(&"c"), "should find const c: {names:?}");
+        assert_eq!(
+            symbols.len(),
+            3,
+            "exactly 3 symbols for 3 declarators: {names:?}"
+        );
+    }
+
+    /// `let` and `var` declarators should NOT be extracted (only `const`).
+    #[test]
+    fn extract_typescript_let_var_not_extracted() {
+        let source = "let x = 1, y = 2;\nvar z = 3;\n";
+        let symbols = extract_symbols(source, Language::TypeScript);
+        assert!(
+            symbols.is_empty(),
+            "let/var should not produce symbols: {:?}",
+            symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1657,6 +1762,46 @@ struct Point {
         let sym = &symbols[0];
         let (start, _) = full_symbol_span(source, sym, Language::Python);
         assert_eq!(start, 1);
+    }
+
+    // Regression: multi-line Python decorators with continuation lines
+    // were truncated because only lines starting with '@' matched (#1103).
+    #[test]
+    fn full_span_python_multiline_decorator() {
+        let source = "\
+@decorator(
+    arg1,
+    arg2
+)
+def foo():
+    pass
+";
+        let symbols = extract_symbols(source, Language::Python);
+        let sym = symbols.iter().find(|s| s.name == "foo").unwrap();
+        let (start, _) = full_symbol_span(source, sym, Language::Python);
+        assert_eq!(
+            start, 1,
+            "multiline @decorator(...) should be included in foo's span"
+        );
+    }
+
+    #[test]
+    fn full_span_python_stacked_multiline_decorator() {
+        let source = "\
+@first_decorator
+@second_decorator(
+    option=True
+)
+def bar():
+    pass
+";
+        let symbols = extract_symbols(source, Language::Python);
+        let sym = symbols.iter().find(|s| s.name == "bar").unwrap();
+        let (start, _) = full_symbol_span(source, sym, Language::Python);
+        assert_eq!(
+            start, 1,
+            "both decorators (including multiline) should be included"
+        );
     }
 
     // Regression: //! inner doc comments belong to the module, not the

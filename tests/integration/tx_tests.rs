@@ -2818,6 +2818,47 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
     assert_eq!(config_value["version"], "1.0");
 }
 
+/// Non-Replace operations that return non-zero counts must not mask a
+/// Replace no-match condition.  Before #1105, `total_replace_matches`
+/// mixed counts from all operations, so a plan with a read-only
+/// operation (which returns a non-zero count) plus a failing Replace
+/// would exit 0 instead of 3.
+#[test]
+fn test_tx_non_replace_count_does_not_mask_replace_no_match() {
+    let dir = TempDir::new().unwrap();
+    let txt_file = dir.path().join("target.txt");
+    fs::write(&txt_file, "hello world\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [
+            {
+                "op": "search",
+                "path": txt_file.to_str().unwrap(),
+                "pattern": "hello"
+            },
+            {
+                "op": "replace",
+                "path": txt_file.to_str().unwrap(),
+                "from": "nonexistent_string_xyz",
+                "to": "replacement"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    // Should exit 3 (NO_MATCHES) because Replace found no matches,
+    // regardless of search returning a non-zero match count.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(3);
+}
+
 #[test]
 fn test_tx_patch_apply_in_plan() {
     let dir = TempDir::new().unwrap();

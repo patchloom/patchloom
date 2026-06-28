@@ -35,6 +35,7 @@ pub fn reorder_symbols(
     strategy: &ReorderStrategy,
     lang: Language,
 ) -> anyhow::Result<ReorderResult> {
+    let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
@@ -93,7 +94,7 @@ pub fn reorder_symbols(
     // Collect the text of each symbol (spans are already in new order after sort).
     let mut sym_texts: Vec<(&str, String)> = Vec::new();
     for span in &spans {
-        let text: String = lines[span.start_0..span.end_0].join("\n");
+        let text: String = lines[span.start_0..span.end_0].join(eol);
         sym_texts.push((&span.name, text));
     }
 
@@ -117,40 +118,40 @@ pub fn reorder_symbols(
     // Lines before the scope (container preamble when using `inside`)
     for line in &lines[..scope_start_0] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Scope prefix: non-symbol lines inside the scope before the first symbol
     // (use statements, module-level comments, extern crate, etc.)
     for line in &lines[scope_start_0..first_sym_start] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Emit symbols in new order with blank line separators
     for (i, (_name, text)) in sym_texts.iter().enumerate() {
         if i > 0 {
-            result.push('\n');
+            result.push_str(eol);
         }
         result.push_str(text);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Scope suffix: non-symbol lines inside the scope after the last symbol
     for line in &lines[last_sym_end..scope_end_0] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Lines after the scope (closing brace, trailing content)
     for line in &lines[scope_end_0..] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Preserve trailing newline behavior
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     Ok(ReorderResult {
@@ -448,6 +449,35 @@ mod tests {
             use_pos < alpha_pos,
             "use statement should remain before symbols"
         );
+    }
+
+    #[test]
+    fn reorder_preserves_crlf_line_endings() {
+        let source = "fn charlie() {}\r\n\r\nfn alpha() {}\r\n\r\nfn bravo() {}\r\n";
+        let result =
+            reorder_symbols(source, None, &ReorderStrategy::Alphabetical, Language::Rust).unwrap();
+        // All line endings in the output must be CRLF
+        assert!(
+            !result.content.contains("\n\n") || result.content.contains("\r\n"),
+            "CRLF line endings should be preserved: {:?}",
+            result.content
+        );
+        assert!(
+            result.content.contains("\r\n"),
+            "output should contain CRLF: {:?}",
+            result.content
+        );
+        // Verify no bare LF (every \n must be preceded by \r)
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
     }
 
     #[test]

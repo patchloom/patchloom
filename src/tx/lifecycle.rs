@@ -277,6 +277,10 @@ pub(crate) fn commit_changes(
         }
     }
     for path in deletions {
+        // Skip files already backed up in the changes loop above (#1111).
+        if changes.iter().any(|(p, _, _)| p == path) {
+            continue;
+        }
         backup
             .save_before_delete(path)
             .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;

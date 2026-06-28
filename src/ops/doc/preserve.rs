@@ -1,6 +1,7 @@
 /// Small extracted helper for #840 thinning demo.
 /// Full preserving can be moved here over time.
 pub(crate) fn hoist_comments(original: &str, body: &str) -> String {
+    let eol = crate::write::detect_eol(original);
     let comments: String = original
         .lines()
         .filter(|l| {
@@ -8,7 +9,7 @@ pub(crate) fn hoist_comments(original: &str, body: &str) -> String {
             t.is_empty() || t.starts_with('#')
         })
         .collect::<Vec<_>>()
-        .join("\n");
+        .join(eol);
     if !comments.trim().is_empty() {
         let sep = if comments.ends_with('\n') || body.starts_with('\n') {
             ""
@@ -65,6 +66,17 @@ mod tests {
         assert!(
             result.contains("# comment\nkey = 2"),
             "separator newline between comment and body: {result}"
+        );
+    }
+
+    #[test]
+    fn hoist_comments_preserves_crlf_line_endings() {
+        let original = "# top comment\r\n\r\n# second\r\nkey = \"val\"\r\n";
+        let body = "key = \"new\"\r\n";
+        let result = hoist_comments(original, body);
+        assert!(
+            result.contains("# top comment\r\n\r\n# second"),
+            "CRLF should be preserved in comment join: {result:?}"
         );
     }
 }

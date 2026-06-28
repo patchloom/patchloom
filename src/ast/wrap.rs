@@ -31,6 +31,7 @@ pub fn wrap_code(
         anyhow::bail!("exactly one of 'symbols' or 'lines' must be specified");
     }
 
+    let eol = crate::write::detect_eol(source);
     let source_lines: Vec<&str> = source.lines().collect();
 
     // Determine the range of lines to wrap (0-based indices).
@@ -59,54 +60,54 @@ pub fn wrap_code(
     let wrapper_opening = format_wrapper_opening(wrapper);
     wrapped.push_str(base_indent);
     wrapped.push_str(&wrapper_opening);
-    wrapped.push('\n');
+    wrapped.push_str(eol);
 
     // Preamble (if any)
     if let Some(pre) = preamble {
         for pline in pre.lines() {
             if pline.trim().is_empty() {
-                wrapped.push('\n');
+                wrapped.push_str(eol);
             } else {
                 wrapped.push_str(base_indent);
                 wrapped.push_str("    ");
                 wrapped.push_str(pline.trim());
-                wrapped.push('\n');
+                wrapped.push_str(eol);
             }
         }
-        wrapped.push('\n');
+        wrapped.push_str(eol);
     }
 
     // Indented body
     for line in target_lines {
         if line.trim().is_empty() {
-            wrapped.push('\n');
+            wrapped.push_str(eol);
         } else {
             wrapped.push_str("    ");
             wrapped.push_str(line);
-            wrapped.push('\n');
+            wrapped.push_str(eol);
         }
     }
 
     // Closing brace
     wrapped.push_str(base_indent);
     wrapped.push('}');
-    wrapped.push('\n');
+    wrapped.push_str(eol);
 
     // Reconstruct the file
     let mut result = String::new();
     for line in &source_lines[..start_idx] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
     result.push_str(&wrapped);
     for line in &source_lines[end_idx..] {
         result.push_str(line);
-        result.push('\n');
+        result.push_str(eol);
     }
 
     // Preserve trailing newline behavior
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     Ok(WrapResult { content: result })
@@ -336,6 +337,30 @@ mod tests {
             "attribute should be inside wrapper: {}",
             result.content
         );
+    }
+
+    #[test]
+    fn wrap_preserves_crlf_line_endings() {
+        let source = "fn helper_a() {}\r\n\r\nfn helper_b() {}\r\n";
+        let result = wrap_code(
+            source,
+            Some(&["helper_a".into(), "helper_b".into()]),
+            None,
+            "mod helpers",
+            None,
+            Language::Rust,
+        )
+        .unwrap();
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
     }
 
     #[test]

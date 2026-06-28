@@ -186,66 +186,75 @@ fn splice_array_lines(
     cur_arr: &[serde_json::Value],
     tgt_arr: &[serde_json::Value],
 ) -> anyhow::Result<Option<String>> {
+    let eol = crate::write::detect_eol(text);
     let cur_len = cur_arr.len();
     let tgt_len = tgt_arr.len();
 
     // Pure prepend: old array appears at the end of target.
     if tgt_len > cur_len && tgt_arr[tgt_len - cur_len..] == *cur_arr {
         let new_entries = &tgt_arr[..tgt_len - cur_len];
-        let new_text = serialize_block_entries(new_entries, entry_indent)?;
+        let new_text = serialize_block_entries(new_entries, entry_indent, eol)?;
         return Ok(Some(insert_text_at_line(
             text,
             lines,
             first_entry,
             &new_text,
+            eol,
         )));
     }
 
     // Pure append: old array appears at the start of target.
     if tgt_len > cur_len && tgt_arr[..cur_len] == *cur_arr {
         let new_entries = &tgt_arr[cur_len..];
-        let new_text = serialize_block_entries(new_entries, entry_indent)?;
+        let new_text = serialize_block_entries(new_entries, entry_indent, eol)?;
         return Ok(Some(insert_text_at_line(
             text,
             lines,
             last_entry_end,
             &new_text,
+            eol,
         )));
     }
 
     // General restructuring: replace all entry lines.
-    let new_text = serialize_block_entries(tgt_arr, entry_indent)?;
+    let new_text = serialize_block_entries(tgt_arr, entry_indent, eol)?;
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
         if i < first_entry || i >= last_entry_end {
             out.push_str(line);
-            out.push('\n');
+            out.push_str(eol);
         } else if i == first_entry {
             out.push_str(&new_text);
         }
     }
     if !text.ends_with('\n') && out.ends_with('\n') {
-        out.pop();
+        out.truncate(out.len() - eol.len());
     }
     Ok(Some(out))
 }
 
 /// Insert `new_text` before line `line_idx`, preserving all existing lines.
-fn insert_text_at_line(text: &str, lines: &[&str], line_idx: usize, new_text: &str) -> String {
+fn insert_text_at_line(
+    text: &str,
+    lines: &[&str],
+    line_idx: usize,
+    new_text: &str,
+    eol: &str,
+) -> String {
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
         if i == line_idx {
             out.push_str(new_text);
         }
         out.push_str(line);
-        out.push('\n');
+        out.push_str(eol);
     }
     // Handle insertion after the last line (for append).
     if line_idx >= lines.len() {
         out.push_str(new_text);
     }
     if !text.ends_with('\n') && out.ends_with('\n') {
-        out.pop();
+        out.truncate(out.len() - eol.len());
     }
     out
 }
@@ -325,8 +334,10 @@ fn find_block_entries_end(lines: &[&str], first_entry: usize, entry_indent: &str
             end = i + 1;
             continue;
         }
-        if trimmed.starts_with('#') && cur_indent >= indent_len {
-            // Comment at or deeper than entry indent: part of the array.
+        if trimmed.starts_with('#') {
+            // Comment line: include regardless of indentation. YAML
+            // comments between entries often have reduced indent (e.g.
+            // a top-level comment between indented entries).
             end = i + 1;
             continue;
         }
@@ -352,25 +363,30 @@ fn find_block_entries_end(lines: &[&str], first_entry: usize, entry_indent: &str
 }
 
 /// Serialize `entries` as block-style YAML array entries at `indent`.
-fn serialize_block_entries(entries: &[serde_json::Value], indent: &str) -> anyhow::Result<String> {
+fn serialize_block_entries(
+    entries: &[serde_json::Value],
+    indent: &str,
+    eol: &str,
+) -> anyhow::Result<String> {
     let mut out = String::new();
     for entry in entries {
         match entry {
             serde_json::Value::Null => {
                 out.push_str(indent);
-                out.push_str("- null\n");
+                out.push_str("- null");
+                out.push_str(eol);
             }
             serde_json::Value::Bool(b) => {
                 out.push_str(indent);
                 out.push_str("- ");
                 out.push_str(if *b { "true" } else { "false" });
-                out.push('\n');
+                out.push_str(eol);
             }
             serde_json::Value::Number(n) => {
                 out.push_str(indent);
                 out.push_str("- ");
                 out.push_str(&n.to_string());
-                out.push('\n');
+                out.push_str(eol);
             }
             serde_json::Value::String(s) => {
                 out.push_str(indent);
@@ -386,7 +402,7 @@ fn serialize_block_entries(entries: &[serde_json::Value], indent: &str) -> anyho
                 } else {
                     out.push_str(s);
                 }
-                out.push('\n');
+                out.push_str(eol);
             }
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                 // Serialize compound value, then re-indent.
@@ -400,7 +416,7 @@ fn serialize_block_entries(entries: &[serde_json::Value], indent: &str) -> anyho
                         out.push_str("  ");
                     }
                     out.push_str(line);
-                    out.push('\n');
+                    out.push_str(eol);
                 }
             }
         }
@@ -566,6 +582,22 @@ mod tests {
         assert_eq!(find_block_entries_end(&lines, 1, "  "), 3);
     }
 
+    #[test]
+    fn find_block_entries_end_comment_at_reduced_indent() {
+        // A comment with less indentation than the entries should NOT
+        // prematurely end the block (#1110).
+        let yaml = "items:\n  - one\n# reduced indent comment\n  - two\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 4);
+    }
+
+    #[test]
+    fn find_block_entries_end_comment_at_entry_indent() {
+        let yaml = "items:\n  - one\n  # same indent comment\n  - two\nnext: val\n";
+        let lines: Vec<&str> = yaml.lines().collect();
+        assert_eq!(find_block_entries_end(&lines, 1, "  "), 4);
+    }
+
     // -----------------------------------------------------------------------
     // serialize_block_entries
     // -----------------------------------------------------------------------
@@ -578,7 +610,7 @@ mod tests {
             serde_json::json!(42),
             serde_json::json!("hello"),
         ];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         assert!(result.contains("  - null\n"));
         assert!(result.contains("  - true\n"));
         assert!(result.contains("  - 42\n"));
@@ -588,7 +620,7 @@ mod tests {
     #[test]
     fn serialize_string_needing_quoting() {
         let entries = vec![serde_json::json!("true"), serde_json::json!("")];
-        let result = serialize_block_entries(&entries, "").unwrap();
+        let result = serialize_block_entries(&entries, "", "\n").unwrap();
         assert!(result.contains("- 'true'\n"));
         assert!(result.contains("- ''\n"));
     }
@@ -596,7 +628,7 @@ mod tests {
     #[test]
     fn serialize_object_entry() {
         let entries = vec![serde_json::json!({"name": "a", "value": 1})];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         // First line should be "  - ..." and continuation "    ..."
         let first_line = result.lines().next().unwrap();
         assert!(first_line.starts_with("  - "));
@@ -703,7 +735,7 @@ mod tests {
     fn serialize_string_with_newline_uses_double_quote() {
         use serde_json::json;
         let entries = vec![json!("hello\nworld")];
-        let result = serialize_block_entries(&entries, "").unwrap();
+        let result = serialize_block_entries(&entries, "", "\n").unwrap();
         // Must use double-quoting to preserve the newline.
         assert!(
             result.contains('"'),
@@ -741,7 +773,7 @@ mod tests {
     fn serialize_nested_object() {
         use serde_json::json;
         let entries = vec![json!({"name": "main", "env": [{"name": "KEY", "value": "val"}]})];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         // First line starts with "  - "
         let first_line = result.lines().next().unwrap();
         assert!(
@@ -767,7 +799,7 @@ mod tests {
     fn serialize_array_of_arrays() {
         use serde_json::json;
         let entries = vec![json!([1, 2, 3])];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         let first_line = result.lines().next().unwrap();
         assert!(
             first_line.starts_with("  - "),
@@ -781,7 +813,7 @@ mod tests {
     fn serialize_empty_object() {
         use serde_json::json;
         let entries = vec![json!({})];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         assert!(
             result.starts_with("  - "),
             "expected '  - ' prefix, got: {result}"
@@ -794,7 +826,7 @@ mod tests {
     fn serialize_empty_array() {
         use serde_json::json;
         let entries = vec![json!([])];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         assert!(
             result.starts_with("  - "),
             "expected '  - ' prefix, got: {result}"
@@ -807,7 +839,7 @@ mod tests {
     fn serialize_object_with_keys_needing_quoting() {
         use serde_json::json;
         let entries = vec![json!({"true": "val", "null": "x"})];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         // The keys "true" and "null" must be quoted in the output so that
         // YAML parsers treat them as strings, not booleans/null.
         let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
@@ -833,7 +865,7 @@ mod tests {
         // must both trigger `needs_yaml_quoting` AND contain a single quote.
         // "# it's a comment" starts with '#' (needs quoting) and has a quote.
         let entries = vec![json!("# it's a comment")];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         assert!(
             result.starts_with("  - "),
             "expected '  - ' prefix, got: {result}"
@@ -851,9 +883,43 @@ mod tests {
     fn serialize_unicode_string() {
         use serde_json::json;
         let entries = vec![json!("café"), json!("こんにちは")];
-        let result = serialize_block_entries(&entries, "  ").unwrap();
+        let result = serialize_block_entries(&entries, "  ", "\n").unwrap();
         let parsed: Vec<serde_json::Value> = serde_yaml_ng::from_str(&result).unwrap();
         assert_eq!(parsed, vec![json!("café"), json!("こんにちは")]);
+    }
+
+    #[test]
+    fn serialize_block_entries_crlf() {
+        let entries = vec![serde_json::json!("alpha"), serde_json::json!("beta")];
+        let result = serialize_block_entries(&entries, "  ", "\r\n").unwrap();
+        assert!(
+            result.contains("- alpha\r\n"),
+            "should use CRLF line endings: {result:?}"
+        );
+        assert!(
+            !result.contains("- alpha\n\r\n"),
+            "should not double-terminate: {result:?}"
+        );
+    }
+
+    #[test]
+    fn splice_preserves_crlf_line_endings() {
+        use serde_json::json;
+        let yaml = "items:\r\n  - one\r\n  - two\r\n";
+        let current: serde_json::Value = serde_yaml_ng::from_str(yaml).unwrap();
+        let mut target = current.clone();
+        target["items"].as_array_mut().unwrap().push(json!("three"));
+        let result = splice_yaml_array_diffs(yaml, &current, &target).unwrap();
+        if let Some(spliced) = result {
+            assert!(
+                spliced.contains("\r\n"),
+                "CRLF should be preserved in splice output: {spliced:?}"
+            );
+            assert!(
+                !spliced.contains("\n\r\n"),
+                "should not have double line-endings: {spliced:?}"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------

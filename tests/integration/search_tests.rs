@@ -630,6 +630,63 @@ fn test_search_asymmetric_context() {
         .stdout(predicate::str::contains("bbb").not());
 }
 
+/// Adjacent matches with context should NOT have `--` separators (#1111).
+#[test]
+fn test_search_context_no_separator_for_adjacent_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    // Lines 1-6; matches on lines 2 and 3 are adjacent.
+    fs::write(&file, "aaa\nmatch1\nmatch2\nbbb\nccc\nmatch3\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-C")
+        .arg("1")
+        .arg("match")
+        .arg(&file)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Between match1 (line 2) and match2 (line 3): adjacent, no separator.
+    // Between match2 (line 3, after-ctx=line 4) and match3 (line 6, before-ctx=line 5):
+    // line 5 is one past line 4, so they are contiguous -- no separator either
+    // with -C 1.
+    let separator_count = stdout.matches("\n--\n").count();
+    assert_eq!(
+        separator_count, 0,
+        "adjacent/contiguous matches should not have separators: {stdout}"
+    );
+}
+
+/// Non-adjacent matches with context SHOULD have `--` separators.
+#[test]
+fn test_search_context_separator_for_distant_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    // Matches on lines 1 and 7 with 5 lines gap.
+    fs::write(
+        &file,
+        "match_a\nfiller1\nfiller2\nfiller3\nfiller4\nfiller5\nmatch_b\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-C")
+        .arg("1")
+        .arg("match_")
+        .arg(&file)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--"),
+        "distant matches should have a separator: {stdout}"
+    );
+}
+
 #[test]
 fn test_search_literal_flag() {
     let dir = TempDir::new().unwrap();

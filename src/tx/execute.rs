@@ -1111,7 +1111,12 @@ pub(crate) fn execute_and_collect(
                     "tx: operation {} succeeded (replace_matches: {count})",
                     i + 1
                 );
-                total_replace_matches += count;
+                // Only accumulate Replace matches; other operation types
+                // may return non-zero counts (e.g. AST symbol counts) that
+                // would mask a genuine Replace no-match condition (#1105).
+                if matches!(op, Operation::Replace { .. }) {
+                    total_replace_matches += count;
+                }
                 if replace_hint.is_none() {
                     replace_hint = tx.replace_hint.take();
                 }

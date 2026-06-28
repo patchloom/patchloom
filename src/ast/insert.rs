@@ -40,16 +40,36 @@ pub fn insert_code(
         anyhow::bail!("exactly one of 'inside', 'after', or 'before' must be specified");
     }
 
+    let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
     let lines: Vec<&str> = source.lines().collect();
 
     if let Some(container_name) = inside {
-        insert_inside(source, content, container_name, position, &symbols, &lines)
+        insert_inside(
+            source,
+            content,
+            container_name,
+            position,
+            &symbols,
+            &lines,
+            eol,
+        )
     } else if let Some(after_name) = after {
-        insert_adjacent(source, content, after_name, true, &symbols, &lines, lang)
+        insert_adjacent(
+            source, content, after_name, true, &symbols, &lines, lang, eol,
+        )
     } else {
         let before_name = before.unwrap();
-        insert_adjacent(source, content, before_name, false, &symbols, &lines, lang)
+        insert_adjacent(
+            source,
+            content,
+            before_name,
+            false,
+            &symbols,
+            &lines,
+            lang,
+            eol,
+        )
     }
 }
 
@@ -61,6 +81,7 @@ fn insert_inside(
     position: InsertPosition,
     symbols: &[SymbolDef],
     lines: &[&str],
+    eol: &str,
 ) -> anyhow::Result<InsertResult> {
     let sym = find_symbol(symbols, container_name)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", container_name))?;
@@ -84,27 +105,27 @@ fn insert_inside(
             // Use container line indent + 4 spaces for the body.
             let line_indent = container_line.len() - container_line.trim_start().len();
             let body_indent = format!("{}{}", &container_line[..line_indent], "    ");
-            let adjusted = indent_content(content, &body_indent);
+            let adjusted = indent_content(content, &body_indent, eol);
 
             let mut result = String::new();
             for line in &lines[..start_idx] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(before_brace);
-            result.push('\n');
+            result.push_str(eol);
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(after_brace);
-            result.push('\n');
+            result.push_str(eol);
             for line in &lines[start_idx + 1..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
             if !source.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
             return Ok(InsertResult {
                 content: result,
@@ -115,7 +136,7 @@ fn insert_inside(
 
     // Detect the indentation level inside the container.
     let container_indent = detect_indent(lines, start_idx, end_idx);
-    let adjusted = indent_content(content, &container_indent);
+    let adjusted = indent_content(content, &container_indent, eol);
 
     let mut result = String::new();
 
@@ -126,28 +147,28 @@ fn insert_inside(
 
             for line in &lines[..close_line_idx] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
 
             // Add a blank line before if the previous content doesn't end with one
             if close_line_idx > 0 && !lines[close_line_idx - 1].trim().is_empty() {
-                result.push('\n');
+                result.push_str(eol);
             }
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
 
             for line in &lines[close_line_idx..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
 
             let inserted_at = close_line_idx + 1; // 1-based
 
             // Preserve trailing newline behavior
             if !source.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
 
             Ok(InsertResult {
@@ -162,29 +183,29 @@ fn insert_inside(
 
             for line in &lines[..=insert_after_idx] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
 
             result.push_str(&adjusted);
             if !adjusted.ends_with('\n') {
-                result.push('\n');
+                result.push_str(eol);
             }
 
             // Add blank line if next line is not blank
             if insert_after_idx + 1 < lines.len() && !lines[insert_after_idx + 1].trim().is_empty()
             {
-                result.push('\n');
+                result.push_str(eol);
             }
 
             for line in &lines[insert_after_idx + 1..] {
                 result.push_str(line);
-                result.push('\n');
+                result.push_str(eol);
             }
 
             let inserted_at = insert_after_idx + 2; // 1-based
 
             if !source.ends_with('\n') && result.ends_with('\n') {
-                result.pop();
+                result.truncate(result.len() - eol.len());
             }
 
             Ok(InsertResult {
@@ -196,6 +217,7 @@ fn insert_inside(
 }
 
 /// Insert content after or before a named symbol.
+#[allow(clippy::too_many_arguments)]
 fn insert_adjacent(
     source: &str,
     content: &str,
@@ -204,6 +226,7 @@ fn insert_adjacent(
     symbols: &[SymbolDef],
     lines: &[&str],
     lang: Language,
+    eol: &str,
 ) -> anyhow::Result<InsertResult> {
     let sym = find_symbol(symbols, symbol_name)
         .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol_name))?;
@@ -217,7 +240,7 @@ fn insert_adjacent(
     } else {
         ""
     };
-    let adjusted = indent_content(content, indent);
+    let adjusted = indent_content(content, indent, eol);
 
     let mut result = String::new();
     let inserted_at;
@@ -226,17 +249,17 @@ fn insert_adjacent(
         let end_idx = sym.end_line.min(lines.len());
         for line in &lines[..end_idx] {
             result.push_str(line);
-            result.push('\n');
+            result.push_str(eol);
         }
-        result.push('\n');
+        result.push_str(eol);
         result.push_str(&adjusted);
         if !adjusted.ends_with('\n') {
-            result.push('\n');
+            result.push_str(eol);
         }
         inserted_at = end_idx + 1; // 1-based
         for line in &lines[end_idx..] {
             result.push_str(line);
-            result.push('\n');
+            result.push_str(eol);
         }
     } else {
         // Before — use full_symbol_span to include attributes and doc comments.
@@ -244,22 +267,22 @@ fn insert_adjacent(
         let start_idx = full_start.saturating_sub(1);
         for line in &lines[..start_idx] {
             result.push_str(line);
-            result.push('\n');
+            result.push_str(eol);
         }
         result.push_str(&adjusted);
         if !adjusted.ends_with('\n') {
-            result.push('\n');
+            result.push_str(eol);
         }
-        result.push('\n');
+        result.push_str(eol);
         inserted_at = start_idx + 1; // 1-based
         for line in &lines[start_idx..] {
             result.push_str(line);
-            result.push('\n');
+            result.push_str(eol);
         }
     }
 
     if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
+        result.truncate(result.len() - eol.len());
     }
 
     Ok(InsertResult {
@@ -310,7 +333,7 @@ fn detect_indent(lines: &[&str], start_idx: usize, end_idx: usize) -> String {
 ///
 /// Strips the common leading whitespace from the content, then prepends
 /// the target indentation to each line.
-fn indent_content(content: &str, target_indent: &str) -> String {
+fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
         return String::new();
@@ -335,7 +358,7 @@ fn indent_content(content: &str, target_indent: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join(eol)
 }
 
 #[cfg(test)]
@@ -529,6 +552,58 @@ mod tests {
         )
         .unwrap();
         assert!(result.content.contains("def new_method"));
+    }
+
+    #[test]
+    fn insert_preserves_crlf_line_endings() {
+        let source = "mod tests {\r\n    fn existing() {}\r\n}\r\n";
+        let content = "fn new_fn() {}";
+        let result = insert_code(
+            source,
+            content,
+            Some("tests"),
+            None,
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn insert_after_preserves_crlf() {
+        let source = "fn foo() {\r\n    let x = 1;\r\n}\r\n\r\nfn bar() {}\r\n";
+        let content = "fn baz() {}";
+        let result = insert_code(
+            source,
+            content,
+            None,
+            Some("foo"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        let bytes = result.content.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                assert!(
+                    i > 0 && bytes[i - 1] == b'\r',
+                    "bare LF at byte {i} in: {:?}",
+                    result.content
+                );
+            }
+        }
     }
 
     #[test]

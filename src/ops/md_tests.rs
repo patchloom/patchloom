@@ -1224,4 +1224,48 @@ body text
             "trailing spaces must be preserved: {result}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // YAML frontmatter (#1102)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn yaml_frontmatter_not_misinterpreted_as_setext_heading() {
+        // The closing `---` of YAML frontmatter was being interpreted as
+        // a setext underline, creating a phantom heading from the last
+        // frontmatter field (#1102).
+        let content = "---\ntitle: Hello\n---\n\n# Real Heading\n\nBody text.\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1, "only the ATX heading should be parsed");
+        assert_eq!(headings[0].text, "Real Heading");
+    }
+
+    #[test]
+    fn yaml_frontmatter_with_dots_closing_delimiter() {
+        // YAML spec allows `...` as an alternative closing delimiter.
+        let content = "---\ntitle: Hello\n...\n\n# Heading\n\nBody.\n";
+        let headings = parse_headings(content);
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Heading");
+    }
+
+    #[test]
+    fn replace_section_with_frontmatter() {
+        // Section operations should work correctly even with frontmatter.
+        let content = "---\ntitle: Doc\n---\n\n# Section A\n\nOld body.\n\n# Section B\n\nKeep.\n";
+        let result = replace_section_in(content, "Section A", "New body.\n").unwrap();
+        assert!(
+            result.contains("# Section A\nNew body.\n"),
+            "section A should be replaced: {result}"
+        );
+        assert!(
+            result.contains("# Section B"),
+            "section B should be preserved: {result}"
+        );
+        // Frontmatter must remain intact
+        assert!(
+            result.starts_with("---\ntitle: Doc\n---"),
+            "frontmatter should be preserved: {result}"
+        );
+    }
 }

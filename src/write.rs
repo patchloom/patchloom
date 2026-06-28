@@ -5,6 +5,24 @@ use std::path::Path;
 use anyhow::Context;
 use tempfile::NamedTempFile;
 
+/// Detect the dominant line ending in `text`.
+///
+/// Returns `"\r\n"` when CRLF sequences are present and at least as common
+/// as bare LF; otherwise returns `"\n"`.
+///
+/// This is the canonical implementation used by all AST and ops modules
+/// to preserve the original file's line ending style during content
+/// reconstruction.
+pub fn detect_eol(text: &str) -> &'static str {
+    let crlf = text.matches("\r\n").count();
+    let lf_only = text.matches('\n').count().saturating_sub(crlf);
+    if crlf > 0 && crlf >= lf_only {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 /// Line ending normalization mode.
 ///
 /// This type is re-exported at the crate root level of `write` for library use
