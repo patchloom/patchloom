@@ -619,5 +619,44 @@ mod replace_tests {
             let result = compile_replace_regex("(unclosed", true, false, false, false);
             assert!(result.is_err());
         }
+
+        // Regression: --whole-line + --insert-before/after silently drops
+        // non-matched line content because replace_whole_lines replaces the
+        // entire line with just the insert+match text.
+        #[test]
+        fn validate_args_whole_line_insert_before_conflict() {
+            let p = ReplaceValidationParams {
+                pattern: "needle",
+                has_to: false,
+                has_insert_before: true,
+                has_insert_after: false,
+                nth: None,
+                whole_line: true,
+                multiline: false,
+                has_range: false,
+            };
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::WholeLineInsertConflict)
+            );
+        }
+
+        #[test]
+        fn validate_args_whole_line_insert_after_conflict() {
+            let p = ReplaceValidationParams {
+                pattern: "needle",
+                has_to: false,
+                has_insert_before: false,
+                has_insert_after: true,
+                nth: None,
+                whole_line: true,
+                multiline: false,
+                has_range: false,
+            };
+            assert_eq!(
+                validate_replace_args(&p),
+                Err(ReplaceValidationError::WholeLineInsertConflict)
+            );
+        }
     }
 }
