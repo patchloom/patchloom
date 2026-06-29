@@ -131,7 +131,7 @@ EOF
     hyperfine --warmup 1 --min-runs 5 \
         --prepare "cd $DIR && grep -rl 'v2.0.0' . 2>/dev/null | xargs -r sed -i 's/v2.0.0/v1.0.0/g' || true" \
         --export-markdown /dev/stdout \
-        -n "patchloom replace" "$PATCHLOOM replace v1.0.0 --to v2.0.0 $DIR --apply" \
+        -n "patchloom replace" "$PATCHLOOM replace v1.0.0 --new v2.0.0 $DIR --apply" \
         -n "find + sed" "find $DIR -type f -exec sed -i 's/v1.0.0/v2.0.0/g' {} +" \
         2>/dev/null | tee -a "$OUTFILE"
 
@@ -219,11 +219,11 @@ BATCHEOF
     TX_PLAN="$DIR/_tx_plan.json"
     cat > "$TX_PLAN" <<TXEOF
 {
-  "version": "1",
+  "version": 1,
   "operations": [
-    {"op": "doc.set", "path": "config.json", "selector": "version", "value": "v2.0.0"},
-    {"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "v2.0.0"},
-    {"op": "replace", "path": "VERSION", "from": "v1.0.0", "to": "v2.0.0"},
+    {"op": "doc.set", "path": "config.json", "key": "version", "value": "v2.0.0"},
+    {"op": "doc.set", "path": "config.yaml", "key": "app.version", "value": "v2.0.0"},
+    {"op": "replace", "path": "VERSION", "old": "v1.0.0", "new": "v2.0.0"},
     {"op": "md.upsert_bullet", "path": "README.md", "heading": "Changelog", "bullet": "- v2.0.0 release"}
   ]
 }
