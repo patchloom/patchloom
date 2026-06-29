@@ -435,7 +435,7 @@ pub(crate) struct AstReplaceParams {
     /// Replacement text.
     #[serde(rename = "new")]
     pub new_text: String,
-    /// Treat --from as a regex pattern.
+    /// Treat `old` as a regex pattern.
     #[serde(default)]
     pub regex: bool,
     /// Language hint.

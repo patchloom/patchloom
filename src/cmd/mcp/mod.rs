@@ -135,8 +135,9 @@ impl PatchloomService {
                     .unwrap_or_default(),
             );
 
-            let input_schema: JsonObject = serde_json::from_value(schema)
-                .expect("operation_variant_schema must produce a valid JSON object");
+            let input_schema: JsonObject = serde_json::from_value(schema).map_err(|e| {
+                anyhow::anyhow!("operation_variant_schema must produce a valid JSON object: {e}")
+            })?;
 
             tool_router.add_route(ToolRoute::new_dyn(
                 Tool::new(meta.tool_name, meta.description, Arc::new(input_schema)),

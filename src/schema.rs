@@ -512,12 +512,14 @@ pub fn operation_schemas() -> anyhow::Result<Vec<OperationSchema>> {
                 examples: meta
                     .examples
                     .iter()
-                    .map(|(desc, json)| OperationExample {
-                        description: (*desc).into(),
-                        args: serde_json::from_str(json)
-                            .unwrap_or_else(|e| panic!("bad example JSON for {}: {e}", meta.name)),
+                    .map(|(desc, json)| {
+                        Ok(OperationExample {
+                            description: (*desc).into(),
+                            args: serde_json::from_str(json)
+                                .with_context(|| format!("bad example JSON for {}", meta.name))?,
+                        })
                     })
-                    .collect(),
+                    .collect::<anyhow::Result<Vec<_>>>()?,
             })
         })
         .collect()

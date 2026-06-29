@@ -863,7 +863,7 @@ pub struct ReplaceArgs {
     #[arg(long = "new")]
     pub new_text: String,
 
-    /// Treat --from as a regex pattern.
+    /// Treat --old as a regex pattern.
     #[arg(long)]
     pub regex: bool,
 

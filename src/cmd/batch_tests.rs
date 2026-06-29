@@ -515,20 +515,20 @@ mod doc_completeness {
         // Verify by parsing them (if parse_line accepts them, the
         // operation is implemented).
         let result = parse_line(r#"file.append test.txt "new content""#, 1);
-        assert!(result.is_ok(), "file.append should be a valid operation");
+        result.expect("file.append should be a valid operation");
 
         let result = parse_line(r#"file.prepend test.txt "new content""#, 1);
-        assert!(result.is_ok(), "file.prepend should be a valid operation");
+        result.expect("file.prepend should be a valid operation");
     }
 
     #[test]
     fn doc_comment_lists_ast_rename_and_replace() {
         // #1178: AST operations must be documented in the batch help text.
         let result = parse_line(r#"ast.rename test.rs old_fn new_fn"#, 1);
-        assert!(result.is_ok(), "ast.rename should be a valid operation");
+        result.expect("ast.rename should be a valid operation");
 
         let result = parse_line(r#"ast.replace test.rs my_fn "old" "new""#, 1);
-        assert!(result.is_ok(), "ast.replace should be a valid operation");
+        result.expect("ast.replace should be a valid operation");
     }
 }
 

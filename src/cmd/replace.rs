@@ -55,7 +55,7 @@ pub struct ReplaceArgs {
     pub case_insensitive: bool,
     // ref:replace-mode:whole-line
     /// Replace the entire line containing each match, not just the matched span.
-    /// Useful for deleting lines (--whole-line --to '') or replacing full lines.
+    /// Useful for deleting lines (--whole-line --new '') or replacing full lines.
     #[arg(long, short = 'L')]
     pub whole_line: bool,
     // ref:replace-mode:word-boundary
