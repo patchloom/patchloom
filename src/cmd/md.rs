@@ -142,7 +142,7 @@ fn execute_md_op(
             ok: true,
             path: file_owned.clone(),
             has_changes: match phase {
-                WritePhase::Check => Some(true),
+                WritePhase::Check(changed) => Some(changed),
                 _ => None,
             },
             diff,
@@ -398,7 +398,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             ok: true,
                             path: file_owned.clone(),
                             has_changes: match phase {
-                                WritePhase::Check => Some(true),
+                                WritePhase::Check(changed) => Some(changed),
                                 _ => None,
                             },
                             diff,

@@ -53,6 +53,7 @@ fn check_file(
     path: &Path,
     quiet: bool,
     eol_target: Option<crate::write::EolMode>,
+    check_trailing_ws: bool,
 ) -> Vec<TidyIssue> {
     let Some(text) = crate::files::read_text_file_logged(path, "tidy", quiet) else {
         return Vec::new();
@@ -121,8 +122,11 @@ fn check_file(
         }
     }
 
-    // Check trailing whitespace per line.
-    // We split on \n so each "line" may still contain a trailing \r from CRLF.
+    // Check trailing whitespace per line (skip when editorconfig says
+    // trim_trailing_whitespace = false for this file type).
+    if !check_trailing_ws {
+        return issues;
+    }
     for (line_idx, raw_line) in data.split(|&b| b == b'\n').enumerate() {
         // Strip trailing \r if present (from CRLF).
         let content = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
@@ -164,6 +168,26 @@ fn editorconfig_eol(_path: &Path) -> Option<crate::write::EolMode> {
     None
 }
 
+/// Resolve the `trim_trailing_whitespace` property from `.editorconfig`.
+///
+/// Returns `Some(false)` when editorconfig explicitly sets
+/// `trim_trailing_whitespace = false` for this file, `Some(true)` when it
+/// explicitly sets it to `true`, and `None` when unset.
+#[cfg(feature = "cli")]
+fn editorconfig_trim_ws(path: &Path) -> Option<bool> {
+    let props = ec4rs::properties_of(path).ok()?;
+    match props.get::<ec4rs::property::TrimTrailingWs>() {
+        Ok(ec4rs::property::TrimTrailingWs::Value(v)) => Some(v),
+        _ => None,
+    }
+}
+
+/// Stub for non-CLI builds where EditorConfig support is unavailable.
+#[cfg(not(feature = "cli"))]
+fn editorconfig_trim_ws(_path: &Path) -> Option<bool> {
+    None
+}
+
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
@@ -188,7 +212,22 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
             } else {
                 None
             };
-            let issues = check_file(path, quiet, file_eol_target);
+
+            // Resolve per-file trailing-whitespace check: when
+            // --respect-editorconfig is set and editorconfig declares
+            // trim_trailing_whitespace = false for this file type,
+            // suppress trailing-whitespace diagnostics.
+            let check_trailing_ws = if respect_ec {
+                match editorconfig_trim_ws(path) {
+                    Some(false) => false,
+                    Some(true) => true,
+                    None => true, // default: check trailing ws
+                }
+            } else {
+                true
+            };
+
+            let issues = check_file(path, quiet, file_eol_target, check_trailing_ws);
             if issues.is_empty() {
                 None
             } else {
@@ -468,7 +507,7 @@ mod tests {
         let file = tmp.path().join("no_newline.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             issues.iter().any(|i| i.issue == "missing final newline"),
             "expected missing final newline issue, got: {issues:?}"
@@ -483,7 +522,7 @@ mod tests {
         let file = tmp.path().join("empty.txt");
         std::fs::write(&file, b"").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             !issues.iter().any(|i| i.issue == "missing final newline"),
             "empty file should not be flagged for missing final newline: {issues:?}"
@@ -497,7 +536,7 @@ mod tests {
         // First line uses CRLF, second uses bare LF.
         std::fs::write(&file, b"line1\r\nline2\nline3\n").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             issues.iter().any(|i| i.issue == "mixed line endings"),
             "expected mixed line endings issue, got: {issues:?}"
@@ -510,7 +549,7 @@ mod tests {
         let file = tmp.path().join("trailing.txt");
         std::fs::write(&file, b"hello   \nworld\n").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         let trailing: Vec<_> = issues
             .iter()
             .filter(|i| i.issue == "trailing whitespace")
@@ -525,7 +564,7 @@ mod tests {
         let file = tmp.path().join("clean.txt");
         std::fs::write(&file, b"hello\nworld\n").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(issues.is_empty(), "expected no issues for clean file");
 
         let global = GlobalFlags::test_with_cwd(tmp.path());
@@ -546,7 +585,7 @@ mod tests {
         // Missing final newline + trailing whitespace on line 1 + mixed endings.
         std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
         assert!(
             issue_types.contains(&"missing final newline"),
@@ -571,7 +610,7 @@ mod tests {
         data.insert(3, 0x00);
         std::fs::write(&file, &data).unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             issues.is_empty(),
             "expected no issues for binary file, got: {issues:?}"
@@ -586,7 +625,7 @@ mod tests {
         data[4096] = 0;
         std::fs::write(&file, &data).unwrap();
 
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             issues.is_empty(),
             "expected no issues for large binary file, got: {issues:?}"
@@ -921,14 +960,14 @@ mod tests {
         std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
 
         // Without --normalize-eol: no EOL issue (consistent CRLF is fine).
-        let issues = check_file(&file, true, None);
+        let issues = check_file(&file, true, None, true);
         assert!(
             !issues.iter().any(|i| i.issue.contains("normalization")),
             "no normalization issue without eol target: {issues:?}"
         );
 
         // With --normalize-eol lf: should detect CRLF as needing normalization.
-        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf));
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf), true);
         assert!(
             issues
                 .iter()
@@ -960,7 +999,7 @@ mod tests {
         let file = tmp.path().join("lf.txt");
         std::fs::write(&file, b"line1\nline2\n").unwrap();
 
-        let issues = check_file(&file, true, Some(crate::write::EolMode::Crlf));
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Crlf), true);
         assert!(
             issues
                 .iter()
@@ -976,7 +1015,7 @@ mod tests {
         let file = tmp.path().join("lf.txt");
         std::fs::write(&file, b"line1\nline2\n").unwrap();
 
-        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf));
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf), true);
         assert!(
             !issues.iter().any(|i| i.issue.contains("normalization")),
             "LF file with LF target should not be flagged: {issues:?}"
@@ -1017,6 +1056,101 @@ mod tests {
             code,
             exit::CHANGES_DETECTED,
             "tidy check --respect-editorconfig must detect LF when editorconfig says CRLF"
+        );
+    }
+
+    /// Regression: `tidy check --respect-editorconfig` must suppress trailing
+    /// whitespace diagnostics for file types where `.editorconfig` declares
+    /// `trim_trailing_whitespace = false` (e.g. `[*.md]`).  Without this fix,
+    /// `check_file()` always flagged trailing whitespace regardless of the
+    /// editorconfig setting, causing false positives on Markdown files where
+    /// trailing spaces are intentional (e.g. hard line breaks).
+    #[test]
+    fn check_respect_editorconfig_suppresses_trailing_ws() {
+        let tmp = TempDir::new().unwrap();
+
+        // .editorconfig: *.md must NOT trim trailing whitespace
+        std::fs::write(
+            tmp.path().join(".editorconfig"),
+            "root = true\n\n[*.md]\ntrim_trailing_whitespace = false\n",
+        )
+        .unwrap();
+
+        // Markdown file with intentional trailing whitespace (hard line break)
+        let file = tmp.path().join("readme.md");
+        std::fs::write(&file, "Hello  \nWorld\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.respect_editorconfig = true;
+
+        let issues = collect_issues(&[".".to_string()], &global).unwrap();
+        assert!(
+            !issues.iter().any(|i| i.issue == "trailing whitespace"),
+            "trailing whitespace should not be reported when editorconfig says \
+             trim_trailing_whitespace = false, got: {issues:?}"
+        );
+
+        // End-to-end: should return SUCCESS (no issues)
+        let args = TidyArgs {
+            action: TidyAction::Check {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "tidy check --respect-editorconfig must not flag trailing ws \
+             when editorconfig says trim_trailing_whitespace = false"
+        );
+    }
+
+    /// `tidy check --respect-editorconfig` still flags trailing whitespace
+    /// when editorconfig explicitly sets `trim_trailing_whitespace = true`.
+    #[test]
+    fn check_respect_editorconfig_flags_trailing_ws_when_true() {
+        let tmp = TempDir::new().unwrap();
+
+        std::fs::write(
+            tmp.path().join(".editorconfig"),
+            "root = true\n\n[*.rs]\ntrim_trailing_whitespace = true\n",
+        )
+        .unwrap();
+
+        let file = tmp.path().join("main.rs");
+        std::fs::write(&file, "fn main()  \n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.respect_editorconfig = true;
+
+        let issues = collect_issues(&[".".to_string()], &global).unwrap();
+        assert!(
+            issues.iter().any(|i| i.issue == "trailing whitespace"),
+            "trailing whitespace should still be flagged when editorconfig says \
+             trim_trailing_whitespace = true, got: {issues:?}"
+        );
+    }
+
+    /// `check_file` with `check_trailing_ws = false` suppresses trailing ws.
+    #[test]
+    fn check_file_skips_trailing_ws_when_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("test.txt");
+        std::fs::write(&file, "hello   \nworld\n").unwrap();
+
+        // With check_trailing_ws = true: should find trailing whitespace
+        let issues = check_file(&file, true, None, true);
+        assert!(
+            issues.iter().any(|i| i.issue == "trailing whitespace"),
+            "should find trailing ws with check_trailing_ws=true"
+        );
+
+        // With check_trailing_ws = false: should NOT find trailing whitespace
+        let issues = check_file(&file, true, None, false);
+        assert!(
+            !issues.iter().any(|i| i.issue == "trailing whitespace"),
+            "should not find trailing ws with check_trailing_ws=false"
         );
     }
 }
