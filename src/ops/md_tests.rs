@@ -1415,16 +1415,15 @@ body text
         let content = "# T\n| A | B |\n|---|---|\n| 1 | 2 |\n";
         let (start, end) = find_section(content, "T").unwrap();
         let result = table_append_in(content, start, end, "| 3 | 4 |");
-        assert!(result.is_some());
-        assert!(result.unwrap().contains("| 3 | 4 |"));
+        let out = result.expect("table_append_in should return Some");
+        assert!(out.contains("| 3 | 4 |"));
     }
 
     #[test]
     fn upsert_bullet_does_not_dedup_against_paragraph() {
         let content = "# Rules\nRun make check\n";
-        let result = upsert_bullet_in(content, "Rules", "- Run make check");
-        assert!(result.is_some());
-        let out = result.unwrap();
+        let out = upsert_bullet_in(content, "Rules", "- Run make check")
+            .expect("upsert_bullet_in should return Some for non-bullet paragraph");
         assert!(
             out.contains("- Run make check"),
             "bullet should be inserted"
@@ -1434,9 +1433,9 @@ body text
     #[test]
     fn upsert_bullet_still_dedups_against_actual_bullet() {
         let content = "# Rules\n- Run make check\n";
-        let result = upsert_bullet_in(content, "Rules", "- Run make check");
-        assert!(result.is_some());
+        let out = upsert_bullet_in(content, "Rules", "- Run make check")
+            .expect("upsert_bullet_in should return Some for dedup case");
         // Should return unchanged content (dedup).
-        assert_eq!(result.unwrap(), content);
+        assert_eq!(out, content);
     }
 }

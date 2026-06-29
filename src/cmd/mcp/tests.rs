@@ -335,7 +335,7 @@ mod basic {
             allow_conflicts: false,
         }];
         let result = validate_operation_paths(&ops, dir.path());
-        assert!(result.is_ok(), "PatchApply with safe paths should pass");
+        result.expect("PatchApply with safe paths should pass");
     }
 
     #[tokio::test]
