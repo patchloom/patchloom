@@ -852,8 +852,16 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     );
                     return Ok(r.replacements);
                 }
-                _ => {
-                    // Fallback to word-boundary replace
+                Some(_) => {
+                    // Tree-sitter parsed successfully but found 0 identifier
+                    // matches. Do NOT fall through to regex; tree-sitter
+                    // correctly determined the name only exists in
+                    // strings/comments (#1187).
+                    anyhow::bail!("no matches for '{}' in {}", old_name, path);
+                }
+                None => {
+                    // Tree-sitter couldn't parse (no grammar or parse
+                    // failure). Fallback to word-boundary replace.
                     let re = crate::ops::replace::compile_replace_regex(
                         old_name, false, false, false, true,
                     )?;

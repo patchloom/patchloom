@@ -49,11 +49,6 @@ pub fn tidy_with_indent(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    // Operation::TidyFix does not support collapse_blanks. When that option
-    // is set, use the direct implementation to apply the full policy.
-    if policy_opts.collapse_blanks {
-        return tidy_direct(path, policy_opts, mode, guard);
-    }
     let eol_str = policy_opts.normalize_eol.map(|eol| match eol {
         EolMode::Lf => "lf".to_string(),
         EolMode::Crlf => "crlf".to_string(),
@@ -75,35 +70,6 @@ pub fn tidy_with_indent(
         lines: indent_opts.lines.clone(),
     };
     tidy_write(op, path, mode, guard)
-}
-
-/// Direct tidy implementation for cases not supported by Operation::TidyFix
-/// (e.g., collapse_blanks).
-fn tidy_direct(
-    path: &Path,
-    policy_opts: &WritePolicyOptions,
-    mode: ApplyMode,
-    guard: Option<&PathGuard>,
-) -> anyhow::Result<EditResult> {
-    use anyhow::Context;
-
-    let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-
-    let policy = super::make_write_policy(policy_opts);
-    let new_content = crate::write::apply_policy(&original, &policy).into_owned();
-
-    let noop_policy = crate::write::WritePolicy::default();
-    let applied = super::write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
-    Ok(super::build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        "tidy",
-        None,
-    ))
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -131,6 +97,7 @@ fn tidy_write(
         ensure_final_newline,
         trim_trailing_whitespace,
         normalize_eol,
+        collapse_blanks,
         dedent,
         indent,
         lines,
@@ -154,7 +121,7 @@ fn tidy_write(
             ensure_final_newline: ensure_final_newline.unwrap_or(false),
             normalize_eol: eol,
             trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
-            collapse_blanks: false,
+            collapse_blanks: collapse_blanks.unwrap_or(false),
         };
         let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
 
