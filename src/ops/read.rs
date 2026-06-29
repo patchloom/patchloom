@@ -55,6 +55,9 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
         let end: usize = end_str
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid end line: {end_str}"))?;
+        if end == 0 {
+            anyhow::bail!("line numbers are 1-based, got 0");
+        }
         if end < start {
             anyhow::bail!("end line {end} is before start line {start}");
         }
