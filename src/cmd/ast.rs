@@ -165,6 +165,8 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     } else if target.is_dir() {
         let paths = collect_source_files(&target, global)?;
+        let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+        let glob_roots = vec![target.clone()];
         crate::verbose!("ast list: scanning {} files in {}", paths.len(), args.path);
 
         struct ListFileResult {
@@ -172,15 +174,16 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             symbols: Vec<SymbolDef>,
         }
 
-        let results: Vec<ListFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-            let lang = resolve_lang(lang_hint, path);
-            let symbols = symbols::extract_symbols_from_file(path, Some(lang));
-            if symbols.is_empty() {
-                return None;
-            }
-            let display = display_path(path, &cwd);
-            Some(ListFileResult { display, symbols })
-        });
+        let results: Vec<ListFileResult> =
+            crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                let lang = resolve_lang(lang_hint, path);
+                let symbols = symbols::extract_symbols_from_file(path, Some(lang));
+                if symbols.is_empty() {
+                    return None;
+                }
+                let display = display_path(path, &cwd);
+                Some(ListFileResult { display, symbols })
+            });
 
         for result in &results {
             let filtered = filter_symbols(&result.symbols, &kind_filter);
@@ -438,15 +441,18 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         result: crate::ast::validate::ValidationResult,
     }
 
-    let results: Vec<ValidateFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-        let lang = resolve_lang(lang_hint, path);
-        if !lang.has_grammar() {
-            return None;
-        }
-        let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
-        let display = display_path(path, &cwd);
-        Some(ValidateFileResult { display, result })
-    });
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+    let glob_roots = vec![cwd.join(&args.path)];
+    let results: Vec<ValidateFileResult> =
+        crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+            let lang = resolve_lang(lang_hint, path);
+            if !lang.has_grammar() {
+                return None;
+            }
+            let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
+            let display = display_path(path, &cwd);
+            Some(ValidateFileResult { display, result })
+        });
 
     for vr in &results {
         if !vr.result.valid {
@@ -520,21 +526,25 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         matches: Vec<crate::ast::search::SearchMatch>,
     }
 
-    let file_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-        let lang = resolve_lang(lang_hint, path);
-        let query_str = if args.pattern {
-            crate::ast::search::compile_pattern_query(&args.query, lang).ok()?
-        } else {
-            args.query.clone()
-        };
-        let matches =
-            crate::ast::search::search_file(path, &query_str, Some(lang), args.max_results).ok()?;
-        if matches.is_empty() {
-            return None;
-        }
-        let display = display_path(path, &cwd);
-        Some(SearchFileResult { display, matches })
-    });
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+    let glob_roots = vec![cwd.join(&args.path)];
+    let file_results: Vec<SearchFileResult> =
+        crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+            let lang = resolve_lang(lang_hint, path);
+            let query_str = if args.pattern {
+                crate::ast::search::compile_pattern_query(&args.query, lang).ok()?
+            } else {
+                args.query.clone()
+            };
+            let matches =
+                crate::ast::search::search_file(path, &query_str, Some(lang), args.max_results)
+                    .ok()?;
+            if matches.is_empty() {
+                return None;
+            }
+            let display = display_path(path, &cwd);
+            Some(SearchFileResult { display, matches })
+        });
 
     'outer: for result in &file_results {
         for m in &result.matches {
@@ -602,8 +612,10 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
+    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+    let glob_roots = vec![cwd.join(&args.path)];
     let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
-        crate::par_process_files(&paths, None, &[], |path| {
+        crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let display = display_path(path, &cwd);
             let lang = lang_hint.map(lang_from_str);
             let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang, &display);
@@ -723,14 +735,17 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             imports: Vec<crate::ast::deps::Import>,
         }
 
-        let results: Vec<DepsFileResult> = crate::par_process_files(&paths, None, &[], |path| {
-            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
-            if imports.is_empty() {
-                return None;
-            }
-            let display = display_path(path, &cwd);
-            Some(DepsFileResult { display, imports })
-        });
+        let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+        let glob_roots = vec![cwd.join(&args.path)];
+        let results: Vec<DepsFileResult> =
+            crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                if imports.is_empty() {
+                    return None;
+                }
+                let display = display_path(path, &cwd);
+                Some(DepsFileResult { display, imports })
+            });
 
         for result in &results {
             any_output = true;
@@ -1077,23 +1092,7 @@ pub fn get_git_file_content(
 // ---------------------------------------------------------------------------
 
 pub fn lang_from_str(s: &str) -> Language {
-    // Try language name aliases first, then fall back to extension matching.
-    match s.to_lowercase().as_str() {
-        "rust" => Language::Rust,
-        "typescript" => Language::TypeScript,
-        "javascript" => Language::JavaScript,
-        "python" => Language::Python,
-        "golang" => Language::Go,
-        "java" => Language::Java,
-        "csharp" | "c#" => Language::CSharp,
-        "ruby" => Language::Ruby,
-        "kotlin" => Language::Kotlin,
-        "hcl" | "terraform" => Language::Hcl,
-        "protobuf" | "proto" => Language::Protobuf,
-        "dockerfile" | "docker" => Language::Dockerfile,
-        "markdown" => Language::Markdown,
-        _ => Language::from_extension(s),
-    }
+    Language::from_name_or_ext(s)
 }
 
 pub use symbols::{filter_symbols, parse_kind_filter};

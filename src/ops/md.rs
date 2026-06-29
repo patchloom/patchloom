@@ -485,8 +485,12 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         // Only dedup against top-level bullets (no leading whitespace).
         // Indented sub-bullets (e.g. "  - deploy") should not block
         // insertion of a top-level bullet with the same text (#1157).
+        // Only compare against actual bullet lines, not plain paragraphs
+        // that happen to match the bullet text (#1173).
         let trimmed = line.trim_start();
-        if trimmed.len() == line.len() {
+        if trimmed.len() == line.len()
+            && (trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ "))
+        {
             let existing_text = strip_bullet_prefix(trimmed);
             if existing_text == new_text {
                 return Some(content.to_string());
@@ -629,6 +633,26 @@ pub fn table_append_in(
     }
 
     let insert_pos = last_data_end?;
+
+    // Validate that the new row has the same column count as the existing
+    // table to prevent silent corruption of markdown tables (#1172).
+    let expected_cols = {
+        let section = &content[body_start..body_end];
+        section
+            .lines()
+            .find(|l| is_separator_row(l))
+            .map(|sep| sep.trim().matches('|').count().saturating_sub(1))
+    };
+    if let Some(expected) = expected_cols {
+        let actual = if is_table_row(row) {
+            row.trim().matches('|').count().saturating_sub(1)
+        } else {
+            0
+        };
+        if actual != expected {
+            return None;
+        }
+    }
 
     let mut out = String::with_capacity(content.len() + row.len() + 2);
     out.push_str(&content[..insert_pos]);

@@ -901,5 +901,71 @@ fn test_md_check_json_produces_structured_output() {
 }
 
 // ---------------------------------------------------------------------------
+// table-append column count validation (#1172)
+// ---------------------------------------------------------------------------
+
+/// Table append with wrong column count should fail (#1172).
+#[test]
+fn test_md_table_append_wrong_column_count_fails() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.md");
+    fs::write(
+        &file,
+        "# API\n| Name | Value | Status |\n|------|-------|--------|\n| a | 1 | ok |\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "md",
+            "table-append",
+            file.to_str().unwrap(),
+            "--heading",
+            "API",
+            "--row",
+            "| b |",
+            "--apply",
+        ])
+        .assert()
+        .code(1);
+
+    // File should be unchanged.
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        !content.contains("| b |"),
+        "wrong-column row should NOT be appended"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// upsert-bullet dedup only against actual bullets (#1173)
+// ---------------------------------------------------------------------------
+
+/// Paragraph text matching bullet content should not prevent insertion (#1173).
+#[test]
+fn test_md_upsert_bullet_does_not_dedup_against_paragraphs() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("rules.md");
+    fs::write(&file, "# Rules\nRun make check\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "upsert-bullet"])
+        .arg(file.to_str().unwrap())
+        .args(["--heading", "Rules", "--bullet"])
+        .arg("* Run make check")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("* Run make check"),
+        "bullet should be inserted even when paragraph has same text"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // doc --check produces stdout output (#544)
 // ---------------------------------------------------------------------------
