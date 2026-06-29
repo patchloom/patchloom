@@ -7,7 +7,7 @@ use crate::ops::doc::{
 };
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, move_section_in,
-    replace_section_in, table_append_for_tx, upsert_bullet_in,
+    replace_section_in, upsert_bullet_in,
 };
 use crate::ops::patch::{ApplyHunksOptions, ApplyHunksStatus, apply_patch_with_loader};
 
@@ -651,7 +651,20 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         }
 
         Operation::MdTableAppend { path, heading, row } => {
-            apply_md_heading_op(tx, path, heading, row, table_append_for_tx, "heading/table")?;
+            let file_path = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+            let (body_start, body_end) = crate::ops::md::find_section(file_content, heading)
+                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
+            let new_content =
+                crate::ops::md::table_append_in(file_content, body_start, body_end, row)
+                    .map_err(|e| anyhow::anyhow!("{e} under heading {heading:?}"))?;
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &file_path,
+                new_content,
+            );
         }
 
         Operation::MdMoveSection {

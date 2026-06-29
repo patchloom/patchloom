@@ -305,22 +305,34 @@ fn truncate_to_budget(entries: &mut Vec<MapEntry>, max_tokens: usize) {
 
 /// Render the map as a human-readable tree string.
 pub fn render_tree(entries: &[MapEntry]) -> String {
-    let mut out = String::new();
-    let mut current_file = "";
-
+    // Group entries by file, preserving the first-seen file order
+    // (which reflects the highest-scoring symbol per file).
+    let mut file_order: Vec<&str> = Vec::new();
+    let mut by_file: std::collections::HashMap<&str, Vec<&MapEntry>> =
+        std::collections::HashMap::new();
     for entry in entries {
-        if entry.file != current_file {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str(&entry.file);
-            out.push('\n');
-            current_file = &entry.file;
+        let bucket = by_file.entry(&entry.file).or_default();
+        if bucket.is_empty() {
+            file_order.push(&entry.file);
         }
-        out.push_str(&format!(
-            "  {} {} [line {}]\n",
-            entry.kind, entry.signature, entry.line
-        ));
+        bucket.push(entry);
+    }
+
+    let mut out = String::new();
+    for file in &file_order {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(file);
+        out.push('\n');
+        if let Some(symbols) = by_file.get(file) {
+            for entry in symbols {
+                out.push_str(&format!(
+                    "  {} {} [line {}]\n",
+                    entry.kind, entry.signature, entry.line
+                ));
+            }
+        }
     }
     out
 }
@@ -403,6 +415,51 @@ mod tests {
         assert!(tree.contains("a.rs\n"));
         assert!(tree.contains("b.rs\n"));
         assert!(tree.contains("fn foo()"));
+    }
+
+    #[test]
+    fn render_tree_coalesces_interleaved_files() {
+        // When entries are sorted by score, the same file can appear
+        // at non-contiguous positions. render_tree must coalesce them
+        // under a single file header.
+        let entries = vec![
+            MapEntry {
+                file: "a.rs".into(),
+                name: "high_a".into(),
+                kind: "fn".into(),
+                signature: "fn high_a()".into(),
+                line: 1,
+                score: 1.0,
+            },
+            MapEntry {
+                file: "b.rs".into(),
+                name: "mid_b".into(),
+                kind: "fn".into(),
+                signature: "fn mid_b()".into(),
+                line: 1,
+                score: 0.5,
+            },
+            MapEntry {
+                file: "a.rs".into(),
+                name: "low_a".into(),
+                kind: "fn".into(),
+                signature: "fn low_a()".into(),
+                line: 10,
+                score: 0.1,
+            },
+        ];
+        let tree = render_tree(&entries);
+        // "a.rs" should appear exactly once as a header.
+        assert_eq!(
+            tree.matches("a.rs\n").count(),
+            1,
+            "a.rs header should appear once, got:\n{tree}"
+        );
+        // Both a.rs symbols should be present.
+        assert!(tree.contains("fn high_a()"), "high_a missing");
+        assert!(tree.contains("fn low_a()"), "low_a missing");
+        // b.rs should also appear exactly once.
+        assert_eq!(tree.matches("b.rs\n").count(), 1);
     }
 
     #[test]

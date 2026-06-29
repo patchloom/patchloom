@@ -953,7 +953,8 @@ mod error_handling {
     fn table_append_no_table() {
         let content = "# API\nJust text\n";
         let (start, end) = find_section(content, "API").unwrap();
-        assert!(table_append_in(content, start, end, "| b | 2 |").is_none());
+        let err = table_append_in(content, start, end, "| b | 2 |").unwrap_err();
+        assert!(matches!(err, TableAppendError::NoTable));
     }
 
     #[test]
@@ -1403,11 +1404,21 @@ body text
     }
 
     #[test]
-    fn table_append_wrong_column_count_returns_none() {
+    fn table_append_wrong_column_count_returns_column_mismatch() {
         let content = "# T\n| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n";
         let (start, end) = find_section(content, "T").unwrap();
-        // Row with only 1 column should be rejected.
-        assert!(table_append_in(content, start, end, "| x |").is_none());
+        // Row with only 1 column should be rejected with ColumnMismatch.
+        let err = table_append_in(content, start, end, "| x |").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                TableAppendError::ColumnMismatch {
+                    expected: 3,
+                    actual: 1
+                }
+            ),
+            "expected ColumnMismatch, got: {err:?}"
+        );
     }
 
     #[test]
@@ -1415,8 +1426,32 @@ body text
         let content = "# T\n| A | B |\n|---|---|\n| 1 | 2 |\n";
         let (start, end) = find_section(content, "T").unwrap();
         let result = table_append_in(content, start, end, "| 3 | 4 |");
-        let out = result.expect("table_append_in should return Some");
+        let out = result.expect("table_append_in should return Ok");
         assert!(out.contains("| 3 | 4 |"));
+    }
+
+    #[test]
+    fn table_append_not_table_row_returns_column_mismatch() {
+        // Row without pipe wrapping should fail with ColumnMismatch,
+        // not with NoTable (there IS a table, the row is just malformed).
+        let content = "# T\n| A | B |\n|---|---|\n| 1 | 2 |\n";
+        let (start, end) = find_section(content, "T").unwrap();
+        let err = table_append_in(content, start, end, "x | y").unwrap_err();
+        assert!(
+            matches!(err, TableAppendError::ColumnMismatch { .. }),
+            "expected ColumnMismatch for unwrapped row, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn table_append_no_table_returns_no_table_error() {
+        let content = "# API\nJust text\n";
+        let (start, end) = find_section(content, "API").unwrap();
+        let err = table_append_in(content, start, end, "| b | 2 |").unwrap_err();
+        assert!(
+            matches!(err, TableAppendError::NoTable),
+            "expected NoTable, got: {err:?}"
+        );
     }
 
     #[test]

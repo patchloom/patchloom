@@ -590,12 +590,32 @@ fn is_separator_row(line: &str) -> bool {
     inner.split('|').all(|cell| cell.contains('-'))
 }
 
+/// Error returned by [`table_append_in`] when the append cannot proceed.
+#[derive(Debug)]
+pub enum TableAppendError {
+    /// No markdown table was found under the heading.
+    NoTable,
+    /// The row has the wrong number of columns.
+    ColumnMismatch { expected: usize, actual: usize },
+}
+
+impl std::fmt::Display for TableAppendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoTable => write!(f, "no markdown table found"),
+            Self::ColumnMismatch { expected, actual } => {
+                write!(f, "row has {actual} column(s), table has {expected}")
+            }
+        }
+    }
+}
+
 pub fn table_append_in(
     content: &str,
     body_start: usize,
     body_end: usize,
     row: &str,
-) -> Option<String> {
+) -> Result<String, TableAppendError> {
     let eol = crate::write::detect_eol(content);
     let body = &content[body_start..body_end];
     let mut last_data_end: Option<usize> = None;
@@ -632,7 +652,7 @@ pub fn table_append_in(
         pos = next_pos;
     }
 
-    let insert_pos = last_data_end?;
+    let insert_pos = last_data_end.ok_or(TableAppendError::NoTable)?;
 
     // Validate that the new row has the same column count as the existing
     // table to prevent silent corruption of markdown tables (#1172).
@@ -650,7 +670,7 @@ pub fn table_append_in(
             0
         };
         if actual != expected {
-            return None;
+            return Err(TableAppendError::ColumnMismatch { expected, actual });
         }
     }
 
@@ -667,12 +687,12 @@ pub fn table_append_in(
         out.push_str(eol);
     }
     out.push_str(&content[insert_pos..]);
-    Some(out)
+    Ok(out)
 }
 
 pub fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
     let (body_start, body_end) = find_section(content, heading)?;
-    table_append_in(content, body_start, body_end, row)
+    table_append_in(content, body_start, body_end, row).ok()
 }
 
 /// Strip inline code spans (between backticks) from a line so that
