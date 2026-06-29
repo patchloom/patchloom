@@ -48,7 +48,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         custom_ignore_filenames,
     } = op
     else {
-        unreachable!()
+        anyhow::bail!("execute_search_op called with non-Search operation")
     };
 
     if *invert_match && *multiline {

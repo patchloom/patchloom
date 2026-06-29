@@ -280,7 +280,7 @@ pub fn move_at_path(
                     .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
                 arr.remove(*i);
             }
-            _ => unreachable!("already validated above"),
+            _ => anyhow::bail!("cannot remove from wildcard/predicate selector"),
         }
     }
 

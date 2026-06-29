@@ -42,7 +42,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         ..
     } = op
     else {
-        unreachable!()
+        anyhow::bail!("execute_replace_op called with non-Replace operation")
     };
     let regex_mode = *regex_mode;
     let word_boundary = matches!(

@@ -578,7 +578,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
         }
 
-        _ => unreachable!("execute_file_op called with non-file operation"),
+        _ => anyhow::bail!("execute_file_op called with non-file operation"),
     }
     Ok(0)
 }
