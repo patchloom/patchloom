@@ -63,7 +63,7 @@ pub enum MdAction {
         file: String,
         #[arg(long)]
         heading: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         bullet: String,
     },
     /// Remove duplicate headings.

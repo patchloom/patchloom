@@ -49,7 +49,11 @@ pub struct TidyIssue {
     pub line: Option<usize>,
 }
 
-fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
+fn check_file(
+    path: &Path,
+    quiet: bool,
+    eol_target: Option<crate::write::EolMode>,
+) -> Vec<TidyIssue> {
     let Some(text) = crate::files::read_text_file_logged(path, "tidy", quiet) else {
         return Vec::new();
     };
@@ -77,6 +81,44 @@ fn check_file(path: &Path, quiet: bool) -> Vec<TidyIssue> {
             issue: "mixed line endings",
             line: None,
         });
+    }
+
+    // Check EOL normalization target: if the user specified --normalize-eol,
+    // flag files whose line endings don't match the target even when they are
+    // internally consistent (i.e. not "mixed").
+    if let Some(target) = eol_target {
+        let has_cr_only =
+            memchr::memchr_iter(b'\r', data).any(|i| i + 1 >= data.len() || data[i + 1] != b'\n');
+        match target {
+            crate::write::EolMode::Lf => {
+                if has_crlf || has_cr_only {
+                    issues.push(TidyIssue {
+                        path: path_str.clone(),
+                        issue: "line endings need normalization to LF",
+                        line: None,
+                    });
+                }
+            }
+            crate::write::EolMode::Crlf => {
+                if has_bare_lf || has_cr_only {
+                    issues.push(TidyIssue {
+                        path: path_str.clone(),
+                        issue: "line endings need normalization to CRLF",
+                        line: None,
+                    });
+                }
+            }
+            crate::write::EolMode::Cr => {
+                if has_crlf || has_bare_lf {
+                    issues.push(TidyIssue {
+                        path: path_str.clone(),
+                        issue: "line endings need normalization to CR",
+                        line: None,
+                    });
+                }
+            }
+            crate::write::EolMode::Keep => {}
+        }
     }
 
     // Check trailing whitespace per line.
@@ -111,9 +153,10 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
     let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
 
     let quiet = global.quiet;
+    let eol_target = global.normalize_eol;
     let file_issues: Vec<Vec<TidyIssue>> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let issues = check_file(path, quiet);
+            let issues = check_file(path, quiet, eol_target);
             if issues.is_empty() {
                 None
             } else {
@@ -393,7 +436,7 @@ mod tests {
         let file = tmp.path().join("no_newline.txt");
         std::fs::write(&file, b"hello").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(
             issues.iter().any(|i| i.issue == "missing final newline"),
             "expected missing final newline issue, got: {issues:?}"
@@ -408,7 +451,7 @@ mod tests {
         let file = tmp.path().join("empty.txt");
         std::fs::write(&file, b"").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(
             !issues.iter().any(|i| i.issue == "missing final newline"),
             "empty file should not be flagged for missing final newline: {issues:?}"
@@ -422,7 +465,7 @@ mod tests {
         // First line uses CRLF, second uses bare LF.
         std::fs::write(&file, b"line1\r\nline2\nline3\n").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(
             issues.iter().any(|i| i.issue == "mixed line endings"),
             "expected mixed line endings issue, got: {issues:?}"
@@ -435,7 +478,7 @@ mod tests {
         let file = tmp.path().join("trailing.txt");
         std::fs::write(&file, b"hello   \nworld\n").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         let trailing: Vec<_> = issues
             .iter()
             .filter(|i| i.issue == "trailing whitespace")
@@ -450,7 +493,7 @@ mod tests {
         let file = tmp.path().join("clean.txt");
         std::fs::write(&file, b"hello\nworld\n").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(issues.is_empty(), "expected no issues for clean file");
 
         let global = GlobalFlags::test_with_cwd(tmp.path());
@@ -471,7 +514,7 @@ mod tests {
         // Missing final newline + trailing whitespace on line 1 + mixed endings.
         std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
         assert!(
             issue_types.contains(&"missing final newline"),
@@ -496,7 +539,7 @@ mod tests {
         data.insert(3, 0x00);
         std::fs::write(&file, &data).unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(
             issues.is_empty(),
             "expected no issues for binary file, got: {issues:?}"
@@ -511,7 +554,7 @@ mod tests {
         data[4096] = 0;
         std::fs::write(&file, &data).unwrap();
 
-        let issues = check_file(&file, true);
+        let issues = check_file(&file, true, None);
         assert!(
             issues.is_empty(),
             "expected no issues for large binary file, got: {issues:?}"
@@ -834,5 +877,77 @@ mod tests {
         let content = std::fs::read_to_string(&file).unwrap();
         // Consecutive blank lines should be collapsed to at most one.
         assert_eq!(content, "a\n\nb\n");
+    }
+
+    /// Regression: `tidy check --normalize-eol lf` must detect files with
+    /// consistent CRLF line endings (not just mixed endings). Without this,
+    /// agents think CRLF files are clean when a LF target is specified.
+    #[test]
+    fn check_detects_crlf_when_eol_target_is_lf() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("crlf.txt");
+        std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
+
+        // Without --normalize-eol: no EOL issue (consistent CRLF is fine).
+        let issues = check_file(&file, true, None);
+        assert!(
+            !issues.iter().any(|i| i.issue.contains("normalization")),
+            "no normalization issue without eol target: {issues:?}"
+        );
+
+        // With --normalize-eol lf: should detect CRLF as needing normalization.
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf));
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.issue.contains("normalization to LF")),
+            "expected LF normalization issue, got: {issues:?}"
+        );
+
+        // End-to-end via run(): should return CHANGES_DETECTED.
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.normalize_eol = Some(crate::write::EolMode::Lf);
+        let args = TidyArgs {
+            action: TidyAction::Check {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::CHANGES_DETECTED,
+            "tidy check --normalize-eol lf must return CHANGES_DETECTED for CRLF file"
+        );
+    }
+
+    /// `tidy check --normalize-eol crlf` must detect files with bare LF.
+    #[test]
+    fn check_detects_lf_when_eol_target_is_crlf() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("lf.txt");
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Crlf));
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.issue.contains("normalization to CRLF")),
+            "expected CRLF normalization issue, got: {issues:?}"
+        );
+    }
+
+    /// Files that already match the target EOL should not be flagged.
+    #[test]
+    fn check_no_eol_issue_when_already_matching() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("lf.txt");
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+
+        let issues = check_file(&file, true, Some(crate::write::EolMode::Lf));
+        assert!(
+            !issues.iter().any(|i| i.issue.contains("normalization")),
+            "LF file with LF target should not be flagged: {issues:?}"
+        );
     }
 }
