@@ -328,6 +328,17 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     Ok(restored)
 }
 
+/// Remove a consumed backup session directory so subsequent `undo` calls
+/// reach older sessions instead of replaying the same one.
+pub fn remove_session(project_root: &Path, timestamp: &str) -> anyhow::Result<()> {
+    let session_dir = project_root.join(BACKUP_DIR).join(timestamp);
+    if session_dir.is_dir() {
+        std::fs::remove_dir_all(&session_dir)
+            .with_context(|| format!("removing consumed backup session {timestamp}"))?;
+    }
+    Ok(())
+}
+
 /// Reject internal manifest paths that would escape the project root via
 /// `..` traversal. Uses a syntactic depth check so it works regardless of
 /// whether the target path exists on disk (#386).
@@ -843,5 +854,52 @@ mod tests {
 
         // Auto-restore should have reverted the first file back to original.
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "original");
+    }
+
+    #[test]
+    fn remove_session_allows_sequential_undo() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("seq.txt");
+
+        // Session 1: back up "v1"
+        std::fs::write(&file, "v1").unwrap();
+        let mut s1 = BackupSession::new(dir.path()).unwrap();
+        s1.save_before_write(&file).unwrap();
+        let ts1 = s1.finalize().unwrap().unwrap();
+
+        // Simulate modification to "v2"
+        std::fs::write(&file, "v2").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Session 2: back up "v2"
+        let mut s2 = BackupSession::new(dir.path()).unwrap();
+        s2.save_before_write(&file).unwrap();
+        let ts2 = s2.finalize().unwrap().unwrap();
+
+        // Simulate modification to "v3"
+        std::fs::write(&file, "v3").unwrap();
+
+        // First undo: restore most recent (ts2) -> file becomes "v2"
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 2);
+        let latest = &sessions[0].timestamp;
+        assert_eq!(latest, &ts2);
+        restore_session(dir.path(), latest).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "v2");
+
+        // Remove consumed session
+        remove_session(dir.path(), latest).unwrap();
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 1, "consumed session should be removed");
+
+        // Second undo: now the most recent is ts1 -> file becomes "v1"
+        let latest = &sessions[0].timestamp;
+        assert_eq!(latest, &ts1);
+        restore_session(dir.path(), latest).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "v1",
+            "sequential undo should reach the original content"
+        );
     }
 }
