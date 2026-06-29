@@ -16,7 +16,7 @@
 
 use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
 use rmcp::handler::server::tool::ToolCallContext;
-use rmcp::model::{CallToolResult, Content, ErrorData as McpError, JsonObject, Tool};
+use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError, JsonObject, Tool};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -304,9 +304,9 @@ fn exit_code_to_result(code: u8, output: &str, fallback: &str) -> Result<CallToo
         output.trim().to_string()
     };
     if code == exit::SUCCESS {
-        Ok(CallToolResult::success(vec![Content::text(msg)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
     } else {
-        Ok(CallToolResult::error(vec![Content::text(msg)]))
+        Ok(CallToolResult::error(vec![ContentBlock::text(msg)]))
     }
 }
 
