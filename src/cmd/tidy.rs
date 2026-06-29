@@ -205,13 +205,8 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
             // Resolve per-file EOL target: explicit --normalize-eol takes
             // precedence; otherwise consult .editorconfig when
             // --respect-editorconfig is set.
-            let file_eol_target = if eol_target.is_some() {
-                eol_target
-            } else if respect_ec {
-                editorconfig_eol(path)
-            } else {
-                None
-            };
+            let file_eol_target =
+                eol_target.or_else(|| respect_ec.then(|| editorconfig_eol(path)).flatten());
 
             // Resolve per-file trailing-whitespace check: when
             // --respect-editorconfig is set and editorconfig declares
