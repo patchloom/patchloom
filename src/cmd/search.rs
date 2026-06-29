@@ -201,6 +201,7 @@ pub(crate) fn format_results(
         let has_ctx =
             args.context.is_some() || args.before_context.is_some() || args.after_context.is_some();
         let mut prev_end: Option<(usize, usize)> = None; // (match index, last line covered)
+        let mut emitted_up_to: usize = 0; // last 1-based line printed for current file
         for (mi, m) in results.matches.iter().enumerate() {
             if has_ctx {
                 // Only print separator between non-contiguous groups,
@@ -210,7 +211,10 @@ pub(crate) fn format_results(
                     .saturating_sub(m.context_before.as_ref().map_or(0, |b| b.len()));
                 if let Some((prev_idx, prev_last_line)) = prev_end {
                     let prev_path = &results.matches[prev_idx].path;
-                    if **prev_path != *m.path || cur_start > prev_last_line + 1 {
+                    if **prev_path != *m.path {
+                        emitted_up_to = 0;
+                        out.push_str("--\n");
+                    } else if cur_start > prev_last_line + 1 {
                         out.push_str("--\n");
                     }
                 }
@@ -220,6 +224,11 @@ pub(crate) fn format_results(
             if let Some(ref before) = m.context_before {
                 for (j, ctx) in before.iter().enumerate() {
                     let ln = m.line - before.len() + j;
+                    // Skip lines already emitted by the previous match's
+                    // context-after window to avoid duplicates (#1160).
+                    if has_ctx && ln <= emitted_up_to {
+                        continue;
+                    }
                     let _ = writeln!(
                         out,
                         "{path_c}{}{reset}{sep_c}-{reset}{ln_c}{ln}{reset}{sep_c}-{reset}{ctx}",
@@ -232,6 +241,9 @@ pub(crate) fn format_results(
                 "{path_c}{}{reset}{sep_c}:{reset}{ln_c}{}{reset}{sep_c}:{reset}{}{sep_c}:{reset}{}",
                 m.path, m.line, m.column, m.text
             );
+            if has_ctx {
+                emitted_up_to = m.line;
+            }
             if let Some(ref after) = m.context_after {
                 for (j, ctx) in after.iter().enumerate() {
                     let ln = m.line + 1 + j;
@@ -240,6 +252,12 @@ pub(crate) fn format_results(
                         "{path_c}{}{reset}{sep_c}-{reset}{ln_c}{ln}{reset}{sep_c}-{reset}{ctx}",
                         m.path
                     );
+                }
+                if has_ctx {
+                    let last_after_ln = m.line + after.len();
+                    if last_after_ln > emitted_up_to {
+                        emitted_up_to = last_after_ln;
+                    }
                 }
             }
         }
@@ -783,5 +801,38 @@ mod tests {
         args.assert_count = Some(99);
         let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    /// Overlapping context windows must not produce duplicate lines (#1160).
+    #[test]
+    fn context_no_duplicate_lines() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("close.txt"),
+            "line1\nmatch_a\nline3\nmatch_b\nline5\n",
+        )
+        .unwrap();
+        let mut args = make_args("match", vec![dir.path().to_string_lossy().into_owned()]);
+        args.context = Some(1);
+        let global = GlobalFlags::test_default();
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    /// Verify plain-text context output does not repeat lines between
+    /// close matches (regression for #1160).
+    #[test]
+    fn context_plain_text_no_repeated_lines() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("close.txt");
+        fs::write(&file, "line1\nmatch_a\nline3\nmatch_b\nline5\n").unwrap();
+        let mut args = make_args("match", vec![file.to_string_lossy().into_owned()]);
+        args.context = Some(1);
+        let global = GlobalFlags::test_default();
+        let output =
+            format_results(collect_matches(&args, &global).unwrap(), &args, &global).unwrap();
+        // "line3" should appear exactly once, not twice.
+        let count = output.matches("line3").count();
+        assert_eq!(count, 1, "line3 should appear once, got: {output}");
     }
 }

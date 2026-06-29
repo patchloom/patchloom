@@ -1362,4 +1362,43 @@ body text
             "frontmatter should be preserved: {result}"
         );
     }
+
+    /// Nested sub-bullets must not falsely dedup against top-level bullets (#1157).
+    #[test]
+    fn upsert_bullet_nested_subbullet_no_false_dedup() {
+        let content = "# Tasks\n- parent\n  - deploy\n";
+        let result = upsert_bullet_in(content, "Tasks", "- deploy").unwrap();
+        // The indented "  - deploy" is a sub-bullet; a new top-level
+        // "- deploy" should still be inserted.
+        assert!(
+            result.contains("\n- deploy\n"),
+            "top-level bullet should be added: {result}"
+        );
+        let deploy_count = result.matches("\n- deploy").count();
+        assert_eq!(
+            deploy_count, 1,
+            "exactly one top-level '- deploy' expected: {result}"
+        );
+    }
+
+    /// When the heading query includes `#` markers, find_section must
+    /// respect the heading level, not just the text (#1158).
+    #[test]
+    fn find_section_with_level_filter() {
+        let content = "# API\nGeneral overview\n## API\nDetailed reference\n";
+        // Query with "## API" should match the h2, not the h1.
+        let (start, end) = find_section(content, "## API").unwrap();
+        let body = &content[start..end];
+        assert_eq!(body, "Detailed reference\n");
+    }
+
+    /// A plain text query (no `#` prefix) should match any heading level.
+    #[test]
+    fn find_section_plain_text_matches_any_level() {
+        let content = "## Intro\nSome text\n# Intro\nOther text\n";
+        // Plain "Intro" matches the first occurrence regardless of level.
+        let (start, end) = find_section(content, "Intro").unwrap();
+        let body = &content[start..end];
+        assert_eq!(body, "Some text\n");
+    }
 }

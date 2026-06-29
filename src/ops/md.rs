@@ -249,23 +249,33 @@ fn line_byte_starts(content: &str) -> Vec<usize> {
     starts
 }
 
-fn normalize_heading_query(heading: &str) -> &str {
+/// Parse a heading query into (optional level, text).
+///
+/// If the query includes ATX-style `#` markers (e.g. `"## API"`), the
+/// level is extracted and used to filter matches. Plain text queries
+/// (e.g. `"API"`) match any heading level (#1158).
+fn normalize_heading_query(heading: &str) -> (Option<usize>, &str) {
     let t = heading.trim();
     let n = t.bytes().take_while(|&b| b == b'#').count();
     if n > 0 && t.len() > n && t.as_bytes()[n] == b' ' {
-        t[n + 1..].trim()
+        (Some(n), t[n + 1..].trim())
     } else {
-        t
+        (None, t)
     }
+}
+
+/// Check whether a heading matches the parsed query (level + text).
+fn heading_matches(h: &HeadingInfo, level: Option<usize>, query: &str) -> bool {
+    h.text.trim() == query && level.is_none_or(|lvl| h.level == lvl)
 }
 
 pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
-    let query = normalize_heading_query(heading);
+    let (level, query) = normalize_heading_query(heading);
 
     for h in &headings {
-        if h.text.trim() == query {
+        if heading_matches(h, level, query) {
             let body_start = if h.body_line < offsets.len() {
                 offsets[h.body_line]
             } else {
@@ -290,10 +300,10 @@ pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
 pub fn section_range(content: &str, heading: &str) -> Option<(usize, usize)> {
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
-    let query = normalize_heading_query(heading);
+    let (level, query) = normalize_heading_query(heading);
 
     for h in &headings {
-        if h.text.trim() == query {
+        if heading_matches(h, level, query) {
             let section_start = offsets[h.line_start];
             let section_end = if h.line_end < offsets.len() {
                 offsets[h.line_end]
@@ -423,10 +433,10 @@ pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -
     let eol = crate::write::detect_eol(content);
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
-    let query = normalize_heading_query(heading);
+    let (level, query) = normalize_heading_query(heading);
 
     for h in &headings {
-        if h.text.trim() == query {
+        if heading_matches(h, level, query) {
             let heading_start = offsets[h.line_start];
             let mut out = String::with_capacity(content.len() + insertion.len());
             out.push_str(&content[..heading_start]);
@@ -472,9 +482,15 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
     // Dedup across bullet styles: compare text content without prefix.
     let new_text = strip_bullet_prefix(&normalized);
     for line in body.lines() {
-        let existing_text = strip_bullet_prefix(line.trim());
-        if existing_text == new_text {
-            return Some(content.to_string());
+        // Only dedup against top-level bullets (no leading whitespace).
+        // Indented sub-bullets (e.g. "  - deploy") should not block
+        // insertion of a top-level bullet with the same text (#1157).
+        let trimmed = line.trim_start();
+        if trimmed.len() == line.len() {
+            let existing_text = strip_bullet_prefix(trimmed);
+            if existing_text == new_text {
+                return Some(content.to_string());
+            }
         }
     }
 
