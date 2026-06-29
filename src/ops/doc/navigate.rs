@@ -181,24 +181,30 @@ pub fn move_at_path(
     from_segments: &[selector::Segment],
     to_segments: &[selector::Segment],
 ) -> anyhow::Result<()> {
-    // Remove value at source path.
-    let removed = {
-        if from_segments.is_empty() {
-            anyhow::bail!("empty from selector");
-        }
+    if from_segments.is_empty() {
+        anyhow::bail!("empty from selector");
+    }
+    if to_segments.is_empty() {
+        anyhow::bail!("empty to selector");
+    }
+
+    // Clone the source value first so the tree is not mutated if
+    // destination insertion fails (#1183).
+    let cloned = {
         let (parent_path, last) = split_last(from_segments);
         let parent = navigate_mut(root, parent_path, false)?;
         match last {
             selector::Segment::Key(k) => parent
-                .as_object_mut()
-                .and_then(|obj| obj.remove(k.as_str()))
-                .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?,
+                .as_object()
+                .and_then(|obj| obj.get(k.as_str()))
+                .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?
+                .clone(),
             selector::Segment::Index(i) => {
                 let arr = parent
-                    .as_array_mut()
+                    .as_array()
                     .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
                 if *i < arr.len() {
-                    arr.remove(*i)
+                    arr[*i].clone()
                 } else {
                     anyhow::bail!("source index {i} out of bounds");
                 }
@@ -207,31 +213,51 @@ pub fn move_at_path(
         }
     };
 
-    // Insert at destination path.
-    if to_segments.is_empty() {
-        anyhow::bail!("empty to selector");
-    }
-    let (parent_path, last) = split_last(to_segments);
-    let parent = navigate_mut(root, parent_path, true)?;
-    match last {
-        selector::Segment::Key(k) => {
-            parent
-                .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
-                .insert(k.clone(), removed);
-        }
-        selector::Segment::Index(i) => {
-            let arr = parent
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
-            if *i <= arr.len() {
-                arr.insert(*i, removed);
-            } else {
-                anyhow::bail!("target index {i} out of bounds");
+    // Insert clone at destination path (creates intermediate objects).
+    {
+        let (parent_path, last) = split_last(to_segments);
+        let parent = navigate_mut(root, parent_path, true)?;
+        match last {
+            selector::Segment::Key(k) => {
+                parent
+                    .as_object_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
+                    .insert(k.clone(), cloned);
             }
+            selector::Segment::Index(i) => {
+                let arr = parent
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                if *i <= arr.len() {
+                    arr.insert(*i, cloned);
+                } else {
+                    anyhow::bail!("target index {i} out of bounds");
+                }
+            }
+            _ => anyhow::bail!("cannot move to wildcard/predicate"),
         }
-        _ => anyhow::bail!("cannot move to wildcard/predicate"),
     }
+
+    // Destination insert succeeded; now remove from source.
+    {
+        let (parent_path, last) = split_last(from_segments);
+        let parent = navigate_mut(root, parent_path, false)?;
+        match last {
+            selector::Segment::Key(k) => {
+                parent
+                    .as_object_mut()
+                    .and_then(|obj| obj.remove(k.as_str()));
+            }
+            selector::Segment::Index(i) => {
+                let arr = parent
+                    .as_array_mut()
+                    .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                arr.remove(*i);
+            }
+            _ => unreachable!("already validated above"),
+        }
+    }
+
     Ok(())
 }
 
@@ -515,6 +541,24 @@ mod tests {
         assert!(
             msg.contains("'b'"),
             "error should mention the failing key 'b', got: {msg}"
+        );
+    }
+
+    /// #1183: When destination insertion fails, the source value must be
+    /// preserved in the tree (not silently dropped).
+    #[test]
+    fn move_at_path_preserves_source_on_dest_failure() {
+        let mut root = json!({"src": 42, "blocker": "string"});
+        let from = segs("src");
+        let to = segs("blocker.nested");
+        // Destination parent "blocker" is a string, not an object.
+        let result = move_at_path(&mut root, &from, &to);
+        assert!(result.is_err());
+        // Source must still be present after the failed move.
+        assert_eq!(
+            root.get("src"),
+            Some(&json!(42)),
+            "source value must be preserved on destination failure: {root}"
         );
     }
 }

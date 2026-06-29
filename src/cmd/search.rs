@@ -247,6 +247,15 @@ pub(crate) fn format_results(
             if let Some(ref after) = m.context_after {
                 for (j, ctx) in after.iter().enumerate() {
                     let ln = m.line + 1 + j;
+                    // Skip context-after lines that will be printed as a
+                    // subsequent match line to avoid duplicates (#1182).
+                    let is_future_match = results.matches[mi + 1..]
+                        .iter()
+                        .take_while(|next| *next.path == *m.path)
+                        .any(|next| next.line == ln);
+                    if is_future_match {
+                        continue;
+                    }
                     let _ = writeln!(
                         out,
                         "{path_c}{}{reset}{sep_c}-{reset}{ln_c}{ln}{reset}{sep_c}-{reset}{ctx}",
@@ -834,5 +843,26 @@ mod tests {
         // "line3" should appear exactly once, not twice.
         let count = output.matches("line3").count();
         assert_eq!(count, 1, "line3 should appear once, got: {output}");
+    }
+
+    #[test]
+    fn context_after_not_duplicated_for_adjacent_matches() {
+        // #1182: When two matches are on adjacent lines, the context-after
+        // of match A includes match B's line. That line must NOT appear
+        // twice (once as context, once as match).
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("adj.txt");
+        fs::write(&file, "line1\nmatch_a\nmatch_b\nline4\n").unwrap();
+        let mut args = make_args("match", vec![file.to_string_lossy().into_owned()]);
+        args.context = Some(1);
+        let global = GlobalFlags::test_default();
+        let output =
+            format_results(collect_matches(&args, &global).unwrap(), &args, &global).unwrap();
+        // "match_b" should appear exactly once (as a match line).
+        let count = output.matches("match_b").count();
+        assert_eq!(
+            count, 1,
+            "match_b should appear once, got {count}: {output}"
+        );
     }
 }
