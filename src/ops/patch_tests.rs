@@ -1056,4 +1056,35 @@ mod regression {
             "SQL comment removal must be parsed as a Remove line"
         );
     }
+
+    /// #1185: A removal of a line starting with `-- ` followed by an
+    /// addition starting with `++ ` inside a hunk must not be mistaken
+    /// for a file header. Uses SQL comments that lack a/ b/ prefixes.
+    #[test]
+    fn hunk_content_with_minus_minus_plus_plus_not_header() {
+        let diff = "\
+--- a/config.sql
++++ b/config.sql
+@@ -1,4 +1,4 @@
+ SELECT 1;
+--- old slow query
++++ new fast query
+ SELECT 2;
+";
+        let files = parse_patch(diff).expect("should parse successfully");
+        // Must parse as ONE file (config.sql), not two files.
+        assert_eq!(
+            files.len(),
+            1,
+            "should be 1 file, not split by in-hunk content: {files:?}"
+        );
+        assert_eq!(files[0].path, "config.sql");
+        // The hunk should contain all 4 lines (context, remove, add, context).
+        assert_eq!(
+            files[0].hunks[0].lines.len(),
+            4,
+            "hunk should have 4 lines: {:?}",
+            files[0].hunks[0].lines
+        );
+    }
 }

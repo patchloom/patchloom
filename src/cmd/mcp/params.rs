@@ -229,6 +229,10 @@ pub(crate) struct BatchReplaceParams {
     /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
     #[serde(default)]
     pub word_boundary: bool,
+    /// If true, silently succeed when a file does not contain the pattern
+    /// instead of returning an error. Useful for idempotent batch replacements.
+    #[serde(default)]
+    pub if_exists: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

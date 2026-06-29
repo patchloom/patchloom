@@ -393,15 +393,18 @@ fn is_multiline_import_start(line: &str, lang: Language) -> bool {
 }
 
 /// Check if a line closes a multi-line import block.
+///
+/// Uses `starts_with` instead of exact/ends_with so trailing comments
+/// (e.g. `} // end imports`) are not missed (#1181).
 fn is_multiline_import_end(line: &str, lang: Language) -> bool {
     let trimmed = line.trim();
     match lang {
-        Language::Python => trimmed == ")" || trimmed.ends_with(')'),
-        Language::Rust => trimmed.ends_with("};") || trimmed == "};",
+        Language::Python => trimmed.starts_with(')'),
+        Language::Rust => trimmed.starts_with("};"),
         Language::TypeScript | Language::JavaScript => {
-            trimmed.ends_with('}') || trimmed.ends_with("};") || trimmed.contains("} from")
+            trimmed.starts_with('}') || trimmed.contains("} from")
         }
-        Language::Go => trimmed == ")",
+        Language::Go => trimmed.starts_with(')'),
         _ => false,
     }
 }
@@ -951,6 +954,38 @@ mod tests {
             result.content.contains("ClassB"),
             "ClassB should be preserved: {}",
             result.content,
+        );
+    }
+
+    #[test]
+    fn multiline_import_end_with_trailing_comment_go() {
+        // #1181: Closing `) // end` must be recognized as block end.
+        let source = "import (\n\t\"fmt\"\n\t\"os\"\n) // end imports\n\nfunc main() {}\n";
+        let imports = list_imports(source, Language::Go);
+        // Go multi-line block is one import entry.
+        assert_eq!(
+            imports.len(),
+            1,
+            "should find 1 import block, got: {imports:?}"
+        );
+        // `func main()` must NOT be part of the import block.
+        assert!(
+            !imports[0].text.contains("func"),
+            "function should not be treated as part of import block: {}",
+            imports[0].text
+        );
+    }
+
+    #[test]
+    fn multiline_import_end_with_trailing_comment_rust() {
+        // #1181: Closing `}; // collections` must be recognized as block end.
+        let source = "use std::collections::{\n    HashMap,\n    HashSet,\n}; // collections\n\nfn main() {}\n";
+        let imports = list_imports(source, Language::Rust);
+        assert_eq!(imports.len(), 1, "should find 1 import block: {imports:?}");
+        assert!(
+            !imports[0].text.contains("fn main"),
+            "function should not be part of import block: {}",
+            imports[0].text
         );
     }
 }

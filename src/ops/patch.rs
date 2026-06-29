@@ -25,8 +25,41 @@ pub struct PatchFile {
 /// Check whether line `idx` is a real file header ("--- " followed by "+++"),
 /// not a removed line whose content happens to start with "-- " (e.g. SQL
 /// comments produce `--- comment text` in the diff).
+///
+/// Requires additional evidence beyond the "--- "/"+++" prefix pair:
+/// - `a/` or `b/` path prefixes (git diff format)
+/// - `/dev/null` (file creation/deletion)
+/// - a tab character (traditional diff timestamps)
+/// - a preceding `diff ` line
+/// - position at the very start of the input
+///
+/// This prevents false positives inside hunks (#1185).
 fn is_file_header(lines: &[&str], idx: usize) -> bool {
-    lines[idx].starts_with("--- ") && idx + 1 < lines.len() && lines[idx + 1].starts_with("+++ ")
+    if !lines[idx].starts_with("--- ")
+        || idx + 1 >= lines.len()
+        || !lines[idx + 1].starts_with("+++ ")
+    {
+        return false;
+    }
+    let minus_rest = &lines[idx][4..];
+    let plus_rest = &lines[idx + 1][4..];
+    // Standard git diff paths start with a/ or b/.
+    if minus_rest.starts_with("a/") || minus_rest.starts_with("/dev/null") {
+        return true;
+    }
+    if plus_rest.starts_with("b/") || plus_rest.starts_with("/dev/null") {
+        return true;
+    }
+    // Traditional diff uses tabs before timestamps.
+    if minus_rest.contains('\t') || plus_rest.contains('\t') {
+        return true;
+    }
+    // Preceded by a `diff ` line.
+    if idx > 0 && lines[idx - 1].starts_with("diff ") {
+        return true;
+    }
+    // At the very start of the input (no prior context).
+    idx == 0
 }
 
 pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {

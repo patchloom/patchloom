@@ -470,7 +470,7 @@ impl PatchloomService {
                     insert_after: None,
                     case_insensitive: p.case_insensitive,
                     multiline: p.multiline,
-                    if_exists: false,
+                    if_exists: p.if_exists,
                     whole_line: false,
                     range: None,
                     word_boundary: p.word_boundary,
