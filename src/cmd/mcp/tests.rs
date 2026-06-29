@@ -66,7 +66,7 @@ mod basic {
         assert_eq!(
             descriptions.get("replace_text"),
             Some(
-                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with to=\"\" to delete lines). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
+                &"Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}"
             ),
             "replace_text description drifted"
         );
@@ -384,7 +384,7 @@ mod basic {
         let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "nonexistent.json",
-                "selector": "key",
+                "key": "key",
                 "value": "val",
             }))
             .unwrap(),
@@ -408,7 +408,7 @@ mod basic {
 
     #[test]
     fn validate_param_size_accepts_small() {
-        validate_param_size("selector", "a.b.c").unwrap();
+        validate_param_size("key", "a.b.c").unwrap();
     }
 
     #[test]
@@ -463,20 +463,20 @@ mod basic {
         std::fs::write(dir.path().join("package.json"), r#"{"version":"1.0.0"}"#).unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "strict": true,
             "operations": [
                 {
                     "op": "doc.set",
                     "path": "package.json",
-                    "selector": "version",
+                    "key": "version",
                     "value": "2.0.0"
                 },
                 {
                     "op": "replace",
                     "path": "package.json",
-                    "from": "2.0.0",
-                    "to": "2.1.0"
+                    "old": "2.0.0",
+                    "new": "2.1.0"
                 },
                 {
                     "op": "file.create",
@@ -521,7 +521,7 @@ mod security {
         let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "../../etc/passwd",
-                "selector": "root",
+                "key": "root",
                 "value": "hacked"
             }))
             .unwrap(),
@@ -629,7 +629,7 @@ mod security {
             serde_json::from_value(serde_json::json!({
                 "action": "has",
                 "path": "data.json",
-                "selector": big_selector,
+                "key": big_selector,
             }))
             .unwrap(),
         );
@@ -657,7 +657,7 @@ mod integrity {
         // Actually for this, do two creates, then a doc.set on bad structured that may not rollback file create? File creates are part of tx.
         // Use a plan that the second op fails (e.g. move non-existing source).
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "strict": true,
             "operations": [
                 { "op": "file.create", "path": "first.txt", "content": "one" },
@@ -698,9 +698,9 @@ mod integrity {
         // Submit a plan with a format step that would create a marker file.
         // If the format step is NOT stripped, the marker file will exist.
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
-                { "op": "replace", "path": "target.txt", "from": "hello", "to": "world" }
+                { "op": "replace", "path": "target.txt", "old": "hello", "new": "world" }
             ],
             "format": [{ "cmd": format!("touch {}", marker.display()) }],
             "validate": [{ "cmd": format!("touch {}", marker.display()), "required": false }]

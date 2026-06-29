@@ -1,6 +1,6 @@
 {
-  "version": "1",
+  "version": 1,
   "operations": [
-    { "op": "replace", "path": "README.md", "from": "v1.0.0", "to": "v2.0.0" }
+    { "op": "replace", "path": "README.md", "old": "v1.0.0", "new": "v2.0.0" }
   ]
 }

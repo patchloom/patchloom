@@ -32,11 +32,6 @@ pub fn replace_text(
         anyhow::bail!("whole_line and multiline cannot be combined");
     }
 
-    let mode_str = if opts.regex {
-        Some("regex".to_string())
-    } else {
-        None
-    };
     let range_str = opts.range.map(|(start, end)| {
         if let Some(e) = end {
             format!("{start}:{e}")
@@ -47,9 +42,9 @@ pub fn replace_text(
     let op = Operation::Replace {
         glob: None,
         path: Some(path.to_string_lossy().into()),
-        mode: mode_str,
-        from: from.into(),
-        to: Some(to.into()),
+        regex: opts.regex,
+        old: from.into(),
+        new_text: Some(to.into()),
         nth: opts.nth,
         insert_before: opts.insert_before.clone(),
         insert_after: opts.insert_after.clone(),
@@ -89,9 +84,9 @@ fn replace_write(
 
     // Fallback for no-cli/files builds: delegate to ops layer directly.
     if let Operation::Replace {
-        from,
-        to,
-        mode: mode_str,
+        old,
+        new_text,
+        regex: regex_mode,
         insert_before,
         insert_after,
         case_insensitive,
@@ -108,13 +103,13 @@ fn replace_write(
         let original = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
 
-        let is_regex = mode_str.as_deref() == Some("regex");
-        if from.is_empty() && !is_regex {
+        let is_regex = regex_mode;
+        if old.is_empty() && !is_regex {
             bail!("empty search pattern");
         }
 
         let compiled_re = ops::replace::compile_replace_regex(
-            &from,
+            &old,
             is_regex,
             case_insensitive,
             multiline,
@@ -122,12 +117,12 @@ fn replace_write(
         )?;
 
         let direct_to = if insert_before.is_none() && insert_after.is_none() {
-            to.clone()
+            new_text.clone()
         } else {
             None
         };
         let replacement = ops::replace::replacement_text(
-            &from,
+            &old,
             &direct_to,
             &insert_before,
             &insert_after,
@@ -147,14 +142,14 @@ fn replace_write(
         let (new_content, count) = if whole_line {
             ops::replace::replace_whole_lines(
                 &original,
-                &from,
+                &old,
                 &replacement,
                 compiled_re.as_ref(),
                 nth,
                 parsed_range,
             )
         } else {
-            ops::replace::replace_content(&original, &from, &replacement, compiled_re.as_ref(), nth)
+            ops::replace::replace_content(&original, &old, &replacement, compiled_re.as_ref(), nth)
         };
         let new_content = new_content.into_owned();
 

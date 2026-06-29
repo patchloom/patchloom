@@ -3,7 +3,7 @@
 #   patchloom tx examples/07-yaml-plan.yaml --diff
 #   patchloom tx examples/07-yaml-plan.yaml --apply
 
-version: "1"
+version: 1
 strict: false
 write_policy:
   ensure_final_newline: true
@@ -12,12 +12,12 @@ write_policy:
 operations:
   - op: doc.set
     path: config.yaml
-    selector: app.version
+    key: app.version
     value: "2.0.0"
 
   - op: doc.ensure
     path: config.yaml
-    selector: app.debug
+    key: app.debug
     value: false
 
   - op: md.upsert_bullet
@@ -27,8 +27,8 @@ operations:
 
   - op: replace
     path: README.md
-    from: "v1.0.0"
-    to: "v2.0.0"
+    old: "v1.0.0"
+    new: "v2.0.0"
 
 format:
   - cmd: "prettier --write config.yaml"

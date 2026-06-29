@@ -216,7 +216,7 @@ fn execute_plan_inner(
     }
 
     let plan = Plan {
-        version: SCHEMA_VERSION.to_string(),
+        version: SCHEMA_VERSION,
         operations,
         format: None,
         validate: None,

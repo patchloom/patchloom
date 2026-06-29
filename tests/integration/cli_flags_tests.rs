@@ -109,7 +109,7 @@ fn test_quiet_suppresses_replace_output() {
         .arg("--quiet")
         .arg("replace")
         .arg("hello")
-        .arg("--to")
+        .arg("--new")
         .arg("hi")
         .arg(&file)
         .arg("--apply")
@@ -256,7 +256,7 @@ fn test_confirm_conflicts_with_apply() {
         .args([
             "replace",
             "foo",
-            "--to",
+            "--new",
             "bar",
             "--confirm",
             "--apply",
@@ -274,7 +274,7 @@ fn test_confirm_conflicts_with_check() {
         .args([
             "replace",
             "foo",
-            "--to",
+            "--new",
             "bar",
             "--confirm",
             "--check",
@@ -502,7 +502,7 @@ fn test_project_config_collapse_blanks() {
         .arg("replace")
         .arg("remove")
         .arg("--whole-line")
-        .arg("--to")
+        .arg("--new")
         .arg("")
         .arg(file.to_str().unwrap())
         .arg("--apply")
@@ -851,7 +851,7 @@ fn test_verbose_replace_emits_trace() {
         .arg("--verbose")
         .arg("replace")
         .arg("aaa")
-        .arg("--to")
+        .arg("--new")
         .arg("bbb")
         .arg("f.txt")
         .arg("--cwd")
@@ -867,7 +867,7 @@ fn test_verbose_tx_emits_trace() {
     fs::write(dir.path().join("f.txt"), "old\n").unwrap();
 
     let plan =
-        "version: '1'\noperations:\n  - op: replace\n    path: f.txt\n    from: old\n    to: new\n";
+        "version: 1\noperations:\n  - op: replace\n    path: f.txt\n    old: old\n    new: new\n";
     fs::write(dir.path().join("plan.yaml"), plan).unwrap();
 
     Command::cargo_bin("patchloom")
@@ -1241,7 +1241,7 @@ fn test_verbose_init_emits_trace() {
 #[test]
 fn test_verbose_explain_emits_trace() {
     let dir = TempDir::new().unwrap();
-    let plan = "version: '1'\noperations:\n  - op: create_file\n    path: f.txt\n    content: hi\n";
+    let plan = "version: 1\noperations:\n  - op: create_file\n    path: f.txt\n    content: hi\n";
     fs::write(dir.path().join("plan.yaml"), plan).unwrap();
 
     Command::cargo_bin("patchloom")
@@ -1349,7 +1349,7 @@ fn test_editorconfig_replace_apply_respects_final_newline() {
         .unwrap()
         .arg("replace")
         .arg("old")
-        .arg("--to")
+        .arg("--new")
         .arg("new")
         .arg(&file)
         .arg("--respect-editorconfig")
@@ -1441,19 +1441,19 @@ async fn test_mcp_concurrent_doc_set() {
     // Fire three doc_set calls concurrently to *different* files.
     let params_a = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "a.json", "selector": "value", "value": "new_a"}),
+            serde_json::json!({"path": "a.json", "key": "value", "value": "new_a"}),
         )
         .unwrap(),
     );
     let params_b = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "b.json", "selector": "value", "value": "new_b"}),
+            serde_json::json!({"path": "b.json", "key": "value", "value": "new_b"}),
         )
         .unwrap(),
     );
     let params_c = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "c.json", "selector": "value", "value": "new_c"}),
+            serde_json::json!({"path": "c.json", "key": "value", "value": "new_c"}),
         )
         .unwrap(),
     );
@@ -1496,27 +1496,27 @@ async fn test_mcp_concurrent_replace_different_files() {
         call_tool_value(
             &client,
             "replace_text",
-            serde_json::json!({"path": "f0.txt", "from": "old_value", "to": "new_0"}),
+            serde_json::json!({"path": "f0.txt", "old": "old_value", "new": "new_0"}),
         ),
         call_tool_value(
             &client,
             "replace_text",
-            serde_json::json!({"path": "f1.txt", "from": "old_value", "to": "new_1"}),
+            serde_json::json!({"path": "f1.txt", "old": "old_value", "new": "new_1"}),
         ),
         call_tool_value(
             &client,
             "replace_text",
-            serde_json::json!({"path": "f2.txt", "from": "old_value", "to": "new_2"}),
+            serde_json::json!({"path": "f2.txt", "old": "old_value", "new": "new_2"}),
         ),
         call_tool_value(
             &client,
             "replace_text",
-            serde_json::json!({"path": "f3.txt", "from": "old_value", "to": "new_3"}),
+            serde_json::json!({"path": "f3.txt", "old": "old_value", "new": "new_3"}),
         ),
         call_tool_value(
             &client,
             "replace_text",
-            serde_json::json!({"path": "f4.txt", "from": "old_value", "to": "new_4"}),
+            serde_json::json!({"path": "f4.txt", "old": "old_value", "new": "new_4"}),
         ),
     );
     assert!(!r0.0, "replace on f0.txt should succeed: {}", r0.1);
@@ -1552,7 +1552,7 @@ fn test_format_flag_failure_is_reported() {
         .args([
             "replace",
             "aaa",
-            "--to",
+            "--new",
             "bbb",
             "--apply",
             "--format",

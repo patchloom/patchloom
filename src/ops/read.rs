@@ -43,18 +43,18 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
         if start_str.is_empty() {
             anyhow::bail!("missing start line in range '{spec}' (expected START:END)");
         }
-        if end_str.is_empty() {
-            anyhow::bail!("missing end line in range '{spec}' (expected START:END)");
-        }
         let start: usize = start_str
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid start line: {start_str}"))?;
-        let end: usize = end_str
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid end line: {end_str}"))?;
         if start == 0 {
             anyhow::bail!("line numbers are 1-based, got 0");
         }
+        if end_str.is_empty() {
+            return Ok((start, None));
+        }
+        let end: usize = end_str
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid end line: {end_str}"))?;
         if end < start {
             anyhow::bail!("end line {end} is before start line {start}");
         }
@@ -148,8 +148,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_missing_end_errors() {
-        assert!(parse_line_range("5:").is_err());
+    fn parse_open_ended_range() {
+        assert_eq!(parse_line_range("5:").unwrap(), (5, None));
+        assert_eq!(parse_line_range("1:").unwrap(), (1, None));
+    }
+
+    #[test]
+    fn parse_open_ended_zero_start_errors() {
+        assert!(parse_line_range("0:").is_err());
     }
 
     #[test]
@@ -205,6 +211,15 @@ mod tests {
         assert_eq!(result.content, "a\nb\nc\n");
         assert_eq!(result.start_line, 1);
         assert_eq!(result.end_line, 3);
+    }
+
+    #[test]
+    fn select_open_ended_from_middle() {
+        let content = "a\nb\nc\nd\n";
+        let result = select_lines(content, (3, None));
+        assert_eq!(result.content, "c\nd\n");
+        assert_eq!(result.start_line, 3);
+        assert_eq!(result.end_line, 4);
     }
 
     #[test]

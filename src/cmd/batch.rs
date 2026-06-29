@@ -87,7 +87,7 @@ macro_rules! doc_psv {
         let value = parse_json_value(&$args[2])?;
         op!($Variant {
             path: $args[0].clone(),
-            selector: $args[1].clone(),
+            key: $args[1].clone(),
             value
         })
     }};
@@ -124,7 +124,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 2, line_num)?;
             op!(DocDelete {
                 path: args[0].clone(),
-                selector: args[1].clone()
+                key: args[1].clone()
             })
         }
         "doc.merge" => {
@@ -147,7 +147,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 3, line_num)?;
             op!(DocDeleteWhere {
                 path: args[0].clone(),
-                selector: args[1].clone(),
+                key: args[1].clone(),
                 predicate: args[2].clone()
             })
         }
@@ -158,9 +158,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             Ok(Operation::Replace {
                 glob: None,
                 path: Some(args[0].clone()),
-                mode: None,
-                from: args[1].clone(),
-                to: Some(args[2].clone()),
+                regex: false,
+                old: args[1].clone(),
+                new_text: Some(args[2].clone()),
                 nth: None,
                 insert_before: None,
                 insert_after: None,
@@ -290,8 +290,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             op!(AstReplace {
                 path: args[0].clone(),
                 symbol: args[1].clone(),
-                from: args[2].clone(),
-                to: args[3].clone(),
+                old: args[2].clone(),
+                new_text: args[3].clone(),
                 regex: false,
                 lang: None
             })
@@ -429,7 +429,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Build a plan and delegate to tx.
     let plan_json = {
         let plan = Plan {
-            version: crate::plan::SCHEMA_VERSION.to_string(),
+            version: crate::plan::SCHEMA_VERSION,
             cwd: None,
             write_policy: None,
             strict: None,

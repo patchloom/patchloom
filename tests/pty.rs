@@ -61,7 +61,7 @@ fn pty_replace_confirm_yes_applies() {
     fs::write(&file, "aaa\n").unwrap();
 
     let mut cmd = patchloom_cmd(dir.path());
-    cmd.args(["replace", "aaa", "--to", "bbb", "--confirm"]);
+    cmd.args(["replace", "aaa", "--new", "bbb", "--confirm"]);
 
     let mut session = spawn_pty(cmd);
 
@@ -89,7 +89,7 @@ fn pty_replace_confirm_no_does_not_apply() {
     fs::write(&file, "aaa\n").unwrap();
 
     let mut cmd = patchloom_cmd(dir.path());
-    cmd.args(["replace", "aaa", "--to", "bbb", "--confirm"]);
+    cmd.args(["replace", "aaa", "--new", "bbb", "--confirm"]);
 
     let mut session = spawn_pty(cmd);
 
@@ -118,7 +118,7 @@ fn pty_replace_confirm_yes_runs_format_command() {
     cmd.args([
         "replace",
         "aaa",
-        "--to",
+        "--new",
         "bbb",
         "--confirm",
         "--format",
@@ -149,7 +149,7 @@ fn pty_replace_confirm_no_skips_format_command() {
     cmd.args([
         "replace",
         "aaa",
-        "--to",
+        "--new",
         "bbb",
         "--confirm",
         "--format",
@@ -244,7 +244,7 @@ fn pty_confirm_default_enter_accepts() {
     fs::write(&file, "aaa\n").unwrap();
 
     let mut cmd = patchloom_cmd(dir.path());
-    cmd.args(["replace", "aaa", "--to", "bbb", "--confirm"]);
+    cmd.args(["replace", "aaa", "--new", "bbb", "--confirm"]);
 
     let mut session = spawn_pty(cmd);
 
@@ -271,9 +271,9 @@ fn pty_tx_confirm_yes_runs_plan_format_and_validate_steps() {
     let validate_marker = dir.path().join("plan_validate_ran.marker");
 
     let plan = serde_json::json!({
-        "version": "1",
+        "version": 1,
         "operations": [
-            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+            {"op": "replace", "path": "f.txt", "old": "old", "new": "new"}
         ],
         "format": [
             {"cmd": shell_touch(&format_marker)}
@@ -322,9 +322,9 @@ fn pty_tx_confirm_nonstrict_validate_failure_keeps_applied_changes() {
     let format_marker = dir.path().join("plan_format_ran.marker");
 
     let plan = serde_json::json!({
-        "version": "1",
+        "version": 1,
         "operations": [
-            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+            {"op": "replace", "path": "f.txt", "old": "old", "new": "new"}
         ],
         "format": [
             {"cmd": shell_touch(&format_marker)}
@@ -371,10 +371,10 @@ fn pty_tx_confirm_strict_validate_failure_rolls_back() {
     let format_marker = dir.path().join("plan_format_ran.marker");
 
     let plan = serde_json::json!({
-        "version": "1",
+        "version": 1,
         "strict": true,
         "operations": [
-            {"op": "replace", "path": "f.txt", "from": "old", "to": "new"}
+            {"op": "replace", "path": "f.txt", "old": "old", "new": "new"}
         ],
         "format": [
             {"cmd": shell_touch(&format_marker)}

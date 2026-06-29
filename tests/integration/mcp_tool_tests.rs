@@ -16,7 +16,7 @@ async fn test_mcp_doc_set_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
-        serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
+        serde_json::json!({"path": "config.json", "key": "name", "value": "new"}),
     )
     .await;
     assert!(!is_error, "doc_set should succeed: {val}");
@@ -45,7 +45,7 @@ async fn test_mcp_replace_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "replace_text",
-        serde_json::json!({"path": "hello.txt", "from": "world", "to": "patchloom"}),
+        serde_json::json!({"path": "hello.txt", "old": "world", "new": "patchloom"}),
     )
     .await;
     assert!(!is_error, "replace should succeed: {val}");
@@ -97,7 +97,7 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
-        serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
+        serde_json::json!({"path": "nope.json", "key": "x", "value": 1}),
     )
     .await;
     assert!(
@@ -266,7 +266,7 @@ async fn test_mcp_doc_has_existing_key() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "has", "path": "data.json", "selector": "name"}),
+        serde_json::json!({"action": "has", "path": "data.json", "key": "name"}),
     )
     .await;
     assert!(!is_error, "doc_query has should succeed: {val}");
@@ -292,7 +292,7 @@ async fn test_mcp_doc_has_missing_key_not_error() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "has", "path": "data.json", "selector": "missing_key"}),
+        serde_json::json!({"action": "has", "path": "data.json", "key": "missing_key"}),
     )
     .await;
     assert!(
@@ -322,7 +322,7 @@ async fn test_mcp_doc_get_reads_value() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_get",
-        serde_json::json!({"path": "config.json", "selector": "version"}),
+        serde_json::json!({"path": "config.json", "key": "version"}),
     )
     .await;
     assert!(!is_error, "doc_get should succeed: {val}");
@@ -928,7 +928,7 @@ async fn test_mcp_doc_delete_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_delete",
-        serde_json::json!({"path": "config.json", "selector": "debug"}),
+        serde_json::json!({"path": "config.json", "key": "debug"}),
     )
     .await;
     assert!(!is_error, "doc_delete should succeed: {val}");
@@ -954,7 +954,7 @@ async fn test_mcp_doc_append_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_append",
-        serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
+        serde_json::json!({"path": "config.json", "key": "tags", "value": "c"}),
     )
     .await;
     assert!(!is_error, "doc_append should succeed: {val}");
@@ -980,7 +980,7 @@ async fn test_mcp_doc_prepend_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_prepend",
-        serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
+        serde_json::json!({"path": "config.json", "key": "tags", "value": "z"}),
     )
     .await;
     assert!(!is_error, "doc_prepend should succeed: {val}");
@@ -1007,7 +1007,7 @@ async fn test_mcp_doc_ensure_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_ensure",
-        serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
+        serde_json::json!({"path": "config.json", "key": "debug", "value": false}),
     )
     .await;
     assert!(!is_error, "doc_ensure should succeed: {val}");
@@ -1037,7 +1037,7 @@ async fn test_mcp_doc_update_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_update",
-        serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
+        serde_json::json!({"path": "config.json", "key": "items[*]", "value": {"active": true}}),
     )
     .await;
     assert!(!is_error, "doc_update should succeed: {val}");
@@ -1093,7 +1093,7 @@ async fn test_mcp_doc_delete_where_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_delete_where",
-        serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
+        serde_json::json!({"path": "config.json", "key": "items", "predicate": "name=drop"}),
     )
     .await;
     assert!(!is_error, "doc_delete_where should succeed: {val}");
@@ -1132,7 +1132,7 @@ async fn test_mcp_doc_keys_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "keys", "path": "config.json", "selector": "."}),
+        serde_json::json!({"action": "keys", "path": "config.json", "key": "."}),
     )
     .await;
     assert!(!is_error, "doc_query keys should succeed: {val}");
@@ -1167,7 +1167,7 @@ async fn test_mcp_doc_len_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "len", "path": "config.json", "selector": "tags"}),
+        serde_json::json!({"action": "len", "path": "config.json", "key": "tags"}),
     )
     .await;
     assert!(!is_error, "doc_query len should succeed: {val}");
@@ -1191,7 +1191,7 @@ async fn test_mcp_doc_select_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "select", "path": "config.json", "selector": "users[role=admin]"}),
+        serde_json::json!({"action": "select", "path": "config.json", "key": "users[role=admin]"}),
     )
     .await;
     assert!(!is_error, "doc_query select should succeed: {val}");
@@ -1563,8 +1563,8 @@ async fn test_mcp_batch_replace_round_trip() {
         "batch_replace",
         serde_json::json!({
             "files": ["a.txt", "b.txt"],
-            "from": "1.0.0",
-            "to": "2.0.0"
+            "old": "1.0.0",
+            "new": "2.0.0"
         }),
     )
     .await;
@@ -1605,8 +1605,8 @@ async fn test_mcp_batch_replace_regex_round_trip() {
         "batch_replace",
         serde_json::json!({
             "files": ["x.txt", "y.txt"],
-            "from": "foo\\d+bar",
-            "to": "replaced",
+            "old": "foo\\d+bar",
+            "new": "replaced",
             "regex": true
         }),
     )
@@ -1636,8 +1636,8 @@ async fn test_mcp_batch_replace_empty_files_rejected() {
     let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
         serde_json::from_value(serde_json::json!({
             "files": [],
-            "from": "a",
-            "to": "b"
+            "old": "a",
+            "new": "b"
         }))
         .unwrap(),
     );
@@ -1696,8 +1696,8 @@ async fn test_mcp_batch_replace_path_traversal_rejected() {
     let params = rmcp::model::CallToolRequestParams::new("batch_replace").with_arguments(
         serde_json::from_value(serde_json::json!({
             "files": ["ok.txt", "../../etc/passwd"],
-            "from": "a",
-            "to": "b"
+            "old": "a",
+            "new": "b"
         }))
         .unwrap(),
     );
@@ -1723,7 +1723,7 @@ async fn test_mcp_rejects_unknown_fields() {
     let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
         serde_json::from_value(serde_json::json!({
             "path": "test.json",
-            "selector": "a",
+            "key": "a",
             "value": 2,
             "hallucinated_param": true
         }))
@@ -1765,8 +1765,8 @@ async fn test_mcp_replace_regex_round_trip() {
         "replace_text",
         serde_json::json!({
             "path": "ver.txt",
-            "from": r"version = (\d+)\.(\d+)\.(\d+)",
-            "to": "version = $1.$2.99",
+            "old": r"version = (\d+)\.(\d+)\.(\d+)",
+            "new": "version = $1.$2.99",
             "regex": true
         }),
     )
@@ -1797,8 +1797,8 @@ async fn test_mcp_replace_nth_round_trip() {
         "replace_text",
         serde_json::json!({
             "path": "rep.txt",
-            "from": "foo",
-            "to": "qux",
+            "old": "foo",
+            "new": "qux",
             "nth": 2
         }),
     )
@@ -1826,8 +1826,8 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
         "replace_text",
         serde_json::json!({
             "path": "stable.txt",
-            "from": "nonexistent",
-            "to": "replacement",
+            "old": "nonexistent",
+            "new": "replacement",
             "if_exists": true
         }),
     )
@@ -1865,8 +1865,8 @@ async fn test_mcp_replace_whole_line_round_trip() {
         "replace_text",
         serde_json::json!({
             "path": "code.rs",
-            "from": "dbg!",
-            "to": "",
+            "old": "dbg!",
+            "new": "",
             "whole_line": true
         }),
     )
@@ -1897,8 +1897,8 @@ async fn test_mcp_replace_whole_line_with_range_round_trip() {
         "replace_text",
         serde_json::json!({
             "path": "data.txt",
-            "from": "bbb",
-            "to": "",
+            "old": "bbb",
+            "new": "",
             "whole_line": true,
             "range": "1:3"
         }),
@@ -1933,7 +1933,7 @@ async fn test_mcp_replace_whole_line_insert_before_rejected() {
         "replace_text",
         serde_json::json!({
             "path": "data.txt",
-            "from": "needle",
+            "old": "needle",
             "insert_before": "BEFORE\n",
             "whole_line": true
         }),
@@ -2101,7 +2101,7 @@ async fn test_mcp_doc_set_yaml_deep_nested_path_creation() {
         "doc_set",
         serde_json::json!({
             "path": "config.yaml",
-            "selector": "level1.level2.level3",
+            "key": "level1.level2.level3",
             "value": "deep_value"
         }),
     )
@@ -2128,7 +2128,7 @@ async fn test_mcp_doc_set_yaml_deep_nested_path_creation() {
         "doc_get",
         serde_json::json!({
             "path": "config.yaml",
-            "selector": "level1.level2.level3"
+            "key": "level1.level2.level3"
         }),
     )
     .await;
@@ -2159,7 +2159,7 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
         "doc_set",
         serde_json::json!({
             "path": "app.yaml",
-            "selector": "app.database.host",
+            "key": "app.database.host",
             "value": "localhost"
         }),
     )
@@ -2172,7 +2172,7 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
         "doc_set",
         serde_json::json!({
             "path": "app.yaml",
-            "selector": "app.database.port",
+            "key": "app.database.port",
             "value": 5432
         }),
     )
@@ -2218,8 +2218,8 @@ async fn test_mcp_replace_text_sequential_calls_see_prior_writes() {
         "replace_text",
         serde_json::json!({
             "path": "target.txt",
-            "from": "line_a",
-            "to": "REPLACED_A"
+            "old": "line_a",
+            "new": "REPLACED_A"
         }),
     )
     .await;
@@ -2231,8 +2231,8 @@ async fn test_mcp_replace_text_sequential_calls_see_prior_writes() {
         "replace_text",
         serde_json::json!({
             "path": "target.txt",
-            "from": "line_b",
-            "to": "REPLACED_B"
+            "old": "line_b",
+            "new": "REPLACED_B"
         }),
     )
     .await;
@@ -2244,8 +2244,8 @@ async fn test_mcp_replace_text_sequential_calls_see_prior_writes() {
         "replace_text",
         serde_json::json!({
             "path": "target.txt",
-            "from": "line_c",
-            "to": "REPLACED_C"
+            "old": "line_c",
+            "new": "REPLACED_C"
         }),
     )
     .await;
@@ -2687,8 +2687,8 @@ async fn test_mcp_ast_replace_within_symbol() {
         serde_json::json!({
             "path": "lib.rs",
             "symbol": "target",
-            "from": "42",
-            "to": "100"
+            "old": "42",
+            "new": "100"
         }),
     )
     .await;
@@ -2978,13 +2978,13 @@ async fn test_mcp_execute_plan_for_each() {
         "execute_plan",
         serde_json::json!({
             "plan": {
-                "version": "1",
+                "version": 1,
                 "for_each": {"glob": "src/*.txt"},
                 "operations": [{
                     "op": "replace",
                     "path": "{path}",
-                    "from": "old",
-                    "to": "new"
+                    "old": "old",
+                    "new": "new"
                 }]
             }
         }),
@@ -3021,8 +3021,8 @@ async fn test_mcp_replace_case_insensitive_no_false_warnings() {
         "replace_text",
         serde_json::json!({
             "path": "code.rs",
-            "from": "todo",
-            "to": "DONE",
+            "old": "todo",
+            "new": "DONE",
             "case_insensitive": true
         }),
     )

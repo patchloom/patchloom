@@ -885,8 +885,8 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         Operation::AstReplace {
             path,
             symbol,
-            from,
-            to,
+            old,
+            new_text,
             regex,
             lang,
         } => {
@@ -897,7 +897,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let result = crate::ast::replace::replace_in_symbol(
-                content, symbol, from, to, *regex, lang_val,
+                content, symbol, old, new_text, *regex, lang_val,
             )?;
             match result {
                 Some(r) if r.replacements > 0 => {
@@ -912,7 +912,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 }
                 Some(_) => anyhow::bail!(
                     "no matches for '{}' in symbol '{}' in {}",
-                    from,
+                    old,
                     symbol,
                     path
                 ),
@@ -1610,9 +1610,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("f.txt".into()),
             glob: None,
-            mode: None,
-            from: "a".into(),
-            to: Some("b".into()),
+            regex: false,
+            old: "a".into(),
+            new_text: Some("b".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -1632,7 +1632,7 @@ mod tests {
     fn op_needs_doc_flush_false_for_doc_set() {
         let op = Operation::DocSet {
             path: "f.json".into(),
-            selector: "key".into(),
+            key: "key".into(),
             value: serde_json::json!("val"),
         };
         assert!(!op_needs_doc_flush(&op));
@@ -1800,7 +1800,7 @@ mod tests {
 
         // Build a plan that only reads the file, with ensure_final_newline active.
         let plan = Plan {
-            version: crate::plan::SCHEMA_VERSION.to_string(),
+            version: crate::plan::SCHEMA_VERSION,
             operations: vec![Operation::Read {
                 path: "readonly.txt".into(),
                 lines: None,

@@ -119,18 +119,18 @@ mod basic {
 
         // Build plan with replace + doc.set + tidy.fix.
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "replace",
                     "path": txt.to_str().unwrap(),
-                    "from": "hello",
-                    "to": "hi"
+                    "old": "hello",
+                    "new": "hi"
                 },
                 {
                     "op": "doc.set",
                     "path": json_file.to_str().unwrap(),
-                    "selector": "name",
+                    "key": "name",
                     "value": "new"
                 },
                 {
@@ -191,7 +191,7 @@ mod basic {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [],
             "validate": [
                 {"cmd": shell_true(), "required": true}
@@ -218,7 +218,7 @@ mod basic {
 
     #[test]
     fn parse_plan_json_string() {
-        let plan_json = r#"{"version": "1", "operations": [{"op": "replace", "path": "test.txt", "from": "a", "to": "b"}]}"#;
+        let plan_json = r#"{"version": 1, "operations": [{"op": "replace", "path": "test.txt", "old": "a", "new": "b"}]}"#;
         let plan = plan::parse_plan(plan_json).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
@@ -244,7 +244,7 @@ mod basic {
         let new_file = dir.path().join("created.txt");
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "file.create",
@@ -282,7 +282,7 @@ mod basic {
         fs::write(&src, "content\n").unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "file.rename",
                 "from": portable_path_str(&src),
@@ -321,7 +321,7 @@ mod basic {
         fs::write(&dst, "dest\n").unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "file.rename",
                 "from": portable_path_str(&src),
@@ -356,7 +356,7 @@ mod basic {
         let renamed = dir.path().join("renamed.txt");
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "file.create",
@@ -453,7 +453,7 @@ mod basic {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("test_file.txt");
         let plan_yaml = format!(
-            "version: \"1\"\noperations:\n  - op: file.create\n    path: \"{}\"\n    content: \"hello from yaml plan\"\n",
+            "version: 1\noperations:\n  - op: file.create\n    path: \"{}\"\n    content: \"hello from yaml plan\"\n",
             portable_path_str(&target)
         );
         let plan_file = dir.path().join("plan.yaml");
@@ -483,7 +483,7 @@ mod basic {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("test_file.txt");
         let plan_toml = format!(
-            "version = \"1\"\n\n[[operations]]\nop = \"file.create\"\npath = \"{}\"\ncontent = \"hello from toml plan\"\n",
+            "version = 1\n\n[[operations]]\nop = \"file.create\"\npath = \"{}\"\ncontent = \"hello from toml plan\"\n",
             portable_path_str(&target)
         );
         let plan_file = dir.path().join("plan.toml");
@@ -544,7 +544,7 @@ mod edge_cases {
         let dir = TempDir::new().unwrap();
         let new_file = dir.path().join("new.txt");
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "hello"},
                 {"op": "file.delete", "path": new_file.to_str().unwrap()}
@@ -576,7 +576,7 @@ mod edge_cases {
 
         let path_str = portable_path_str(&f);
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "file.rename",
                 "from": path_str,
@@ -609,7 +609,7 @@ mod edge_cases {
         fs::write(&f, "original\n").unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "file.delete",
@@ -649,9 +649,9 @@ mod edge_cases {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
-{{"op": "doc.delete", "path": "{}", "selector": "nonexistent"}}
+{{"op": "doc.delete", "path": "{}", "key": "nonexistent"}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -685,9 +685,9 @@ mod edge_cases {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
-{{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "name=nonexistent"}}
+{{"op": "doc.delete_where", "path": "{}", "key": "items", "predicate": "name=nonexistent"}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -718,7 +718,7 @@ mod edge_cases {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [],
             "validate": [
                 {"cmd": shell_stderr_spam(), "required": true, "timeout": 10}
@@ -770,11 +770,11 @@ mod error_handling {
     #[test]
     fn replace_requires_replacement_mode() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
-                "from": "hello"
+                "old": "hello"
             }]
         })
         .to_string();
@@ -790,11 +790,11 @@ mod error_handling {
     #[test]
     fn replace_conflicting_insert_fields_return_parse_error() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
-                "from": "hello",
+                "old": "hello",
                 "insert_before": "X",
                 "insert_after": "Y"
             }]
@@ -812,12 +812,12 @@ mod error_handling {
     #[test]
     fn replace_to_with_insert_returns_parse_error() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
-                "from": "hello",
-                "to": "world",
+                "old": "hello",
+                "new": "world",
                 "insert_before": "X"
             }]
         })
@@ -839,7 +839,7 @@ mod error_handling {
         fs::write(&existing, "original content\n").unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "file.create",
@@ -872,12 +872,12 @@ mod error_handling {
     #[test]
     fn validate_operation_rejects_empty_from() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
-                "from": "",
-                "to": "x"
+                "old": "",
+                "new": "x"
             }]
         })
         .to_string();
@@ -894,12 +894,12 @@ mod error_handling {
     #[test]
     fn validate_operation_rejects_nth_zero() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "replace",
                 "path": "test.txt",
-                "from": "hello",
-                "to": "world",
+                "old": "hello",
+                "new": "world",
                 "nth": 0
             }]
         })
@@ -917,7 +917,7 @@ mod error_handling {
     #[test]
     fn validate_operation_rejects_invert_match_with_multiline() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "search",
                 "path": "test.txt",
@@ -941,7 +941,7 @@ mod error_handling {
     #[test]
     fn validate_operation_rejects_literal_with_regex() {
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "search",
                 "path": "test.txt",
@@ -1006,7 +1006,7 @@ mod error_handling {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
 {{"op": "tidy.fix", "path": "{}", "normalize_eol": "bogus"}}
   ]
@@ -1039,7 +1039,7 @@ mod error_handling {
         let dir = TempDir::new().unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "strict": false,
             "operations": [],
             "validate": [
@@ -1079,18 +1079,18 @@ mod integrity {
         let nonexistent = dir.path().join("nonexistent.json");
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "replace",
                     "path": txt.to_str().unwrap(),
-                    "from": "hello",
-                    "to": "hi"
+                    "old": "hello",
+                    "new": "hi"
                 },
                 {
                     "op": "doc.set",
                     "path": nonexistent.to_str().unwrap(),
-                    "selector": "name",
+                    "key": "name",
                     "value": "test"
                 }
             ]
@@ -1125,7 +1125,7 @@ mod integrity {
         fs::write(&dst, "dest\n").unwrap();
 
         let plan_json = serde_json::json!({
-            "version": "1",
+            "version": 1,
             "operations": [{
                 "op": "file.rename",
                 "from": portable_path_str(&src),
@@ -1190,9 +1190,9 @@ mod integrity {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
-{{"op": "doc.append", "path": "{}", "selector": "items", "value": 42}}
+{{"op": "doc.append", "path": "{}", "key": "items", "value": 42}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1226,9 +1226,9 @@ mod integrity {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
-{{"op": "doc.prepend", "path": "{}", "selector": "items", "value": 99}}
+{{"op": "doc.prepend", "path": "{}", "key": "items", "value": 99}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1262,9 +1262,9 @@ mod integrity {
 
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "operations": [
-{{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "x=1"}}
+{{"op": "doc.delete_where", "path": "{}", "key": "items", "predicate": "x=1"}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1300,10 +1300,10 @@ mod integrity {
         // Strict mode should revert operation 1's changes.
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "strict": true,
   "operations": [
-{{"op": "replace", "path": "{}", "from": "original", "to": "modified"}},
+{{"op": "replace", "path": "{}", "old": "original", "new": "modified"}},
 {{"op": "read", "path": "nonexistent-file.txt"}}
   ]
 }}"#,
@@ -1409,7 +1409,7 @@ mod integrity {
         // Strict mode should roll back the created file.
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "strict": true,
   "operations": [
 {{"op": "file.create", "path": "{}", "content": "should be rolled back"}},
@@ -1454,7 +1454,7 @@ mod integrity {
         // Strict mode should restore the deleted file.
         let plan = format!(
             r#"{{
-  "version": "1",
+  "version": 1,
   "strict": true,
   "operations": [
 {{"op": "file.delete", "path": "{}"}},

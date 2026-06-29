@@ -10,8 +10,8 @@ pub(super) fn op_label(op: &Operation) -> &'static str {
 pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     match op {
         Operation::Replace {
-            from,
-            to,
+            old,
+            new_text,
             insert_before,
             insert_after,
             nth,
@@ -20,8 +20,8 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             range,
             ..
         } => validate_replace_args(&ReplaceValidationParams {
-            pattern: from,
-            has_to: to.is_some(),
+            pattern: old,
+            has_to: new_text.is_some(),
             has_insert_before: insert_before.is_some(),
             has_insert_after: insert_after.is_some(),
             nth: *nth,
@@ -116,9 +116,9 @@ mod tests {
         Operation::Replace {
             glob: None,
             path: Some("f.txt".into()),
-            mode: None,
-            from: "needle".into(),
-            to: Some("replacement".into()),
+            regex: false,
+            old: "needle".into(),
+            new_text: Some("replacement".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -170,9 +170,9 @@ mod tests {
         let op = Operation::Replace {
             glob: None,
             path: Some("f.txt".into()),
-            mode: None,
-            from: String::new(),
-            to: Some("x".into()),
+            regex: false,
+            old: String::new(),
+            new_text: Some("x".into()),
             nth: None,
             insert_before: None,
             insert_after: None,

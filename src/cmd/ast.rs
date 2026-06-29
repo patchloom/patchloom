@@ -857,11 +857,11 @@ pub struct ReplaceArgs {
 
     /// Text or regex pattern to find.
     #[arg(long)]
-    pub from: String,
+    pub old: String,
 
     /// Replacement text.
-    #[arg(long)]
-    pub to: String,
+    #[arg(long = "new")]
+    pub new_text: String,
 
     /// Treat --from as a regex pattern.
     #[arg(long)]
@@ -891,15 +891,15 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
         "ast replace: symbol={}, from={}, regex={}",
         args.symbol,
-        args.from,
+        args.old,
         args.regex
     );
 
     let op = Operation::AstReplace {
         path: args.path.clone(),
         symbol: args.symbol.clone(),
-        from: args.from.clone(),
-        to: args.to.clone(),
+        old: args.old.clone(),
+        new_text: args.new_text.clone(),
         regex: args.regex,
         lang: args.lang.clone(),
     };

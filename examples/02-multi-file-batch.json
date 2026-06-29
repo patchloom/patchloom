@@ -1,10 +1,10 @@
 {
-  "version": "1",
+  "version": 1,
   "write_policy": { "ensure_final_newline": true },
   "operations": [
-    { "op": "replace", "path": "Cargo.toml", "from": "version = \"0.1.0\"", "to": "version = \"0.2.0\"" },
-    { "op": "doc.set", "path": "package.json", "selector": "version", "value": "0.2.0" },
-    { "op": "replace", "glob": "*.md", "from": "v0.1.0", "to": "v0.2.0" }
+    { "op": "replace", "path": "Cargo.toml", "old": "version = \"0.1.0\"", "new": "version = \"0.2.0\"" },
+    { "op": "doc.set", "path": "package.json", "key": "version", "value": "0.2.0" },
+    { "op": "replace", "glob": "*.md", "old": "v0.1.0", "new": "v0.2.0" }
   ],
   "format": [
     { "cmd": "cargo fmt --all" }

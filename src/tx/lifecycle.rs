@@ -734,7 +734,7 @@ mod tests {
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
 
         let plan = crate::plan::Plan {
-            version: "1".into(),
+            version: 1,
             cwd: Some("/tmp".into()),
             operations: vec![crate::plan::Operation::Read {
                 path: "test.txt".into(),
@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn run_lifecycle_no_steps() {
         let plan = Plan {
-            version: crate::plan::SCHEMA_VERSION.to_string(),
+            version: crate::plan::SCHEMA_VERSION,
             operations: Vec::new(),
             format: None,
             validate: None,

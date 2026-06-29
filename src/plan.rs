@@ -3,10 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Current plan schema version.
-pub const SCHEMA_VERSION: &str = "1";
+pub const SCHEMA_VERSION: u32 = 1;
 
 fn default_strict_true() -> bool {
     true
+}
+
+fn default_version() -> u32 {
+    1
 }
 
 /// Resolve effective strict mode: `--no-strict` > plan field > config > default true.
@@ -28,8 +32,9 @@ pub fn effective_strict(
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Plan {
-    /// Schema version string. Validated against the supported version.
-    pub version: String,
+    /// Schema version. Defaults to 1 when omitted.
+    #[serde(default = "default_version")]
+    pub version: u32,
     pub cwd: Option<String>,
     pub write_policy: Option<crate::write::WritePolicyOverride>,
     /// When omitted from the plan, defaults to strict mode at execution time.
@@ -143,9 +148,11 @@ pub enum Operation {
     Replace {
         glob: Option<String>,
         path: Option<String>,
-        mode: Option<String>,
-        from: String,
-        to: Option<String>,
+        #[serde(default)]
+        regex: bool,
+        old: String,
+        #[serde(rename = "new")]
+        new_text: Option<String>,
         nth: Option<usize>,
         insert_before: Option<String>,
         insert_after: Option<String>,
@@ -170,11 +177,11 @@ pub enum Operation {
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {
         path: String,
-        selector: String,
+        key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete", alias = "doc_delete")]
-    DocDelete { path: String, selector: String },
+    DocDelete { path: String, key: String },
     #[serde(rename = "doc.merge", alias = "doc_merge")]
     DocMerge {
         path: String,
@@ -183,19 +190,19 @@ pub enum Operation {
     #[serde(rename = "doc.append", alias = "doc_append")]
     DocAppend {
         path: String,
-        selector: String,
+        key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.prepend", alias = "doc_prepend")]
     DocPrepend {
         path: String,
-        selector: String,
+        key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.update", alias = "doc_update")]
     DocUpdate {
         path: String,
-        selector: String,
+        key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.move", alias = "doc_move")]
@@ -207,13 +214,13 @@ pub enum Operation {
     #[serde(rename = "doc.ensure", alias = "doc_ensure")]
     DocEnsure {
         path: String,
-        selector: String,
+        key: String,
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete_where", alias = "doc_delete_where")]
     DocDeleteWhere {
         path: String,
-        selector: String,
+        key: String,
         predicate: String,
     },
     #[serde(rename = "md.replace_section", alias = "md_replace_section")]
@@ -358,8 +365,9 @@ pub enum Operation {
     AstReplace {
         path: String,
         symbol: String,
-        from: String,
-        to: String,
+        old: String,
+        #[serde(rename = "new")]
+        new_text: String,
         #[serde(default)]
         regex: bool,
         #[serde(default)]
@@ -646,21 +654,17 @@ impl Operation {
 pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::doc::DocMutation)> {
     use crate::ops::doc::DocMutation;
     match op {
-        Operation::DocSet {
-            path,
-            selector,
-            value,
-        } => Some((
+        Operation::DocSet { path, key, value } => Some((
             path,
             DocMutation::Set {
-                selector: selector.clone(),
+                selector: key.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocDelete { path, selector } => Some((
+        Operation::DocDelete { path, key } => Some((
             path,
             DocMutation::Delete {
-                selector: selector.clone(),
+                selector: key.clone(),
             },
         )),
         Operation::DocMerge { path, value } => Some((
@@ -669,36 +673,24 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
                 value: value.clone(),
             },
         )),
-        Operation::DocAppend {
-            path,
-            selector,
-            value,
-        } => Some((
+        Operation::DocAppend { path, key, value } => Some((
             path,
             DocMutation::Append {
-                selector: selector.clone(),
+                selector: key.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocPrepend {
-            path,
-            selector,
-            value,
-        } => Some((
+        Operation::DocPrepend { path, key, value } => Some((
             path,
             DocMutation::Prepend {
-                selector: selector.clone(),
+                selector: key.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocUpdate {
-            path,
-            selector,
-            value,
-        } => Some((
+        Operation::DocUpdate { path, key, value } => Some((
             path,
             DocMutation::Update {
-                selector: selector.clone(),
+                selector: key.clone(),
                 value: value.clone(),
             },
         )),
@@ -709,25 +701,21 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
                 to: to.clone(),
             },
         )),
-        Operation::DocEnsure {
-            path,
-            selector,
-            value,
-        } => Some((
+        Operation::DocEnsure { path, key, value } => Some((
             path,
             DocMutation::Ensure {
-                selector: selector.clone(),
+                selector: key.clone(),
                 value: value.clone(),
             },
         )),
         Operation::DocDeleteWhere {
             path,
-            selector,
+            key,
             predicate,
         } => Some((
             path,
             DocMutation::DeleteWhere {
-                selector: selector.clone(),
+                selector: key.clone(),
                 predicate: predicate.clone(),
             },
         )),
@@ -1123,7 +1111,7 @@ mod tests {
     #[test]
     fn has_lifecycle_steps_none() {
         let plan = Plan {
-            version: SCHEMA_VERSION.to_string(),
+            version: SCHEMA_VERSION,
             operations: Vec::new(),
             format: None,
             validate: None,
@@ -1139,7 +1127,7 @@ mod tests {
     #[test]
     fn has_lifecycle_steps_empty_vecs() {
         let plan = Plan {
-            version: SCHEMA_VERSION.to_string(),
+            version: SCHEMA_VERSION,
             operations: Vec::new(),
             format: Some(Vec::new()),
             validate: Some(Vec::new()),
@@ -1155,7 +1143,7 @@ mod tests {
     #[test]
     fn has_lifecycle_steps_with_format() {
         let plan = Plan {
-            version: SCHEMA_VERSION.to_string(),
+            version: SCHEMA_VERSION,
             operations: Vec::new(),
             format: Some(vec![FormatStep {
                 cmd: "cargo fmt".into(),
@@ -1174,7 +1162,7 @@ mod tests {
     #[test]
     fn has_lifecycle_steps_with_validate() {
         let plan = Plan {
-            version: SCHEMA_VERSION.to_string(),
+            version: SCHEMA_VERSION,
             operations: Vec::new(),
             format: None,
             validate: Some(vec![ValidationStep {
@@ -1193,32 +1181,33 @@ mod tests {
 
     #[test]
     fn parse_minimal_plan() {
-        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(plan.cwd.is_none());
         assert!(plan.write_policy.is_none());
         assert!(plan.validate.is_none());
-        assert_eq!(plan.version, "1");
+        assert_eq!(plan.version, 1);
         assert_eq!(plan.operations.len(), 1);
     }
 
     #[test]
     fn parse_plan_version_field_accepted() {
-        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.version, "1");
+        assert_eq!(plan.version, 1);
     }
 
     #[test]
-    fn parse_plan_without_version_fails() {
-        let json = r#"{"operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
-        assert!(parse_plan(json).is_err());
+    fn parse_plan_without_version_defaults_to_1() {
+        let json = r#"{"operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.version, 1);
     }
 
     #[test]
     fn parse_plan_with_all_fields() {
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "cwd": "/tmp",
             "write_policy": {"ensure_final_newline": true, "normalize_eol": "lf"},
             "operations": [{"op": "file.create", "path": "f.txt", "content": "hi"}],
@@ -1234,31 +1223,31 @@ mod tests {
 
     #[test]
     fn parse_plan_unknown_op_fails() {
-        let json = r#"{"version": "1", "operations": [{"op": "unknown", "x": 1}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "unknown", "x": 1}]}"#;
         assert!(parse_plan(json).is_err());
     }
 
     #[test]
     fn parse_plan_missing_operations_fails() {
-        let json = r#"{"version": "1", "cwd": "/tmp"}"#;
+        let json = r#"{"version": 1, "cwd": "/tmp"}"#;
         assert!(parse_plan(json).is_err());
     }
 
     #[test]
     #[cfg(feature = "ast")]
     fn parse_all_operation_variants() {
-        let json = r#"{"version": "1", "operations": [
-            {"op": "replace", "from": "a", "to": "b"},
-            {"op": "replace", "from": "a", "to": "b", "nth": 2},
-            {"op": "doc.set", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc.delete", "path": "f.json", "selector": "k"},
+        let json = r#"{"version": 1, "operations": [
+            {"op": "replace", "old": "a", "new": "b"},
+            {"op": "replace", "old": "a", "new": "b", "nth": 2},
+            {"op": "doc.set", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "key": "k"},
             {"op": "doc.merge", "path": "f.json", "value": {}},
-            {"op": "doc.append", "path": "f.json", "selector": "arr", "value": 1},
-            {"op": "doc.prepend", "path": "f.json", "selector": "arr", "value": 0},
-            {"op": "doc.update", "path": "f.json", "selector": "k", "value": 2},
+            {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "key": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "key": "k", "value": 2},
             {"op": "doc.move", "path": "f.json", "from": "a", "to": "b"},
-            {"op": "doc.ensure", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc.delete_where", "path": "f.json", "selector": "arr", "predicate": "name=x"},
+            {"op": "doc.ensure", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "key": "arr", "predicate": "name=x"},
             {"op": "md.replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_after_heading", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_before_heading", "path": "f.md", "heading": "H", "content": "c"},
@@ -1283,7 +1272,7 @@ mod tests {
             {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5},
             {"op": "search", "path": ".", "pattern": "foo", "literal": true, "exclude_patterns": ["target/**"], "custom_ignore_filenames": [".blineignore"], "max_results": 10},
             {"op": "ast.rename", "path": "f.rs", "old_name": "Foo", "new_name": "Bar"},
-            {"op": "ast.replace", "path": "f.rs", "symbol": "main", "from": "a", "to": "b"},
+            {"op": "ast.replace", "path": "f.rs", "symbol": "main", "old": "a", "new": "b"},
             {"op": "ast.insert", "path": "f.rs", "content": "fn new() {}", "after": "main"},
             {"op": "ast.wrap", "path": "f.rs", "symbols": ["helper"], "wrapper": "mod internal"},
             {"op": "ast.imports", "path": "f.rs", "add": ["use std::io;"]},
@@ -1303,14 +1292,14 @@ mod tests {
     fn parse_op_aliases_match_mcp_tool_names() {
         // MCP tools use underscores (doc_set, create_file). Plan ops use dots
         // (doc.set, file.create). Both forms should parse via serde aliases.
-        let json = r#"{"version": "1", "operations": [
-            {"op": "replace_text", "from": "a", "to": "b"},
-            {"op": "doc_set", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc_delete", "path": "f.json", "selector": "k"},
+        let json = r#"{"version": 1, "operations": [
+            {"op": "replace_text", "old": "a", "new": "b"},
+            {"op": "doc_set", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc_delete", "path": "f.json", "key": "k"},
             {"op": "doc_merge", "path": "f.json", "value": {}},
-            {"op": "doc_append", "path": "f.json", "selector": "arr", "value": 1},
-            {"op": "doc_ensure", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc_delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"},
+            {"op": "doc_append", "path": "f.json", "key": "arr", "value": 1},
+            {"op": "doc_ensure", "path": "f.json", "key": "k", "value": 1},
+            {"op": "doc_delete_where", "path": "f.json", "key": "arr", "predicate": "x=1"},
             {"op": "md_move_section", "path": "f.md", "heading": "H", "before": "X"},
             {"op": "md_replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
@@ -1325,7 +1314,7 @@ mod tests {
             {"op": "read_file", "path": "f.txt"},
             {"op": "md_lint", "path": "f.md"},
             {"op": "ast_rename", "path": "f.rs", "old_name": "A", "new_name": "B"},
-            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "from": "x", "to": "y"},
+            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "old": "x", "new": "y"},
             {"op": "ast_insert", "path": "f.rs", "content": "fn x() {}", "inside": "Foo"},
             {"op": "ast_wrap", "path": "f.rs", "lines": "1:10", "wrapper": "mod m"},
             {"op": "ast_imports", "path": "f.rs", "remove": ["use old;"]},
@@ -1342,13 +1331,13 @@ mod tests {
     #[test]
     fn parse_plan_with_for_each() {
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "for_each": {
                 "glob": "src/**/*.rs",
                 "exclude": ["src/main.rs"],
                 "filter": "has_symbol(tests)"
             },
-            "operations": [{"op": "replace", "path": "{path}", "from": "a", "to": "b"}]
+            "operations": [{"op": "replace", "path": "{path}", "old": "a", "new": "b"}]
         }"#;
         let plan = parse_plan(json).unwrap();
         let fe = plan.for_each.unwrap();
@@ -1359,7 +1348,7 @@ mod tests {
 
     #[test]
     fn parse_plan_without_for_each_is_none() {
-        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(plan.for_each.is_none());
     }
@@ -1373,10 +1362,10 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
 
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "for_each": { "glob": "*.txt" },
             "operations": [
-                {"op": "replace", "path": "{path}", "from": "hello", "to": "{{path}} is literal"}
+                {"op": "replace", "path": "{path}", "old": "hello", "new": "{{path}} is literal"}
             ]
         }"#;
         let mut plan = parse_plan(json).unwrap();
@@ -1404,10 +1393,10 @@ mod tests {
         std::fs::write(dir.path().join("test.rs"), "x").unwrap();
 
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "for_each": { "glob": "*.rs" },
             "operations": [
-                {"op": "replace", "path": "{path}", "from": "x", "to": "file={{stem}}.{{ext}}"}
+                {"op": "replace", "path": "{path}", "old": "x", "new": "file={{stem}}.{{ext}}"}
             ]
         }"#;
         let mut plan = parse_plan(json).unwrap();
@@ -1429,10 +1418,10 @@ mod tests {
         std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
 
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "for_each": { "glob": "*.txt" },
             "operations": [
-                {"op": "replace", "path": "{path}", "from": "x", "to": "{stem}-{ext}"}
+                {"op": "replace", "path": "{path}", "old": "x", "new": "{stem}-{ext}"}
             ]
         }"#;
         let mut plan = parse_plan(json).unwrap();
@@ -1448,7 +1437,7 @@ mod tests {
     #[test]
     fn parse_plan_with_format_steps() {
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "operations": [],
             "format": [{"cmd": "cargo fmt"}],
             "validate": [{"cmd": "make check"}]
@@ -1463,37 +1452,37 @@ mod tests {
 
     #[test]
     fn parse_plan_yaml_basic() {
-        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: old\n    to: new\n";
+        let yaml = "version: 1\noperations:\n  - op: replace\n    old: old\n    new: new\n";
         let plan = parse_plan_yaml(yaml).unwrap();
         assert_eq!(plan.operations.len(), 1);
         assert!(matches!(
             &plan.operations[0],
-            Operation::Replace { from, to, .. } if from == "old" && to.as_deref() == Some("new")
+            Operation::Replace { old, new_text, .. } if old == "old" && new_text.as_deref() == Some("new")
         ));
     }
 
     #[test]
     fn parse_plan_toml_basic() {
         let toml =
-            "version = \"1\"\n\n[[operations]]\nop = \"replace\"\nfrom = \"old\"\nto = \"new\"\n";
+            "version = 1\n\n[[operations]]\nop = \"replace\"\nold = \"old\"\nnew = \"new\"\n";
         let plan = parse_plan_toml(toml).unwrap();
         assert_eq!(plan.operations.len(), 1);
         assert!(matches!(
             &plan.operations[0],
-            Operation::Replace { from, to, .. } if from == "old" && to.as_deref() == Some("new")
+            Operation::Replace { old, new_text, .. } if old == "old" && new_text.as_deref() == Some("new")
         ));
     }
 
     #[test]
     fn parse_plan_auto_detects_yaml() {
-        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: a\n    to: b\n";
+        let yaml = "version: 1\noperations:\n  - op: replace\n    old: a\n    new: b\n";
         let plan = parse_plan_auto(yaml, Some("plan.yaml"), None).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
 
     #[test]
     fn parse_plan_auto_format_hint_overrides_extension() {
-        let yaml = "version: \"1\"\noperations:\n  - op: replace\n    from: a\n    to: b\n";
+        let yaml = "version: 1\noperations:\n  - op: replace\n    old: a\n    new: b\n";
         // Extension says .json but hint says yaml.
         let plan = parse_plan_auto(yaml, Some("plan.json"), Some("yaml")).unwrap();
         assert_eq!(plan.operations.len(), 1);
@@ -1501,14 +1490,14 @@ mod tests {
 
     #[test]
     fn parse_plan_auto_defaults_to_json() {
-        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
         let plan = parse_plan_auto(json, Some("plan.txt"), None).unwrap();
         assert_eq!(plan.operations.len(), 1);
     }
 
     #[test]
     fn parse_plan_defaults_strict_when_omitted() {
-        let json = r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#;
+        let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.strict, None);
         assert!(effective_strict(plan.strict, None, false));
@@ -1521,7 +1510,7 @@ mod tests {
     #[test]
     fn parse_plan_strict_and_all_policy_fields() {
         let json = r#"{
-            "version": "1",
+            "version": 1,
             "strict": true,
             "write_policy": {
                 "ensure_final_newline": true,
@@ -1550,13 +1539,13 @@ mod tests {
     #[test]
     fn declared_paths_covers_operation_variants() {
         // Replace with path + glob (both collected for guard)
-        let json = r#"{"version":"1","operations":[{"op":"replace","path":"src/main.rs","glob":"**/*.rs","from":"old","to":"new"}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"replace","path":"src/main.rs","glob":"**/*.rs","old":"old","new":"new"}]}"#;
         let plan = parse_plan(json).unwrap();
         let ps = declared_paths(&plan.operations[0]);
         assert!(ps.contains(&"src/main.rs") && ps.contains(&"**/*.rs"));
 
         // FileRename (cross-file paths)
-        let json = r#"{"version":"1","operations":[{"op":"file.rename","from":"old.txt","to":"new.txt","force":false}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"file.rename","from":"old.txt","to":"new.txt","force":false}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(
             declared_paths(&plan.operations[0]),
@@ -1564,27 +1553,27 @@ mod tests {
         );
 
         // MdMoveSection same-file (to omitted)
-        let json = r#"{"version":"1","operations":[{"op":"md.move_section","path":"doc.md","heading":"Section"}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"md.move_section","path":"doc.md","heading":"Section"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(declared_paths(&plan.operations[0]), vec!["doc.md"]);
 
         // MdMoveSection cross-file
-        let json = r#"{"version":"1","operations":[{"op":"md.move_section","path":"src.md","heading":"H","to":"dst.md"}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"md.move_section","path":"src.md","heading":"H","to":"dst.md"}]}"#;
         let plan = parse_plan(json).unwrap();
         let ps = declared_paths(&plan.operations[0]);
         assert!(ps.contains(&"src.md") && ps.contains(&"dst.md"));
 
         // PatchApply: declared empty (diff paths handled by caller in MCP)
-        let json = r#"{"version":"1","operations":[{"op":"patch.apply","diff":"--- a/x\n+++ b/x\n@@ -1 +1 @@\n- old\n+ new\n"}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"--- a/x\n+++ b/x\n@@ -1 +1 @@\n- old\n+ new\n"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(declared_paths(&plan.operations[0]).is_empty());
 
         // Representative single-path ops
-        let json = r#"{"version":"1","operations":[{"op":"doc.set","path":"c.json","selector":"v","value":42}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"c.json","key":"v","value":42}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(declared_paths(&plan.operations[0]), vec!["c.json"]);
 
-        let json = r#"{"version":"1","operations":[{"op":"read","path":"f.txt"}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"read","path":"f.txt"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(declared_paths(&plan.operations[0]), vec!["f.txt"]);
     }
@@ -1594,19 +1583,19 @@ mod tests {
         use crate::ops::doc::DocMutation;
 
         let cases = [
-            r#"{"op":"doc.set","path":"f.json","selector":"k","value":1}"#,
-            r#"{"op":"doc.delete","path":"f.json","selector":"k"}"#,
+            r#"{"op":"doc.set","path":"f.json","key":"k","value":1}"#,
+            r#"{"op":"doc.delete","path":"f.json","key":"k"}"#,
             r#"{"op":"doc.merge","path":"f.json","value":{}}"#,
-            r#"{"op":"doc.append","path":"f.json","selector":"arr","value":1}"#,
-            r#"{"op":"doc.prepend","path":"f.json","selector":"arr","value":0}"#,
-            r#"{"op":"doc.update","path":"f.json","selector":"k","value":2}"#,
+            r#"{"op":"doc.append","path":"f.json","key":"arr","value":1}"#,
+            r#"{"op":"doc.prepend","path":"f.json","key":"arr","value":0}"#,
+            r#"{"op":"doc.update","path":"f.json","key":"k","value":2}"#,
             r#"{"op":"doc.move","path":"f.json","from":"a","to":"b"}"#,
-            r#"{"op":"doc.ensure","path":"f.json","selector":"k","value":1}"#,
-            r#"{"op":"doc.delete_where","path":"f.json","selector":"arr","predicate":"n=x"}"#,
+            r#"{"op":"doc.ensure","path":"f.json","key":"k","value":1}"#,
+            r#"{"op":"doc.delete_where","path":"f.json","key":"arr","predicate":"n=x"}"#,
         ];
 
         for (i, case) in cases.iter().enumerate() {
-            let json = format!(r#"{{"version":"1","operations":[{case}]}}"#);
+            let json = format!(r#"{{"version": 1,"operations":[{case}]}}"#);
             let plan = parse_plan(&json).unwrap();
             let result = op_to_doc_mutation(&plan.operations[0]);
             assert!(
@@ -1618,12 +1607,12 @@ mod tests {
         }
 
         // Non-doc variants return None
-        let non_doc = r#"{"version":"1","operations":[{"op":"replace","from":"a","to":"b"}]}"#;
+        let non_doc = r#"{"version": 1,"operations":[{"op":"replace","old":"a","new":"b"}]}"#;
         let plan = parse_plan(non_doc).unwrap();
         assert!(op_to_doc_mutation(&plan.operations[0]).is_none());
 
         // Verify the specific mutation variant matches
-        let set_json = r#"{"version":"1","operations":[{"op":"doc.set","path":"x.json","selector":"key","value":"val"}]}"#;
+        let set_json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"x.json","key":"key","value":"val"}]}"#;
         let plan = parse_plan(set_json).unwrap();
         let (_, mutation) = op_to_doc_mutation(&plan.operations[0]).unwrap();
         assert!(matches!(mutation, DocMutation::Set { .. }));

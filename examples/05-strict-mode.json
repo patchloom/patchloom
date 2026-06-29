@@ -1,5 +1,5 @@
 {
-  "version": "1",
+  "version": 1,
   "strict": true,
   "write_policy": {
     "ensure_final_newline": true,
@@ -7,7 +7,7 @@
   },
   "operations": [
     { "op": "file.create", "path": "src/new_module.rs", "content": "pub fn hello() -> &'static str {\n    \"hello\"\n}\n" },
-    { "op": "replace", "path": "src/lib.rs", "from": "pub mod write;", "to": "pub mod write;\npub mod new_module;" },
+    { "op": "replace", "path": "src/lib.rs", "old": "pub mod write;", "new": "pub mod write;\npub mod new_module;" },
     { "op": "md.insert_after_heading", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Added new_module" }
   ],
   "format": [

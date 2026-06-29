@@ -17,9 +17,10 @@ pub(crate) struct ReplaceParams {
     /// File path.
     pub path: String,
     /// Text to find.
-    pub from: String,
+    pub old: String,
     /// Text to replace with. Mutually exclusive with insert_before/insert_after.
-    pub to: Option<String>,
+    #[serde(rename = "new")]
+    pub new_text: Option<String>,
     /// Insert text before each match instead of replacing. Mutually exclusive with to/insert_after.
     pub insert_before: Option<String>,
     /// Insert text after each match instead of replacing. Mutually exclusive with to/insert_before.
@@ -65,8 +66,8 @@ pub(crate) struct ReplaceParams {
 pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Selector for the value to read (e.g., "version", "db.pool").
-    pub selector: String,
+    /// Key path for the value to read (e.g., "version", "db.pool").
+    pub key: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -188,8 +189,8 @@ pub(crate) struct DocQueryParams {
     pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Selector to query. Required for has/keys/len/select; ignored for flatten.
-    pub selector: Option<String>,
+    /// Key path to query. Required for has/keys/len/select; ignored for flatten.
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -213,9 +214,10 @@ pub(crate) struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
     pub files: Vec<String>,
     /// Text to find in each file.
-    pub from: String,
+    pub old: String,
     /// Text to replace with.
-    pub to: String,
+    #[serde(rename = "new")]
+    pub new_text: String,
     /// Use regex mode for the `from` pattern.
     #[serde(default)]
     pub regex: bool,
@@ -429,9 +431,10 @@ pub(crate) struct AstReplaceParams {
     /// Symbol name to scope the replacement to.
     pub symbol: String,
     /// Text or regex pattern to find.
-    pub from: String,
+    pub old: String,
     /// Replacement text.
-    pub to: String,
+    #[serde(rename = "new")]
+    pub new_text: String,
     /// Treat --from as a regex pattern.
     #[serde(default)]
     pub regex: bool,

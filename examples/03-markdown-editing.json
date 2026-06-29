@@ -1,5 +1,5 @@
 {
-  "version": "1",
+  "version": 1,
   "write_policy": { "ensure_final_newline": true },
   "operations": [
     { "op": "md.replace_section", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Added new feature\n- Fixed bug in parser" },

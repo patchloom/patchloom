@@ -2,10 +2,10 @@ use super::*;
 use std::fs;
 use tempfile::TempDir;
 
-fn make_args(from: &str, to: &str, paths: Vec<String>) -> ReplaceArgs {
+fn make_args(old: &str, new: &str, paths: Vec<String>) -> ReplaceArgs {
     ReplaceArgs {
-        from: from.to_string(),
-        to: Some(to.to_string()),
+        old: old.to_string(),
+        new: Some(new.to_string()),
         insert_before: None,
         insert_after: None,
         paths,
@@ -50,8 +50,8 @@ mod basic {
         fs::write(&file, "foo123bar\nfoo456baz\n").unwrap();
 
         let args = ReplaceArgs {
-            from: r"foo\d+".to_string(),
-            to: Some("replaced".to_string()),
+            old: r"foo\d+".to_string(),
+            new: Some("replaced".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -80,8 +80,8 @@ mod basic {
         fs::write(&file, "version = \"1.2.3\"\n").unwrap();
 
         let args = ReplaceArgs {
-            from: r#"version = "(\d+)\.(\d+)\.(\d+)""#.to_string(),
-            to: Some(r#"version = "$1.$2.99""#.to_string()),
+            old: r#"version = "(\d+)\.(\d+)\.(\d+)""#.to_string(),
+            new: Some(r#"version = "$1.$2.99""#.to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -180,8 +180,8 @@ mod basic {
         fs::write(&file, "hello world\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "hello".to_string(),
-            to: Some("hi".to_string()),
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -235,8 +235,8 @@ mod basic {
         fs::write(&file, "start\nmiddle\nend\n").unwrap();
 
         let args = ReplaceArgs {
-            from: r"start.*end".to_string(),
-            to: Some("replaced".to_string()),
+            old: r"start.*end".to_string(),
+            new: Some("replaced".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -291,8 +291,8 @@ mod basic {
         .unwrap();
 
         let args = ReplaceArgs {
-            from: "let _".to_string(),
-            to: Some(String::new()),
+            old: "let _".to_string(),
+            new: Some(String::new()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -328,8 +328,8 @@ mod basic {
         .unwrap();
 
         let args = ReplaceArgs {
-            from: r"use crate::".to_string(),
-            to: Some(String::new()),
+            old: r"use crate::".to_string(),
+            new: Some(String::new()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -358,8 +358,8 @@ mod basic {
         fs::write(&file, "alpha\nbeta match\ngamma\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "match".to_string(),
-            to: Some("replaced line".to_string()),
+            old: "match".to_string(),
+            new: Some("replaced line".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -387,8 +387,8 @@ mod basic {
         fs::write(&file, "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "bbb".to_string(),
-            to: Some(String::new()),
+            old: "bbb".to_string(),
+            new: Some(String::new()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -418,8 +418,8 @@ mod basic {
         fs::write(&file, "aaa\nbbb\nccc\nbbb\neee\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "bbb".to_string(),
-            to: Some(String::new()),
+            old: "bbb".to_string(),
+            new: Some(String::new()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -453,8 +453,8 @@ mod basic {
         .unwrap();
 
         let args = ReplaceArgs {
-            from: "SetupFile".to_string(),
-            to: Some("NewFile".to_string()),
+            old: "SetupFile".to_string(),
+            new: Some("NewFile".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -491,8 +491,8 @@ mod edge_cases {
         fs::write(&file, "hello world\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "zzz_no_match_zzz".to_string(),
-            to: Some("replacement".to_string()),
+            old: "zzz_no_match_zzz".to_string(),
+            new: Some("replacement".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -520,8 +520,8 @@ mod edge_cases {
         fs::write(&file, "hello world\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "zzz_no_match_zzz".to_string(),
-            to: Some("replacement".to_string()),
+            old: "zzz_no_match_zzz".to_string(),
+            new: Some("replacement".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -574,8 +574,8 @@ mod edge_cases {
         fs::write(&file, "start\nmiddle\nend\n").unwrap();
 
         let args = ReplaceArgs {
-            from: r"start.*end".to_string(),
-            to: Some("replaced".to_string()),
+            old: r"start.*end".to_string(),
+            new: Some("replaced".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -646,8 +646,8 @@ mod edge_cases {
         fs::write(&file, "type A = Option<SetupFile>;\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "SetupFile".to_string(),
-            to: Some("NewFile".to_string()),
+            old: "SetupFile".to_string(),
+            new: Some("NewFile".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -685,8 +685,8 @@ mod edge_cases {
         .unwrap();
 
         let args = ReplaceArgs {
-            from: "SetupFile".to_string(),
-            to: Some("NewFile".to_string()),
+            old: "SetupFile".to_string(),
+            new: Some("NewFile".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -738,8 +738,8 @@ mod error_handling {
         fs::write(&file, "hello world\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "hello".to_string(),
-            to: Some("hi".to_string()),
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -765,8 +765,8 @@ mod error_handling {
         fs::write(&file, "hello\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "hello".to_string(),
-            to: Some("hi".to_string()),
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
@@ -795,8 +795,8 @@ mod error_handling {
         fs::write(&file, "hello\n").unwrap();
 
         let args = ReplaceArgs {
-            from: "hello".to_string(),
-            to: Some("hi".to_string()),
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
             insert_before: None,
             insert_after: None,
             paths: vec![dir.path().to_string_lossy().into_owned()],
