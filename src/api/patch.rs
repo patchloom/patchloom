@@ -98,7 +98,6 @@ pub fn apply_patch_file(
     let mut results = Vec::new();
     for pf in &patch_files {
         let file_path = cwd.join(&pf.path);
-        super::ensure_contained(guard, &file_path)?;
         let original = std::fs::read_to_string(&file_path)
             .with_context(|| format!("failed to read {}", file_path.display()))?;
 
