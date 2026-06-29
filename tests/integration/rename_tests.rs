@@ -671,3 +671,37 @@ fn test_rename_apply_creates_backup_session() {
         "backup dir should exist after rename --apply"
     );
 }
+
+/// Case-only renames should work on case-insensitive filesystems (#1167).
+#[test]
+fn test_rename_case_only_change() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["rename", "--apply"])
+        .arg(file.to_str().unwrap())
+        .arg(dir.path().join("README.md").to_str().unwrap())
+        .assert()
+        .code(0);
+
+    // Verify the rename happened by reading the directory.
+    let entries: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".md"))
+        .collect();
+
+    // On case-insensitive FS, there should be exactly one .md file.
+    assert_eq!(entries.len(), 1);
+    // On case-sensitive FS, the new name should be README.md.
+    // On case-insensitive FS, the dir entry shows whatever case was set last.
+    assert!(
+        entries[0] == "README.md" || entries[0] == "readme.md",
+        "expected README.md or readme.md, got: {}",
+        entries[0]
+    );
+}

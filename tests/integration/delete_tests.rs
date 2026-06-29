@@ -303,3 +303,20 @@ fn test_delete_apply_undo_restores_file() {
     assert!(file.exists(), "undo should restore the deleted file");
     assert_eq!(fs::read_to_string(&file).unwrap(), "precious data\n");
 }
+
+/// Binary files must be deletable without UTF-8 errors (#1163).
+#[test]
+fn test_delete_binary_file_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("binary.bin");
+    fs::write(&file, b"\x00\x01\x02\xff\xfe").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["delete", "--apply"])
+        .arg(file.to_str().unwrap())
+        .assert()
+        .code(0);
+
+    assert!(!file.exists(), "binary file should be deleted");
+}

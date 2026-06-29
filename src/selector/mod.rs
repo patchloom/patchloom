@@ -17,6 +17,7 @@ pub fn value_matches_str(field: &serde_json::Value, pred_val: &str) -> bool {
         serde_json::Value::String(s) => s == pred_val,
         serde_json::Value::Number(n) => n.to_string() == pred_val,
         serde_json::Value::Bool(b) => b.to_string() == pred_val,
+        serde_json::Value::Null => pred_val == "null",
         _ => false,
     }
 }
@@ -45,9 +46,11 @@ mod tests {
         assert!(!value_matches_str(&json!(true), "false"));
     }
 
+    /// Null values match the string "null" (#1164).
     #[test]
-    fn value_matches_str_null_returns_false() {
-        assert!(!value_matches_str(&json!(null), "null"));
+    fn value_matches_str_null_matches_null_string() {
+        assert!(value_matches_str(&json!(null), "null"));
+        assert!(!value_matches_str(&json!(null), "other"));
     }
 
     #[test]
