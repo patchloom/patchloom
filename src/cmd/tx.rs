@@ -163,7 +163,12 @@ fn commit_and_finalize(
         return handle_commit_error(err, ctx.structured, ctx.compact);
     }
 
-    run_format_command(global, ctx.cwd)?;
+    if let Err(e) = run_format_command(global, ctx.cwd) {
+        // The commit already succeeded; files are written but unformatted.
+        // Warn with a recovery hint instead of a bare error (#1159).
+        let hint = "files were written but formatting failed; run `patchloom undo` to restore";
+        return Err(e.context(hint));
+    }
 
     if show_diffs && !result.changes.is_empty() {
         print_diffs(&result.changes, ctx.cwd, global.should_color());

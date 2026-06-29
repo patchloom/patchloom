@@ -672,6 +672,16 @@ pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> an
     std::fs::write(tmp.path(), final_content.as_bytes())
         .with_context(|| format!("failed to write to tempfile {}", tmp.path().display()))?;
 
+    // NamedTempFile creates files with 0o600; apply standard 0o644 so
+    // new files are group/world-readable as users expect (#1161).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o644);
+        std::fs::set_permissions(tmp.path(), perms)
+            .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
+    }
+
     tmp.persist_noclobber(path).map_err(|e| {
         if e.error.kind() == std::io::ErrorKind::AlreadyExists {
             anyhow::anyhow!("file already exists: {}", path.display())

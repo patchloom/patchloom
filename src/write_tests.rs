@@ -1070,4 +1070,18 @@ mod format_preservation {
             "collapse_blanks must not be mutated on error"
         );
     }
+
+    /// Files created by `atomic_create_new` must have 0o644 permissions
+    /// on Unix, not the restrictive 0o600 from NamedTempFile (#1161).
+    #[cfg(unix)]
+    #[test]
+    fn atomic_create_new_permissions_644() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new_file.txt");
+        atomic_create_new(&path, "hello\n", &WritePolicy::default()).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "expected 0o644, got 0o{mode:o}");
+    }
 }

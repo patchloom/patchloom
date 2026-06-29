@@ -6892,3 +6892,41 @@ fn test_tx_non_strict_keeps_collateral_files() {
         "in non-strict mode, formatter changes should persist"
     );
 }
+
+/// Global `--format` failure after commit must include a recovery hint
+/// mentioning `patchloom undo` (#1159).
+#[test]
+fn test_tx_global_format_failure_includes_undo_hint() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("target.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "replace",
+            "path": portable_path_str(&file),
+            "from": "old",
+            "to": "new"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--format")
+        .arg("false")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("patchloom undo"),
+        "error should mention `patchloom undo` for recovery: {stderr}"
+    );
+}
