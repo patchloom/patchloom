@@ -677,18 +677,23 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .and_then(|s| s.to_str())
             .unwrap_or_default();
 
-        let scan_dir = if target.is_file() {
-            target.parent().unwrap_or(&cwd).to_path_buf()
-        } else {
-            target.clone()
-        };
-        let all_files = collect_source_files(&scan_dir, global)?;
+        // Scan from the project root (cwd), not just the target's parent
+        // directory, to find importers anywhere in the project.
+        let all_files = collect_source_files(&cwd, global)?;
 
         for path in &all_files {
             let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+            // Use segment-boundary matching to avoid substring false positives.
+            // Split import paths on common separators (::, /, .) and check if
+            // any segment exactly equals the target file stem.
             let matching: Vec<_> = imports
                 .iter()
-                .filter(|i| i.path.contains(target_name))
+                .filter(|i| {
+                    i.path
+                        .split(['/', '.'])
+                        .flat_map(|seg| seg.split("::"))
+                        .any(|seg| seg == target_name)
+                })
                 .collect();
             if matching.is_empty() {
                 continue;

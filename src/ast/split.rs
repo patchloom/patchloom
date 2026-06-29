@@ -86,7 +86,7 @@ pub fn split_file(
             if !target_contents[target_idx].is_empty() {
                 target_contents[target_idx].push_str(eol);
             }
-            target_contents[target_idx].push_str(text.trim_end_matches('\n'));
+            target_contents[target_idx].push_str(text.trim_end_matches(['\r', '\n']));
             target_contents[target_idx].push_str(eol);
 
             let (full_start, full_end) = full_symbol_span(source, sym, lang);

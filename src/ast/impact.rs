@@ -44,8 +44,9 @@ pub fn compute_impact(
         })
         .collect();
 
-    let mut visited = HashSet::new();
-    visited.insert(symbol_name.to_string());
+    let mut visited: HashSet<(String, String)> = HashSet::new();
+    // Seed with the target symbol across all files to prevent self-references.
+    visited.insert((symbol_name.to_string(), String::new()));
 
     // Build a global reverse dependency map in a single pass over all files.
     // For each identifier reference found in the AST, record which symbol
@@ -99,16 +100,17 @@ fn find_dependents(
     reverse_deps: &HashMap<String, Vec<ReverseRef>>,
     max_depth: usize,
     current_depth: usize,
-    visited: &mut HashSet<String>,
+    visited: &mut HashSet<(String, String)>,
 ) -> Vec<ImpactNode> {
     let mut results = Vec::new();
 
     if let Some(refs) = reverse_deps.get(symbol_name) {
         for r in refs {
-            if visited.contains(&r.symbol) {
+            let key = (r.symbol.clone(), r.file.clone());
+            if visited.contains(&key) {
                 continue;
             }
-            visited.insert(r.symbol.clone());
+            visited.insert(key);
 
             let dependents = if current_depth < max_depth {
                 find_dependents(
@@ -208,5 +210,40 @@ mod tests {
         let nodes: Vec<ImpactNode> = Vec::new();
         let output = render_impact_tree("target", &nodes, 0);
         assert_eq!(output, "target\n");
+    }
+
+    #[test]
+    fn find_dependents_same_name_different_files() {
+        // Two files both have a function named "process" that references "target".
+        // Both should appear in the results, not just the first one found.
+        let mut reverse_deps: HashMap<String, Vec<ReverseRef>> = HashMap::new();
+        reverse_deps.insert(
+            "target".into(),
+            vec![
+                ReverseRef {
+                    symbol: "process".into(),
+                    file: "handler.rs".into(),
+                    line: 5,
+                    context: "target()".into(),
+                },
+                ReverseRef {
+                    symbol: "process".into(),
+                    file: "worker.rs".into(),
+                    line: 10,
+                    context: "target()".into(),
+                },
+            ],
+        );
+        let mut visited = HashSet::new();
+        visited.insert(("target".into(), String::new()));
+        let results = find_dependents("target", &reverse_deps, 1, 1, &mut visited);
+        assert_eq!(
+            results.len(),
+            2,
+            "both process() callers should be reported: {results:?}"
+        );
+        let files: Vec<&str> = results.iter().map(|n| n.file.as_str()).collect();
+        assert!(files.contains(&"handler.rs"));
+        assert!(files.contains(&"worker.rs"));
     }
 }

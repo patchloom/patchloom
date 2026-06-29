@@ -128,7 +128,7 @@ pub fn group_symbols(
         if i > 0 {
             module_body.push_str(eol);
         }
-        let trimmed = text.trim_end_matches('\n');
+        let trimmed = text.trim_end_matches(['\r', '\n']);
         module_body.push_str(&indent_text(trimmed, "    ", eol));
         module_body.push_str(eol);
     }
@@ -415,6 +415,12 @@ mod tests {
                 );
             }
         }
+        // Verify no stray \r\r sequences (the bug trim_end_matches('\n') caused)
+        assert!(
+            !result.content.contains("\r\r"),
+            "stray \\r\\r corruption in: {:?}",
+            result.content
+        );
     }
 
     #[test]

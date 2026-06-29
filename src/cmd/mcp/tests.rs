@@ -684,4 +684,48 @@ mod integrity {
 
         client.cancel().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_strips_format_validate() {
+        // Verify that format/validate lifecycle steps submitted via MCP are
+        // stripped to prevent arbitrary command execution (security fix).
+        let dir = tempfile::TempDir::new().unwrap();
+        let marker = dir.path().join("pwned.txt");
+        std::fs::write(dir.path().join("target.txt"), "hello").unwrap();
+
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Submit a plan with a format step that would create a marker file.
+        // If the format step is NOT stripped, the marker file will exist.
+        let plan_json = serde_json::json!({
+            "version": "1",
+            "operations": [
+                { "op": "replace", "path": "target.txt", "from": "hello", "to": "world" }
+            ],
+            "format": [{ "cmd": format!("touch {}", marker.display()) }],
+            "validate": [{ "cmd": format!("touch {}", marker.display()), "required": false }]
+        });
+
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "plan should succeed with format/validate stripped"
+        );
+
+        // The marker file must NOT exist (format/validate commands were stripped).
+        assert!(
+            !marker.exists(),
+            "format/validate commands should be stripped by MCP handler"
+        );
+
+        // The actual replace should have been applied.
+        let content = std::fs::read_to_string(dir.path().join("target.txt")).unwrap();
+        assert_eq!(content, "world");
+
+        client.cancel().await.unwrap();
+    }
 }
