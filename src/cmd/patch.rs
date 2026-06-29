@@ -160,6 +160,25 @@ fn emit_patch_files_output(
         global.emit_json(&output)?;
     } else if global.jsonl {
         global.emit_json_items(results)?;
+    } else if !global.quiet {
+        for r in results {
+            let label = match r.status {
+                "clean" => "clean",
+                "stale" => "STALE",
+                "missing" => "MISSING",
+                "error" => "ERROR",
+                "conflict" => "CONFLICT",
+                "applied" => "applied",
+                other => other,
+            };
+            if let Some(err) = &r.error {
+                eprintln!("patch check: {} -- {}: {}", r.path, label, err);
+            } else if let Some(n) = r.conflicts {
+                eprintln!("patch check: {} -- {} ({} conflicts)", r.path, label, n);
+            } else if r.status != "clean" && r.status != "applied" {
+                eprintln!("patch check: {} -- {}", r.path, label);
+            }
+        }
     }
     Ok(())
 }

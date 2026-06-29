@@ -80,7 +80,7 @@ fn execute_via_engine_inner<T: Serialize>(
     // --check mode: report what would happen, no mutation.
     if global.check {
         let output = make_output(WritePhase::Check(result.has_changes), None);
-        if !global.emit_json(&output)? && !global.quiet {
+        if !global.emit_json(&output)? && !global.quiet && result.has_changes {
             println!("{check_msg}");
         }
         return if result.has_changes {
@@ -142,7 +142,7 @@ fn execute_via_engine_inner<T: Serialize>(
     if !global.emit_json(&output)? {
         if !diffs.is_empty() {
             print!("{}", render_diffs_colored(&diffs, global.should_color()));
-        } else if !global.quiet {
+        } else if result.has_changes && !global.quiet {
             println!("{check_msg}");
         }
     }
