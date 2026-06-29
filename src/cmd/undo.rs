@@ -145,6 +145,9 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Apply restore.
     crate::verbose!("undo: restoring session {}", timestamp);
     let restored = backup::restore_session(&cwd, &timestamp)?;
+    // Remove the consumed session so subsequent `undo` calls advance to
+    // the next-oldest session instead of replaying the same one.
+    backup::remove_session(&cwd, &timestamp)?;
     crate::verbose!("undo: restored {} file(s)", restored);
     if global.show_status() {
         eprintln!("restored {restored} file(s) from session {timestamp}");
