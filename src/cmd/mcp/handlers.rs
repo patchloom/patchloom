@@ -567,6 +567,13 @@ impl PatchloomService {
             // of the workspace, escaping the PathGuard.
             plan.cwd = None;
 
+            // Strip lifecycle steps to prevent arbitrary command execution.
+            // Format/validate commands run unrestricted shell processes,
+            // bypassing workspace containment. These should only come from
+            // project config (.patchloom.toml), not from LLM-submitted plans.
+            plan.format = None;
+            plan.validate = None;
+
             execute_plan_validated(plan, svc.cwd(), Some(&svc.path_guard))
         })
         .await

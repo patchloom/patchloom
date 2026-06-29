@@ -888,6 +888,38 @@ fn json_escape(s: &str) -> String {
     quoted[1..quoted.len() - 1].to_string()
 }
 
+/// Single-pass template substitution. Scans `template` left-to-right,
+/// replacing each known placeholder from the original text. This prevents
+/// cross-contamination where the replacement value of one placeholder
+/// contains another placeholder name as a literal substring.
+#[cfg(feature = "cli")]
+fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
+    let mut result = String::with_capacity(template.len());
+    let mut i = 0;
+    let bytes = template.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            let mut matched = false;
+            for (placeholder, value) in vars {
+                if template[i..].starts_with(placeholder) {
+                    result.push_str(value);
+                    i += placeholder.len();
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                result.push('{');
+                i += 1;
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    result
+}
+
 /// Expand a plan's `for_each` block: match files via glob, apply exclude/filter,
 /// substitute template variables into each operation, and flatten the result into
 /// `plan.operations`. After this call, `plan.for_each` is `None`.
@@ -998,12 +1030,18 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 
         // JSON-escape all substitution values so file paths containing
         // quotes, backslashes, or control characters don't produce invalid JSON.
-        let substituted = protected
-            .replace("{path}", &json_escape(&rel_str))
-            .replace("{dir}", &json_escape(&dir))
-            .replace("{stem}", &json_escape(&stem))
-            .replace("{ext}", &json_escape(&ext))
-            .replace("{name}", &json_escape(&name));
+        // Use single-pass substitution to prevent cross-contamination: if a
+        // file path contains a literal "{name}", sequential .replace() would
+        // double-substitute it. Single-pass scans the template once and
+        // replaces each placeholder from the original template text.
+        let vars: &[(&str, String)] = &[
+            ("{path}", json_escape(&rel_str)),
+            ("{dir}", json_escape(&dir)),
+            ("{stem}", json_escape(&stem)),
+            ("{ext}", json_escape(&ext)),
+            ("{name}", json_escape(&name)),
+        ];
+        let substituted = substitute_single_pass(&protected, vars);
 
         // Restore sentinels to literal single braces.
         let substituted = substituted
@@ -1036,6 +1074,29 @@ mod tests {
         assert_eq!(json_escape("he said \"hi\"\n"), r#"he said \"hi\"\n"#);
         // Plain string (no escaping needed)
         assert_eq!(json_escape("hello"), "hello");
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn substitute_single_pass_no_cross_contamination() {
+        // If {path} expands to a value containing "{name}", the {name}
+        // placeholder must NOT be substituted again.
+        let template = r#"{"path": "{path}", "name": "{name}"}"#;
+        let vars: &[(&str, String)] = &[
+            ("{path}", "{name}/test.txt".into()),
+            ("{name}", "test.txt".into()),
+        ];
+        let result = substitute_single_pass(template, vars);
+        assert_eq!(result, r#"{"path": "{name}/test.txt", "name": "test.txt"}"#);
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn substitute_single_pass_basic() {
+        let template = "file: {path}, dir: {dir}";
+        let vars: &[(&str, String)] = &[("{path}", "src/main.rs".into()), ("{dir}", "src".into())];
+        let result = substitute_single_pass(template, vars);
+        assert_eq!(result, "file: src/main.rs, dir: src");
     }
 
     #[test]

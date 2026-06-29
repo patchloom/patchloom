@@ -129,7 +129,7 @@ pub fn move_symbols(
         if i > 0 {
             insert_text.push_str(eol);
         }
-        insert_text.push_str(text.trim_end_matches('\n'));
+        insert_text.push_str(text.trim_end_matches(['\r', '\n']));
         insert_text.push_str(eol);
     }
 
