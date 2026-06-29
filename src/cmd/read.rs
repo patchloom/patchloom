@@ -136,6 +136,11 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
+    // Partial failure: some files succeeded, some failed (#1166).
+    if !errors.is_empty() {
+        return Ok(exit::FAILURE);
+    }
+
     Ok(exit::SUCCESS)
 }
 
@@ -322,5 +327,25 @@ mod tests {
         assert_eq!(result.content, "beta\ngamma\n");
         assert_eq!(result.start_line, 2);
         assert_eq!(result.end_line, 3);
+    }
+
+    /// Partial failure (some files exist, some don't) must return FAILURE (#1166).
+    #[test]
+    fn partial_read_failure_returns_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let exists = dir.path().join("exists.txt");
+        std::fs::write(&exists, "hello\n").unwrap();
+        let missing = dir.path().join("missing.txt");
+
+        let args = ReadArgs {
+            files: vec![
+                exists.to_string_lossy().into_owned(),
+                missing.to_string_lossy().into_owned(),
+            ],
+            lines: None,
+        };
+        let global = GlobalFlags::test_default();
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

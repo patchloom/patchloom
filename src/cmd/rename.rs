@@ -60,12 +60,18 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         anyhow::bail!("destination is not a file: {}", args.to);
     }
 
-    // Same-file no-op check.
-    if src == dst
-        || matches!(
-            (src.canonicalize(), dst.canonicalize()),
-            (Ok(ref s), Ok(ref d)) if s == d
-        )
+    // Same-file no-op check. On case-insensitive filesystems (macOS APFS),
+    // canonicalize() treats case differences as identical. Allow the rename
+    // when only the case differs so users can change filename casing (#1167).
+    let is_case_only_change = src != dst
+        && src.file_name().map(|n| n.to_ascii_lowercase())
+            == dst.file_name().map(|n| n.to_ascii_lowercase());
+    if !is_case_only_change
+        && (src == dst
+            || matches!(
+                (src.canonicalize(), dst.canonicalize()),
+                (Ok(ref s), Ok(ref d)) if s == d
+            ))
     {
         let output = RenameOutput {
             ok: true,
@@ -81,7 +87,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    if !args.force && dst.exists() {
+    if !args.force && !is_case_only_change && dst.exists() {
         anyhow::bail!("destination already exists: {}", args.to);
     }
 
@@ -97,6 +103,14 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         crate::files::is_binary(&buf[..n])
     };
     if is_binary {
+        return run_binary_rename(&args, global, &cwd, &src, &dst);
+    }
+
+    // Case-only renames on case-insensitive filesystems (e.g. macOS APFS)
+    // cannot go through the tx engine because its write-then-delete approach
+    // would delete the destination (same inode as source). Use fs::rename
+    // directly, which handles case changes atomically (#1167).
+    if is_case_only_change {
         return run_binary_rename(&args, global, &cwd, &src, &dst);
     }
 

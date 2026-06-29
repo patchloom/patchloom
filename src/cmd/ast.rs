@@ -1077,7 +1077,23 @@ pub fn get_git_file_content(
 // ---------------------------------------------------------------------------
 
 pub fn lang_from_str(s: &str) -> Language {
-    Language::from_extension(s)
+    // Try language name aliases first, then fall back to extension matching.
+    match s.to_lowercase().as_str() {
+        "rust" => Language::Rust,
+        "typescript" => Language::TypeScript,
+        "javascript" => Language::JavaScript,
+        "python" => Language::Python,
+        "golang" => Language::Go,
+        "java" => Language::Java,
+        "csharp" | "c#" => Language::CSharp,
+        "ruby" => Language::Ruby,
+        "kotlin" => Language::Kotlin,
+        "hcl" | "terraform" => Language::Hcl,
+        "protobuf" | "proto" => Language::Protobuf,
+        "dockerfile" | "docker" => Language::Dockerfile,
+        "markdown" => Language::Markdown,
+        _ => Language::from_extension(s),
+    }
 }
 
 pub use symbols::{filter_symbols, parse_kind_filter};
@@ -1184,6 +1200,22 @@ mod tests {
         assert_eq!(lang_from_str("rs"), Language::Rust);
         assert_eq!(lang_from_str("py"), Language::Python);
         assert_eq!(lang_from_str("go"), Language::Go);
+    }
+
+    /// Language names (not just extensions) should be accepted (#1165).
+    #[test]
+    fn lang_from_str_language_names() {
+        assert_eq!(lang_from_str("rust"), Language::Rust);
+        assert_eq!(lang_from_str("python"), Language::Python);
+        assert_eq!(lang_from_str("typescript"), Language::TypeScript);
+        assert_eq!(lang_from_str("javascript"), Language::JavaScript);
+        assert_eq!(lang_from_str("golang"), Language::Go);
+        assert_eq!(lang_from_str("csharp"), Language::CSharp);
+        assert_eq!(lang_from_str("ruby"), Language::Ruby);
+        assert_eq!(lang_from_str("kotlin"), Language::Kotlin);
+        assert_eq!(lang_from_str("terraform"), Language::Hcl);
+        assert_eq!(lang_from_str("markdown"), Language::Markdown);
+        assert_eq!(lang_from_str("Rust"), Language::Rust); // case-insensitive
     }
 
     // -----------------------------------------------------------------------

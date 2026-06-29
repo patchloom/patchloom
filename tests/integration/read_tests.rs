@@ -206,7 +206,8 @@ fn test_read_multiple_files_json_partial_failure_keeps_array() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    // Partial failure returns FAILURE exit code (#1166), but still outputs JSON.
+    assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(json.is_array());
     assert_eq!(json.as_array().unwrap().len(), 1);
@@ -245,18 +246,19 @@ fn test_read_multiple_files_jsonl() {
 }
 
 #[test]
-fn test_read_partial_failure_succeeds() {
+fn test_read_partial_failure_returns_failure() {
     let dir = TempDir::new().unwrap();
     let f1 = dir.path().join("exists.txt");
     fs::write(&f1, "hello\n").unwrap();
 
+    // Partial failure now returns FAILURE exit code (#1166).
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("read")
         .arg(f1.to_str().unwrap())
         .arg(nonexistent_path("no-such-file-xyz"))
         .assert()
-        .success()
+        .code(1)
         .stdout(predicates::str::contains("hello"));
 }
 

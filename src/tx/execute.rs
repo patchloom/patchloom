@@ -465,7 +465,23 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
-                    let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+                    if !file_path.exists() {
+                        anyhow::bail!("file not found: {path}");
+                    }
+                    tx.existed_before.insert(file_path.clone());
+                    // Try to read as text for strict rollback; fall back to
+                    // empty for binary files that cannot be represented as
+                    // UTF-8 (#1163).
+                    match std::fs::read_to_string(&file_path) {
+                        Ok(content) => {
+                            tx.pending
+                                .insert(file_path.clone(), (content.clone(), content));
+                        }
+                        Err(_) => {
+                            tx.pending
+                                .insert(file_path.clone(), (String::new(), String::new()));
+                        }
+                    }
                     false
                 }
             };
@@ -500,11 +516,16 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
 
             // If source and destination resolve to the same file, no-op.
-            if src_path == dst_path
-                || matches!(
-                    (src_path.canonicalize(), dst_path.canonicalize()),
-                    (Ok(ref s), Ok(ref d)) if s == d
-                )
+            // Allow case-only renames on case-insensitive filesystems (#1167).
+            let case_only = src_path != dst_path
+                && src_path.file_name().map(|n| n.to_ascii_lowercase())
+                    == dst_path.file_name().map(|n| n.to_ascii_lowercase());
+            if !case_only
+                && (src_path == dst_path
+                    || matches!(
+                        (src_path.canonicalize(), dst_path.canonicalize()),
+                        (Ok(ref s), Ok(ref d)) if s == d
+                    ))
             {
                 return Ok(0);
             }
@@ -512,8 +533,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // Read source content into pending (validates it exists).
             let content = read_file_content(tx.pending, tx.existed_before, &src_path)?.to_string();
 
-            // Check destination does not already exist (unless force).
-            if !force {
+            // Check destination does not already exist (unless force or
+            // case-only rename on case-insensitive FS).
+            if !force && !case_only {
                 let dst_exists = (tx.pending.contains_key(&dst_path)
                     && !tx.deletions.contains(&dst_path))
                     || (!tx.deletions.contains(&dst_path) && dst_path.exists());
@@ -525,7 +547,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // If destination exists on disk, load it into pending first so
             // existed_before is populated and commit uses atomic_write (not
             // atomic_create_new which would fail on existing files).
-            if *force && !tx.pending.contains_key(&dst_path) && dst_path.exists() {
+            if (*force || case_only) && !tx.pending.contains_key(&dst_path) && dst_path.exists() {
                 let _ = read_file_content(tx.pending, tx.existed_before, &dst_path)?;
             }
 
