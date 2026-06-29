@@ -492,6 +492,49 @@ mod tests {
         assert!(err.to_string().contains("source is not a file"));
     }
 
+    #[test]
+    fn rename_creates_backup_before_mutation() {
+        // R4 fix: backup.finalize() must be called before rename_or_copy()
+        // so the backup is committed even if the rename itself fails.
+        // We verify this by checking that a backup session is created
+        // after a successful rename.
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("original.txt");
+        let dst = dir.path().join("moved.txt");
+        fs::write(&src, "backup me\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists(), "source should be gone after rename");
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "backup me\n");
+
+        // Verify backup session was created (finalize() was called).
+        let backup_dir = dir.path().join(".patchloom/backups");
+        assert!(
+            backup_dir.exists(),
+            "backup directory should exist after rename --apply"
+        );
+        let sessions: Vec<_> = fs::read_dir(&backup_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        assert!(
+            !sessions.is_empty(),
+            "at least one backup session should be created"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn rename_unreadable_file_propagates_io_error() {

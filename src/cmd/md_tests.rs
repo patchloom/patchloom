@@ -526,6 +526,31 @@ mod error_handling {
     }
 
     #[test]
+    fn file_not_found_propagates_as_error_not_no_matches() {
+        // R3 fix: only "heading ... not found" maps to NO_MATCHES.
+        // A missing file ("not found" in the I/O error) must propagate
+        // as an error, not be silently treated as NO_MATCHES.
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("does_not_exist.md");
+
+        let args = MdArgs {
+            action: MdAction::ReplaceSection {
+                file: missing.to_str().unwrap().to_string(),
+                heading: "Title".into(),
+                stdin: false,
+                content: Some("new".into()),
+            },
+            write: Default::default(),
+        };
+        let result = run(args, &GlobalFlags::test_apply());
+        // Must be an error (file not found), not Ok(exit::NO_MATCHES).
+        assert!(
+            result.is_err(),
+            "missing file should propagate as error, not NO_MATCHES"
+        );
+    }
+
+    #[test]
     fn find_section_none_for_missing() {
         assert!(find_section("# X\n", "Y").is_none());
     }

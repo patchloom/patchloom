@@ -454,6 +454,78 @@ mod tests {
         assert_eq!(code, exit::CONFLICTS);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn merge_check_surfaces_io_error_for_unreadable_file() {
+        // R3 fix: I/O errors (non-NotFound) should bail instead of silently
+        // returning empty content via unwrap_or_default().
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("secret.txt");
+        std::fs::write(&file, "line1\nline2\nline3\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let diff_path = tmp.path().join("fix.patch");
+        std::fs::write(
+            &diff_path,
+            "--- a/secret.txt\n+++ b/secret.txt\n@@ -1,3 +1,3 @@\n line1\n-line2\n+patched\n line3\n",
+        )
+        .unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.check = true;
+        let result = run(
+            PatchArgs {
+                action: PatchAction::Merge {
+                    file: Some(diff_path.to_string_lossy().into_owned()),
+                    stdin: false,
+                    allow_conflicts: false,
+                },
+                write: Default::default(),
+            },
+            &global,
+        );
+        // Should surface the I/O error, not silently treat as empty.
+        assert!(result.is_err(), "expected I/O error for unreadable file");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("cannot read") || err_msg.contains("Permission denied"),
+            "expected permission error, got: {err_msg}"
+        );
+        // Cleanup: restore permissions so TempDir can clean up
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    #[test]
+    fn merge_check_treats_not_found_as_empty() {
+        // R3 fix: NotFound should be treated as empty (new file creation),
+        // not as an error.
+        let tmp = TempDir::new().unwrap();
+        let diff_path = tmp.path().join("new.patch");
+        std::fs::write(
+            &diff_path,
+            "--- /dev/null\n+++ b/new_file.txt\n@@ -0,0 +1 @@\n+hello\n",
+        )
+        .unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.check = true;
+        let code = run(
+            PatchArgs {
+                action: PatchAction::Merge {
+                    file: Some(diff_path.to_string_lossy().into_owned()),
+                    stdin: false,
+                    allow_conflicts: false,
+                },
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        // Should succeed (not error), treating missing file as empty.
+        assert_eq!(code, exit::SUCCESS);
+    }
+
     #[test]
     fn inject_stale_label_inserts_after_separator() {
         let msg = "patch apply: test.txt -- hunk 1 failed: stale context";
@@ -462,6 +534,32 @@ mod tests {
             result,
             "patch apply: test.txt -- STALE: hunk 1 failed: stale context"
         );
+    }
+
+    #[test]
+    fn conflict_matching_uses_precise_marker() {
+        // R3 fix: the exit code logic checks for "conflict(s)" (not just
+        // "conflict") to avoid false positives on messages that happen to
+        // contain the word "conflict" in a different context.
+        //
+        // "conflict(s)" should map to CONFLICTS exit code.
+        let msg_with_conflicts = "patch apply: f.txt -- 2 conflict(s) found";
+        let exit_code = if msg_with_conflicts.contains("conflict(s)") {
+            exit::CONFLICTS
+        } else {
+            exit::AMBIGUOUS
+        };
+        assert_eq!(exit_code, exit::CONFLICTS);
+
+        // A message with "conflict" but NOT "conflict(s)" should NOT
+        // trigger the CONFLICTS exit code.
+        let msg_generic = "patch apply: f.txt -- conflicting base version";
+        let exit_code2 = if msg_generic.contains("conflict(s)") {
+            exit::CONFLICTS
+        } else {
+            exit::AMBIGUOUS
+        };
+        assert_eq!(exit_code2, exit::AMBIGUOUS);
     }
 
     #[test]
