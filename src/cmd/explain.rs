@@ -824,6 +824,88 @@ mod tests {
     }
 
     #[test]
+    fn describe_replace_multiline_flag() {
+        // R3 fix: multiline flag should appear in describe output.
+        let op = Operation::Replace {
+            path: Some("f.rs".into()),
+            glob: None,
+            regex: true,
+            old: "fn.*\\{".into(),
+            new_text: Some("fn new() {".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: true,
+            if_exists: false,
+            whole_line: false,
+            range: None,
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+        };
+        let desc = describe_operation(&op);
+        assert!(
+            desc.contains(", multiline"),
+            "missing multiline flag: {desc}"
+        );
+    }
+
+    #[test]
+    fn describe_replace_if_exists_flag() {
+        // R3 fix: if_exists flag should appear in describe output.
+        let op = Operation::Replace {
+            path: Some("f.rs".into()),
+            glob: None,
+            regex: false,
+            old: "old_fn".into(),
+            new_text: Some("new_fn".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: true,
+            whole_line: false,
+            range: None,
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+        };
+        let desc = describe_operation(&op);
+        assert!(
+            desc.contains(", if-exists"),
+            "missing if-exists flag: {desc}"
+        );
+    }
+
+    #[test]
+    fn describe_replace_multiline_and_if_exists_combined() {
+        // Both flags together should both appear.
+        let op = Operation::Replace {
+            path: Some("f.rs".into()),
+            glob: None,
+            regex: true,
+            old: "pattern".into(),
+            new_text: Some("replacement".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: true,
+            if_exists: true,
+            whole_line: false,
+            range: None,
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+        };
+        let desc = describe_operation(&op);
+        assert!(desc.contains(", multiline"), "missing multiline: {desc}");
+        assert!(desc.contains(", if-exists"), "missing if-exists: {desc}");
+    }
+
+    #[test]
     fn describe_replace_glob_no_path() {
         let op = Operation::Replace {
             path: None,

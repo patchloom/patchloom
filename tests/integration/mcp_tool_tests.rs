@@ -409,6 +409,25 @@ async fn test_mcp_search_rejects_conflicting_modes() {
 }
 
 #[tokio::test]
+async fn test_mcp_search_rejects_empty_pattern() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
+        .with_arguments(serde_json::from_value(serde_json::json!({"pattern": ""})).unwrap());
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with empty pattern should be rejected"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_file_rename_round_trip() {
     if !has_mcp_support() {
         return;

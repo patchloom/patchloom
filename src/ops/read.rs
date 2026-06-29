@@ -168,6 +168,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_end_zero_errors() {
+        // R4 fix: end=0 in a range like "1:0" must be rejected (1-based).
+        let err = parse_line_range("1:0").unwrap_err();
+        assert!(
+            err.to_string().contains("1-based"),
+            "expected 1-based error, got: {err}"
+        );
+        // Also check "5:0"
+        assert!(parse_line_range("5:0").is_err());
+    }
+
+    #[test]
     fn parse_same_start_end() {
         assert_eq!(parse_line_range("1:1").unwrap(), (1, Some(1)));
     }
