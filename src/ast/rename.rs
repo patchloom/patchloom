@@ -317,4 +317,24 @@ func SetupFile() string {
         assert!(result.content.contains("func InitFile()"));
         assert!(result.content.contains("\"SetupFile\"")); // string untouched
     }
+
+    #[test]
+    fn rename_returns_zero_when_name_only_in_strings_and_comments() {
+        // #1187: tree-sitter parses successfully but name only appears in
+        // strings/comments, so replacements should be 0 (not None).
+        let source = r#"
+fn main() {
+    // target is mentioned here
+    let s = "target";
+    println!("{}", s);
+}
+"#;
+        let result = rename_in_source(source, "target", "renamed", Language::Rust).unwrap();
+        assert_eq!(
+            result.replacements, 0,
+            "should be 0 when name is only in strings/comments"
+        );
+        // Source should be unchanged
+        assert_eq!(result.content, source);
+    }
 }

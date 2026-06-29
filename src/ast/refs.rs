@@ -58,6 +58,7 @@ const IDENTIFIER_KINDS: &[&str] = &[
     "identifier",
     "type_identifier",
     "field_identifier",
+    "shorthand_field_identifier",
     "property_identifier",
     "simple_identifier",
 ];
@@ -611,6 +612,29 @@ fn main() {
         assert!(
             input_defs.is_empty(),
             "parameter 'input' should not be classified as a definition: {input_defs:?}"
+        );
+    }
+
+    #[test]
+    fn find_refs_rust_shorthand_field_identifier() {
+        // #1189: shorthand field initializers like `Foo { name }` produce
+        // `shorthand_field_identifier` nodes. These must be found by refs.
+        let source = r#"
+struct Config {
+    name: String,
+}
+
+fn build(name: String) -> Config {
+    Config { name }
+}
+"#;
+        let refs = find_refs_in_source(source, "name", Language::Rust, "test.rs");
+        // Should find: field_identifier in struct def, identifier in param,
+        // and shorthand_field_identifier in `Config { name }`.
+        assert!(
+            refs.len() >= 3,
+            "expected at least 3 refs for 'name' (struct field, param, shorthand init), got {}",
+            refs.len()
         );
     }
 }

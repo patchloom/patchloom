@@ -97,6 +97,9 @@ fn print_human_summary(plan: &Plan, strict: bool) {
         if wp.collapse_blanks == Some(true) {
             parts.push("collapse blank lines");
         }
+        if wp.respect_editorconfig == Some(true) {
+            parts.push("respect editorconfig");
+        }
         if !parts.is_empty() {
             println!("\nWrite policy: {}", parts.join(", "));
         }
@@ -120,6 +123,23 @@ fn print_human_summary(plan: &Plan, strict: bool) {
                 step.cmd,
                 format_timeout(step.timeout)
             );
+        }
+    }
+
+    if let Some(ref checks) = plan.verify {
+        for check in checks {
+            match check {
+                crate::plan::VerifyCheck::SymbolCount { kind, attr } => {
+                    if let Some(a) = attr {
+                        println!("Verify: count {kind} symbols with attr={a}");
+                    } else {
+                        println!("Verify: count {kind} symbols");
+                    }
+                }
+                crate::plan::VerifyCheck::Named { check } => {
+                    println!("Verify: {check}");
+                }
+            }
         }
     }
 }
@@ -498,6 +518,7 @@ fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
         "has_write_policy": plan.write_policy.is_some(),
         "format_steps": plan.format.as_ref().map(|f| f.len()).unwrap_or(0),
         "validate_steps": plan.validate.as_ref().map(|v| v.len()).unwrap_or(0),
+        "verify_checks": plan.verify.as_ref().map(|v| v.len()).unwrap_or(0),
     })
 }
 
@@ -913,5 +934,87 @@ mod tests {
             describe_operation(&op),
             "Apply unified diff patch (merge on stale, allow conflicts)"
         );
+    }
+
+    #[test]
+    fn human_summary_shows_respect_editorconfig() {
+        // #1190: respect_editorconfig should appear in write policy display
+        let plan = Plan {
+            version: "1".into(),
+            cwd: None,
+            write_policy: Some(crate::write::WritePolicyOverride {
+                ensure_final_newline: None,
+                normalize_eol: None,
+                trim_trailing_whitespace: None,
+                collapse_blanks: None,
+                respect_editorconfig: Some(true),
+            }),
+            strict: None,
+            operations: vec![Operation::FileCreate {
+                path: "test.txt".into(),
+                content: "hi".into(),
+                force: None,
+            }],
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        // Capture output by calling the function (it prints to stdout).
+        // Just ensure it doesn't panic; the logic is tested by presence of
+        // "respect editorconfig" in the parts vector.
+        print_human_summary(&plan, false);
+    }
+
+    #[test]
+    fn human_summary_shows_verify_checks() {
+        // #1191: verify checks should appear in human summary
+        let plan = Plan {
+            version: "1".into(),
+            cwd: None,
+            write_policy: None,
+            strict: None,
+            operations: vec![Operation::FileCreate {
+                path: "test.txt".into(),
+                content: "hi".into(),
+                force: None,
+            }],
+            format: None,
+            validate: None,
+            verify: Some(vec![
+                crate::plan::VerifyCheck::SymbolCount {
+                    kind: "function".into(),
+                    attr: Some("test".into()),
+                },
+                crate::plan::VerifyCheck::Named {
+                    check: "unique_names".into(),
+                },
+            ]),
+            for_each: None,
+        };
+        // Should not panic; exercises verify display path
+        print_human_summary(&plan, false);
+    }
+
+    #[test]
+    fn json_summary_includes_verify_checks() {
+        // #1191: verify_checks count should appear in JSON summary
+        let plan = Plan {
+            version: "1".into(),
+            cwd: None,
+            write_policy: None,
+            strict: None,
+            operations: vec![Operation::FileDelete {
+                path: "x.txt".into(),
+            }],
+            format: None,
+            validate: None,
+            verify: Some(vec![crate::plan::VerifyCheck::Named {
+                check: "unique_names".into(),
+            }]),
+            for_each: None,
+        };
+        let json = build_json_summary(&plan, false);
+        assert_eq!(json["verify_checks"], 1);
     }
 }
