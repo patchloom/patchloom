@@ -56,19 +56,19 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         SchemaFormat::Json => {
             let ops_json: Vec<serde_json::Value> = if args.examples {
                 ops.iter()
-                    .map(|op| serde_json::to_value(op).unwrap_or_default())
-                    .collect()
+                    .map(serde_json::to_value)
+                    .collect::<serde_json::Result<Vec<_>>>()?
             } else {
                 // Strip examples from the output.
                 ops.iter()
                     .map(|op| {
-                        let mut v = serde_json::to_value(op).unwrap_or_default();
+                        let mut v = serde_json::to_value(op)?;
                         if let Some(obj) = v.as_object_mut() {
                             obj.remove("examples");
                         }
-                        v
+                        Ok(v)
                     })
-                    .collect()
+                    .collect::<serde_json::Result<Vec<_>>>()?
             };
             let envelope = serde_json::json!({
                 "version": schema::INTENT_FORMAT_VERSION,
