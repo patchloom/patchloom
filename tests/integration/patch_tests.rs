@@ -290,6 +290,31 @@ fn test_patch_check_exits_5_when_stale() {
 }
 
 #[test]
+fn test_patch_check_stale_human_readable_output() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .assert()
+        .code(5)
+        .stderr(predicates::str::contains("STALE"));
+}
+
+#[test]
 fn test_patch_merge_check_exits_8_on_conflict() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
