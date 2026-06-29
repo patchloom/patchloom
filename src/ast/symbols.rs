@@ -108,10 +108,15 @@ pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Ve
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").
 pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a SymbolDef> {
     if let Some((parent, rest)) = name.split_once("::") {
-        // Qualified name: find parent, then recurse into children
+        // Qualified name: find parent, then recurse into children.
+        // Try ALL matching parents (not just the first) because a struct
+        // and its impl block share the same name but only the impl has
+        // method children.
         for sym in symbols {
-            if sym.name == parent {
-                return find_symbol(&sym.children, rest);
+            if sym.name == parent
+                && let Some(found) = find_symbol(&sym.children, rest)
+            {
+                return Some(found);
             }
         }
         None
@@ -1472,6 +1477,29 @@ impl Server {
 
         // Qualified search with multiple :: should work recursively
         find_symbol(&symbols, "outer_mod::MidStruct").expect("should find qualified nested symbol");
+    }
+
+    /// Regression: when a struct and its impl block share the same name,
+    /// find_symbol must try all parents with a matching name, not just the
+    /// first. The struct has no children, so `Point::new` should resolve
+    /// via the impl block's children.
+    #[test]
+    fn find_symbol_qualified_skips_struct_to_impl() {
+        let source = r#"
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+}
+"#;
+        let symbols = extract_symbols(source, Language::Rust);
+        let found = find_symbol(&symbols, "Point::new").expect("should find Point::new via impl");
+        assert_eq!(found.name, "new");
     }
 
     #[test]
