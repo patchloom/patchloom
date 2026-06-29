@@ -17,8 +17,9 @@ use serde::Serialize;
 /// it to its own `applied` field semantics.
 #[derive(Debug, Clone, Copy)]
 pub enum WritePhase {
-    /// `--check`: no write performed.
-    Check,
+    /// `--check`: no write performed. The `bool` indicates whether changes
+    /// were detected (true = content would change on apply).
+    Check(bool),
     /// `--apply`: write was performed.
     Applied,
     /// `--confirm` + JSON: conditionally applied (bool = whether user confirmed).
@@ -78,7 +79,7 @@ fn execute_via_engine_inner<T: Serialize>(
 
     // --check mode: report what would happen, no mutation.
     if global.check {
-        let output = make_output(WritePhase::Check, None);
+        let output = make_output(WritePhase::Check(result.has_changes), None);
         if !global.emit_json(&output)? && !global.quiet {
             println!("{check_msg}");
         }
