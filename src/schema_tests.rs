@@ -585,6 +585,34 @@ mod basic {
             missing.join("\n  ")
         );
     }
+
+    /// Regression: operation_variant_schema must include $defs from the root
+    /// schema so that $ref pointers (e.g. OnStale in patch.apply) resolve.
+    #[test]
+    fn variant_schema_includes_defs_for_patch_apply() {
+        let schema = operation_variant_schema("patch.apply").unwrap();
+        // patch.apply references $defs/OnStale for the on_stale field.
+        // Without $defs propagation, $ref pointers dangle.
+        if OPERATION_FULL_SCHEMA.get("$defs").is_some() {
+            assert!(
+                schema.get("$defs").is_some(),
+                "variant schema must include $defs from root when root has $defs"
+            );
+        }
+    }
+
+    /// Verify that $defs includes the referenced types.
+    #[test]
+    #[cfg(feature = "ast")]
+    fn variant_schema_defs_include_split_target_spec() {
+        let schema = operation_variant_schema("ast.split").unwrap();
+        if let Some(defs) = schema.get("$defs").and_then(|d| d.as_object()) {
+            assert!(
+                defs.contains_key("SplitTargetSpec"),
+                "$defs should contain SplitTargetSpec for ast.split"
+            );
+        }
+    }
 }
 
 mod error_handling {

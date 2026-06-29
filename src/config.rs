@@ -116,6 +116,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             Some("lf") => global.normalize_eol = Some(crate::cli::global::EolMode::Lf),
             Some("crlf") => global.normalize_eol = Some(crate::cli::global::EolMode::Crlf),
             Some("cr") => global.normalize_eol = Some(crate::cli::global::EolMode::Cr),
+            Some("keep") => {} // explicit keep = default behavior, no-op
             Some(invalid) => {
                 eprintln!("{}", invalid_normalize_eol_warning(invalid));
             }
@@ -717,6 +718,46 @@ rs = "rustfmt"
         assert!(global.format.is_none());
         apply_config(&mut global, &config);
         assert_eq!(global.format.as_deref(), Some("treefmt"));
+    }
+
+    /// Regression: normalize_eol = "keep" in config must be accepted (no-op).
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_keep_eol_is_noop() {
+        let config = ProjectConfig {
+            write_policy: WritePolicyOverride {
+                normalize_eol: Some("keep".into()),
+                ..WritePolicyOverride::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+
+        // "keep" means "don't normalize" which is the default (None).
+        assert!(
+            global.normalize_eol.is_none(),
+            "keep should not set normalize_eol"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_cr_eol() {
+        let config = ProjectConfig {
+            write_policy: WritePolicyOverride {
+                normalize_eol: Some("cr".into()),
+                ..WritePolicyOverride::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+
+        assert!(matches!(
+            global.normalize_eol,
+            Some(crate::cli::global::EolMode::Cr)
+        ));
     }
 
     #[test]

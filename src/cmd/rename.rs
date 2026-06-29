@@ -87,11 +87,14 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Binary files can't go through the tx engine (it reads as UTF-8 text).
     // Use a direct fs::rename (or copy+delete) for binary renames.
-    // Distinguish actual binary (non-UTF-8) from I/O errors like permission denied.
-    let is_binary = match fs::read_to_string(&src) {
-        Ok(_) => false,
-        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => true,
-        Err(e) => return Err(e.into()),
+    // Only read the first 8 KiB instead of the entire file to avoid
+    // unnecessary memory allocation on large binaries.
+    let is_binary = {
+        use std::io::Read;
+        let mut file = fs::File::open(&src)?;
+        let mut buf = [0u8; 8192];
+        let n = file.read(&mut buf)?;
+        crate::files::is_binary(&buf[..n])
     };
     if is_binary {
         return run_binary_rename(&args, global, &cwd, &src, &dst);

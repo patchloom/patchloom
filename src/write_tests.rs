@@ -1036,4 +1036,38 @@ mod format_preservation {
             "symlink target permissions should not be carried over"
         );
     }
+
+    /// Regression: apply_override must validate all fields before mutating any.
+    /// An invalid normalize_eol must not leave other fields partially applied.
+    #[test]
+    fn apply_override_invalid_eol_no_partial_mutation() {
+        let mut policy = WritePolicy::default();
+        assert!(!policy.ensure_final_newline);
+        assert!(!policy.trim_trailing_whitespace);
+
+        let ov = WritePolicyOverride {
+            ensure_final_newline: Some(true),
+            normalize_eol: Some("INVALID".into()),
+            trim_trailing_whitespace: Some(true),
+            collapse_blanks: Some(true),
+            respect_editorconfig: None,
+        };
+
+        let result = policy.apply_override(&ov);
+        assert!(result.is_err(), "invalid eol should produce an error");
+
+        // All fields must remain at their defaults (no partial mutation).
+        assert!(
+            !policy.ensure_final_newline,
+            "ensure_final_newline must not be mutated on error"
+        );
+        assert!(
+            !policy.trim_trailing_whitespace,
+            "trim_trailing_whitespace must not be mutated on error"
+        );
+        assert!(
+            !policy.collapse_blanks,
+            "collapse_blanks must not be mutated on error"
+        );
+    }
 }

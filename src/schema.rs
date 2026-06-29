@@ -69,6 +69,12 @@ pub fn operation_variant_schema(op_name: &str) -> anyhow::Result<serde_json::Val
                 // Strip metadata keys for compactness.
                 obj.remove("$schema");
                 obj.remove("title");
+                // Copy $defs from root schema so $ref pointers resolve
+                // (e.g. patch.apply references OnStale, ast.split references
+                // SplitTargetSpec).
+                if let Some(defs) = schema.get("$defs") {
+                    obj.insert("$defs".to_string(), defs.clone());
+                }
             }
             return Ok(v);
         }
