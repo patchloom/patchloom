@@ -158,6 +158,9 @@ impl PatchloomService {
                     None,
                 ));
             }
+            if p.pattern.is_empty() {
+                return Err(McpError::invalid_params("pattern must not be empty", None));
+            }
             validate_param_size("pattern", &p.pattern)?;
             for path in &p.paths {
                 svc.check_path(path)?;

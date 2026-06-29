@@ -257,8 +257,14 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
         if manifest_path.exists() {
             let content = std::fs::read_to_string(&manifest_path)
                 .with_context(|| format!("reading {}", manifest_path.display()))?;
-            if let Ok(manifest) = serde_json::from_str::<Manifest>(&content) {
-                sessions.push(manifest);
+            match serde_json::from_str::<Manifest>(&content) {
+                Ok(manifest) => sessions.push(manifest),
+                Err(e) => {
+                    eprintln!(
+                        "warning: corrupted backup manifest {}: {e}",
+                        manifest_path.display()
+                    );
+                }
             }
         }
     }

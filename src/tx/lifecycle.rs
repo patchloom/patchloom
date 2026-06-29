@@ -237,7 +237,12 @@ pub(crate) fn rollback_strict(
         if !existed_before.contains(path) {
             // File was created during this tx. Whether it was also deleted
             // does not matter: it should not exist after rollback.
-            let _ = std::fs::remove_file(path);
+            if let Err(e) = std::fs::remove_file(path) {
+                eprintln!(
+                    "tx: rollback: failed to remove created file {}: {e}",
+                    path.display()
+                );
+            }
         } else if !deletions.contains(path) {
             // File existed before and was modified (not deleted): restore.
             if let Err(e) = atomic_write(path, original, &noop_policy) {

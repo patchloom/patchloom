@@ -884,17 +884,33 @@ mod shell_escape_tests {
 
     #[test]
     fn path_with_spaces_is_quoted() {
+        #[cfg(not(windows))]
         assert_eq!(shell_escape("src/my file.rs"), "'src/my file.rs'");
+        #[cfg(windows)]
+        assert_eq!(shell_escape("src/my file.rs"), "\"src/my file.rs\"");
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn path_with_single_quote_is_escaped() {
         assert_eq!(shell_escape("it's a file.rs"), "'it'\\''s a file.rs'");
     }
 
     #[test]
+    #[cfg(windows)]
+    fn path_with_double_quote_is_escaped() {
+        assert_eq!(shell_escape("a\"b.rs"), "\"a\"\"b.rs\"");
+    }
+
+    #[test]
     fn dots_underscores_hyphens_slashes_safe() {
         assert_eq!(shell_escape("a-b_c.d/e"), "a-b_c.d/e");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn backslash_path_separator_is_safe() {
+        assert_eq!(shell_escape("src\\main.rs"), "src\\main.rs");
     }
 }
 
