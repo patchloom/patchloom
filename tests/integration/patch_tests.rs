@@ -311,7 +311,7 @@ fn test_patch_check_stale_human_readable_output() {
         .arg(&patch_file)
         .assert()
         .code(5)
-        .stderr(predicates::str::contains("STALE"));
+        .stderr(predicate::str::contains("STALE"));
 }
 
 #[test]

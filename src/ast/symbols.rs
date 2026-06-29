@@ -1215,8 +1215,6 @@ fn find_multiline_decorator_start(lines: &[&str], from_0: usize) -> Option<usize
     None
 }
 
-/// Extract the text of a symbol from source, using the full span (including
-/// attributes and doc comments).
 /// Compute the byte offset of the start of each line in `source`.
 /// Returns a vector where `offsets[i]` is the byte position of the start of
 /// line `i` (0-indexed). `offsets[lines.len()]` is `source.len()`, so that
@@ -1242,6 +1240,8 @@ pub(crate) fn compute_line_byte_offsets(source: &str) -> Vec<usize> {
     offsets
 }
 
+/// Extract the text of a symbol from source, using the full span (including
+/// attributes and doc comments).
 pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language) -> &'a str {
     let (full_start, full_end) = full_symbol_span(source, sym, lang);
     let lines: Vec<&str> = source.lines().collect();
