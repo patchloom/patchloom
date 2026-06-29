@@ -298,8 +298,11 @@ pub(super) fn handle_simple_op(
     for v in meta.validations {
         match v {
             FieldValidation::Path(field) => {
-                if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
-                    service.check_path(val)?;
+                if let Some(val) = args_obj.get(*field) {
+                    let s = val.as_str().ok_or_else(|| {
+                        McpError::invalid_params(format!("{field} must be a string"), None)
+                    })?;
+                    service.check_path(s)?;
                 }
             }
             FieldValidation::ParamSize(field) => {

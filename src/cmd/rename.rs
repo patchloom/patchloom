@@ -193,8 +193,8 @@ fn run_binary_rename(
             {
                 fs::create_dir_all(parent)?;
             }
-            rename_or_copy(src, dst)?;
             backup.finalize()?;
+            rename_or_copy(src, dst)?;
             Ok(())
         },
         WriteMessages {
