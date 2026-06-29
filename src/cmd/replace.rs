@@ -225,6 +225,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if replacements.is_empty() {
         if args.if_exists {
+            if global.json || global.jsonl {
+                let output = ReplaceOutput {
+                    ok: true,
+                    match_count: 0,
+                    file_count: 0,
+                    files: vec![],
+                    diff: None,
+                };
+                global.emit_json(&output)?;
+            }
             return Ok(exit::SUCCESS);
         }
         if global.json || global.jsonl {

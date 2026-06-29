@@ -188,12 +188,40 @@ pub fn move_at_path(
         anyhow::bail!("empty to selector");
     }
 
-    // Clone the source value first so the tree is not mutated if
-    // destination insertion fails (#1183).
+    // Same path: no-op.
+    if from_segments == to_segments {
+        return Ok(());
+    }
+
+    let (from_parent, from_last) = split_last(from_segments);
+    let (to_parent, to_last) = split_last(to_segments);
+
+    // Intra-array move: source and destination share the same parent array.
+    // Use remove-then-insert so index arithmetic stays correct (#1196).
+    if from_parent == to_parent
+        && let (selector::Segment::Index(fi), selector::Segment::Index(ti)) = (from_last, to_last)
+    {
+        let parent = navigate_mut(root, from_parent, false)?;
+        let arr = parent
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+        if *fi >= arr.len() {
+            anyhow::bail!("source index {fi} out of bounds");
+        }
+        if *ti >= arr.len() {
+            anyhow::bail!("target index {ti} out of bounds");
+        }
+        let val = arr.remove(*fi);
+        let insert_at = (*ti).min(arr.len());
+        arr.insert(insert_at, val);
+        return Ok(());
+    }
+
+    // Cross-container move: clone-insert-remove so the tree is not mutated
+    // if destination insertion fails (#1183).
     let cloned = {
-        let (parent_path, last) = split_last(from_segments);
-        let parent = navigate_mut(root, parent_path, false)?;
-        match last {
+        let parent = navigate_mut(root, from_parent, false)?;
+        match from_last {
             selector::Segment::Key(k) => parent
                 .as_object()
                 .and_then(|obj| obj.get(k.as_str()))
@@ -215,9 +243,8 @@ pub fn move_at_path(
 
     // Insert clone at destination path (creates intermediate objects).
     {
-        let (parent_path, last) = split_last(to_segments);
-        let parent = navigate_mut(root, parent_path, true)?;
-        match last {
+        let parent = navigate_mut(root, to_parent, true)?;
+        match to_last {
             selector::Segment::Key(k) => {
                 parent
                     .as_object_mut()
@@ -240,9 +267,8 @@ pub fn move_at_path(
 
     // Destination insert succeeded; now remove from source.
     {
-        let (parent_path, last) = split_last(from_segments);
-        let parent = navigate_mut(root, parent_path, false)?;
-        match last {
+        let parent = navigate_mut(root, from_parent, false)?;
+        match from_last {
             selector::Segment::Key(k) => {
                 parent
                     .as_object_mut()
@@ -542,6 +568,38 @@ mod tests {
             msg.contains("'b'"),
             "error should mention the failing key 'b', got: {msg}"
         );
+    }
+
+    /// #1196: Moving an element forward within the same array.
+    #[test]
+    fn move_at_path_intra_array_forward() {
+        let mut root = json!({"arr": [10, 20, 30]});
+        move_at_path(&mut root, &segs("arr[0]"), &segs("arr[2]")).unwrap();
+        assert_eq!(root["arr"], json!([20, 30, 10]));
+    }
+
+    /// #1196: Moving an element backward within the same array.
+    #[test]
+    fn move_at_path_intra_array_backward() {
+        let mut root = json!({"arr": [10, 20, 30]});
+        move_at_path(&mut root, &segs("arr[2]"), &segs("arr[0]")).unwrap();
+        assert_eq!(root["arr"], json!([30, 10, 20]));
+    }
+
+    /// #1196: Moving a key to itself must be a no-op, not a deletion.
+    #[test]
+    fn move_at_path_same_key_is_noop() {
+        let mut root = json!({"a": 1, "b": 2});
+        move_at_path(&mut root, &segs("a"), &segs("a")).unwrap();
+        assert_eq!(root, json!({"a": 1, "b": 2}));
+    }
+
+    /// #1196: Moving an array element to its own index is a no-op.
+    #[test]
+    fn move_at_path_same_index_is_noop() {
+        let mut root = json!({"arr": [10, 20, 30]});
+        move_at_path(&mut root, &segs("arr[1]"), &segs("arr[1]")).unwrap();
+        assert_eq!(root["arr"], json!([10, 20, 30]));
     }
 
     /// #1183: When destination insertion fails, the source value must be
