@@ -90,6 +90,16 @@ pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
     let mut symbols = Vec::new();
     let mut cursor = tree.walk();
     visit_node(&mut cursor, source, lang, 0, &mut symbols);
+
+    // Go-specific: group receiver methods under their receiver type.
+    // Go methods with receivers (e.g. `func (s *Server) Start()`) are
+    // syntactically top-level in the AST, unlike Rust impl blocks or
+    // Python/TS class methods. Group them so qualified lookups like
+    // `Server::Start` work.
+    if lang == Language::Go {
+        group_go_receiver_methods(&mut symbols);
+    }
+
     symbols
 }
 
@@ -770,6 +780,66 @@ fn extract_go(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, 
         }
         _ => None,
     }
+}
+
+/// Group Go receiver methods under their receiver type.
+///
+/// Go methods with receivers (e.g. `func (s *Server) Start()`) are
+/// syntactically top-level in the AST. This groups them as children of the
+/// matching struct/type/interface so qualified lookups like `Server::Start`
+/// and `ast list` nesting work correctly.
+fn group_go_receiver_methods(symbols: &mut Vec<SymbolDef>) {
+    let mut to_move: Vec<(usize, String)> = Vec::new();
+    for (i, sym) in symbols.iter().enumerate() {
+        if sym.kind == SymbolKind::Method
+            && let Some(receiver_type) = parse_go_receiver_type(&sym.signature)
+        {
+            to_move.push((i, receiver_type));
+        }
+    }
+
+    // Process in reverse index order so removals don't shift earlier indices.
+    for (idx, receiver_type) in to_move.into_iter().rev() {
+        if let Some(parent_idx) = symbols.iter().position(|s| {
+            matches!(
+                s.kind,
+                SymbolKind::Struct | SymbolKind::Type | SymbolKind::Interface
+            ) && s.name == receiver_type
+        }) {
+            let mut method = symbols.remove(idx);
+            let adj = if idx < parent_idx {
+                parent_idx - 1
+            } else {
+                parent_idx
+            };
+            method.depth = symbols[adj].depth + 1;
+            symbols[adj].children.push(method);
+        }
+    }
+}
+
+/// Parse the Go receiver type from a method signature string.
+///
+/// - `func (s *Server) Start()` -> `Some("Server")`
+/// - `func (s Server) Start()`  -> `Some("Server")`
+/// - `func (*Server) Method()`  -> `Some("Server")`
+/// - `func main()`              -> `None`
+fn parse_go_receiver_type(signature: &str) -> Option<String> {
+    let after_func = signature.strip_prefix("func ")?.trim_start();
+    let receiver_part = after_func.strip_prefix('(')?;
+    let end_paren = receiver_part.find(')')?;
+    let receiver = receiver_part[..end_paren].trim();
+    if receiver.is_empty() {
+        return None;
+    }
+    let type_part = receiver.split_whitespace().next_back()?;
+    let type_name = type_part.strip_prefix('*').unwrap_or(type_part);
+    // Strip generic parameters: Type[T] -> Type
+    let type_name = type_name.split('[').next().unwrap_or(type_name);
+    if type_name.is_empty() {
+        return None;
+    }
+    Some(type_name.to_string())
 }
 
 fn extract_hcl(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, String)> {
@@ -2219,5 +2289,109 @@ pub struct Foo {}
             "signature should include destructured params: {:?}",
             foo.signature
         );
+    }
+
+    #[test]
+    fn go_receiver_methods_grouped_under_struct() {
+        let source = "\
+package main
+
+type Server struct {
+\tHost string
+}
+
+func NewServer() *Server { return nil }
+
+func (s *Server) Start() error { return nil }
+
+func (s *Server) Stop() {}
+";
+        let syms = extract_symbols(source, Language::Go);
+        let server = syms.iter().find(|s| s.name == "Server").unwrap();
+        assert_eq!(server.kind, SymbolKind::Struct);
+        assert_eq!(
+            server.children.len(),
+            2,
+            "Server should have 2 method children, got: {:?}",
+            server.children.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert!(server.children.iter().any(|c| c.name == "Start"));
+        assert!(server.children.iter().any(|c| c.name == "Stop"));
+        // NewServer is a free function, not a method
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "NewServer" && s.kind == SymbolKind::Function)
+        );
+    }
+
+    #[test]
+    fn go_qualified_name_lookup_works() {
+        let source = "\
+package main
+
+type Dog struct{}
+func (d *Dog) Speak() string { return \"woof\" }
+
+type Cat struct{}
+func (c *Cat) Speak() string { return \"meow\" }
+";
+        let syms = extract_symbols(source, Language::Go);
+        // Qualified lookup should disambiguate
+        let dog_speak = find_symbol(&syms, "Dog::Speak");
+        assert!(dog_speak.is_some(), "Dog::Speak should be found");
+        assert!(dog_speak.unwrap().signature.contains("Dog"));
+
+        let cat_speak = find_symbol(&syms, "Cat::Speak");
+        assert!(cat_speak.is_some(), "Cat::Speak should be found");
+        assert!(cat_speak.unwrap().signature.contains("Cat"));
+    }
+
+    #[test]
+    fn go_value_receiver_grouped() {
+        let source = "\
+package main
+
+type Counter struct{ n int }
+
+func (c Counter) Count() int { return c.n }
+";
+        let syms = extract_symbols(source, Language::Go);
+        let counter = syms.iter().find(|s| s.name == "Counter").unwrap();
+        assert_eq!(counter.children.len(), 1);
+        assert_eq!(counter.children[0].name, "Count");
+    }
+
+    #[test]
+    fn go_method_without_matching_struct_stays_top_level() {
+        // Receiver type not defined in this file
+        let source = "\
+package main
+
+func (e *External) DoWork() {}
+";
+        let syms = extract_symbols(source, Language::Go);
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "DoWork" && s.kind == SymbolKind::Method),
+            "orphan method should stay top-level"
+        );
+    }
+
+    #[test]
+    fn parse_go_receiver_type_cases() {
+        assert_eq!(
+            parse_go_receiver_type("func (s *Server) Start()"),
+            Some("Server".to_string())
+        );
+        assert_eq!(
+            parse_go_receiver_type("func (s Server) Start()"),
+            Some("Server".to_string())
+        );
+        assert_eq!(
+            parse_go_receiver_type("func (*Server) Method()"),
+            Some("Server".to_string())
+        );
+        assert_eq!(parse_go_receiver_type("func main()"), None);
+        assert_eq!(parse_go_receiver_type("func NewServer() *Server"), None);
     }
 }
