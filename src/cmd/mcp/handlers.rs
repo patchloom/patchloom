@@ -6,7 +6,7 @@
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ErrorData as McpError};
+use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError};
 use rmcp::{tool, tool_router};
 
 use crate::cli::global::GlobalFlags;
@@ -333,7 +333,7 @@ impl PatchloomService {
                         .collect::<Vec<_>>()
                         .join("\n")
                 );
-                tool_result.content.push(Content::text(warning_text));
+                tool_result.content.push(ContentBlock::text(warning_text));
             }
 
             Ok(tool_result)
@@ -394,7 +394,7 @@ impl PatchloomService {
             let issues = crate::ops::md::lint_agents_content(&content);
             let json = serde_json::to_string_pretty(&issues)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(json)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
         .await
     }
@@ -849,7 +849,7 @@ impl PatchloomService {
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             let json = serde_json::to_string_pretty(&status)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            Ok(CallToolResult::success(vec![Content::text(json)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
         .await
     }

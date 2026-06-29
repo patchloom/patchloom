@@ -3,7 +3,7 @@
 //! Each `pub(super)` function contains the logic for one AST MCP tool.
 //! The `#[tool]` stubs in `mod.rs` delegate directly to these functions.
 
-use rmcp::model::{CallToolResult, Content, ErrorData as McpError};
+use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError};
 
 use crate::cli::global::GlobalFlags;
 use crate::exit;
@@ -82,7 +82,7 @@ pub(super) fn handle_ast_list(
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_read(
@@ -124,7 +124,7 @@ pub(super) fn handle_ast_read(
     });
     let json = serde_json::to_string_pretty(&obj)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_rename(
@@ -223,7 +223,7 @@ pub(super) fn handle_ast_validate(
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_search(
@@ -278,7 +278,7 @@ pub(super) fn handle_ast_search(
     }
     let json = serde_json::to_string_pretty(&all_matches)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_refs(
@@ -318,7 +318,7 @@ pub(super) fn handle_ast_refs(
     });
     let json = serde_json::to_string_pretty(&obj)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_deps(
@@ -401,7 +401,7 @@ pub(super) fn handle_ast_deps(
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_map(
@@ -450,7 +450,7 @@ pub(super) fn handle_ast_map(
 
     let json = serde_json::to_string_pretty(&entries)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_diff(
@@ -492,7 +492,7 @@ pub(super) fn handle_ast_diff(
     });
     let json = serde_json::to_string_pretty(&obj)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_impact(
@@ -534,7 +534,7 @@ pub(super) fn handle_ast_impact(
     });
     let json = serde_json::to_string_pretty(&obj)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
 }
 
 pub(super) fn handle_ast_replace(
@@ -617,7 +617,7 @@ pub(super) fn handle_ast_imports(
         });
         let json = serde_json::to_string_pretty(&obj)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        return Ok(CallToolResult::success(vec![Content::text(json)]));
+        return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
     }
 
     let op = crate::plan::Operation::AstImports {
@@ -728,17 +728,17 @@ pub(super) fn handle_ast_split(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rmcp::model::RawContent;
+    use rmcp::model::ContentBlock;
     use tempfile::TempDir;
 
     fn make_service(dir: &TempDir) -> PatchloomService {
         PatchloomService::new(dir.path().to_path_buf(), None).unwrap()
     }
 
-    /// Extract text from the first Content item in a CallToolResult.
+    /// Extract text from the first ContentBlock item in a CallToolResult.
     fn extract_text(result: &CallToolResult) -> String {
-        match &result.content[0].raw {
-            RawContent::Text(t) => t.text.clone(),
+        match &result.content[0] {
+            ContentBlock::Text(t) => t.text.clone(),
             other => panic!("expected text content, got {other:?}"),
         }
     }

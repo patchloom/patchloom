@@ -92,7 +92,7 @@ anyhow = "1"
 anstream = { version = "1", optional = true }
 ec4rs = { version = "1", optional = true }
 clap_complete = { version = "4", optional = true }
-rmcp = { version = "1", features = ["server", "transport-io", "macros"], optional = true }
+rmcp = { version = "2", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 axum = { version = "0.8", features = ["http1", "tokio"], default-features = false, optional = true }
 axum-server = { version = "0.8", features = ["tls-rustls"], default-features = false, optional = true }
@@ -131,7 +131,7 @@ predicates = "3"
 proptest = "1"
 rcgen = "0.14"
 reqwest = { version = "0.13", features = ["rustls"], default-features = false }
-rmcp = { version = "1", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "2", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1", features = ["full"] }
 
 [[bin]]

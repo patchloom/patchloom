@@ -6018,8 +6018,8 @@ async fn test_mcp_http_search_files_round_trip() {
     let text = result
         .content
         .first()
-        .and_then(|c| match &c.raw {
-            rmcp::model::RawContent::Text(t) => Some(t.text.clone()),
+        .and_then(|c| match c {
+            rmcp::model::ContentBlock::Text(t) => Some(t.text.clone()),
             _ => None,
         })
         .unwrap_or_default();
