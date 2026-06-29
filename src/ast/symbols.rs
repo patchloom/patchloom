@@ -2337,12 +2337,10 @@ func (c *Cat) Speak() string { return \"meow\" }
 ";
         let syms = extract_symbols(source, Language::Go);
         // Qualified lookup should disambiguate
-        let dog_speak = find_symbol(&syms, "Dog::Speak")
-            .expect("Dog::Speak should be found");
+        let dog_speak = find_symbol(&syms, "Dog::Speak").expect("Dog::Speak should be found");
         assert!(dog_speak.signature.contains("Dog"));
 
-        let cat_speak = find_symbol(&syms, "Cat::Speak")
-            .expect("Cat::Speak should be found");
+        let cat_speak = find_symbol(&syms, "Cat::Speak").expect("Cat::Speak should be found");
         assert!(cat_speak.signature.contains("Cat"));
     }
 
