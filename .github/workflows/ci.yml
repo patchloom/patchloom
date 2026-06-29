@@ -387,7 +387,7 @@ jobs:
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
           hyperfine --warmup 3 --min-runs 20 -N \
             --export-json "$bench_json" \
-            "./target/release/patchloom replace hello --to world $bench_txt" \
+            "./target/release/patchloom replace hello --new world $bench_txt" \
             --max-runs 100
           python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run"
 
