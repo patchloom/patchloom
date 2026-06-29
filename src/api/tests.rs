@@ -1139,10 +1139,10 @@ fn concurrent_edits_to_different_files() {
     let dir = TempDir::new().unwrap();
     let num_threads = 8;
 
-    // Create files for each thread.
+    // Create files for each thread (start at 1 so i*100 always differs).
     for i in 0..num_threads {
         let file = dir.path().join(format!("file_{i}.json"));
-        fs::write(&file, format!(r#"{{"value": {i}}}"#)).unwrap();
+        fs::write(&file, format!(r#"{{"value": {}}}"#, i + 1)).unwrap();
     }
 
     // Edit all files concurrently.
@@ -1154,7 +1154,7 @@ fn concurrent_edits_to_different_files() {
                 let result = doc_set(
                     &file,
                     "value",
-                    serde_json::json!(i * 100),
+                    serde_json::json!(i * 100 + 999),
                     ApplyMode::Apply,
                     None,
                 )
@@ -1170,7 +1170,7 @@ fn concurrent_edits_to_different_files() {
         let file = dir.path().join(format!("file_{i}.json"));
         let content = fs::read_to_string(&file).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed["value"], serde_json::json!(i * 100));
+        assert_eq!(parsed["value"], serde_json::json!(i * 100 + 999));
     }
 }
 

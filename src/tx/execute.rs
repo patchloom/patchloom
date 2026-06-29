@@ -192,10 +192,7 @@ pub(crate) fn get_doc_root<'a>(
         let content = read_file_content(pending, existed_before, &file_path)?;
         let format = detect_format(path).map_err(path_err(path))?;
         let root = parse_doc(content, &format).map_err(path_err(path))?;
-        let old_value = match format {
-            FileFormat::Json => serde_json::Value::Null,
-            _ => root.clone(),
-        };
+        let old_value = root.clone();
         let original_text = content.to_owned();
         doc_cache.insert(
             file_path.clone(),
