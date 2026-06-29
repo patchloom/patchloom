@@ -22,19 +22,22 @@ pub struct PatchFile {
     pub hunks: Vec<Hunk>,
 }
 
+/// Check whether line `idx` is a real file header ("--- " followed by "+++"),
+/// not a removed line whose content happens to start with "-- " (e.g. SQL
+/// comments produce `--- comment text` in the diff).
+fn is_file_header(lines: &[&str], idx: usize) -> bool {
+    lines[idx].starts_with("--- ") && idx + 1 < lines.len() && lines[idx + 1].starts_with("+++ ")
+}
+
 pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
     let lines: Vec<&str> = input.lines().collect();
     let mut files: Vec<PatchFile> = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
-        if !lines[i].starts_with("--- ") {
+        if !is_file_header(&lines, i) {
             i += 1;
             continue;
-        }
-
-        if i + 1 >= lines.len() || !lines[i + 1].starts_with("+++ ") {
-            return Err(format!("expected +++ line after --- at line {}", i + 1));
         }
 
         // For deletions the `+++` line is `/dev/null`; take path from `---`.
@@ -47,7 +50,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         i += 2;
 
         let mut hunks: Vec<Hunk> = Vec::new();
-        while i < lines.len() && !lines[i].starts_with("--- ") {
+        while i < lines.len() && !is_file_header(&lines, i) {
             if lines[i].starts_with("@@ ") {
                 let hunk = parse_hunk_header(lines[i])?;
                 let mut hunk_lines: Vec<PatchLine> = Vec::new();
@@ -55,7 +58,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
 
                 while i < lines.len()
                     && !lines[i].starts_with("@@ ")
-                    && !lines[i].starts_with("--- ")
+                    && !is_file_header(&lines, i)
                     && !lines[i].starts_with("diff ")
                 {
                     let line = lines[i];

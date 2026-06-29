@@ -14,7 +14,7 @@ pub(crate) fn hoist_comments(original: &str, body: &str) -> String {
         let sep = if comments.ends_with('\n') || body.starts_with('\n') {
             ""
         } else {
-            "\n"
+            eol
         };
         format!("{}{}{}", comments, sep, body)
     } else {
@@ -77,6 +77,28 @@ mod tests {
         assert!(
             result.contains("# top comment\r\n\r\n# second"),
             "CRLF should be preserved in comment join: {result:?}"
+        );
+    }
+
+    /// Regression: the separator between comments and body must use
+    /// the detected EOL, not a hardcoded "\n", to avoid mixed endings.
+    #[test]
+    fn hoist_comments_separator_uses_detected_eol() {
+        // CRLF file where comments don't end with \n and body doesn't
+        // start with \n, triggering the separator path.
+        let original = "# config\r\nkey: value\r\n";
+        let body = "key: new\r\n";
+        let result = hoist_comments(original, body);
+        // The separator between "# config" and "key: new" must be \r\n.
+        assert!(
+            result.contains("# config\r\nkey: new"),
+            "separator must use CRLF for CRLF files: {result:?}"
+        );
+        // No bare LF should exist (would indicate mixed endings).
+        let without_crlf = result.replace("\r\n", "");
+        assert!(
+            !without_crlf.contains('\n'),
+            "no bare LF should exist in CRLF output: {result:?}"
         );
     }
 }

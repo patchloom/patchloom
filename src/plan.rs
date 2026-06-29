@@ -913,8 +913,12 @@ fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
                 i += 1;
             }
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            // Advance by one full UTF-8 character, not one byte.
+            // `bytes[i] as char` would interpret each byte of a multi-byte
+            // sequence as a Latin-1 code point, corrupting non-ASCII text.
+            let ch = template[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
         }
     }
     result
@@ -1097,6 +1101,20 @@ mod tests {
         let vars: &[(&str, String)] = &[("{path}", "src/main.rs".into()), ("{dir}", "src".into())];
         let result = substitute_single_pass(template, vars);
         assert_eq!(result, "file: src/main.rs, dir: src");
+    }
+
+    /// Regression: substitute_single_pass must handle multi-byte UTF-8
+    /// characters correctly (not corrupt them via byte-as-char casting).
+    #[cfg(feature = "cli")]
+    #[test]
+    fn substitute_single_pass_preserves_utf8() {
+        let template = r#"{"path": "{path}", "to": "résumé café"}"#;
+        let vars: &[(&str, String)] = &[("{path}", "src/main.rs".into())];
+        let result = substitute_single_pass(template, vars);
+        assert_eq!(
+            result, r#"{"path": "src/main.rs", "to": "résumé café"}"#,
+            "multi-byte UTF-8 characters must survive template expansion"
+        );
     }
 
     #[test]

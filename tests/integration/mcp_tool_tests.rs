@@ -277,6 +277,35 @@ async fn test_mcp_doc_has_existing_key() {
     client.cancel().await.unwrap();
 }
 
+/// Regression: doc_query "has" for a missing key must return is_error=false
+/// with value "false", not is_error=true. The "has" action's purpose is to
+/// check existence; "false" is a valid answer, not an error.
+#[tokio::test]
+async fn test_mcp_doc_has_missing_key_not_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"name":"alice"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "has", "path": "data.json", "selector": "missing_key"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query has for missing key should NOT be an error: {val}"
+    );
+    assert_eq!(
+        val, false,
+        "doc_query has should return false for missing key: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_doc_get_reads_value() {
     if !has_mcp_support() {
