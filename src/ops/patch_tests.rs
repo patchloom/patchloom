@@ -1031,4 +1031,29 @@ mod regression {
         );
         assert_eq!(result, "line1\r\nreplaced\r\nline3\r\n");
     }
+
+    /// Regression: a removed line whose content starts with "-- " (SQL comment)
+    /// must not be treated as a file header boundary. The diff line becomes
+    /// "--- comment text" which previously matched the "--- " termination check.
+    #[test]
+    fn parse_patch_removed_sql_comment_line() {
+        let diff = "\
+--- a/query.sql
++++ b/query.sql
+@@ -1,3 +1,2 @@
+ SELECT 1;
+--- This query is slow
+ SELECT 2;
+";
+        let files = parse_patch(diff).expect("should parse successfully");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "query.sql");
+        assert_eq!(files[0].hunks.len(), 1);
+        assert_eq!(files[0].hunks[0].lines.len(), 3);
+        // The "-- This query is slow" line should be a Remove, not a header
+        assert!(
+            matches!(&files[0].hunks[0].lines[1], PatchLine::Remove(s) if s == "-- This query is slow"),
+            "SQL comment removal must be parsed as a Remove line"
+        );
+    }
 }

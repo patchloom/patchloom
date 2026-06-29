@@ -35,12 +35,8 @@ pub fn replace_in_symbol(
         None => return Ok(None),
     };
 
-    // Detect dominant line ending to preserve it in the output.
-    let eol = if source.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
+    // Use canonical majority-vote detection, consistent with all other AST modules.
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = source.lines().collect();
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(lines.len());
@@ -181,6 +177,26 @@ fn bar() {
         // Verify no bare LF where CRLF was expected
         let without_cr = result.content.replace("\r\n", "");
         assert!(!without_cr.contains('\n'), "no bare LF in CRLF content");
+    }
+
+    /// Regression: a majority-LF file with one stray CRLF must stay LF,
+    /// not be converted to all-CRLF by the inline `contains("\r\n")` check.
+    #[test]
+    fn replace_majority_lf_with_stray_crlf_preserves_lf() {
+        // 3 LF lines + 1 CRLF line: majority is LF.
+        let source = "fn foo() {\n    let x = 1;\r\n    let y = 2;\n}\n";
+        let result = replace_in_symbol(source, "foo", "1", "42", false, Language::Rust)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.replacements, 1);
+        // The output should use LF (majority vote), not CRLF.
+        let lines: Vec<&str> = result.content.split('\n').collect();
+        let crlf_count = result.content.matches("\r\n").count();
+        let lf_count = lines.len().saturating_sub(1).saturating_sub(crlf_count);
+        assert!(
+            lf_count > crlf_count,
+            "majority-LF file should stay LF after replace, got {crlf_count} CRLF vs {lf_count} LF"
+        );
     }
 
     #[test]

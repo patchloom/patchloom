@@ -315,7 +315,12 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
         crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     // CHANGES_DETECTED (2) is a valid success for doc diff (differences found).
-    let effective = if code == exit::CHANGES_DETECTED {
+    // NO_MATCHES (3) with non-empty output is a valid answer (e.g. "has"
+    // returning "false", "len" returning "0"). Only treat it as an error
+    // when the output is empty (genuinely no result).
+    let effective = if code == exit::CHANGES_DETECTED
+        || (code == exit::NO_MATCHES && !output.trim().is_empty())
+    {
         exit::SUCCESS
     } else {
         code
