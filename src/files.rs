@@ -161,7 +161,7 @@ pub(crate) fn collect_file_paths_opts(
     let mut paths = collected.into_inner().expect("all walkers done");
 
     // Apply runtime exclude patterns (shared helper for parity with with_ignores).
-    apply_exclude_globs(&mut paths, &global.exclude)?;
+    apply_exclude_globs(&mut paths, &global.exclude, root)?;
     Ok(paths)
 }
 
@@ -404,8 +404,16 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
 /// Apply exclude glob patterns to a list of paths (post-filter).
 /// Shared to avoid duplication between collect_file_paths_with_ignores and
 /// the advanced logic in collect_file_paths_opts.
+///
+/// When `root` is provided, each path is also tested as a relative path
+/// (stripped from the root prefix) so that patterns like `vendor/**` match
+/// files at `<root>/vendor/lib.rs` even though the full path is absolute.
 #[cfg(any(feature = "cli", feature = "files"))]
-fn apply_exclude_globs(paths: &mut Vec<PathBuf>, patterns: &[String]) -> anyhow::Result<()> {
+fn apply_exclude_globs(
+    paths: &mut Vec<PathBuf>,
+    patterns: &[String],
+    root: Option<&Path>,
+) -> anyhow::Result<()> {
     if patterns.is_empty() {
         return Ok(());
     }
@@ -414,7 +422,22 @@ fn apply_exclude_globs(paths: &mut Vec<PathBuf>, patterns: &[String]) -> anyhow:
         exb.add(globset::Glob::new(pat)?);
     }
     let ex = exb.build()?;
-    paths.retain(|p| !glob_matches_path(p, &ex));
+    paths.retain(|p| {
+        // Check full path and filename (existing behavior).
+        if glob_matches_path(p, &ex) {
+            return false;
+        }
+        // Also check the relative path so patterns like `vendor/**` work
+        // when collected paths are absolute.
+        if let Some(r) = root
+            && let Ok(rel) = p.strip_prefix(r)
+            && !rel.as_os_str().is_empty()
+            && ex.is_match(rel)
+        {
+            return false;
+        }
+        true
+    });
     Ok(())
 }
 
@@ -444,7 +467,7 @@ pub fn collect_file_paths_with_ignores(
         .map(|e| e.into_path())
         .collect();
 
-    apply_exclude_globs(&mut paths, exclude_patterns)?;
+    apply_exclude_globs(&mut paths, exclude_patterns, Some(root))?;
     Ok(paths)
 }
 
@@ -870,11 +893,30 @@ mod tests {
             PathBuf::from("src/lib.rs"),
             PathBuf::from("README.md"),
         ];
-        apply_exclude_globs(&mut paths, &["*.rs".into()]).unwrap();
+        apply_exclude_globs(&mut paths, &["*.rs".into()], None).unwrap();
         assert_eq!(
             paths,
             vec![PathBuf::from("README.md")],
             "*.rs should exclude files in subdirs"
+        );
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn exclude_glob_matches_directory_pattern_with_root() {
+        // Regression: patterns like "vendor/**" must match absolute paths
+        // when the root prefix is stripped for comparison.
+        let root = PathBuf::from("/project");
+        let mut paths = vec![
+            PathBuf::from("/project/src/main.rs"),
+            PathBuf::from("/project/vendor/lib.rs"),
+            PathBuf::from("/project/vendor/sub/dep.rs"),
+        ];
+        apply_exclude_globs(&mut paths, &["vendor/**".into()], Some(&root)).unwrap();
+        assert_eq!(
+            paths,
+            vec![PathBuf::from("/project/src/main.rs")],
+            "vendor/** with root should exclude vendor files"
         );
     }
 }
