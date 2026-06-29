@@ -39,7 +39,7 @@ pub fn execute_write<T: Serialize>(
 ) -> anyhow::Result<u8> {
     // --check mode: report what would happen, no mutation.
     if global.check {
-        let output = make_output(WritePhase::Check, None);
+        let output = make_output(WritePhase::Check(true), None);
         if !global.emit_json(&output)? && !global.quiet {
             println!("{}", msgs.check);
         }
@@ -122,7 +122,7 @@ mod tests {
 
     fn make_test_output(phase: WritePhase, diff: Option<String>) -> TestOutput {
         let phase_str = match phase {
-            WritePhase::Check => "check".to_string(),
+            WritePhase::Check(_) => "check".to_string(),
             WritePhase::Applied => "applied".to_string(),
             WritePhase::Confirmed(b) => format!("confirmed({b})"),
             WritePhase::Preview => "preview".to_string(),
