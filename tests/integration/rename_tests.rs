@@ -705,3 +705,33 @@ fn test_rename_case_only_change() {
         entries[0]
     );
 }
+
+/// Cross-directory rename with case-similar filenames must NOT bypass
+/// the destination-exists check (#1169).
+#[test]
+fn test_rename_cross_dir_case_similar_requires_force() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("src")).unwrap();
+    fs::create_dir(dir.path().join("lib")).unwrap();
+    fs::write(dir.path().join("src/Foo.txt"), "A\n").unwrap();
+    fs::write(dir.path().join("lib/foo.txt"), "B\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["rename", "--apply"])
+        .arg(dir.path().join("src/Foo.txt").to_str().unwrap())
+        .arg(dir.path().join("lib/foo.txt").to_str().unwrap())
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("destination already exists"));
+
+    // Original files untouched.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("src/Foo.txt")).unwrap(),
+        "A\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("lib/foo.txt")).unwrap(),
+        "B\n"
+    );
+}

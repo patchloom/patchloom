@@ -518,6 +518,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // If source and destination resolve to the same file, no-op.
             // Allow case-only renames on case-insensitive filesystems (#1167).
             let case_only = src_path != dst_path
+                && src_path.parent() == dst_path.parent()
                 && src_path.file_name().map(|n| n.to_ascii_lowercase())
                     == dst_path.file_name().map(|n| n.to_ascii_lowercase());
             if !case_only
@@ -835,7 +836,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let result =
                 crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
@@ -887,7 +888,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let result = crate::ast::replace::replace_in_symbol(
                 content, symbol, from, to, *regex, lang_val,
@@ -927,7 +928,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let pos = match position.as_deref() {
                 Some("start") => crate::ast::insert::InsertPosition::Start,
@@ -965,7 +966,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let result = crate::ast::wrap::wrap_code(
                 file_content,
@@ -998,7 +999,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let mut total_changes = 0usize;
 
@@ -1041,7 +1042,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let strategy = crate::ast::reorder::parse_strategy(order)?;
             let result = crate::ast::reorder::reorder_symbols(
@@ -1075,7 +1076,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let pos = match position.as_deref() {
                 Some("end") => crate::ast::group::GroupPosition::End,
@@ -1126,7 +1127,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             };
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
             let pos = crate::ast::move_symbols::parse_position(position.as_deref());
             let result = crate::ast::move_symbols::move_symbols(
@@ -1175,7 +1176,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
             let do_unwrap = unwrap.unwrap_or(true);
             let result = crate::ast::extract::extract_to_file(
@@ -1217,7 +1218,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
             let lang_val = lang
                 .as_deref()
-                .map(crate::ast::Language::from_extension)
+                .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
             let split_targets: Vec<crate::ast::split::SplitTarget> = targets
                 .iter()

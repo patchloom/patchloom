@@ -400,3 +400,32 @@ fn test_ast_list_unsupported_file_reports_language() {
         .stderr(predicates::str::contains("Unsupported language"))
         .stderr(predicates::str::contains("Rust"));
 }
+
+/// `--glob` flag should filter files in AST directory scanning (#1171).
+#[test]
+fn test_ast_list_respects_glob_flag() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn foo() {}\n").unwrap();
+    fs::write(dir.path().join("main.py"), "def bar(): pass\n").unwrap();
+
+    // Without glob: both files should produce output.
+    let out_all = patchloom_in(dir.path())
+        .args(["ast", "list", "."])
+        .output()
+        .unwrap();
+    let stdout_all = String::from_utf8_lossy(&out_all.stdout);
+    assert!(stdout_all.contains("foo"), "should list foo from lib.rs");
+    assert!(stdout_all.contains("bar"), "should list bar from main.py");
+
+    // With glob *.rs: only Rust file should produce output.
+    let out_rs = patchloom_in(dir.path())
+        .args(["ast", "list", ".", "--glob", "*.rs"])
+        .output()
+        .unwrap();
+    let stdout_rs = String::from_utf8_lossy(&out_rs.stdout);
+    assert!(stdout_rs.contains("foo"), "should list foo from lib.rs");
+    assert!(
+        !stdout_rs.contains("bar"),
+        "should NOT list bar from main.py"
+    );
+}

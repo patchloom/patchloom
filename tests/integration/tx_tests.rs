@@ -6930,3 +6930,40 @@ fn test_tx_global_format_failure_includes_undo_hint() {
         "error should mention `patchloom undo` for recovery: {stderr}"
     );
 }
+
+/// TX engine should resolve lang hint via lang_from_str (language names),
+/// not just from_extension (#1170).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_list_with_lang_name_hint() {
+    let dir = TempDir::new().unwrap();
+    // File with non-standard extension but valid Rust code.
+    let file = dir.path().join("code.txt");
+    fs::write(&file, "fn hello() { let x = 1; }\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": "1",
+        "operations": [{
+            "op": "ast.rename",
+            "path": portable_path_str(&file),
+            "old_name": "hello",
+            "new_name": "world",
+            "lang": "rust"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("world"),
+        "lang hint 'rust' should work via lang_from_str: {content}"
+    );
+}

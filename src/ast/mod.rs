@@ -86,6 +86,30 @@ impl Language {
         }
     }
 
+    /// Detect language from a language name or file extension string.
+    /// Tries common language names first (e.g. "rust", "python",
+    /// "typescript"), then falls back to extension matching.
+    pub fn from_name_or_ext(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "rust" => Self::Rust,
+            "typescript" => Self::TypeScript,
+            "javascript" => Self::JavaScript,
+            "python" => Self::Python,
+            "golang" => Self::Go,
+            "java" => Self::Java,
+            "csharp" | "c#" => Self::CSharp,
+            "ruby" => Self::Ruby,
+            "kotlin" => Self::Kotlin,
+            "hcl" | "terraform" => Self::Hcl,
+            "protobuf" => Self::Protobuf,
+            "dockerfile" | "docker" => Self::Dockerfile,
+            "markdown" => Self::Markdown,
+            "c++" => Self::Cpp,
+            "shell" => Self::Shell,
+            _ => Self::from_extension(s),
+        }
+    }
+
     /// Detect language from a file path by its extension.
     pub fn from_path(path: &Path) -> Self {
         // Handle extensionless files by filename.
