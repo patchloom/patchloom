@@ -93,8 +93,15 @@ pub fn serialize_value_preserving(
                 Ok(preserve::hoist_comments(original_content, &body))
             }
         }
-        // JSON has no comments.
-        _ => serialize_value(new_value, format),
+        // JSON has no comments; return the original text when unchanged
+        // to avoid spurious formatting diffs (e.g. array compaction changes).
+        _ => {
+            if old_value == new_value {
+                Ok(original_content.to_string())
+            } else {
+                serialize_value(new_value, format)
+            }
+        }
     }
 }
 
