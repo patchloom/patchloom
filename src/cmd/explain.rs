@@ -166,6 +166,8 @@ fn describe_operation(op: &Operation) -> String {
             whole_line,
             range,
             word_boundary,
+            multiline,
+            if_exists,
             ..
         } => {
             let target = path.as_deref().or(glob.as_deref()).unwrap_or("(all files)");
@@ -198,8 +200,10 @@ fn describe_operation(op: &Operation) -> String {
                 .as_deref()
                 .map(|r| format!(", lines {r}"))
                 .unwrap_or_default();
+            let ml_str = if *multiline { ", multiline" } else { "" };
+            let ie_str = if *if_exists { ", if-exists" } else { "" };
             format!(
-                "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{range_str})"
+                "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{ml_str}{ie_str}{range_str})"
             )
         }
         Operation::DocSet { path, key, value } => {

@@ -321,7 +321,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_ok = true;
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
-            let original = std::fs::read_to_string(&file_path).unwrap_or_default();
+            let original = match std::fs::read_to_string(&file_path) {
+                Ok(s) => s,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(e) => {
+                    anyhow::bail!("patch check: cannot read {}: {e}", pf.path);
+                }
+            };
             match apply_patch_file(&original, &pf.hunks, check_options) {
                 Ok(applied) => {
                     if applied.status == ApplyHunksStatus::Conflict {
@@ -372,7 +378,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // The engine error from apply_patch_with_loader already includes
             // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
             // FAILED label to match the original CLI format.
-            let exit_code = if msg.contains("conflict") {
+            let exit_code = if msg.contains("conflict(s)") {
                 exit::CONFLICTS
             } else {
                 exit::AMBIGUOUS

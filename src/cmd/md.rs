@@ -157,7 +157,7 @@ fn execute_md_op(
         Ok(code) => Ok(code),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("not found") {
+            if msg.contains("heading") && msg.contains("not found") {
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
