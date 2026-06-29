@@ -65,6 +65,11 @@ pub fn tidy_with_indent(
         ensure_final_newline: Some(policy_opts.ensure_final_newline),
         trim_trailing_whitespace: Some(policy_opts.trim_trailing_whitespace),
         normalize_eol: eol_str,
+        collapse_blanks: if policy_opts.collapse_blanks {
+            Some(true)
+        } else {
+            None
+        },
         dedent: indent_opts.dedent.clone(),
         indent: indent_opts.indent.clone(),
         lines: indent_opts.lines.clone(),

@@ -111,6 +111,9 @@ pub(crate) struct TidyParams {
     /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50").
     #[serde(default)]
     pub lines: Option<String>,
+    /// Collapse consecutive blank lines into a single blank line.
+    #[serde(default)]
+    pub collapse_blanks: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

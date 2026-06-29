@@ -140,7 +140,13 @@ pub fn ensure_final_newline(content: &str, eol: EolMode) -> std::borrow::Cow<'_,
     let (suffix, already_ok) = match eol {
         EolMode::Cr => ("\r", content.ends_with('\r')),
         EolMode::Crlf => ("\r\n", content.ends_with("\r\n")),
-        EolMode::Lf | EolMode::Keep => ("\n", content.ends_with('\n')),
+        EolMode::Lf => ("\n", content.ends_with('\n')),
+        EolMode::Keep => {
+            // Use the file's dominant line ending so we don't introduce
+            // mixed endings (#1175).
+            let detected = detect_eol(content);
+            (detected, content.ends_with(detected))
+        }
     };
     if content.is_empty() || already_ok {
         Cow::Borrowed(content)

@@ -254,6 +254,11 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             // Build one TidyFix operation per dirty file.
             let eol_str = global.normalize_eol.map(eol_mode_to_str);
+            let collapse = if global.collapse_blanks {
+                Some(true)
+            } else {
+                None
+            };
             let ops: Vec<Operation> = dirty_rel_paths
                 .iter()
                 .map(|rel_path| Operation::TidyFix {
@@ -261,6 +266,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     ensure_final_newline: Some(global.ensure_final_newline),
                     trim_trailing_whitespace: Some(global.trim_trailing_whitespace),
                     normalize_eol: eol_str.map(String::from),
+                    collapse_blanks: collapse,
                     dedent: dedent.clone(),
                     indent: indent.clone(),
                     lines: lines.clone(),
@@ -798,5 +804,35 @@ mod tests {
             exit::CHANGES_DETECTED,
             "exit code must reflect issues even with --quiet"
         );
+    }
+
+    /// #1176: collapse_blanks flag must be forwarded from global flags
+    /// into TidyFix operations so the tx engine can apply it.
+    #[test]
+    fn collapse_blanks_flag_forwarded_to_tidy_fix() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("blank.txt");
+        // File with consecutive blank lines.
+        std::fs::write(&file, "a\n\n\n\nb\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.apply = true;
+        global.collapse_blanks = true;
+
+        let args = TidyArgs {
+            action: TidyAction::Fix {
+                paths: vec![".".to_string()],
+                dedent: None,
+                indent: None,
+                lines: None,
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        // Consecutive blank lines should be collapsed to at most one.
+        assert_eq!(content, "a\n\nb\n");
     }
 }

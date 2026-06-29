@@ -25,6 +25,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// file.create <path> <content>
 /// file.delete <path>
 /// file.rename <from> <to>
+/// file.append <path> <content>
+/// file.prepend <path> <content>
 /// md.upsert_bullet <path> <heading> <bullet>
 /// md.table_append <path> <heading> <row>
 /// md.replace_section <path> <heading> <content>
@@ -35,6 +37,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.dedupe_headings <path>
 /// md.lint_agents <path>
 /// tidy.fix <path>
+/// ast.rename <path> <old_name> <new_name>
+/// ast.replace <path> <symbol> <from> <to>
 /// ```
 ///
 /// Lines starting with `#` are comments. Empty lines are ignored.
@@ -43,9 +47,10 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 #[command(after_help = r#"OPERATIONS:
   doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend,
   doc.update, doc.move, doc.delete_where, replace, file.create,
-  file.delete, file.rename, md.upsert_bullet, md.table_append,
-  md.replace_section, md.insert_after_heading, md.insert_before_heading,
-  md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix
+  file.delete, file.rename, file.append, file.prepend, md.upsert_bullet,
+  md.table_append, md.replace_section, md.insert_after_heading,
+  md.insert_before_heading, md.move_section, md.dedupe_headings,
+  md.lint_agents, tidy.fix, ast.rename, ast.replace
 
 EXAMPLES:
   printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
@@ -261,6 +266,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 ensure_final_newline: None,
                 trim_trailing_whitespace: None,
                 normalize_eol: None,
+                collapse_blanks: None,
                 dedent: None,
                 indent: None,
                 lines: None,
