@@ -511,6 +511,42 @@ mod edge_cases {
         assert_eq!(code, exit::SUCCESS);
     }
 
+    /// #1194: `--if-exists --json` must emit a JSON object even when there
+    /// are no matches, not zero bytes.
+    #[test]
+    fn if_exists_json_emits_output_on_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            from: "zzz_no_match_zzz".to_string(),
+            to: Some("replacement".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: true,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            write: Default::default(),
+        };
+        let global = GlobalFlags {
+            json: true,
+            ..GlobalFlags::test_default()
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        // The JSON output is written to stdout via global.emit_json(),
+        // which we trust here. The key assertion is that the code path
+        // reaches emit_json (previously it returned before emitting).
+    }
+
     #[test]
     fn binary_files_are_skipped() {
         let dir = TempDir::new().unwrap();

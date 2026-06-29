@@ -51,6 +51,7 @@ const DEFINITION_PARENT_KINDS: &[&str] = &[
     "mod_item",
     "const_item",
     "type_spec",
+    "variable_declarator",
 ];
 
 /// Identifier node kinds to scan.
@@ -569,6 +570,45 @@ fn main() {
             foo_count >= 2,
             "foo should appear at least twice (def + ref), got {foo_count}"
         );
+    }
+
+    /// #1195: JS/TS `const` declarations must be classified as definitions,
+    /// not references. `variable_declarator` must be in DEFINITION_PARENT_KINDS.
+    #[test]
+    fn find_refs_typescript_const_is_definition() {
+        let source = "const MAX_RETRIES = 5;\nfunction retry() { return MAX_RETRIES; }\n";
+        let refs = find_refs_in_source(source, "MAX_RETRIES", Language::TypeScript, "test.ts");
+        let defs: Vec<_> = refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        assert_eq!(
+            defs.len(),
+            1,
+            "const declaration should be Definition, got: {:?}",
+            refs.iter()
+                .map(|r| (&r.context, &r.kind))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// #1195: JS `let` and `var` declarations should also be definitions.
+    #[test]
+    fn find_refs_javascript_let_var_are_definitions() {
+        let source = "let count = 0;\nvar total = 0;\nfunction inc() { count++; total++; }\n";
+        let count_refs = find_refs_in_source(source, "count", Language::JavaScript, "test.js");
+        let count_defs: Vec<_> = count_refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        assert_eq!(count_defs.len(), 1, "let declaration should be Definition");
+
+        let total_refs = find_refs_in_source(source, "total", Language::JavaScript, "test.js");
+        let total_defs: Vec<_> = total_refs
+            .iter()
+            .filter(|r| r.kind == RefKind::Definition)
+            .collect();
+        assert_eq!(total_defs.len(), 1, "var declaration should be Definition");
     }
 
     #[test]
