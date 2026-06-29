@@ -11,25 +11,25 @@ use std::path::Path;
 /// Execute a replace operation within a transaction.
 pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     crate::verbose!(
-        "replace_op: target={}, from_len={}, mode={}",
+        "replace_op: target={}, old_len={}, regex={}",
         op.declared_paths().first().unwrap_or(&"<glob>"),
-        if let Operation::Replace { from, .. } = op {
-            from.len()
+        if let Operation::Replace { old, .. } = op {
+            old.len()
         } else {
             0
         },
-        if let Operation::Replace { mode, .. } = op {
-            mode.as_deref().unwrap_or("literal")
+        if let Operation::Replace { regex, .. } = op {
+            regex
         } else {
-            "unknown"
+            &false
         }
     );
     let Operation::Replace {
         glob,
         path,
-        mode,
-        from,
-        to,
+        regex: regex_mode,
+        old,
+        new_text,
         nth,
         insert_before,
         insert_after,
@@ -44,7 +44,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
     else {
         unreachable!()
     };
-    let regex_mode = mode.as_deref() == Some("regex");
+    let regex_mode = *regex_mode;
     let word_boundary = matches!(
         op,
         Operation::Replace {
@@ -53,10 +53,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
     );
     let use_regex = regex_mode || *case_insensitive || word_boundary;
-    let replacement =
-        replacement_text(from, to, insert_before, insert_after, use_regex, regex_mode);
+    let replacement = replacement_text(
+        old,
+        new_text,
+        insert_before,
+        insert_after,
+        use_regex,
+        regex_mode,
+    );
     let compiled_re = compile_replace_regex(
-        from,
+        old,
         regex_mode,
         *case_insensitive,
         *multiline,
@@ -76,14 +82,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         let (replaced, match_count) = if *whole_line {
             replace_whole_lines(
                 content,
-                from,
+                old,
                 &replacement,
                 compiled_re.as_ref(),
                 *nth,
                 parsed_range,
             )
         } else {
-            replace_content(content, from, &replacement, compiled_re.as_ref(), *nth)
+            replace_content(content, old, &replacement, compiled_re.as_ref(), *nth)
         };
         if match_count > 0 {
             let owned = replaced.into_owned();
@@ -99,7 +105,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             // Tier 3: Use context-based fallback when exact match fails.
             match crate::fallback::resolve_with_fallback(
                 content,
-                from,
+                old,
                 before_context.as_deref(),
                 after_context.as_deref(),
             ) {
@@ -109,7 +115,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     } else if let Some(ia) = insert_after {
                         format!("{}{}", anchor.matched_text, ia)
                     } else {
-                        to.as_deref().unwrap_or("").to_string()
+                        new_text.as_deref().unwrap_or("").to_string()
                     };
                     let new_content = format!(
                         "{}{}{}",
@@ -138,11 +144,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         } else {
             if !regex_mode {
                 // Tier 1: Provide "did you mean?" hints for literal no-match.
-                let similar = crate::fallback::find_similar_targets(content, from, 3);
+                let similar = crate::fallback::find_similar_targets(content, old, 3);
                 if !similar.is_empty() {
                     tx.replace_hint = Some(format!(
                         "no matches for '{}' in {} (did you mean: {}?)",
-                        crate::fallback::truncate_str(from, 60),
+                        crate::fallback::truncate_str(old, 60),
                         p,
                         similar.join(", ")
                     ));
@@ -214,14 +220,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             let (replaced, match_count) = if *whole_line {
                 replace_whole_lines(
                     &content,
-                    from,
+                    old,
                     &replacement,
                     compiled_re.as_ref(),
                     *nth,
                     parsed_range,
                 )
             } else {
-                replace_content(&content, from, &replacement, compiled_re.as_ref(), *nth)
+                replace_content(&content, old, &replacement, compiled_re.as_ref(), *nth)
             };
             total_matches += match_count;
             if match_count > 0 {
@@ -256,9 +262,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: None,
-            from: "hello".into(),
-            to: Some("goodbye".into()),
+            regex: false,
+            old: "hello".into(),
+            new_text: Some("goodbye".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -289,9 +295,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: None,
-            from: "nonexistent".into(),
-            to: Some("replacement".into()),
+            regex: false,
+            old: "nonexistent".into(),
+            new_text: Some("replacement".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -320,9 +326,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: Some("regex".into()),
-            from: r"\d+".into(),
-            to: Some("NUM".into()),
+            regex: true,
+            old: r"\d+".into(),
+            new_text: Some("NUM".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -353,9 +359,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: None,
-            from: "hello".into(),
-            to: Some("hi".into()),
+            regex: false,
+            old: "hello".into(),
+            new_text: Some("hi".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -384,9 +390,9 @@ mod tests {
         let op = Operation::Replace {
             path: None,
             glob: None,
-            mode: None,
-            from: "x".into(),
-            to: Some("y".into()),
+            regex: false,
+            old: "x".into(),
+            new_text: Some("y".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -417,9 +423,9 @@ mod tests {
         let op = Operation::Replace {
             path: None,
             glob: Some("*.txt".into()),
-            mode: None,
-            from: "old".into(),
-            to: Some("new".into()),
+            regex: false,
+            old: "old".into(),
+            new_text: Some("new".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -453,9 +459,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: None,
-            from: "fn process(input: Vec<i32>) {".into(),
-            to: None,
+            regex: false,
+            old: "fn process(input: Vec<i32>) {".into(),
+            new_text: None,
             nth: None,
             insert_before: Some("/// Process input.\n".into()),
             insert_after: None,
@@ -494,9 +500,9 @@ mod tests {
         let op = Operation::Replace {
             path: None,
             glob: Some("*".into()),
-            mode: None,
-            from: "hello".into(),
-            to: Some("goodbye".into()),
+            regex: false,
+            old: "hello".into(),
+            new_text: Some("goodbye".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -533,9 +539,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("test.txt".into()),
             glob: None,
-            mode: None,
-            from: "line".into(),
-            to: Some("LINE".into()),
+            regex: false,
+            old: "line".into(),
+            new_text: Some("LINE".into()),
             nth: None,
             insert_before: None,
             insert_after: None,

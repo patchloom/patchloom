@@ -156,10 +156,10 @@ fn describe_operation(op: &Operation) -> String {
         Operation::Replace {
             path,
             glob,
-            from,
-            to,
+            old,
+            new_text,
             nth,
-            mode,
+            regex,
             case_insensitive,
             insert_before,
             insert_after,
@@ -169,17 +169,17 @@ fn describe_operation(op: &Operation) -> String {
             ..
         } => {
             let target = path.as_deref().or(glob.as_deref()).unwrap_or("(all files)");
-            let is_regex = mode.as_deref() == Some("regex");
+            let is_regex = *regex;
             let mode_str = if is_regex { "regex" } else { "literal" };
 
             if let Some(before) = insert_before {
-                return format!("Insert \"{before}\" before \"{from}\" in {target}");
+                return format!("Insert \"{before}\" before \"{old}\" in {target}");
             }
             if let Some(after) = insert_after {
-                return format!("Insert \"{after}\" after \"{from}\" in {target}");
+                return format!("Insert \"{after}\" after \"{old}\" in {target}");
             }
 
-            let to_str = to.as_deref().unwrap_or("(delete)");
+            let to_str = new_text.as_deref().unwrap_or("(delete)");
             let nth_str = nth
                 .map(|n| format!(", occurrence #{n}"))
                 .unwrap_or_default();
@@ -199,59 +199,39 @@ fn describe_operation(op: &Operation) -> String {
                 .map(|r| format!(", lines {r}"))
                 .unwrap_or_default();
             format!(
-                "Replace \"{from}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{range_str})"
+                "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{range_str})"
             )
         }
-        Operation::DocSet {
-            path,
-            selector,
-            value,
-        } => {
-            format!("Set {selector} to {value} in {path}")
+        Operation::DocSet { path, key, value } => {
+            format!("Set {key} to {value} in {path}")
         }
-        Operation::DocDelete { path, selector } => {
-            format!("Delete key {selector} from {path}")
+        Operation::DocDelete { path, key } => {
+            format!("Delete key {key} from {path}")
         }
         Operation::DocMerge { path, value } => {
             format!("Merge {value} into {path}")
         }
-        Operation::DocAppend {
-            path,
-            selector,
-            value,
-        } => {
-            format!("Append {value} to {selector} in {path}")
+        Operation::DocAppend { path, key, value } => {
+            format!("Append {value} to {key} in {path}")
         }
-        Operation::DocPrepend {
-            path,
-            selector,
-            value,
-        } => {
-            format!("Prepend {value} to {selector} in {path}")
+        Operation::DocPrepend { path, key, value } => {
+            format!("Prepend {value} to {key} in {path}")
         }
-        Operation::DocUpdate {
-            path,
-            selector,
-            value,
-        } => {
-            format!("Update {selector} to {value} in {path}")
+        Operation::DocUpdate { path, key, value } => {
+            format!("Update {key} to {value} in {path}")
         }
         Operation::DocMove { path, from, to } => {
             format!("Move {from} to {to} in {path}")
         }
-        Operation::DocEnsure {
-            path,
-            selector,
-            value,
-        } => {
-            format!("Ensure {selector} = {value} in {path}")
+        Operation::DocEnsure { path, key, value } => {
+            format!("Ensure {key} = {value} in {path}")
         }
         Operation::DocDeleteWhere {
             path,
-            selector,
+            key,
             predicate,
         } => {
-            format!("Delete from {selector} where {predicate} in {path}")
+            format!("Delete from {key} where {predicate} in {path}")
         }
         Operation::MdReplaceSection { path, heading, .. } => {
             format!("Replace section \"{heading}\" in {path}")
@@ -378,11 +358,11 @@ fn describe_operation(op: &Operation) -> String {
         Operation::AstReplace {
             path,
             symbol,
-            from,
-            to,
+            old,
+            new_text,
             ..
         } => {
-            format!("AST replace \"{from}\" with \"{to}\" in {symbol} in {path}")
+            format!("AST replace \"{old}\" with \"{new_text}\" in {symbol} in {path}")
         }
         #[cfg(feature = "ast")]
         Operation::AstInsert {
@@ -532,9 +512,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("README.md".into()),
             glob: None,
-            mode: None,
-            from: "v1".into(),
-            to: Some("v2".into()),
+            regex: false,
+            old: "v1".into(),
+            new_text: Some("v2".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -556,9 +536,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("src/lib.rs".into()),
             glob: None,
-            mode: Some("regex".into()),
-            from: r"fn\s+main".into(),
-            to: Some("fn entry".into()),
+            regex: true,
+            old: r"fn\s+main".into(),
+            new_text: Some("fn entry".into()),
             nth: Some(1),
             insert_before: None,
             insert_after: None,
@@ -582,7 +562,7 @@ mod tests {
     fn describe_doc_set() {
         let op = Operation::DocSet {
             path: "package.json".into(),
-            selector: "version".into(),
+            key: "version".into(),
             value: serde_json::json!("2.0.0"),
         };
         assert_eq!(
@@ -626,7 +606,7 @@ mod tests {
     #[test]
     fn human_summary_output() {
         let plan = Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             write_policy: None,
             strict: Some(true),
@@ -652,7 +632,7 @@ mod tests {
     #[test]
     fn json_summary_structure() {
         let plan = Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             write_policy: None,
             strict: Some(false),
@@ -683,9 +663,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("main.rs".into()),
             glob: None,
-            mode: None,
-            from: "fn main".into(),
-            to: None,
+            regex: false,
+            old: "fn main".into(),
+            new_text: None,
             nth: None,
             insert_before: Some("// entry\n".into()),
             insert_after: None,
@@ -711,9 +691,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("lib.rs".into()),
             glob: None,
-            mode: None,
-            from: "use crate".into(),
-            to: None,
+            regex: false,
+            old: "use crate".into(),
+            new_text: None,
             nth: None,
             insert_before: None,
             insert_after: Some("// added".into()),
@@ -735,9 +715,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("src/lib.rs".into()),
             glob: None,
-            mode: None,
-            from: "dbg!".into(),
-            to: Some(String::new()),
+            regex: false,
+            old: "dbg!".into(),
+            new_text: Some(String::new()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -844,9 +824,9 @@ mod tests {
         let op = Operation::Replace {
             path: None,
             glob: Some("**/*.rs".into()),
-            mode: None,
-            from: "old".into(),
-            to: Some("new".into()),
+            regex: false,
+            old: "old".into(),
+            new_text: Some("new".into()),
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -868,9 +848,9 @@ mod tests {
         let op = Operation::Replace {
             path: Some("f.txt".into()),
             glob: None,
-            mode: None,
-            from: "remove_me".into(),
-            to: None,
+            regex: false,
+            old: "remove_me".into(),
+            new_text: None,
             nth: None,
             insert_before: None,
             insert_after: None,
@@ -940,7 +920,7 @@ mod tests {
     fn human_summary_shows_respect_editorconfig() {
         // #1190: respect_editorconfig should appear in write policy display
         let plan = Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             write_policy: Some(crate::write::WritePolicyOverride {
                 ensure_final_newline: None,
@@ -970,7 +950,7 @@ mod tests {
     fn human_summary_shows_verify_checks() {
         // #1191: verify checks should appear in human summary
         let plan = Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             write_policy: None,
             strict: None,
@@ -1000,7 +980,7 @@ mod tests {
     fn json_summary_includes_verify_checks() {
         // #1191: verify_checks count should appear in JSON summary
         let plan = Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             write_policy: None,
             strict: None,

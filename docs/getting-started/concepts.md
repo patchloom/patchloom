@@ -54,7 +54,7 @@ In tx plans, set these at the plan level:
 
 ```json
 {
-  "version": "1",
+  "version": 1,
   "write_policy": { "ensure_final_newline": true },
   "operations": [...]
 }
@@ -143,7 +143,7 @@ These codes let CI pipelines and agent frameworks branch on outcomes without par
 Most commands accept `--glob <pattern>` (repeatable) to restrict which files are processed:
 
 ```bash
-patchloom replace "old" --to "new" --glob "*.rs" --glob "*.toml" --apply
+patchloom replace "old" --new "new" --glob "*.rs" --glob "*.toml" --apply
 ```
 
 Glob patterns match either the basename or the path relative to the input root. For example, if you search `src/`, then `--glob 'sub/*.txt'` matches `src/sub/file.txt`.

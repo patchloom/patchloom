@@ -10,7 +10,7 @@
       "tool": "doc_set",
       "arguments": {
         "path": "config.yaml",
-        "selector": "database.port",
+        "key": "database.port",
         "value": 5433
       }
     },
@@ -46,8 +46,8 @@
       "tool": "batch_replace",
       "arguments": {
         "files": ["Cargo.toml", "README.md", "docs/install.md"],
-        "from": "0.1.0",
-        "to": "0.2.0"
+        "old": "0.1.0",
+        "new": "0.2.0"
       }
     },
     {

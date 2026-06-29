@@ -9,7 +9,7 @@ fn test_undo_restores_replaced_file() {
     // Apply a replace.
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["replace", "hello", "--to", "goodbye", "--apply", "--cwd"])
+        .args(["replace", "hello", "--new", "goodbye", "--apply", "--cwd"])
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
@@ -37,7 +37,7 @@ fn test_undo_list_shows_sessions() {
     // Apply a replace to create a backup.
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
@@ -63,7 +63,7 @@ fn test_undo_dry_run_by_default() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .args([
-            "replace", "original", "--to", "modified", "--apply", "--cwd",
+            "replace", "original", "--new", "modified", "--apply", "--cwd",
         ])
         .arg(dir.path())
         .arg(portable_path_str(&file))
@@ -92,7 +92,7 @@ fn test_undo_dry_run_quiet_suppresses_output() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .args([
-            "replace", "original", "--to", "modified", "--apply", "--cwd",
+            "replace", "original", "--new", "modified", "--apply", "--cwd",
         ])
         .arg(dir.path())
         .arg(portable_path_str(&file))
@@ -123,7 +123,7 @@ fn test_undo_list_json_output() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
@@ -147,7 +147,7 @@ fn test_undo_list_jsonl_output() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
@@ -183,7 +183,7 @@ fn test_undo_dry_run_json_output() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .args([
-            "replace", "original", "--to", "modified", "--apply", "--cwd",
+            "replace", "original", "--new", "modified", "--apply", "--cwd",
         ])
         .arg(dir.path())
         .arg(portable_path_str(&file))
@@ -216,7 +216,7 @@ fn test_undo_dry_run_jsonl_output() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .args([
-            "replace", "original", "--to", "modified", "--apply", "--cwd",
+            "replace", "original", "--new", "modified", "--apply", "--cwd",
         ])
         .arg(dir.path())
         .arg(portable_path_str(&file))
@@ -249,7 +249,7 @@ fn test_undo_list_quiet_suppresses_output() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["replace", "hello", "--to", "hi", "--apply", "--cwd"])
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
         .arg(dir.path())
         .arg(portable_path_str(&file))
         .assert()
@@ -279,9 +279,9 @@ fn test_undo_tx_restores_multi_file() {
     fs::write(&f2, "beta\n").unwrap();
 
     let plan_content = format!(
-        r#"{{"version":"1","operations":[
-            {{"op":"replace","path":"{}","from":"alpha","to":"omega"}},
-            {{"op":"replace","path":"{}","from":"beta","to":"gamma"}}
+        r#"{{"version": 1,"operations":[
+            {{"op":"replace","path":"{}","old":"alpha","new":"omega"}},
+            {{"op":"replace","path":"{}","old":"beta","new":"gamma"}}
         ]}}"#,
         portable_path_str(&f1),
         portable_path_str(&f2)

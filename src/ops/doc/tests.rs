@@ -1158,7 +1158,7 @@ mod format_preservation {
 
     #[test]
     fn toml_inline_table_style_preserved() {
-        let toml = "[deps]\nserde = { version = \"1\", features = [\"derive\"] }\n";
+        let toml = "[deps]\nserde = { version = 1, features = [\"derive\"] }\n";
         let old = parse_doc(toml, &FileFormat::Toml).unwrap();
         // No change — verify round-trip preserves inline style.
         let result = serialize_value_preserving(toml, &old, &old, &FileFormat::Toml).unwrap();

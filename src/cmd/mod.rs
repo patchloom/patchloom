@@ -323,7 +323,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         if show_linux {
             out.push_str(
                 "```bash\n\
-                 # Edit a value in JSON/YAML/TOML by selector (parser-backed, preserves comments)\n\
+                 # Edit a value in JSON/YAML/TOML by key (parser-backed, preserves comments)\n\
                  patchloom doc set config.json version '\"2.0.0\"' --apply\n\
                  patchloom doc merge config.yaml --value '{\"db\":{\"pool\":10}}' --apply\n\
                  \n\
@@ -380,7 +380,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Find all occurrences first\n\
              patchloom search --count \"old_function_name\" src/\n\n\
              # Replace in all matching files\n\
-             patchloom replace \"old_function_name\" --to \"new_function_name\" src/ --apply\n\
+             patchloom replace \"old_function_name\" --new \"new_function_name\" src/ --apply\n\
              ```\n\n",
         );
 
@@ -388,16 +388,16 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "### Delete lines matching a pattern\n\n\
              ```bash\n\
              # Delete entire lines containing a pattern; collapse consecutive blanks\n\
-             patchloom replace 'dbg!' --whole-line --to '' src/ --collapse-blanks --apply\n\n\
+             patchloom replace 'dbg!' --whole-line --new '' src/ --collapse-blanks --apply\n\n\
              # Restrict to a line range (e.g. implementation only, skip tests)\n\
-             patchloom replace 'TODO' --whole-line --range 10:200 --to '' notes.md --apply\n\
+             patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply\n\
              ```\n\n",
         );
 
         out.push_str(
             "### Edit a CI workflow\n\n\
              ```bash\n\
-             # Set a value in a YAML workflow by selector (preserves comments and formatting)\n\
+             # Set a value in a YAML workflow by key (preserves comments and formatting)\n\
              patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply\n\
              ```\n\n",
         );
@@ -446,9 +446,9 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             out.push_str("### Multi-file refactoring with a transaction\n\n\
                  ```bash\n\
                  patchloom tx - --apply <<'EOF'\n\
-                 {\"version\": \"1\", \"operations\": [\n\
-                   {\"op\": \"replace\", \"path\": \"src/config.rs\", \"from\": \"old_default\", \"to\": \"new_default\"},\n\
-                   {\"op\": \"doc.set\", \"path\": \"config.toml\", \"selector\": \"default_value\", \"value\": \"new_default\"},\n\
+                 {\"version\": 1, \"operations\": [\n\
+                   {\"op\": \"replace\", \"path\": \"src/config.rs\", \"old\": \"old_default\", \"new\": \"new_default\"},\n\
+                   {\"op\": \"doc.set\", \"path\": \"config.toml\", \"key\": \"default_value\", \"value\": \"new_default\"},\n\
                    {\"op\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\
                     \"content\": \"The default value is now `new_default`.\\n\"}\n\
                  ]}\n\
@@ -468,7 +468,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Rename an identifier across a file, skipping strings and comments\n\
              patchloom ast rename OldName NewName src/lib.rs --apply\n\n\
              # Replace text only within a specific function body\n\
-             patchloom ast replace src/config.rs --symbol default_timeout --from 30 --to 60 --apply\n\n\
+             patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply\n\n\
              # List all symbol definitions\n\
              patchloom ast list src/lib.rs\n\n\
              # Find all references to a symbol\n\
@@ -483,10 +483,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
-    // Selector syntax (always shown — used by all doc.* operations)
+    // Key path syntax (always shown — used by all doc.* operations)
     out.push_str(
-        "## Selector syntax\n\n\
-         All `doc` operations use selectors to address values inside JSON, YAML, and TOML files.\n\n\
+        "## Key path syntax\n\n\
+         All `doc` operations use key paths to address values inside JSON, YAML, and TOML files.\n\n\
          | Syntax | Meaning | Example |\n\
          |--------|---------|---------|\n\
          | `key` | Object key | `database.host` |\n\

@@ -50,7 +50,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: true,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -61,7 +61,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
         ],
     },
     McpToolMeta {
@@ -81,7 +81,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -92,7 +92,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -103,7 +103,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -114,7 +114,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::ParamSize("predicate"),
         ],
     },
@@ -125,7 +125,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("selector"),
+            FieldValidation::ParamSize("key"),
             FieldValidation::JsonDepth("value"),
         ],
     },

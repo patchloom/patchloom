@@ -179,18 +179,24 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
     let start: usize = parts[0]
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid start line: {}", parts[0]))?;
-    let end: usize = parts[1]
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid end line: {}", parts[1]))?;
 
     if start == 0 {
         anyhow::bail!("line numbers are 1-based, got 0");
     }
+
+    let start_idx = start - 1;
+
+    if parts[1].is_empty() {
+        return Ok((start_idx, total_lines));
+    }
+
+    let end: usize = parts[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid end line: {}", parts[1]))?;
     if end < start {
         anyhow::bail!("end line {end} is before start line {start}");
     }
 
-    let start_idx = start - 1;
     let end_idx = end.min(total_lines);
 
     Ok((start_idx, end_idx))

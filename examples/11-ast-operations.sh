@@ -65,8 +65,8 @@ patchloom ast map src/ --max-tokens 2048 --focus src/lib.rs --boost dispatch
 # ---- ast diff: structural diff between file versions ----------------------
 # Shows symbol-level changes (added, removed, modified) instead of line diffs.
 patchloom ast diff src/lib.rs                              # HEAD vs working tree
-patchloom ast diff src/lib.rs --from main                  # branch comparison
-patchloom ast diff src/lib.rs --from v0.4.0 --to v0.5.0   # tag comparison
+patchloom ast diff src/lib.rs --old main                  # branch comparison
+patchloom ast diff src/lib.rs --old v0.4.0 --new v0.5.0   # tag comparison
 
 # ---- ast impact: transitive impact analysis -------------------------------
 # Shows what other symbols are affected by changing a given symbol.
@@ -75,8 +75,8 @@ patchloom ast impact my_function src/ --depth 2            # limit traversal dep
 
 # ---- ast replace: scoped text replacement within a symbol -----------------
 # Replaces text only inside a specific symbol's body, leaving the rest untouched.
-patchloom ast replace src/config.rs default_timeout --from 30 --to 60 --diff
-patchloom ast replace src/config.rs default_timeout --from 30 --to 60 --apply
+patchloom ast replace src/config.rs default_timeout --old 30 --new 60 --diff
+patchloom ast replace src/config.rs default_timeout --old 30 --new 60 --apply
 
 # Regex mode:
-patchloom ast replace src/config.rs my_function --from 'TODO.*' --to 'DONE' --regex --apply
+patchloom ast replace src/config.rs my_function --old 'TODO.*' --new 'DONE' --regex --apply

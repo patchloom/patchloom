@@ -7,7 +7,7 @@ fn test_explain_prints_human_summary() {
     fs::write(
         &plan,
         r#"{
-            "version": "1",
+            "version": 1,
             "strict": true,
             "operations": [
                 {"op": "file.create", "path": "test.txt", "content": "hi"},
@@ -36,7 +36,7 @@ fn test_explain_json_output() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "replace", "from": "a", "to": "b"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#,
     )
     .unwrap();
 
@@ -66,7 +66,7 @@ fn test_explain_jsonl_output() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
     )
     .unwrap();
 
@@ -92,7 +92,7 @@ fn test_explain_quiet_suppresses_output() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "file.delete", "path": "x.txt"}]}"#,
     )
     .unwrap();
 
@@ -131,7 +131,7 @@ fn test_explain_stdin() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["explain", "--stdin"])
-        .write_stdin(r#"{"version": "1", "operations": [{"op": "file.delete", "path": "x.txt"}]}"#)
+        .write_stdin(r#"{"version": 1, "operations": [{"op": "file.delete", "path": "x.txt"}]}"#)
         .assert()
         .success()
         .stdout(predicates::str::contains("Delete file x.txt"));
@@ -143,7 +143,7 @@ fn test_explain_stdin_takes_precedence_over_path() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-file.txt"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "file.delete", "path": "from-file.txt"}]}"#,
     )
     .unwrap();
 
@@ -152,7 +152,7 @@ fn test_explain_stdin_takes_precedence_over_path() {
         .args(["explain", "--stdin"])
         .arg(&plan)
         .write_stdin(
-            r#"{"version": "1", "operations": [{"op": "file.delete", "path": "from-stdin.txt"}]}"#,
+            r#"{"version": 1, "operations": [{"op": "file.delete", "path": "from-stdin.txt"}]}"#,
         )
         .assert()
         .success()
@@ -169,7 +169,7 @@ fn test_explain_ast_rename_description() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "ast.rename", "path": "lib.rs", "old_name": "foo", "new_name": "bar"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "ast.rename", "path": "lib.rs", "old_name": "foo", "new_name": "bar"}]}"#,
     )
     .unwrap();
 
@@ -191,7 +191,7 @@ fn test_explain_ast_replace_description() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "ast.replace", "path": "app.rs", "symbol": "main", "from": "old", "to": "new"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "ast.replace", "path": "app.rs", "symbol": "main", "old": "old", "new": "new"}]}"#,
     )
     .unwrap();
 
@@ -214,7 +214,7 @@ fn test_explain_replace_word_boundary() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "replace", "path": "f.txt", "from": "cat", "to": "dog", "word_boundary": true}]}"#,
+        r#"{"version": 1, "operations": [{"op": "replace", "path": "f.txt", "old": "cat", "new": "dog", "word_boundary": true}]}"#,
     )
     .unwrap();
 
@@ -233,7 +233,7 @@ fn test_explain_file_append_description() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "file.append", "path": "log.txt", "content": "extra"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "file.append", "path": "log.txt", "content": "extra"}]}"#,
     )
     .unwrap();
 
@@ -252,7 +252,7 @@ fn test_explain_file_prepend_description() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": "1", "operations": [{"op": "file.prepend", "path": "main.rs", "content": "// license"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "file.prepend", "path": "main.rs", "content": "// license"}]}"#,
     )
     .unwrap();
 

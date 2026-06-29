@@ -487,14 +487,14 @@ fn execute_plan_runs_operations() {
     fs::write(&file, "hello world\n").unwrap();
 
     let plan_json = r#"{
-            "version": "1",
+            "version": 1,
             "operations": [
                 {
                     "op": "replace",
                     "path": "test.txt",
                     "mode": "literal",
-                    "from": "hello",
-                    "to": "goodbye"
+                    "old": "hello",
+                    "new": "goodbye"
                 },
                 {
                     "op": "file.append",
@@ -536,14 +536,14 @@ fn execute_plan_respects_relaxed_guard() {
 
     let plan_json = format!(
         r#"{{
-            "version": "1",
+            "version": 1,
             "operations": [
                 {{
                     "op": "replace",
                     "path": "{}",
                     "mode": "literal",
-                    "from": "old",
-                    "to": "new"
+                    "old": "old",
+                    "new": "new"
                 }}
             ]
         }}"#,
@@ -570,7 +570,7 @@ fn execute_plan_rejects_on_guard() {
 
     let plan_json = format!(
         r#"{{
-            "version": "1",
+            "version": 1,
             "operations": [
                 {{
                     "op": "file.delete",
@@ -1616,7 +1616,7 @@ fn search_parity_blineignore_across_api_cli_and_plan() {
     // 3. Plan / tx using execute_plan (library path) with Search op carrying new fields
     let plan_json = format!(
         r#"{{
-        "version": "1",
+        "version": 1,
         "operations": [{{
             "op": "search",
             "path": ".",
@@ -2090,7 +2090,7 @@ fn adapter_preview_does_not_write() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        selector: "key".into(),
+        key: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2113,7 +2113,7 @@ fn adapter_apply_writes_to_disk() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        selector: "key".into(),
+        key: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2135,7 +2135,7 @@ fn adapter_check_does_not_write() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        selector: "key".into(),
+        key: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2164,7 +2164,7 @@ fn adapter_respects_guard() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        selector: "key".into(),
+        key: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2190,7 +2190,7 @@ fn adapter_guard_rejects_outside_path() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        selector: "key".into(),
+        key: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2212,9 +2212,9 @@ fn adapter_unchanged_returns_no_diff() {
     let op = crate::plan::Operation::Replace {
         path: Some(file.to_string_lossy().into()),
         glob: None,
-        mode: None,
-        from: "nonexistent_pattern".into(),
-        to: Some("replacement".into()),
+        regex: false,
+        old: "nonexistent_pattern".into(),
+        new_text: Some("replacement".into()),
         nth: None,
         case_insensitive: false,
         insert_before: None,

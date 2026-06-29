@@ -542,15 +542,15 @@ pub(super) fn handle_ast_replace(
     p: AstReplaceParams,
 ) -> Result<CallToolResult, McpError> {
     svc.check_path(&p.path)?;
-    validate_param_size("from", &p.from)?;
-    validate_content_size("to", &p.to)?;
+    validate_param_size("old", &p.old)?;
+    validate_content_size("new", &p.new_text)?;
     validate_param_size("symbol", &p.symbol)?;
     // Route through the tx engine for backup/rollback safety (#1100).
     let op = crate::plan::Operation::AstReplace {
         path: p.path,
         symbol: p.symbol,
-        from: p.from,
-        to: p.to,
+        old: p.old,
+        new_text: p.new_text,
         regex: p.regex,
         lang: p.lang,
     };

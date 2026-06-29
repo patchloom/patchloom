@@ -460,15 +460,15 @@ mod tests {
         std::fs::write(dir.path().join("README.md"), "# Hello\n").unwrap();
 
         let plan = crate::plan::Plan {
-            version: "1".into(),
+            version: 1,
             cwd: None,
             strict: None,
             operations: vec![crate::plan::Operation::Replace {
                 glob: Some("src/*.rs".into()),
                 path: None,
-                mode: None,
-                from: "old".into(),
-                to: Some("new".into()),
+                regex: false,
+                old: "old".into(),
+                new_text: Some("new".into()),
                 nth: None,
                 insert_before: None,
                 insert_after: None,

@@ -74,7 +74,7 @@ patchloom tx plan.json --apply
 ## Structured edits
 
 ```bash
-# Edit a value in JSON/YAML/TOML by selector (parser-backed, preserves comments)
+# Edit a value in JSON/YAML/TOML by key (parser-backed, preserves comments)
 patchloom doc set config.json version '"2.0.0"' --apply
 patchloom doc merge config.yaml --value '{"db":{"pool":10}}' --apply
 
@@ -121,23 +121,23 @@ CLI flags override config values. The file is searched upward from the working d
 patchloom search --count "old_function_name" src/
 
 # Replace in all matching files
-patchloom replace "old_function_name" --to "new_function_name" src/ --apply
+patchloom replace "old_function_name" --new "new_function_name" src/ --apply
 ```
 
 ### Delete lines matching a pattern
 
 ```bash
 # Delete entire lines containing a pattern; collapse consecutive blanks
-patchloom replace 'dbg!' --whole-line --to '' src/ --collapse-blanks --apply
+patchloom replace 'dbg!' --whole-line --new '' src/ --collapse-blanks --apply
 
 # Restrict to a line range (e.g. implementation only, skip tests)
-patchloom replace 'TODO' --whole-line --range 10:200 --to '' notes.md --apply
+patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply
 ```
 
 ### Edit a CI workflow
 
 ```bash
-# Set a value in a YAML workflow by selector (preserves comments and formatting)
+# Set a value in a YAML workflow by key (preserves comments and formatting)
 patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply
 ```
 
@@ -179,9 +179,9 @@ EOF
 
 ```bash
 patchloom tx - --apply <<'EOF'
-{"version": "1", "operations": [
-{"op": "replace", "path": "src/config.rs", "from": "old_default", "to": "new_default"},
-{"op": "doc.set", "path": "config.toml", "selector": "default_value", "value": "new_default"},
+{"version": 1, "operations": [
+{"op": "replace", "path": "src/config.rs", "old": "old_default", "new": "new_default"},
+{"op": "doc.set", "path": "config.toml", "key": "default_value", "value": "new_default"},
 {"op": "md.replace_section", "path": "docs/config.md", "heading": "## Defaults",
 "content": "The default value is now `new_default`.\n"}
 ]}
@@ -199,7 +199,7 @@ Tree-sitter-backed operations that understand code structure (20 languages).
 patchloom ast rename OldName NewName src/lib.rs --apply
 
 # Replace text only within a specific function body
-patchloom ast replace src/config.rs --symbol default_timeout --from 30 --to 60 --apply
+patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply
 
 # List all symbol definitions
 patchloom ast list src/lib.rs
@@ -216,9 +216,9 @@ ast.rename src/lib.rs OldStruct NewStruct
 ast.replace src/config.rs default_timeout "30" "60"
 ```
 
-## Selector syntax
+## Key path syntax
 
-All `doc` operations use selectors to address values inside JSON, YAML, and TOML files.
+All `doc` operations use key paths to address values inside JSON, YAML, and TOML files.
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|

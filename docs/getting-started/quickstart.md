@@ -42,13 +42,13 @@ patchloom search 'TODO' src/ --glob 'sub/*.rs'
 Preview a rename (no files changed yet):
 
 ```bash
-patchloom replace 'old_function' --to 'new_function' src/
+patchloom replace 'old_function' --new 'new_function' src/
 ```
 
 The output shows a unified diff. When it looks correct, apply:
 
 ```bash
-patchloom replace 'old_function' --to 'new_function' src/ --apply
+patchloom replace 'old_function' --new 'new_function' src/ --apply
 ```
 
 ## Step 3: Edit structured config
@@ -100,11 +100,11 @@ Create a plan file called `bump.json`:
 
 ```json
 {
-  "version": "1",
+  "version": 1,
   "write_policy": { "ensure_final_newline": true },
   "operations": [
-    { "op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0" },
-    { "op": "replace", "path": "README.md", "from": "v1.0.0", "to": "v2.0.0" },
+    { "op": "doc.set", "path": "package.json", "key": "version", "value": "2.0.0" },
+    { "op": "replace", "path": "README.md", "old": "v1.0.0", "new": "v2.0.0" },
     { "op": "md.insert_after_heading", "path": "CHANGELOG.md", "heading": "## Unreleased", "content": "- Bumped to v2.0.0" }
   ]
 }

@@ -11,7 +11,7 @@ fn test_ast_replace_apply_dispatch() {
 
     patchloom_in(dir.path())
         .args([
-            "ast", "replace", "test.rs", "greet", "--from", "hello", "--to", "world", "--apply",
+            "ast", "replace", "test.rs", "greet", "--old", "hello", "--new", "world", "--apply",
         ])
         .assert()
         .code(0);
@@ -142,7 +142,7 @@ fn test_ast_diff_basic() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("diff.rs");
     fs::write(&f, "fn v1(){}\n").unwrap();
-    // Initialize minimal git repo so --from HEAD works for dispatch coverage.
+    // Initialize minimal git repo so --old HEAD works for dispatch coverage.
     // Use explicit author to make commit succeed in CI without global git config.
     let git = |args: &[&str]| {
         std::process::Command::new("git")

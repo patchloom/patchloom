@@ -11,15 +11,15 @@ use serde::Serialize;
 #[derive(Debug, Args)]
 #[command(after_help = "\
 EXAMPLES:
-  patchloom replace 'old_name' --to 'new_name' src/
-  patchloom replace 'http://' --to 'https://' src/ --apply
-  patchloom replace 'v1\\.0' --to 'v2.0' --regex README.md")]
+  patchloom replace 'old_name' --new 'new_name' src/
+  patchloom replace 'http://' --new 'https://' src/ --apply
+  patchloom replace 'v1\\.0' --new 'v2.0' --regex README.md")]
 pub struct ReplaceArgs {
     /// Pattern to find.
-    pub from: String,
+    pub old: String,
     /// Text to replace with.
     #[arg(long)]
-    pub to: Option<String>,
+    pub new: Option<String>,
     // ref:replace-mode:insert-before
     /// Insert text before each match instead of replacing.
     #[arg(long, conflicts_with = "insert_after")]
@@ -112,8 +112,8 @@ fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<u
 
 fn build_replacement(args: &ReplaceArgs) -> String {
     replacement_text(
-        &args.from,
-        &args.to,
+        &args.old,
+        &args.new,
         &args.insert_before,
         &args.insert_after,
         args.regex || args.case_insensitive || args.word_boundary,
@@ -134,14 +134,14 @@ fn collect_replacements(
     let quiet = global.quiet;
 
     let compiled_re = compile_replace_regex(
-        &args.from,
+        &args.old,
         args.regex,
         args.case_insensitive,
         args.multiline,
         args.word_boundary,
     )?;
 
-    let from = &args.from;
+    let from = &args.old;
     let nth = args.nth;
     let whole_line = args.whole_line;
     let range = parse_range_arg(args.range.as_deref())?;
@@ -200,15 +200,15 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
-        "replace: from={:?} regex={} paths={:?}",
-        args.from,
+        "replace: old={:?} regex={} paths={:?}",
+        args.old,
         args.regex,
         args.paths
     );
     use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
     validate_replace_args(&ReplaceValidationParams {
-        pattern: &args.from,
-        has_to: args.to.is_some(),
+        pattern: &args.old,
+        has_to: args.new.is_some(),
         has_insert_before: args.insert_before.is_some(),
         has_insert_after: args.insert_after.is_some(),
         nth: args.nth,
@@ -253,8 +253,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             } else {
                 args.paths.join(", ")
             };
-            eprintln!("no matches for '{}' in {path_desc}", args.from);
-            if !args.regex && crate::files::has_regex_metacharacters(&args.from) {
+            eprintln!("no matches for '{}' in {path_desc}", args.old);
+            if !args.regex && crate::files::has_regex_metacharacters(&args.old) {
                 eprintln!("hint: pattern contains regex characters, try --regex");
             }
             if !args.case_insensitive {

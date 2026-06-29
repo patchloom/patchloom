@@ -40,11 +40,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            validate_param_size("selector", &p.selector)?;
+            validate_param_size("key", &p.key)?;
             let abs = svc.cwd().join(&p.path);
             let action = crate::cmd::doc::DocAction::Get {
                 file: abs.to_string_lossy().into_owned(),
-                selector: p.selector,
+                selector: p.key,
             };
             doc_readonly(&action)
         })
@@ -60,23 +60,23 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            if let Some(ref sel) = p.selector {
-                validate_param_size("selector", sel)?;
+            if let Some(ref sel) = p.key {
+                validate_param_size("key", sel)?;
             }
             let abs = svc.cwd().join(&p.path);
             let file = abs.to_string_lossy().into_owned();
             let action = match p.action.as_str() {
                 "has" => {
-                    let selector = p.selector.ok_or_else(|| {
+                    let selector = p.key.ok_or_else(|| {
                         McpError::invalid_params(
-                            "'has' action requires a selector".to_string(),
+                            "'has' action requires a key".to_string(),
                             None,
                         )
                     })?;
                     crate::cmd::doc::DocAction::Has { file, selector }
                 }
                 "keys" => {
-                    let selector = p.selector.ok_or_else(|| {
+                    let selector = p.key.ok_or_else(|| {
                         McpError::invalid_params(
                             "'keys' action requires a selector".to_string(),
                             None,
@@ -85,7 +85,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Keys { file, selector }
                 }
                 "len" => {
-                    let selector = p.selector.ok_or_else(|| {
+                    let selector = p.key.ok_or_else(|| {
                         McpError::invalid_params(
                             "'len' action requires a selector".to_string(),
                             None,
@@ -94,7 +94,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Len { file, selector }
                 }
                 "select" => {
-                    let selector = p.selector.ok_or_else(|| {
+                    let selector = p.key.ok_or_else(|| {
                         McpError::invalid_params(
                             "'select' action requires a selector".to_string(),
                             None,
@@ -237,7 +237,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with to=\"\" to delete lines). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"from\": \"1.0.0\", \"to\": \"2.0.0\"}"
+        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}"
     )]
     async fn replace_text(
         &self,
@@ -245,9 +245,9 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            validate_param_size("from", &p.from)?;
-            if let Some(ref to) = p.to {
-                validate_content_size("to", to)?;
+            validate_param_size("old", &p.old)?;
+            if let Some(ref new_text) = p.new_text {
+                validate_content_size("new", new_text)?;
             }
             if let Some(ref ib) = p.insert_before {
                 validate_content_size("insert_before", ib)?;
@@ -264,8 +264,8 @@ impl PatchloomService {
 
             crate::ops::replace::validate_replace_args(
                 &crate::ops::replace::ReplaceValidationParams {
-                    pattern: &p.from,
-                    has_to: p.to.is_some(),
+                    pattern: &p.old,
+                    has_to: p.new_text.is_some(),
                     has_insert_before: p.insert_before.is_some(),
                     has_insert_after: p.insert_after.is_some(),
                     nth: p.nth,
@@ -283,10 +283,10 @@ impl PatchloomService {
             let validation_warnings = if !p.regex && !p.case_insensitive && !p.word_boundary {
                 let abs = svc.cwd().join(&p.path);
                 if let Ok(content) = std::fs::read_to_string(&abs) {
-                    let to_str = p.to.as_deref().unwrap_or("");
+                    let to_str = p.new_text.as_deref().unwrap_or("");
                     let result = crate::fallback::validate_edit_nth(
                         &content,
-                        &p.from,
+                        &p.old,
                         to_str,
                         Some(&p.path),
                         p.nth,
@@ -303,17 +303,12 @@ impl PatchloomService {
                 Vec::new()
             };
 
-            let mode = if p.regex {
-                Some("regex".to_string())
-            } else {
-                None
-            };
             let replace_op = Operation::Replace {
                 glob: None,
                 path: Some(p.path),
-                mode,
-                from: p.from,
-                to: p.to,
+                regex: p.regex,
+                old: p.old,
+                new_text: p.new_text,
                 nth: p.nth,
                 insert_before: p.insert_before,
                 insert_after: p.insert_after,
@@ -432,7 +427,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"from\": \"0.1.0\", \"to\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
@@ -446,25 +441,20 @@ impl PatchloomService {
                 ));
             }
             validate_batch_size("files", p.files.len())?;
-            validate_param_size("from", &p.from)?;
-            validate_content_size("to", &p.to)?;
+            validate_param_size("old", &p.old)?;
+            validate_content_size("new", &p.new_text)?;
             for f in &p.files {
                 svc.check_path(f)?;
             }
-            let mode = if p.regex {
-                Some("regex".to_string())
-            } else {
-                None
-            };
             let ops: Vec<Operation> = p
                 .files
                 .into_iter()
                 .map(|file| Operation::Replace {
                     glob: None,
                     path: Some(file),
-                    mode: mode.clone(),
-                    from: p.from.clone(),
-                    to: Some(p.to.clone()),
+                    regex: p.regex,
+                    old: p.old.clone(),
+                    new_text: Some(p.new_text.clone()),
                     nth: None,
                     insert_before: None,
                     insert_after: None,

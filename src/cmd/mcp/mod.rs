@@ -330,7 +330,7 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
 
 fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {
     Plan {
-        version: crate::plan::SCHEMA_VERSION.to_string(),
+        version: crate::plan::SCHEMA_VERSION,
         cwd: None,
         write_policy: None,
         strict,

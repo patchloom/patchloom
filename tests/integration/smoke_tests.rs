@@ -382,9 +382,9 @@ fn test_smoke_quickstart_command_flow() {
     let quickstart = fs::read_to_string(quickstart_path()).unwrap();
     assert!(quickstart.contains("patchloom search 'TODO' src/"));
     assert!(quickstart.contains("patchloom search 'TODO' --count src/"));
-    assert!(quickstart.contains("patchloom replace 'old_function' --to 'new_function' src/"));
+    assert!(quickstart.contains("patchloom replace 'old_function' --new 'new_function' src/"));
     assert!(
-        quickstart.contains("patchloom replace 'old_function' --to 'new_function' src/ --apply")
+        quickstart.contains("patchloom replace 'old_function' --new 'new_function' src/ --apply")
     );
     assert!(quickstart.contains("patchloom init"));
     assert!(quickstart.contains("appends the rules to an existing agent instructions file"));
@@ -441,7 +441,7 @@ fn test_smoke_quickstart_command_flow() {
     patchloom_in(dir.path())
         .arg("replace")
         .arg("old_function")
-        .arg("--to")
+        .arg("--new")
         .arg("new_function")
         .arg("src/")
         .assert()
@@ -456,7 +456,7 @@ fn test_smoke_quickstart_command_flow() {
     patchloom_in(dir.path())
         .arg("replace")
         .arg("old_function")
-        .arg("--to")
+        .arg("--new")
         .arg("new_function")
         .arg("src/")
         .arg("--apply")
@@ -808,7 +808,7 @@ fn test_smoke_readme_command_examples() {
     patchloom_in(dir.path())
         .arg("replace")
         .arg("old_name")
-        .arg("--to")
+        .arg("--new")
         .arg("new_name")
         .arg("src/")
         .arg("--apply")

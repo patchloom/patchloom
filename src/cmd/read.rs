@@ -184,12 +184,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_range_missing_end_fails() {
-        let err = parse_line_range("5:").unwrap_err();
-        assert!(
-            err.to_string().contains("missing end line"),
-            "expected 'missing end line', got: {err}"
-        );
+    fn parse_range_open_ended() {
+        assert_eq!(parse_line_range("5:").unwrap(), (5, None));
     }
 
     #[test]

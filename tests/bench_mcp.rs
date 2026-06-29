@@ -327,7 +327,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "selector": "version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.json", "key": "version", "value": "v2.0.0"}),
                 )
                 .await;
                 let elapsed = start.elapsed();
@@ -372,7 +372,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.yaml", "selector": "app.version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.yaml", "key": "app.version", "value": "v2.0.0"}),
                 )
                 .await;
                 let elapsed = start.elapsed();
@@ -442,7 +442,7 @@ mod bench {
                 std::fs::write(cwd.join("VERSION"), "v1.0.0\n").unwrap();
                 let elapsed = run_cli(
                     &bin,
-                    &["replace", "v1.0.0", "--to", "v2.0.0", "VERSION", "--apply"],
+                    &["replace", "v1.0.0", "--new", "v2.0.0", "VERSION", "--apply"],
                     cwd,
                 );
                 if i >= WARMUP {
@@ -579,7 +579,7 @@ mod bench {
                         call_tool(
                             &client,
                             "doc_set",
-                            serde_json::json!({"path": path, "selector": selector, "value": value}),
+                            serde_json::json!({"path": path, "key": selector, "value": value}),
                         )
                         .await;
                     } else if op.starts_with("replace") {
@@ -631,11 +631,11 @@ mod bench {
             let mut cli_times = Vec::new();
 
             let tx_plan_str = serde_json::json!({
-                "version": "1",
+                "version": 1,
                 "operations": [
-                    {"op": "doc.set", "path": "config.json", "selector": "version", "value": "v2.0.0"},
-                    {"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "v2.0.0"},
-                    {"op": "replace", "path": "VERSION", "from": "v1.0.0", "to": "v2.0.0"},
+                    {"op": "doc.set", "path": "config.json", "key": "version", "value": "v2.0.0"},
+                    {"op": "doc.set", "path": "config.yaml", "key": "app.version", "value": "v2.0.0"},
+                    {"op": "replace", "path": "VERSION", "old": "v1.0.0", "new": "v2.0.0"},
                     {"op": "md.upsert_bullet", "path": "README.md", "heading": "Changelog", "bullet": "- v2.0.0 release"}
                 ]
             }).to_string();
@@ -651,19 +651,19 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "selector": "version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.json", "key": "version", "value": "v2.0.0"}),
                 )
                 .await;
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.yaml", "selector": "app.version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.yaml", "key": "app.version", "value": "v2.0.0"}),
                 )
                 .await;
                 call_tool(
                     &client,
                     "replace_text",
-                    serde_json::json!({"path": "VERSION", "from": "v1.0.0", "to": "v2.0.0"}),
+                    serde_json::json!({"path": "VERSION", "old": "v1.0.0", "new": "v2.0.0"}),
                 )
                 .await;
                 call_tool(
@@ -715,7 +715,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "selector": "version", "value": val}),
+                    serde_json::json!({"path": "config.json", "key": "version", "value": val}),
                 )
                 .await;
                 burst_mcp_total += start.elapsed();

@@ -183,7 +183,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Weak,
         examples: &[(
             "Replace a function name",
-            r###"{"op":"replace","path":"src/main.rs","from":"old_name","to":"new_name"}"###,
+            r###"{"op":"replace","path":"src/main.rs","old":"old_name","new":"new_name"}"###,
         )],
     },
     OpMeta {
@@ -247,7 +247,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Update a version in package.json",
-            r###"{"op":"doc.set","path":"package.json","selector":"version","value":"2.0.0"}"###,
+            r###"{"op":"doc.set","path":"package.json","key":"version","value":"2.0.0"}"###,
         )],
     },
     OpMeta {
@@ -256,7 +256,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Remove a deprecated config key",
-            r###"{"op":"doc.delete","path":"config.json","selector":"deprecated_key"}"###,
+            r###"{"op":"doc.delete","path":"config.json","key":"deprecated_key"}"###,
         )],
     },
     OpMeta {
@@ -274,7 +274,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Add an item to a list",
-            r###"{"op":"doc.append","path":"data.json","selector":"items","value":"new_item"}"###,
+            r###"{"op":"doc.append","path":"data.json","key":"items","value":"new_item"}"###,
         )],
     },
     OpMeta {
@@ -292,7 +292,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Ensure a default config value exists",
-            r###"{"op":"doc.ensure","path":"config.json","selector":"timeout","value":30}"###,
+            r###"{"op":"doc.ensure","path":"config.json","key":"timeout","value":30}"###,
         )],
     },
     OpMeta {
@@ -418,7 +418,7 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Replace a constant inside a function",
-            r###"{"op":"ast.replace","path":"src/config.rs","symbol":"default_timeout","from":"30","to":"60"}"###,
+            r###"{"op":"ast.replace","path":"src/config.rs","symbol":"default_timeout","old":"30","new":"60"}"###,
         )],
     },
     OpMeta {

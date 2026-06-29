@@ -261,9 +261,9 @@ mod basic {
                 Operation::Replace {
                     glob: Some("*.rs".into()),
                     path: Some("f.rs".into()),
-                    mode: Some("literal".into()),
-                    from: "a".into(),
-                    to: Some("b".into()),
+                    regex: false,
+                    old: "a".into(),
+                    new_text: Some("b".into()),
                     nth: Some(1),
                     insert_before: Some("x".into()),
                     insert_after: Some("y".into()),
@@ -325,7 +325,7 @@ mod basic {
                 "doc.set",
                 Operation::DocSet {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     value: serde_json::json!("v"),
                 },
             ),
@@ -333,7 +333,7 @@ mod basic {
                 "doc.delete",
                 Operation::DocDelete {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                 },
             ),
             (
@@ -347,7 +347,7 @@ mod basic {
                 "doc.append",
                 Operation::DocAppend {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     value: serde_json::json!([]),
                 },
             ),
@@ -355,7 +355,7 @@ mod basic {
                 "doc.prepend",
                 Operation::DocPrepend {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     value: serde_json::json!([]),
                 },
             ),
@@ -363,7 +363,7 @@ mod basic {
                 "doc.update",
                 Operation::DocUpdate {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     value: serde_json::json!({}),
                 },
             ),
@@ -379,7 +379,7 @@ mod basic {
                 "doc.ensure",
                 Operation::DocEnsure {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     value: serde_json::json!(1),
                 },
             ),
@@ -387,7 +387,7 @@ mod basic {
                 "doc.delete_where",
                 Operation::DocDeleteWhere {
                     path: "f".into(),
-                    selector: "s".into(),
+                    key: "s".into(),
                     predicate: "p".into(),
                 },
             ),
@@ -502,8 +502,8 @@ mod basic {
                 Operation::AstReplace {
                     path: "f.rs".into(),
                     symbol: "s".into(),
-                    from: "a".into(),
-                    to: "b".into(),
+                    old: "a".into(),
+                    new_text: "b".into(),
                     regex: false,
                     lang: None,
                 },
