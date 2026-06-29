@@ -186,7 +186,7 @@ fn completion_command(shell: &str) -> String {
         "bash" => "patchloom completions bash > /etc/bash_completion.d/patchloom".into(),
         "zsh" => "patchloom completions zsh > ~/.zfunc/_patchloom".into(),
         "fish" => "patchloom completions fish > ~/.config/fish/completions/patchloom.fish".into(),
-        "elvish" => "patchloom completions elvish > ~/.config/elvish/rc.elv".into(),
+        "elvish" => "patchloom completions elvish >> ~/.config/elvish/rc.elv".into(),
         _ => format!("patchloom completions {shell}"),
     }
 }
@@ -257,6 +257,21 @@ mod tests {
         assert!(completion_command("bash").contains("bash_completion"));
         assert!(completion_command("zsh").contains("_patchloom"));
         assert!(completion_command("fish").contains("completions/patchloom.fish"));
+    }
+
+    #[test]
+    fn completion_command_elvish_uses_append() {
+        // #1177: Elvish completions must use >> (append) not > (overwrite)
+        // to avoid destroying the user's existing rc.elv configuration.
+        let cmd = completion_command("elvish");
+        assert!(
+            cmd.contains(">>"),
+            "elvish command should use >> (append), got: {cmd}"
+        );
+        assert!(
+            !cmd.contains(" > "),
+            "elvish command must not use > (overwrite), got: {cmd}"
+        );
     }
 
     #[test]

@@ -268,6 +268,9 @@ pub enum Operation {
         ensure_final_newline: Option<bool>,
         trim_trailing_whitespace: Option<bool>,
         normalize_eol: Option<String>,
+        /// Collapse consecutive blank lines into a single blank line.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        collapse_blanks: Option<bool>,
         /// Dedent specification: "4", "tab", or "auto".
         dedent: Option<String>,
         /// Indent specification: "4", "tab".

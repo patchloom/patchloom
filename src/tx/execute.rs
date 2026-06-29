@@ -726,6 +726,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             ensure_final_newline,
             trim_trailing_whitespace,
             normalize_eol,
+            collapse_blanks,
             dedent,
             indent,
             lines,
@@ -741,7 +742,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                 } else {
                     EolMode::Keep
                 },
-                collapse_blanks: false,
+                collapse_blanks: collapse_blanks.unwrap_or(false),
             };
             let mut new = crate::write::apply_policy(&content, &policy).into_owned();
 

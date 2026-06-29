@@ -645,6 +645,33 @@ mod edge_cases {
     }
 
     #[test]
+    fn ensure_final_newline_keep_mode_uses_crlf_for_crlf_content() {
+        // #1175: Keep mode should detect dominant EOL and use it,
+        // not hardcode \n which introduces mixed endings.
+        let input = "line1\r\nline2\r\n";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        // Already ends with \r\n, should be unchanged.
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_mode_appends_crlf_for_crlf_content() {
+        // #1175: CRLF content missing final newline should get \r\n, not \n.
+        let input = "line1\r\nline2";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        assert_eq!(result, "line1\r\nline2\r\n");
+        assert!(result.ends_with("\r\n"));
+    }
+
+    #[test]
+    fn ensure_final_newline_keep_mode_appends_lf_for_lf_content() {
+        // #1175: LF content should still get \n in Keep mode.
+        let input = "line1\nline2";
+        let result = ensure_final_newline(input, EolMode::Keep);
+        assert_eq!(result, "line1\nline2\n");
+    }
+
+    #[test]
     fn collapse_blanks_trailing_blank_no_newline() {
         // Two consecutive blank lines where the last has no trailing newline.
         // The fast-scan must detect this to trigger collapsing.

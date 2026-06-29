@@ -73,9 +73,8 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 if structured {
                     anyhow::bail!("invalid --lines value '{spec}': {err}");
                 }
-                if !global.quiet {
-                    eprintln!("read: {err}");
-                }
+                // Always show errors on stderr, even with --quiet (#1179).
+                eprintln!("read: {err}");
                 return Ok(exit::FAILURE);
             }
         }
@@ -107,7 +106,8 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
             Err(e) => {
-                if !structured && !global.quiet {
+                // Always show errors on stderr, even with --quiet (#1179).
+                if !structured {
                     eprintln!("read: {e}");
                 }
                 errors.push(e);
@@ -130,7 +130,8 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
-    if structured && !global.quiet {
+    // Always show errors on stderr, even with --quiet (#1179).
+    if structured {
         for error in &errors {
             eprintln!("read: {error}");
         }
@@ -345,6 +346,41 @@ mod tests {
             lines: None,
         };
         let global = GlobalFlags::test_default();
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    /// #1179: Errors must be reported even with --quiet, so agents can
+    /// diagnose failures. The run() function returns FAILURE and the error
+    /// goes to stderr unconditionally.
+    #[test]
+    fn quiet_mode_still_returns_failure_for_missing_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist.txt");
+
+        let args = ReadArgs {
+            files: vec![missing.to_string_lossy().into_owned()],
+            lines: None,
+        };
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    /// #1179: Invalid --lines with --quiet must still return FAILURE.
+    #[test]
+    fn quiet_mode_still_returns_failure_for_bad_lines() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("f.txt");
+        std::fs::write(&file, "hello\n").unwrap();
+
+        let args = ReadArgs {
+            files: vec![file.to_string_lossy().into_owned()],
+            lines: Some("abc".to_string()),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
