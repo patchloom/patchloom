@@ -30,7 +30,42 @@ pub(crate) struct SnappedSymbol {
     pub(crate) kind: symbols::SymbolKind,
 }
 
+/// Returns true when a path string contains glob metacharacters (`*`, `?`, `[`).
+fn is_glob_pattern(s: &str) -> bool {
+    s.contains('*') || s.contains('?') || s.contains('[')
+}
+
+/// Walk `dir` recursively, adding files whose relative path (from `root`)
+/// matches `matcher` to `out`.
+#[cfg(feature = "files")]
+fn walk_and_match(
+    root: &Path,
+    dir: &Path,
+    matcher: &globset::GlobMatcher,
+    out: &mut HashSet<PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_and_match(root, &path, matcher, out);
+        } else if path.is_file()
+            && let Ok(rel) = path.strip_prefix(root)
+            && matcher.is_match(rel)
+        {
+            out.insert(path);
+        }
+    }
+}
+
 /// Collect all file paths declared by operations in a plan.
+///
+/// Handles three cases for each declared path:
+/// 1. Literal file path: include directly.
+/// 2. Directory path: scan for source files (when `ast` + `cli` features).
+/// 3. Glob pattern (contains `*`, `?`, `[`): expand against `cwd`.
 pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<PathBuf> {
     let mut paths = HashSet::new();
     for op in &plan.operations {
@@ -48,6 +83,14 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
                     for f in files {
                         paths.insert(f);
                     }
+                }
+            } else if is_glob_pattern(p) {
+                // Expand glob patterns against cwd so verification
+                // covers files targeted by glob-based operations.
+                #[cfg(feature = "files")]
+                if let Ok(glob) = globset::Glob::new(p) {
+                    let matcher = glob.compile_matcher();
+                    walk_and_match(cwd, cwd, &matcher, &mut paths);
                 }
             }
         }
@@ -402,6 +445,68 @@ fn check_no_orphans(before: &SymbolSnapshot, after: &SymbolSnapshot, cwd: &Path)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: affected_file_paths must expand glob patterns instead
+    /// of silently skipping them (which would cause --verify to miss files).
+    #[test]
+    fn affected_file_paths_expands_globs() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(src.join("lib.rs"), "pub fn lib() {}\n").unwrap();
+        std::fs::write(dir.path().join("README.md"), "# Hello\n").unwrap();
+
+        let plan = crate::plan::Plan {
+            version: "1".into(),
+            cwd: None,
+            strict: None,
+            operations: vec![crate::plan::Operation::Replace {
+                glob: Some("src/*.rs".into()),
+                path: None,
+                mode: None,
+                from: "old".into(),
+                to: Some("new".into()),
+                nth: None,
+                insert_before: None,
+                insert_after: None,
+                case_insensitive: false,
+                multiline: false,
+                if_exists: false,
+                whole_line: false,
+                range: None,
+                word_boundary: false,
+                before_context: None,
+                after_context: None,
+            }],
+            write_policy: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+
+        let affected = affected_file_paths(&plan, dir.path());
+        let names: Vec<String> = affected
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(
+            names.contains(&"main.rs".to_string()),
+            "glob should match main.rs, got: {names:?}"
+        );
+        assert!(
+            names.contains(&"lib.rs".to_string()),
+            "glob should match lib.rs, got: {names:?}"
+        );
+        assert!(
+            !names.contains(&"README.md".to_string()),
+            "glob should not match README.md"
+        );
+    }
 
     #[test]
     #[cfg(feature = "cli")]

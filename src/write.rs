@@ -60,12 +60,19 @@ impl WritePolicy {
     }
 
     /// Apply an override, setting only the fields that are `Some`.
+    /// Validates all fields before mutating to avoid partial state on error.
     pub fn apply_override(&mut self, ov: &WritePolicyOverride) -> anyhow::Result<()> {
+        // Validate first: parse normalize_eol before touching any field.
+        let parsed_eol = match ov.normalize_eol {
+            Some(ref s) => Some(parse_eol_mode(s)?),
+            None => None,
+        };
+        // All validation passed; now mutate.
         if let Some(v) = ov.ensure_final_newline {
             self.ensure_final_newline = v;
         }
-        if let Some(ref s) = ov.normalize_eol {
-            self.normalize_eol = parse_eol_mode(s)?;
+        if let Some(eol) = parsed_eol {
+            self.normalize_eol = eol;
         }
         if let Some(v) = ov.trim_trailing_whitespace {
             self.trim_trailing_whitespace = v;
