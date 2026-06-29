@@ -358,7 +358,18 @@ pub(super) fn handle_ast_deps(
                 let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
                 let matching: Vec<_> = imports
                     .iter()
-                    .filter(|i| i.path.contains(target_name.as_str()))
+                    .filter(|i| {
+                        // Match as a complete path segment to avoid false positives
+                        // (e.g., "lib" should not match "stdlib" or "calibration").
+                        let p = &i.path;
+                        let t = target_name.as_str();
+                        p == t
+                            || p.ends_with(&format!("/{t}"))
+                            || p.ends_with(&format!("::{t}"))
+                            || p.ends_with(&format!("/{t}."))
+                            || p.contains(&format!("/{t}/"))
+                            || p.contains(&format!("::{t}::"))
+                    })
                     .collect();
                 if matching.is_empty() {
                     return None;

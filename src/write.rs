@@ -864,17 +864,34 @@ pub fn run_format_command_ext(
 }
 
 /// Shell-escape a file path for safe inclusion in a command string.
+///
+/// - **Unix** (`sh -c`): wraps in single quotes, escaping embedded `'`.
+/// - **Windows** (`cmd /C`): wraps in double quotes, doubling embedded `"`.
 #[cfg(feature = "cli")]
 fn shell_escape(path: &str) -> String {
-    // If the path contains no special characters, return as-is
-    if path
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'/' || b == b'.' || b == b'_' || b == b'-')
-    {
+    // If the path contains no special characters, return as-is.
+    // On Windows, backslash is a path separator, so treat it as safe.
+    if path.bytes().all(|b| {
+        b.is_ascii_alphanumeric()
+            || b == b'/'
+            || b == b'.'
+            || b == b'_'
+            || b == b'-'
+            || (cfg!(windows) && b == b'\\')
+    }) {
         return path.to_string();
     }
-    // Otherwise, wrap in single quotes (escaping any embedded single quotes)
-    format!("'{}'", path.replace('\'', "'\\''"))
+
+    #[cfg(windows)]
+    {
+        // cmd.exe uses double quotes; escape embedded double quotes by doubling.
+        format!("\"{}\"", path.replace('"', "\"\""))
+    }
+    #[cfg(not(windows))]
+    {
+        // POSIX sh uses single quotes; escape embedded single quotes.
+        format!("'{}'", path.replace('\'', "'\\''"))
+    }
 }
 
 #[path = "write_tests.rs"]
