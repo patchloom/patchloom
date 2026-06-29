@@ -143,6 +143,27 @@ fn check_file(
     issues
 }
 
+/// Resolve the `end_of_line` property from `.editorconfig` for `path`.
+///
+/// Returns `Some(EolMode)` when an `.editorconfig` declares an explicit
+/// `end_of_line` for this file, `None` otherwise.
+#[cfg(feature = "cli")]
+fn editorconfig_eol(path: &Path) -> Option<crate::write::EolMode> {
+    let props = ec4rs::properties_of(path).ok()?;
+    let val = props.get::<ec4rs::property::EndOfLine>().ok()?;
+    Some(match val {
+        ec4rs::property::EndOfLine::Lf => crate::write::EolMode::Lf,
+        ec4rs::property::EndOfLine::CrLf => crate::write::EolMode::Crlf,
+        ec4rs::property::EndOfLine::Cr => crate::write::EolMode::Cr,
+    })
+}
+
+/// Stub for non-CLI builds where EditorConfig support is unavailable.
+#[cfg(not(feature = "cli"))]
+fn editorconfig_eol(_path: &Path) -> Option<crate::write::EolMode> {
+    None
+}
+
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
@@ -154,9 +175,20 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
 
     let quiet = global.quiet;
     let eol_target = global.normalize_eol;
+    let respect_ec = global.respect_editorconfig;
     let file_issues: Vec<Vec<TidyIssue>> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let issues = check_file(path, quiet, eol_target);
+            // Resolve per-file EOL target: explicit --normalize-eol takes
+            // precedence; otherwise consult .editorconfig when
+            // --respect-editorconfig is set.
+            let file_eol_target = if eol_target.is_some() {
+                eol_target
+            } else if respect_ec {
+                editorconfig_eol(path)
+            } else {
+                None
+            };
+            let issues = check_file(path, quiet, file_eol_target);
             if issues.is_empty() {
                 None
             } else {
@@ -948,6 +980,43 @@ mod tests {
         assert!(
             !issues.iter().any(|i| i.issue.contains("normalization")),
             "LF file with LF target should not be flagged: {issues:?}"
+        );
+    }
+
+    /// Regression: `tidy check --respect-editorconfig` must detect EOL
+    /// mismatches defined in `.editorconfig`.  Without this fix,
+    /// `collect_issues()` only passed `global.normalize_eol` (which is
+    /// `None` without explicit `--normalize-eol`), so editorconfig's
+    /// `end_of_line` setting was silently ignored in check mode.
+    #[test]
+    fn check_respect_editorconfig_detects_eol_mismatch() {
+        let tmp = TempDir::new().unwrap();
+
+        // .editorconfig: *.txt must use CRLF
+        std::fs::write(
+            tmp.path().join(".editorconfig"),
+            "root = true\n\n[*.txt]\nend_of_line = crlf\n",
+        )
+        .unwrap();
+
+        // File has LF endings (mismatches editorconfig)
+        let file = tmp.path().join("test.txt");
+        std::fs::write(&file, b"line1\nline2\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.respect_editorconfig = true;
+
+        let args = TidyArgs {
+            action: TidyAction::Check {
+                paths: vec![".".to_string()],
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::CHANGES_DETECTED,
+            "tidy check --respect-editorconfig must detect LF when editorconfig says CRLF"
         );
     }
 }
