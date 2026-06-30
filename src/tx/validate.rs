@@ -130,6 +130,7 @@ mod tests {
             word_boundary: false,
             before_context: None,
             after_context: None,
+            unique: false,
         }
     }
 
@@ -184,6 +185,7 @@ mod tests {
             word_boundary: false,
             before_context: None,
             after_context: None,
+            unique: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(

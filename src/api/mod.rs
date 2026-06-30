@@ -137,6 +137,11 @@ pub struct EditResult {
     /// For cross-file operations (e.g. `file_rename`, `md_move_section` with `to`),
     /// the destination path if different from `path`.
     pub dest_path: Option<String>,
+    /// Number of times the search pattern matched in the original content.
+    ///
+    /// Only meaningful for replace operations; defaults to `0` for other
+    /// operation types (doc, md, file, patch, tidy).
+    pub match_count: usize,
 }
 
 /// Result of an in-memory content edit (no file path, no applied flag).
@@ -153,6 +158,13 @@ pub struct ContentEditResult {
     pub diff: String,
     /// Whether the content changed.
     pub changed: bool,
+    /// Number of times the search pattern matched in the original content.
+    ///
+    /// Populated regardless of whether replacements were applied (e.g. even
+    /// when `if_exists` suppresses the error on zero matches, or when `nth`
+    /// limits which match is replaced). Embedders can use this to enforce
+    /// their own ambiguity policies without pre-scanning the content.
+    pub match_count: usize,
 }
 
 /// Controls whether an operation writes to disk.
@@ -196,6 +208,13 @@ pub struct ReplaceOptions {
     /// The pattern is auto-escaped for regex metacharacters before
     /// wrapping with `\b` anchors.
     pub word_boundary: bool,
+    /// When true, the operation fails if the pattern matches more than once.
+    ///
+    /// This enforces unambiguous edits: the caller is guaranteed that exactly
+    /// one location was affected, or the operation is rejected with an error.
+    /// Useful for AI coding agents that need to ensure each edit targets a
+    /// unique location in the file.
+    pub unique: bool,
 }
 
 /// Write policy options for controlling file write transformations.
@@ -237,6 +256,20 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
         collapse_blanks: opts.collapse_blanks,
     }
+}
+
+/// Generate a unified diff between two in-memory strings.
+///
+/// Returns an empty string when the contents are identical.
+/// The `path` parameter is used for the `--- a/` and `+++ b/` diff headers;
+/// pass `None` to use a generic `<content>` placeholder.
+///
+/// This is the same diff engine used internally by [`replace_in_content`],
+/// [`replace_text`], and other editing operations, exposed as a standalone
+/// public API for embedders that need to diff arbitrary strings without
+/// going through a full edit operation.
+pub fn text_diff(original: &str, modified: &str, path: Option<&str>) -> String {
+    make_diff(path.unwrap_or("<content>"), original, modified)
 }
 
 fn make_diff(path: &str, old: &str, new: &str) -> String {
@@ -348,6 +381,7 @@ fn build_edit_result(
         changed,
         action,
         dest_path,
+        match_count: 0,
     }
 }
 

@@ -55,6 +55,9 @@ pub(crate) struct ReplaceParams {
     /// Context line(s) after the target. Enables anchor-based fallback
     /// matching when the exact `from` text is not found.
     pub after_context: Option<String>,
+    /// Fail if the pattern matches more than once (enforce unambiguous edits).
+    #[serde(default)]
+    pub unique: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

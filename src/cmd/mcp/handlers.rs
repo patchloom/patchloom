@@ -323,6 +323,7 @@ impl PatchloomService {
                 word_boundary: p.word_boundary,
                 before_context: p.before_context,
                 after_context: p.after_context,
+                unique: p.unique,
             };
             let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
 
@@ -469,6 +470,7 @@ impl PatchloomService {
                     word_boundary: p.word_boundary,
                     before_context: None,
                     after_context: None,
+                    unique: false,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))

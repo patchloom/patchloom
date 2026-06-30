@@ -1647,6 +1647,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
         assert!(op_needs_doc_flush(&op));
     }

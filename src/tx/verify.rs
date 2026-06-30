@@ -480,6 +480,7 @@ mod tests {
                 word_boundary: false,
                 before_context: None,
                 after_context: None,
+                unique: false,
             }],
             write_policy: None,
             format: None,
