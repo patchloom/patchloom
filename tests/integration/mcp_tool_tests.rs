@@ -2719,12 +2719,12 @@ async fn test_mcp_ast_replace_within_symbol() {
 
     let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
     assert!(
-        content.contains("100"),
-        "target function should have 100: {content}"
+        content.contains("let val = 100"),
+        "target function should have 'let val = 100': {content}"
     );
     assert!(
-        content.contains("99"),
-        "other function should still have 99: {content}"
+        content.contains("let val = 99"),
+        "other function should still have 'let val = 99': {content}"
     );
     client.cancel().await.unwrap();
 }

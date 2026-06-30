@@ -245,19 +245,19 @@ mod tests {
     #[test]
     fn json_to_yaml_node_scalar() {
         let text = set_and_render("key", &json!("hello"));
-        assert!(text.contains("hello"));
+        assert!(text.contains("key: hello"), "expected 'key: hello': {text}");
     }
 
     #[test]
     fn json_to_yaml_node_number() {
         let text = set_and_render("val", &json!(42));
-        assert!(text.contains("42"));
+        assert!(text.contains("val: 42"), "expected 'val: 42': {text}");
     }
 
     #[test]
     fn json_to_yaml_node_boolean() {
         let text = set_and_render("flag", &json!(true));
-        assert!(text.contains("true"));
+        assert!(text.contains("flag: true"), "expected 'flag: true': {text}");
     }
 
     #[test]

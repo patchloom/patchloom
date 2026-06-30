@@ -535,7 +535,11 @@ mod tests {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "k==v");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("=="));
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("predicate uses '=='"),
+            "error should mention '==' predicate misuse: {err_msg}"
+        );
     }
 
     #[test]
