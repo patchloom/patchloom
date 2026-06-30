@@ -275,7 +275,9 @@ impl PatchloomService {
 /// Execute a plan whose paths have already been validated by the caller.
 ///
 /// Each individual MCP tool validates paths via `check_path` before calling
-/// this function, so no redundant validation is needed here.
+/// this function, so this wrapper does not repeat that pre-validation.
+/// The `guard` is still passed through so `execute_plan_direct` can enforce
+/// containment checks during actual writes.
 fn execute_plan_validated(
     plan: Plan,
     cwd: &std::path::Path,
