@@ -284,8 +284,16 @@ pub fn replace_content<'a>(
 ///
 /// When the `old` text occurs more than once in `content` and no `nth` is
 /// specified, this function uses context lines to pick the right occurrence.
-/// It returns the byte offset of the winning match, or `None` if no
-/// occurrence (or all occurrences) match the context equally well.
+/// It compares up to 3 lines of context (nearest to the match first) using
+/// Jaro-Winkler similarity (threshold >= 0.8). The occurrence with the
+/// highest aggregate score wins. Returns the byte offset of the winning
+/// match, or `None` if no context is provided, only one match exists, or
+/// all scores are zero.
+///
+/// For `before_context`, the last N lines are compared against the N lines
+/// preceding the match. For `after_context`, the first N lines are compared
+/// against the N lines following the match. Tie-breaking: first occurrence
+/// (lowest byte offset) wins on equal scores.
 pub fn context_filtered_offset(
     content: &str,
     old: &str,
@@ -324,6 +332,8 @@ pub fn context_filtered_offset(
         }
     };
 
+    const MAX_CONTEXT_LINES: usize = 3;
+
     let mut best: Option<(usize, f64)> = None;
     for &match_off in &offsets {
         let match_line = line_index_at(match_off);
@@ -331,27 +341,35 @@ pub fn context_filtered_offset(
         let mut checks = 0u32;
 
         if let Some(before) = before_context {
-            checks += 1;
-            let before_line = before.lines().last().unwrap_or(before).trim();
-            if match_line > 0 {
-                let prev = lines[match_line - 1].trim();
-                let sim = strsim::jaro_winkler(prev, before_line);
-                if sim >= 0.8 {
-                    score += sim;
+            let ctx_lines: Vec<&str> = before.lines().collect();
+            // Take up to MAX_CONTEXT_LINES from the end (nearest to match first).
+            let start = ctx_lines.len().saturating_sub(MAX_CONTEXT_LINES);
+            let ctx_tail = &ctx_lines[start..];
+            for (i, ctx_line) in ctx_tail.iter().rev().enumerate() {
+                let content_idx = match_line.checked_sub(i + 1);
+                if let Some(ci) = content_idx {
+                    checks += 1;
+                    let sim = strsim::jaro_winkler(lines[ci].trim(), ctx_line.trim());
+                    if sim >= 0.8 {
+                        score += sim;
+                    }
                 }
             }
         }
 
         if let Some(after) = after_context {
-            checks += 1;
-            let after_line = after.lines().next().unwrap_or(after).trim();
+            let ctx_lines: Vec<&str> = after.lines().collect();
+            let n = ctx_lines.len().min(MAX_CONTEXT_LINES);
             let old_lines = old.lines().count();
             let end_line = match_line + old_lines;
-            if end_line < lines.len() {
-                let next = lines[end_line].trim();
-                let sim = strsim::jaro_winkler(next, after_line);
-                if sim >= 0.8 {
-                    score += sim;
+            for (i, ctx_line) in ctx_lines[..n].iter().enumerate() {
+                let content_idx = end_line + i;
+                if content_idx < lines.len() {
+                    checks += 1;
+                    let sim = strsim::jaro_winkler(lines[content_idx].trim(), ctx_line.trim());
+                    if sim >= 0.8 {
+                        score += sim;
+                    }
                 }
             }
         }

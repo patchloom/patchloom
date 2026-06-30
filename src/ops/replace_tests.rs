@@ -699,4 +699,104 @@ mod context_filter_tests {
             None
         );
     }
+
+    #[test]
+    fn all_scores_zero_returns_none() {
+        // When context doesn't match any occurrence (all Jaro-Winkler scores < 0.8),
+        // the function should return None instead of picking an arbitrary match.
+        let content = "x = 1\nval = hello\ny = 2\nval = hello\nz = 3\n";
+        assert_eq!(
+            context_filtered_offset(
+                content,
+                "val = hello",
+                Some("completely unrelated context"),
+                Some("nothing matches here either")
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn multiline_before_context_uses_nearest_line() {
+        // Multi-line before_context: up to 3 lines are compared (nearest to match first).
+        // Here, only the last context line matches, which is enough to disambiguate.
+        let content =
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n";
+        let offset = context_filtered_offset(
+            content,
+            "host = localhost",
+            Some("[cache]\nextra line\n[cache]"),
+            None,
+        );
+        // The last line of before_context is "[cache]", which matches the second occurrence.
+        let expected = content.find("[cache]\n").unwrap() + "[cache]\n".len();
+        assert_eq!(offset, Some(expected));
+    }
+
+    #[test]
+    fn multiline_after_context_uses_nearest_line() {
+        // Multi-line after_context: the first line is compared (nearest to match).
+        let content =
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n";
+        let offset = context_filtered_offset(
+            content,
+            "host = localhost",
+            None,
+            Some("port = 6379\nsome extra stuff"),
+        );
+        // The first line of after_context is "port = 6379", which matches the second occurrence.
+        let expected = content.find("[cache]\n").unwrap() + "[cache]\n".len();
+        assert_eq!(offset, Some(expected));
+    }
+
+    #[test]
+    fn multiline_context_disambiguates_similar_sections() {
+        // Both sections have "name = ..." before "host = localhost", so single-line
+        // context would not distinguish them. Multi-line context uses the section
+        // heading two lines above to pick the right one.
+        let content = "\
+[database]
+name = mydb
+host = localhost
+port = 5432
+
+[cache]
+name = mycache
+host = localhost
+port = 6379
+";
+        let offset = context_filtered_offset(
+            content,
+            "host = localhost",
+            Some("[cache]\nname = mycache"),
+            None,
+        );
+        let expected =
+            content.find("[cache]\n").unwrap() + "[cache]\n".len() + "name = mycache\n".len();
+        assert_eq!(offset, Some(expected));
+    }
+
+    #[test]
+    fn multiline_after_context_two_lines() {
+        // Verify that two lines of after_context are both used for scoring.
+        let content = "\
+[web]
+host = localhost
+port = 80
+ssl = false
+
+[api]
+host = localhost
+port = 443
+ssl = true
+";
+        let offset = context_filtered_offset(
+            content,
+            "host = localhost",
+            None,
+            Some("port = 443\nssl = true"),
+        );
+        let expected = content.find("[api]\n").unwrap() + "[api]\n".len();
+        assert_eq!(offset, Some(expected));
+    }
 }

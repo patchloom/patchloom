@@ -539,6 +539,25 @@ mod tests {
     }
 
     #[test]
+    fn delete_where_mixed_array_objects_and_scalars() {
+        // Mixed array containing both objects and scalar values.
+        // Using _=value should only remove matching scalars, leaving objects untouched.
+        let mut root = json!({"items": [1, {"name": "x"}, 2, "hello", 2]});
+        let count = delete_where(&mut root, &segs("items"), "_=2").unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(root["items"], json!([1, {"name": "x"}, "hello"]));
+    }
+
+    #[test]
+    fn delete_where_mixed_array_string_match() {
+        // Mixed array: string match should not affect objects or numbers.
+        let mut root = json!({"items": ["keep", {"v": "drop"}, "drop", 42, "drop"]});
+        let count = delete_where(&mut root, &segs("items"), "_=drop").unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(root["items"], json!(["keep", {"v": "drop"}, 42]));
+    }
+
+    #[test]
     fn move_at_path_moves_value() {
         let mut root = json!({"src": 42, "dst": {}});
         move_at_path(&mut root, &segs("src"), &segs("dst.moved")).unwrap();
