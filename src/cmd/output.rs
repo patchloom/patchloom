@@ -92,6 +92,7 @@ fn execute_via_engine_inner<T: Serialize>(
 
     // --apply mode: commit, then report.
     if global.apply {
+        let has_changes = result.has_changes;
         let diffs = result.build_diffs();
         result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
@@ -103,7 +104,7 @@ fn execute_via_engine_inner<T: Serialize>(
         };
 
         let output = make_output(WritePhase::Applied, diff_text);
-        if !global.emit_json(&output)? {
+        if !global.emit_json(&output)? && has_changes {
             if global.diff {
                 print!("{}", render_diffs_colored(&diffs, global.should_color()));
             } else if !global.quiet {
