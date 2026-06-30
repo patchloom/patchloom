@@ -166,13 +166,32 @@ async fn test_mcp_https_search_files_round_trip() {
         .expect("build reqwest client");
 
     // Connect an MCP client over Streamable HTTPS.
+    // Retry the TLS connection: axum_server prints the banner when the TCP
+    // listener binds, but the TLS acceptor may not be fully initialized yet.
+    // On macOS this race is hit consistently; on Linux it rarely occurs.
     use rmcp::ServiceExt;
-    let config =
-        rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(url);
-    let transport =
-        rmcp::transport::StreamableHttpClientTransport::with_client(http_client, config);
-    let client: rmcp::service::RunningService<rmcp::RoleClient, ()> =
-        ().serve(transport).await.expect("HTTPS client connect");
+    let mut client_opt = None;
+    for attempt in 0..10 {
+        let config =
+            rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(
+                url,
+            );
+        let transport = rmcp::transport::StreamableHttpClientTransport::with_client(
+            http_client.clone(),
+            config,
+        );
+        match ().serve(transport).await {
+            Ok(c) => {
+                client_opt = Some(c);
+                break;
+            }
+            Err(_) if attempt < 9 => {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+            Err(e) => panic!("HTTPS client connect failed after 10 attempts: {e}"),
+        }
+    }
+    let client: rmcp::service::RunningService<rmcp::RoleClient, ()> = client_opt.unwrap();
 
     // List tools.
     let tools = client.peer().list_all_tools().await.unwrap();
