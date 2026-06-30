@@ -545,6 +545,13 @@ mod tests {
         fs::write(&src, "hello\n").unwrap();
         fs::set_permissions(&src, fs::Permissions::from_mode(0o000)).unwrap();
 
+        // Root (common in Docker) can still read mode-000 files. Skip when
+        // permissions do not actually block reading (#1276).
+        if fs::read_to_string(&src).is_ok() {
+            fs::set_permissions(&src, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
         let args = RenameArgs {
