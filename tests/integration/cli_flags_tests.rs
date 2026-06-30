@@ -1465,9 +1465,9 @@ async fn test_mcp_concurrent_doc_set() {
     );
 
     // All three must succeed now that files are distinct (no shared rename race).
-    assert!(r1.is_ok(), "a.json write failed: {r1:?}");
-    assert!(r2.is_ok(), "b.json write failed: {r2:?}");
-    assert!(r3.is_ok(), "c.json write failed: {r3:?}");
+    r1.expect("a.json write failed");
+    r2.expect("b.json write failed");
+    r3.expect("c.json write failed");
 
     // Verify each file.
     for (key, expected_new) in [("a", "new_a"), ("b", "new_b"), ("c", "new_c")] {
