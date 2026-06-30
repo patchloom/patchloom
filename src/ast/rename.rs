@@ -15,6 +15,8 @@ const IDENTIFIER_KINDS: &[&str] = &[
     "property_identifier",
     "simple_identifier",
     "shorthand_field_identifier",
+    // Shell/Bash: function names and command names are `word` nodes
+    "word",
 ];
 
 /// Node kinds whose subtrees should be skipped entirely during rename.
@@ -316,6 +318,48 @@ func SetupFile() string {
         let result = rename_in_source(source, "SetupFile", "InitFile", Language::Go).unwrap();
         assert!(result.content.contains("func InitFile()"));
         assert!(result.content.contains("\"SetupFile\"")); // string untouched
+    }
+
+    /// Regression: bash/shell function names use `word` nodes in tree-sitter,
+    /// not `identifier`. Without `word` in `IDENTIFIER_KINDS`, ast rename
+    /// found 0 matches even though the function existed, and fell through
+    /// to the "tree-sitter parsed successfully but 0 matches" error path.
+    #[test]
+    fn rename_bash_function() {
+        let source = r#"#!/usr/bin/env bash
+build_image() {
+    docker build -t app .
+}
+push_image() {
+    docker push app
+}
+main() {
+    build_image
+    push_image
+}
+"#;
+        let result = rename_in_source(source, "build_image", "build_container", Language::Shell)
+            .expect("shell parse should succeed");
+        assert!(
+            result.content.contains("build_container()"),
+            "function definition should be renamed: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("    build_container"),
+            "function call should be renamed: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("build_image"),
+            "old name should be gone: {}",
+            result.content
+        );
+        assert!(
+            result.replacements >= 2,
+            "should rename definition + call site, got {}",
+            result.replacements
+        );
     }
 
     #[test]
