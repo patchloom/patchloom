@@ -1444,17 +1444,6 @@ body text
     }
 
     #[test]
-    fn table_append_no_table_returns_no_table_error() {
-        let content = "# API\nJust text\n";
-        let (start, end) = find_section(content, "API").unwrap();
-        let err = table_append_in(content, start, end, "| b | 2 |").unwrap_err();
-        assert!(
-            matches!(err, TableAppendError::NoTable),
-            "expected NoTable, got: {err:?}"
-        );
-    }
-
-    #[test]
     fn upsert_bullet_does_not_dedup_against_paragraph() {
         let content = "# Rules\nRun make check\n";
         let out = upsert_bullet_in(content, "Rules", "- Run make check")

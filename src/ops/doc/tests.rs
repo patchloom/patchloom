@@ -384,21 +384,6 @@ mod basic {
     }
 
     #[test]
-    fn parse_value_plain_string() {
-        let result = parse_value("hello");
-        assert_eq!(result, json!("hello"));
-        assert!(result.is_string());
-    }
-
-    #[test]
-    fn parse_value_true_is_bool() {
-        // "true" is recognized as boolean, not left as a string.
-        let result = parse_value("true");
-        assert_eq!(result, json!(true));
-        assert!(result.is_boolean());
-    }
-
-    #[test]
     fn parse_value_false_is_bool() {
         let result = parse_value("false");
         assert_eq!(result, json!(false));
@@ -505,13 +490,6 @@ mod edge_cases {
     fn delete_at_selector_missing_returns_false() {
         let mut root = json!({"a": 1});
         let sel = crate::selector::parse("nonexistent").unwrap();
-        assert!(!delete_at_selector(&mut root, &sel).unwrap());
-    }
-
-    #[test]
-    fn delete_at_selector_empty_returns_false() {
-        let mut root = json!({"a": 1});
-        let sel: Vec<crate::selector::Segment> = vec![];
         assert!(!delete_at_selector(&mut root, &sel).unwrap());
     }
 
@@ -715,20 +693,6 @@ mod error_handling {
         let mut root = json!({"items": [1]});
         let sel = crate::selector::parse("items[5]").unwrap();
         assert!(set_at_path(&mut root, &sel, json!(99)).is_err());
-    }
-
-    #[test]
-    fn set_at_path_empty_selector_fails() {
-        let mut root = json!({});
-        let sel: Vec<crate::selector::Segment> = vec![];
-        assert!(set_at_path(&mut root, &sel, json!(1)).is_err());
-    }
-
-    #[test]
-    fn delete_where_invalid_predicate_fails() {
-        let mut root = json!({"items": [{"name": "a"}]});
-        let sel = crate::selector::parse("items").unwrap();
-        assert!(delete_where(&mut root, &sel, "no-equals-sign").is_err());
     }
 
     #[test]

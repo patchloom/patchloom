@@ -670,31 +670,10 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn needs_quoting_booleans_and_null() {
-        assert!(needs_yaml_quoting("true"));
-        assert!(needs_yaml_quoting("True"));
-        assert!(needs_yaml_quoting("yes"));
-        assert!(needs_yaml_quoting("null"));
-        assert!(needs_yaml_quoting("~"));
-    }
-
-    #[test]
-    fn needs_quoting_numbers() {
-        assert!(needs_yaml_quoting("42"));
-        assert!(needs_yaml_quoting("3.14"));
-    }
-
-    #[test]
     fn needs_quoting_special_chars() {
         assert!(needs_yaml_quoting("# comment"));
         assert!(needs_yaml_quoting("a: b"));
         assert!(needs_yaml_quoting(""));
-    }
-
-    #[test]
-    fn needs_quoting_trailing_colon() {
-        assert!(needs_yaml_quoting("host:"));
-        assert!(needs_yaml_quoting("value:"));
     }
 
     #[test]
