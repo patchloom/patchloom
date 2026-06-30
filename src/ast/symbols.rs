@@ -945,8 +945,26 @@ const GENERIC_NAME_KINDS: &[&str] = &[
     "simple_identifier",
 ];
 
+/// Name kinds safe for function names (excludes `type_identifier` which matches
+/// C/C++ return types like `Queue` in `Queue *create()`).
+const GENERIC_FN_NAME_KINDS: &[&str] = &[
+    "identifier",
+    "name",
+    "property_identifier",
+    "field_identifier",
+    "simple_identifier",
+];
+
 fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, String)> {
     let kind = node.kind();
+    let is_function_kind = matches!(
+        kind,
+        "function_item"
+            | "function_definition"
+            | "function_declaration"
+            | "method_definition"
+            | "method_declaration"
+    );
     let symbol_kind = match kind {
         "function_item" | "function_definition" | "function_declaration" => SymbolKind::Function,
         "method_definition" | "method_declaration" => SymbolKind::Method,
@@ -962,21 +980,68 @@ fn extract_generic(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolK
         _ => return None,
     };
 
-    if let Some(name) = child_text_by_kinds(node, GENERIC_NAME_KINDS, source) {
-        return Some((symbol_kind, name.to_string()));
-    }
+    if is_function_kind {
+        // For function definitions, check declarators FIRST because in C/C++
+        // the function name is inside a declarator node, and `type_identifier`
+        // direct children are the return type (e.g. `Queue` in `Queue *create()`).
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if (child.kind().contains("declarator") || child.kind() == "name")
+                && let Some(name) = find_name_in_declarator_tree(child, GENERIC_NAME_KINDS, source)
+            {
+                return Some((symbol_kind, name.to_string()));
+            }
+        }
+        // Fall back to direct identifier children for non-C languages (Swift,
+        // Kotlin, etc.) but exclude `type_identifier` to avoid matching return types.
+        if let Some(name) = child_text_by_kinds(node, GENERIC_FN_NAME_KINDS, source) {
+            return Some((symbol_kind, name.to_string()));
+        }
+    } else {
+        if let Some(name) = child_text_by_kinds(node, GENERIC_NAME_KINDS, source) {
+            return Some((symbol_kind, name.to_string()));
+        }
 
-    // C-family: name nested inside a declarator node
+        // C-family: name nested inside a declarator node
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if (child.kind().contains("declarator") || child.kind() == "name")
+                && let Some(name) = find_name_in_declarator_tree(child, GENERIC_NAME_KINDS, source)
+            {
+                return Some((symbol_kind, name.to_string()));
+            }
+        }
+    }
+    None
+}
+
+/// Recursively search declarator nodes for an identifier name.
+///
+/// Handles arbitrary nesting depth such as C pointer-returning functions:
+/// `pointer_declarator → function_declarator → identifier`. Also checks
+/// `qualified_identifier` / `scoped_identifier` for C++ qualified names.
+fn find_name_in_declarator_tree<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    name_kinds: &[&str],
+    source: &'a str,
+) -> Option<&'a str> {
+    // Check direct identifier children
+    if let Some(name) = child_text_by_kinds(node, name_kinds, source) {
+        return Some(name);
+    }
+    // Check qualified_identifier / scoped_identifier (C++ qualified names)
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind().contains("declarator") || child.kind() == "name" {
-            if let Some(name) = child_text_by_kinds(child, GENERIC_NAME_KINDS, source) {
-                return Some((symbol_kind, name.to_string()));
-            }
-            // C++ qualified names: declarator -> qualified_identifier -> name: identifier
-            if let Some(name) = find_name_in_qualified_children(child, GENERIC_NAME_KINDS, source) {
-                return Some((symbol_kind, name.to_string()));
-            }
+        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
+            && let Some(name) = innermost_qualified_name(child, name_kinds, source)
+        {
+            return Some(name);
+        }
+        // Recurse into nested declarator nodes
+        if child.kind().contains("declarator")
+            && let Some(name) = find_name_in_declarator_tree(child, name_kinds, source)
+        {
+            return Some(name);
         }
     }
     None
@@ -995,25 +1060,6 @@ fn innermost_qualified_name<'a>(
         return Some(name);
     }
     // Recurse into nested qualified_identifier / scoped_identifier children
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
-            && let Some(name) = innermost_qualified_name(child, name_kinds, source)
-        {
-            return Some(name);
-        }
-    }
-    None
-}
-
-/// Search child nodes for `qualified_identifier` / `scoped_identifier` and
-/// return the innermost identifier name. Used by `extract_generic` to handle
-/// C++ qualified method definitions (e.g. `void MyClass::method()`).
-fn find_name_in_qualified_children<'a>(
-    node: tree_sitter_lib::Node<'a>,
-    name_kinds: &[&str],
-    source: &'a str,
-) -> Option<&'a str> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if (child.kind() == "qualified_identifier" || child.kind() == "scoped_identifier")
@@ -1825,6 +1871,55 @@ enum Color {
 
         let color_sym = symbols.iter().find(|s| s.name == "Color").unwrap();
         assert_eq!(color_sym.kind, SymbolKind::Enum);
+    }
+
+    /// Regression: C functions returning pointer types (e.g. `int *func()`,
+    /// `void *func()`, `Foo *func()`) were either missing from `ast list`
+    /// or mislabeled with the return type name. The root cause was that
+    /// `extract_generic` checked direct `type_identifier` children (the
+    /// return type) before checking declarator children (the function name),
+    /// and the declarator recursion was only one level deep while pointer
+    /// declarators nest two levels: `pointer_declarator -> function_declarator
+    /// -> identifier`.
+    #[test]
+    fn extract_c_pointer_returning_functions() {
+        let source = r#"
+int *pointer_func(void) { return 0; }
+void *void_ptr_func(void) { return 0; }
+char *string_func(void) { return "hello"; }
+
+typedef struct Foo { int x; } Foo;
+Foo *foo_create(void) { return 0; }
+"#;
+        let symbols = extract_symbols(source, Language::C);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.contains(&"pointer_func"),
+            "should find int* function: {names:?}"
+        );
+        assert!(
+            names.contains(&"void_ptr_func"),
+            "should find void* function: {names:?}"
+        );
+        assert!(
+            names.contains(&"string_func"),
+            "should find char* function: {names:?}"
+        );
+        assert!(
+            names.contains(&"foo_create"),
+            "should find Foo* function (not mislabeled as 'Foo'): {names:?}"
+        );
+
+        // Verify they are classified as functions, not structs/types
+        for fname in &["pointer_func", "void_ptr_func", "string_func", "foo_create"] {
+            let sym = symbols.iter().find(|s| s.name == *fname).unwrap();
+            assert_eq!(
+                sym.kind,
+                SymbolKind::Function,
+                "{fname} should be Function, got {:?}",
+                sym.kind
+            );
+        }
     }
 
     #[test]
