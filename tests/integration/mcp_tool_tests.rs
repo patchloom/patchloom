@@ -330,8 +330,9 @@ async fn test_mcp_doc_get_reads_value() {
     client.cancel().await.unwrap();
 }
 
-/// Regression test for #939: search_files with zero matches must return a
-/// descriptive "No matches found." message, not the generic exit-code text.
+/// Regression test for #939 / #1270: search_files with zero matches must
+/// return a descriptive "No matches found." message as a success (isError:
+/// false), not an error. Empty results are valid answers, not failures.
 #[tokio::test]
 async fn test_mcp_search_no_match_returns_descriptive_message() {
     if !has_mcp_support() {
@@ -347,7 +348,10 @@ async fn test_mcp_search_no_match_returns_descriptive_message() {
         serde_json::json!({"pattern": "zzz_nonexistent_pattern_zzz"}),
     )
     .await;
-    assert!(is_error, "search with no matches should return error");
+    assert!(
+        !is_error,
+        "search with no matches should return isError: false (#1270)"
+    );
     assert!(
         text.contains("No matches found"),
         "response should say 'No matches found', got: {text}"
@@ -2749,8 +2753,9 @@ async fn test_mcp_ast_list_unsupported_file_names_language() {
     client.cancel().await.unwrap();
 }
 
-/// Regression test for #939: NO_MATCHES results must return the descriptive
-/// fallback message, not the generic "Operation failed with exit code 3."
+/// Regression test for #939 / #1270: NO_MATCHES results must return the
+/// descriptive fallback message as a success (isError: false), not an error.
+/// Empty results are valid answers that should not trigger agent recovery mode.
 #[tokio::test]
 #[cfg(feature = "ast")]
 async fn test_mcp_no_matches_returns_descriptive_message() {
@@ -2768,7 +2773,10 @@ async fn test_mcp_no_matches_returns_descriptive_message() {
         serde_json::json!({"path": "lib.rs", "symbol": "nonexistent_symbol_xyz"}),
     )
     .await;
-    assert!(is_error, "ast_refs on missing symbol should return error");
+    assert!(
+        !is_error,
+        "ast_refs on missing symbol should return isError: false (#1270)"
+    );
     assert!(
         text.contains("No references found"),
         "response should contain descriptive message, not generic exit code: {text}"

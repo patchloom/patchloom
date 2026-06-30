@@ -121,7 +121,7 @@ mod basic {
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"
         );
-        assert_eq!(names.len(), 53, "expected 53 tools, got {}", names.len());
+        assert_eq!(names.len(), 54, "expected 54 tools, got {}", names.len());
         client.cancel().await.unwrap();
     }
 
@@ -727,5 +727,127 @@ mod integrity {
         assert_eq!(content, "world");
 
         client.cancel().await.unwrap();
+    }
+}
+
+// --- #1267: server_info tool ---
+
+mod server_info_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn server_info_returns_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("server_info");
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "server_info should succeed"
+        );
+
+        let text = result.content.first().unwrap();
+        let text = match text {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text content"),
+        };
+        let info: serde_json::Value = serde_json::from_str(text).unwrap();
+        let cwd = info["cwd"].as_str().unwrap();
+        assert_eq!(
+            std::path::Path::new(cwd).canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap(),
+            "server_info cwd should match the server's working directory"
+        );
+    }
+
+    #[tokio::test]
+    async fn server_info_listed_in_tools() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let tools = client.peer().list_all_tools().await.unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert!(
+            names.contains(&"server_info"),
+            "server_info should be listed in tools"
+        );
+        client.cancel().await.unwrap();
+    }
+}
+
+// --- #1270: no_results returns isError: false ---
+
+mod no_results_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn search_no_match_returns_success() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("search_files").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "pattern": "NONEXISTENT_PATTERN_xyz"
+            }))
+            .unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        // #1270: no-match should NOT be an error
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "search with no matches should return isError: false, not true"
+        );
+
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text content"),
+        };
+        assert!(
+            text.contains("No matches"),
+            "should contain 'No matches' message, got: {text}"
+        );
+
+        client.cancel().await.unwrap();
+    }
+
+    #[cfg(feature = "ast")]
+    #[tokio::test]
+    async fn ast_list_no_symbols_returns_success() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Create a file with no symbol definitions
+        std::fs::write(dir.path().join("empty.py"), "# just a comment\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("ast_list").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "empty.py"
+            }))
+            .unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        // #1270: empty result should NOT be an error
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "ast_list with no symbols should return isError: false, not true"
+        );
+
+        client.cancel().await.unwrap();
+    }
+
+    #[test]
+    fn no_results_helper_returns_success() {
+        let result = no_results("No matches found.").unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "no_results should return isError: false"
+        );
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text content"),
+        };
+        assert_eq!(text, "No matches found.");
     }
 }

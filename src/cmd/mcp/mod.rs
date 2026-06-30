@@ -287,6 +287,16 @@ fn execute_plan_validated(
     exit_code_to_result(code, &json, "Operation completed successfully.")
 }
 
+/// Return a successful result with a "no results" message.
+///
+/// Use for valid queries that produce no matches (e.g. `ast_refs` finding no
+/// references, `search_files` with no hits). These are correct answers, not
+/// errors. Returning `isError: false` prevents LLM agents from entering
+/// unnecessary recovery mode. See #1270.
+fn no_results(msg: &str) -> Result<CallToolResult, McpError> {
+    Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
+}
+
 /// Convert an exit code + output string into a `CallToolResult`.
 ///
 /// When `output` is non-empty it is used as-is. Otherwise `fallback` is used

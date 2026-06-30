@@ -82,6 +82,7 @@ use std::path::Path;
 use crate::backup::BackupSession;
 use crate::containment::PathGuard;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
+pub use crate::ops::patch::{Hunk, PatchFile, PatchLine};
 use crate::write::{EolMode, WritePolicy, atomic_write};
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -270,6 +271,28 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
 /// going through a full edit operation.
 pub fn text_diff(original: &str, modified: &str, path: Option<&str>) -> String {
     make_diff(path.unwrap_or("<content>"), original, modified)
+}
+
+/// Parse unified diff text into structured patch files and hunks.
+///
+/// Handles standard unified diff format (`--- a/` / `+++ b/` / `@@`).
+/// Tolerant of embedded diffs in prose (only recognizes headers with
+/// `a/`/`b/` prefixes, `/dev/null`, tab timestamps, or `diff ` context).
+///
+/// Returns one [`PatchFile`] per file in the diff, each containing
+/// [`Hunk`]s with [`PatchLine`]s for context, added, and removed lines.
+///
+/// This complements [`text_diff`] (which generates diffs) and
+/// `apply_patch` (which applies diffs to files) by providing a
+/// parse-only step for embedders that need structured diff data
+/// without applying it.
+///
+/// # Errors
+///
+/// Returns an error if the diff text contains malformed hunk headers
+/// or is otherwise unparseable.
+pub fn parse_unified_diff(text: &str) -> Result<Vec<PatchFile>, String> {
+    crate::ops::patch::parse_patch(text)
 }
 
 fn make_diff(path: &str, old: &str, new: &str) -> String {
