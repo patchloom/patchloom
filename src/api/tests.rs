@@ -629,6 +629,48 @@ fn md_table_append_adds_row() {
 }
 
 #[test]
+fn md_table_append_column_mismatch_gives_specific_error() {
+    // #1231: library path should report "column mismatch", not "heading not found"
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("table.md");
+    fs::write(
+        &file,
+        "# Data\n\n| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n",
+    )
+    .unwrap();
+
+    let err = md_table_append(&file, "# Data", "| x |", ApplyMode::Preview, None).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("column"),
+        "error should mention column mismatch, got: {msg}"
+    );
+    assert!(
+        !msg.contains("heading not found"),
+        "error should NOT say 'heading not found': {msg}"
+    );
+}
+
+#[test]
+fn md_table_append_no_table_gives_specific_error() {
+    // #1231: library path should report "no markdown table", not "heading not found"
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Data\n\nJust text, no table.\n").unwrap();
+
+    let err = md_table_append(&file, "# Data", "| x |", ApplyMode::Preview, None).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no markdown table"),
+        "error should mention 'no markdown table', got: {msg}"
+    );
+    assert!(
+        !msg.contains("heading not found"),
+        "error should NOT say 'heading not found': {msg}"
+    );
+}
+
+#[test]
 fn md_insert_before_heading_works() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("doc.md");

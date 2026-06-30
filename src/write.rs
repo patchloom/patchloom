@@ -708,17 +708,22 @@ pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> an
 pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
-    // Capture the original file's permissions before overwriting.
-    // Use symlink_metadata so that when `path` is a symlink we get the
-    // symlink entry's metadata, not the target's. persist() replaces the
-    // path entry (the symlink) with a regular file, so carrying over the
-    // target's permissions would be wrong.
-    let original_perms = std::fs::symlink_metadata(path)
-        .ok()
-        .filter(|m| !m.file_type().is_symlink())
-        .map(|m| m.permissions());
+    // Resolve symlinks: write to the target file, not the symlink entry (#1230).
+    // Without this, persist() (rename) replaces the symlink directory entry
+    // with a regular file, destroying the symlink and leaving the target unchanged.
+    let resolved;
+    let write_path = if path.is_symlink() {
+        resolved = std::fs::canonicalize(path)
+            .with_context(|| format!("failed to resolve symlink {}", path.display()))?;
+        resolved.as_path()
+    } else {
+        path
+    };
 
-    let parent = path
+    // Capture the original file's permissions before overwriting.
+    let original_perms = std::fs::metadata(write_path).ok().map(|m| m.permissions());
+
+    let parent = write_path
         .parent()
         .context("cannot determine parent directory of target path")?;
 
@@ -735,8 +740,8 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
 
-    tmp.persist(path)
-        .with_context(|| format!("failed to persist tempfile to {}", path.display()))?;
+    tmp.persist(write_path)
+        .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
     Ok(())
 }
