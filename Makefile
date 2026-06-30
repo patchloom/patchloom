@@ -54,8 +54,9 @@ verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated release
 		echo "RELEASE_NOTES.md present - will be used to override generated changelog:"; \
 		head -15 RELEASE_NOTES.md; \
 		echo "=== content check ==="; \
-		grep -q 'CLI is now optional' RELEASE_NOTES.md && echo 'OK: has CLI optional highlight' || echo 'MISSING: CLI optional'; \
-		grep -q 'non_exhaustive' RELEASE_NOTES.md && echo 'OK: has semver safety' || echo 'MISSING: semver'; \
+		grep -q 'Highlights' RELEASE_NOTES.md && echo 'OK: has Highlights section' || echo 'MISSING: Highlights'; \
+		grep -q 'Bug fixes\|Bug Fixes' RELEASE_NOTES.md && echo 'OK: has Bug fixes section' || echo 'MISSING: Bug fixes'; \
+		grep -q 'Numbers' RELEASE_NOTES.md && echo 'OK: has Numbers table' || echo 'MISSING: Numbers'; \
 	else \
 		echo "No RELEASE_NOTES.md present (generated changelog will be used)"; \
 	fi
