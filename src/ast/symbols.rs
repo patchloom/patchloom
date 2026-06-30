@@ -395,22 +395,42 @@ pub struct FunctionSigEdit {
 
 /// Rewrite function signature with structured changes for visibility, parameters, return type.
 /// Preserves function name, body, and other source exactly. Uses tree-sitter for location.
-/// Supports basic Rust signatures (no generics/where for the stub; extend as needed).
-/// See #797.
+///
+/// Supports all languages with tree-sitter grammars. For Rust, uses full reconstruction
+/// (preserving async/unsafe/const/extern qualifiers). For other languages, uses surgical
+/// node replacement: each `FunctionSigEdit` field replaces the corresponding AST node
+/// in-place, preserving everything else.
+///
+/// The `return_type` value should use the target language's native syntax:
+/// - Rust: `"-> String"`
+/// - Python: `"-> dict"` (the `-> ` prefix is part of the value)
+/// - TypeScript: `": Promise<Response>"` (the `: ` prefix is part of the value)
+/// - Go: `"error"` or `"(*Response, error)"` (no prefix)
+/// - Java: `"Response"` (placed before the method name)
 ///
 /// Per #821: this remains a library-only helper for now (no CLI `ast signature`, no plan op, no MCP tool).
 /// Record of decision lives in #821 and src/lib.rs embedding docs.
+/// See #797, #1266.
 pub fn rewrite_function_signature(
     source: &str,
     old_name: &str,
     edit: &FunctionSigEdit,
+    lang: Language,
 ) -> Option<String> {
+    if lang == Language::Rust {
+        return rewrite_rust_sig(source, old_name, edit);
+    }
+    rewrite_sig_generic(source, old_name, edit, lang)
+}
+
+/// Rust-specific full reconstruction: extracts visibility, qualifiers, params,
+/// return type from tree-sitter nodes and rebuilds the signature.
+fn rewrite_rust_sig(source: &str, old_name: &str, edit: &FunctionSigEdit) -> Option<String> {
     let (tree, _) = parse_source(source, Language::Rust)?;
     let root = tree.root_node();
 
     let fn_node = find_fn_for_rewrite(root, source, old_name)?;
 
-    // Build replacement sig from edit or keep original parts.
     let vis = edit.visibility.as_deref().unwrap_or_else(|| {
         child_text_by_kind(fn_node, "visibility_modifier", source).unwrap_or("")
     });
@@ -418,17 +438,11 @@ pub fn rewrite_function_signature(
         .parameters
         .as_deref()
         .unwrap_or_else(|| child_text_by_kind(fn_node, "parameters", source).unwrap_or("()"));
-    // tree-sitter-rust has no "return_type" wrapper node. The return type is
-    // represented as a "->" child followed by a type child (e.g. "generic_type").
-    // Extract it from source: everything between the parameters close and the
-    // body (or node end), trimmed.
     let ret = edit
         .return_type
         .as_deref()
         .unwrap_or_else(|| extract_return_type(fn_node, source).unwrap_or(""));
 
-    // Preserve function qualifiers (async, unsafe, const, extern) from the
-    // original source. These appear between the visibility/start and "fn".
     let qualifiers = extract_fn_qualifiers(fn_node, source);
 
     let vis_part = if vis.is_empty() {
@@ -451,13 +465,252 @@ pub fn rewrite_function_signature(
         vis_part, qual_part, old_name, params, ret_part
     );
 
-    // Use the same byte-range logic as replace to swap only the sig.
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
-
     let start = fn_node.start_byte();
     let before = &source[..start];
     let after = &source[sig_end..];
     Some(format!("{}{}{}", before, new_sig, after))
+}
+
+/// Node kinds that represent function parameters across languages.
+const PARAM_NODE_KINDS: &[&str] = &[
+    "parameters",        // Rust, Python
+    "formal_parameters", // TypeScript, JavaScript, Java
+    "parameter_list",    // Go, C, C++
+];
+
+/// Generic multi-language rewrite: surgical node replacement within the
+/// signature span. Finds the function via language-agnostic `find_function_node`,
+/// then replaces individual sub-nodes (parameters, return type, visibility)
+/// in right-to-left order to avoid offset invalidation.
+fn rewrite_sig_generic(
+    source: &str,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+    lang: Language,
+) -> Option<String> {
+    let (tree, _) = parse_source(source, lang)?;
+    let root = tree.root_node();
+    let fn_node = find_function_node(root, source, old_name)?;
+    let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
+    let sig_start = fn_node.start_byte();
+
+    let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+
+    // -- Visibility / modifiers --
+    if let Some(new_vis) = &edit.visibility {
+        if let Some(node) = find_modifier_node(fn_node, lang) {
+            let end = node.end_byte();
+            // Consume trailing whitespace so we don't leave a double space
+            let ws_end = if source.as_bytes().get(end) == Some(&b' ') {
+                end + 1
+            } else {
+                end
+            };
+            if new_vis.is_empty() {
+                edits.push((node.start_byte()..ws_end, String::new()));
+            } else {
+                edits.push((node.start_byte()..end, new_vis.clone()));
+            }
+        } else if !new_vis.is_empty() {
+            // Insert at the start of the signature
+            edits.push((sig_start..sig_start, format!("{} ", new_vis)));
+        }
+    }
+
+    // -- Parameters --
+    if let Some(new_params) = &edit.parameters {
+        // For Go methods, skip the receiver parameter_list (first one) and use
+        // the one that comes after the function name.
+        let params_node = if fn_node.kind() == "method_declaration" {
+            fn_node
+                .child_by_field_name("parameters")
+                .or_else(|| find_nth_child_of_kinds(fn_node, PARAM_NODE_KINDS, 1))
+        } else {
+            find_first_child_of_kinds(fn_node, PARAM_NODE_KINDS)
+        };
+        if let Some(node) = params_node {
+            edits.push((node.start_byte()..node.end_byte(), new_params.clone()));
+        }
+    }
+
+    // -- Return type --
+    if let Some(new_ret) = &edit.return_type {
+        if let Some(range) = find_return_type_range(fn_node, lang, sig_end) {
+            if new_ret.is_empty() {
+                // Remove return type and preceding whitespace
+                let trimmed_start = source[..range.start].trim_end().len();
+                edits.push((trimmed_start..range.end, String::new()));
+            } else {
+                edits.push((range, new_ret.clone()));
+            }
+        } else if !new_ret.is_empty() {
+            // No existing return type; insert after parameters
+            let insert_pos = if fn_node.kind() == "method_declaration" {
+                fn_node
+                    .child_by_field_name("parameters")
+                    .or_else(|| find_nth_child_of_kinds(fn_node, PARAM_NODE_KINDS, 1))
+            } else {
+                find_first_child_of_kinds(fn_node, PARAM_NODE_KINDS)
+            }
+            .map(|n| n.end_byte())
+            .unwrap_or(sig_end);
+            edits.push((insert_pos..insert_pos, format!(" {}", new_ret)));
+        }
+    }
+
+    // Sort right-to-left by start position so earlier splices don't shift later ones
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0.start));
+    let mut result = source.to_string();
+    for (range, text) in edits {
+        result.replace_range(range, &text);
+    }
+    Some(result)
+}
+
+/// Find the first child node matching any of the given kinds.
+/// Also searches one level inside declarator nodes (C/C++ nesting).
+fn find_first_child_of_kinds<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter_lib::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(child);
+        }
+        // C/C++: parameters live inside function_declarator, not as direct children
+        if child.kind().contains("declarator") {
+            let mut inner = child.walk();
+            for grandchild in child.children(&mut inner) {
+                if kinds.contains(&grandchild.kind()) {
+                    return Some(grandchild);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Find the Nth (0-based) child node matching any of the given kinds.
+fn find_nth_child_of_kinds<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    kinds: &[&str],
+    n: usize,
+) -> Option<tree_sitter_lib::Node<'a>> {
+    let mut cursor = node.walk();
+    let mut count = 0;
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            if count == n {
+                return Some(child);
+            }
+            count += 1;
+        }
+    }
+    None
+}
+
+/// Find the visibility/modifier node for a function definition.
+fn find_modifier_node(
+    fn_node: tree_sitter_lib::Node,
+    lang: Language,
+) -> Option<tree_sitter_lib::Node> {
+    match lang {
+        Language::Java => find_first_child_of_kinds(fn_node, &["modifiers"]),
+        _ => find_first_child_of_kinds(fn_node, &["visibility_modifier", "visibility"]),
+    }
+}
+
+/// Find the byte range of the return type in a function signature.
+/// Returns the range that should be replaced (includes language-specific prefix like `-> ` or `: `).
+fn find_return_type_range(
+    fn_node: tree_sitter_lib::Node,
+    lang: Language,
+    sig_end: usize,
+) -> Option<std::ops::Range<usize>> {
+    match lang {
+        Language::Python => {
+            // Python: `-> type` after parameters, before the colon.
+            // tree-sitter-python: "->" child followed by a "type" child.
+            let mut cursor = fn_node.walk();
+            let mut arrow_start = None;
+            for child in fn_node.children(&mut cursor) {
+                if child.kind() == "->" {
+                    arrow_start = Some(child.start_byte());
+                    continue;
+                }
+                if let Some(a) = arrow_start
+                    && child.kind() == "type"
+                {
+                    return Some(a..child.end_byte());
+                }
+            }
+            None
+        }
+        Language::Go => {
+            // Go: "result" field after parameters (single type or parenthesized list).
+            fn_node
+                .child_by_field_name("result")
+                .map(|n| n.start_byte()..n.end_byte())
+        }
+        Language::TypeScript | Language::JavaScript => {
+            // TS/JS: "return_type" or "type_annotation" child.
+            find_first_child_of_kinds(fn_node, &["return_type", "type_annotation"])
+                .map(|n| n.start_byte()..n.end_byte())
+        }
+        Language::Java => {
+            // Java: return type node appears before the name. It's a direct child
+            // with a type kind (void_type, type_identifier, generic_type, etc.).
+            // We find it by looking for type-like children that come before the
+            // function name identifier.
+            let name_start = fn_node
+                .child_by_field_name("name")
+                .map(|n| n.start_byte())
+                .unwrap_or(sig_end);
+            let type_kinds = [
+                "void_type",
+                "type_identifier",
+                "generic_type",
+                "integral_type",
+                "boolean_type",
+                "floating_point_type",
+                "array_type",
+                "scoped_type_identifier",
+            ];
+            let mut cursor = fn_node.walk();
+            for child in fn_node.children(&mut cursor) {
+                if child.start_byte() < name_start && type_kinds.contains(&child.kind()) {
+                    return Some(child.start_byte()..child.end_byte());
+                }
+            }
+            None
+        }
+        Language::C | Language::Cpp => {
+            // C/C++: return type is a type specifier before the declarator.
+            let decl_start =
+                find_first_child_of_kinds(fn_node, &["declarator", "function_declarator"])
+                    .map(|n| n.start_byte())
+                    .unwrap_or(sig_end);
+            let type_kinds = [
+                "primitive_type",
+                "type_identifier",
+                "sized_type_specifier",
+                "struct_specifier",
+                "enum_specifier",
+                "union_specifier",
+                "template_type",
+            ];
+            let mut cursor = fn_node.walk();
+            for child in fn_node.children(&mut cursor) {
+                if child.start_byte() < decl_start && type_kinds.contains(&child.kind()) {
+                    return Some(child.start_byte()..child.end_byte());
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 /// Extract the return type from a function_item node. tree-sitter-rust has no
@@ -1981,7 +2234,7 @@ struct Point {
             parameters: Some("(x: u32, y: &str)".to_string()),
             return_type: Some("-> String".to_string()),
         };
-        let res = rewrite_function_signature(src, "old", &edit);
+        let res = rewrite_function_signature(src, "old", &edit, Language::Rust);
         let out = res.expect("rewrite_function_signature should succeed for matching name");
         assert!(out.contains("pub(crate) fn old(x: u32, y: &str) -> String"));
         assert!(out.contains("fn other"));
@@ -1998,7 +2251,7 @@ struct Point {
             parameters: Some("(input: &str)".to_string()),
             return_type: None,
         };
-        let res = rewrite_function_signature(src, "process", &edit);
+        let res = rewrite_function_signature(src, "process", &edit, Language::Rust);
         let out = res.expect("rewrite should succeed");
         assert!(
             out.contains("pub async fn process(input: &str) -> Result<()>"),
@@ -2014,12 +2267,250 @@ struct Point {
             parameters: Some("(ptr: *mut u8)".to_string()),
             return_type: None,
         };
-        let res = rewrite_function_signature(src, "dangerous", &edit);
+        let res = rewrite_function_signature(src, "dangerous", &edit, Language::Rust);
         let out = res.expect("rewrite should succeed");
         assert!(
             out.contains("pub unsafe fn dangerous(ptr: *mut u8)"),
             "unsafe qualifier should be preserved: {out}"
         );
+    }
+
+    // ── multi-language rewrite_function_signature tests (#1266) ──
+
+    #[test]
+    fn rewrite_python_params() {
+        let src = "def process(data: list) -> dict:\n    return {}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(data: list, validate: bool = True)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::Python).unwrap();
+        assert!(
+            out.contains("def process(data: list, validate: bool = True) -> dict:"),
+            "should replace params: {out}"
+        );
+        assert!(out.contains("return {}"), "body preserved");
+    }
+
+    #[test]
+    fn rewrite_python_return_type() {
+        let src = "def process(data: list) -> dict:\n    return {}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("-> list".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::Python).unwrap();
+        assert!(
+            out.contains("def process(data: list) -> list:"),
+            "should replace return type: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_python_add_return_type() {
+        let src = "def process(data):\n    pass\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("-> dict".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::Python).unwrap();
+        assert!(out.contains("-> dict"), "should add return type: {out}");
+    }
+
+    #[test]
+    fn rewrite_python_async_preserved() {
+        let src = "async def fetch(url: str) -> bytes:\n    pass\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(url: str, timeout: int = 30)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "fetch", &edit, Language::Python).unwrap();
+        assert!(
+            out.contains("async def fetch(url: str, timeout: int = 30)"),
+            "async should be preserved: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_typescript_params() {
+        let src = "function fetchData(url: string): Promise<Response> {\n  return fetch(url);\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(url: string, options?: RequestInit)".to_string()),
+            ..Default::default()
+        };
+        let out =
+            rewrite_function_signature(src, "fetchData", &edit, Language::TypeScript).unwrap();
+        assert!(
+            out.contains("function fetchData(url: string, options?: RequestInit)"),
+            "should replace params: {out}"
+        );
+        assert!(out.contains("return fetch(url)"), "body preserved");
+    }
+
+    #[test]
+    fn rewrite_typescript_return_type() {
+        let src = "function fetchData(url: string): Promise<Response> {\n  return fetch(url);\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some(": Promise<Result[]>".to_string()),
+            ..Default::default()
+        };
+        let out =
+            rewrite_function_signature(src, "fetchData", &edit, Language::TypeScript).unwrap();
+        assert!(
+            out.contains(": Promise<Result[]>"),
+            "should replace return type: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_go_function_params() {
+        let src =
+            "func HandleRequest(w http.ResponseWriter, r *http.Request) error {\n\treturn nil\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some(
+                "(ctx context.Context, w http.ResponseWriter, r *http.Request)".to_string(),
+            ),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "HandleRequest", &edit, Language::Go).unwrap();
+        assert!(
+            out.contains(
+                "func HandleRequest(ctx context.Context, w http.ResponseWriter, r *http.Request)"
+            ),
+            "should replace params: {out}"
+        );
+        assert!(out.contains("return nil"), "body preserved");
+    }
+
+    #[test]
+    fn rewrite_go_function_return_type() {
+        let src =
+            "func HandleRequest(w http.ResponseWriter, r *http.Request) error {\n\treturn nil\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("(*Response, error)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "HandleRequest", &edit, Language::Go).unwrap();
+        assert!(
+            out.contains("(*Response, error)"),
+            "should replace return type: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_go_method_params() {
+        let src = "func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) error {\n\treturn nil\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(ctx context.Context, r *http.Request)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "HandleRequest", &edit, Language::Go).unwrap();
+        assert!(
+            out.contains("func (s *Server) HandleRequest(ctx context.Context, r *http.Request)"),
+            "should replace method params without touching receiver: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_java_params() {
+        let src = "public class Foo {\n    public void processEvent(Event e) {\n        // body\n    }\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(Event e, Config config)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "processEvent", &edit, Language::Java).unwrap();
+        assert!(
+            out.contains("processEvent(Event e, Config config)"),
+            "should replace params: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_java_return_type() {
+        let src = "public class Foo {\n    public void processEvent(Event e) {\n        // body\n    }\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("Response".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "processEvent", &edit, Language::Java).unwrap();
+        assert!(
+            out.contains("public Response processEvent"),
+            "should replace return type: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_java_visibility() {
+        let src = "public class Foo {\n    public void processEvent(Event e) {\n        // body\n    }\n}\n";
+        let edit = FunctionSigEdit {
+            visibility: Some("protected".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "processEvent", &edit, Language::Java).unwrap();
+        assert!(
+            out.contains("protected void processEvent"),
+            "should replace visibility: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_c_params() {
+        let src = "int process(const char *input) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(const char *input, size_t len, int flags)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::C).unwrap();
+        assert!(
+            out.contains("int process(const char *input, size_t len, int flags)"),
+            "should replace params: {out}"
+        );
+        assert!(out.contains("return 0"), "body preserved");
+    }
+
+    #[test]
+    fn rewrite_c_return_type() {
+        let src = "int process(const char *input) {\n    return 0;\n}\n";
+        let edit = FunctionSigEdit {
+            return_type: Some("void".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::C).unwrap();
+        assert!(
+            out.contains("void process(const char *input)"),
+            "should replace return type: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_cpp_params() {
+        let src = "void MyClass::process(int x) {\n    // body\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(int x, double y)".to_string()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::Cpp).unwrap();
+        assert!(
+            out.contains("void MyClass::process(int x, double y)"),
+            "should replace C++ method params: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_unsupported_language_returns_none() {
+        let src = "whatever";
+        let edit = FunctionSigEdit::default();
+        assert!(rewrite_function_signature(src, "foo", &edit, Language::Unknown).is_none());
+    }
+
+    #[test]
+    fn rewrite_function_not_found_returns_none() {
+        let src = "def process(data):\n    pass\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(x)".to_string()),
+            ..Default::default()
+        };
+        assert!(rewrite_function_signature(src, "nonexistent", &edit, Language::Python).is_none());
     }
 
     // ── full_symbol_span tests ────────────────────────────────────
