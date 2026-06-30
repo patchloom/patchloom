@@ -48,9 +48,26 @@ pub fn replace_in_symbol(
 
     // Perform replacement within the body
     let (new_body, count) = if regex {
-        let re = regex::Regex::new(from)?;
-        let count = re.find_iter(&body).count();
-        let new = re.replace_all(&body, to).into_owned();
+        let re = regex::RegexBuilder::new(from).multi_line(true).build()?;
+        let body_len = body.len();
+        // Filter out phantom zero-length matches at EOF (same as replace_content).
+        let count = re
+            .find_iter(&body)
+            .filter(|m| !(m.start() == body_len && m.end() == body_len))
+            .count();
+        let new = re
+            .replace_all(&body, |caps: &regex::Captures| {
+                if let Some(m) = caps.get(0)
+                    && m.start() == body_len
+                    && m.end() == body_len
+                {
+                    return String::new();
+                }
+                let mut expanded = String::new();
+                caps.expand(to, &mut expanded);
+                expanded
+            })
+            .into_owned();
         (new, count)
     } else {
         let count = body.matches(from).count();

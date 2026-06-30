@@ -255,6 +255,107 @@ mod replace_tests {
         }
 
         #[test]
+        fn regex_anchors_match_at_line_boundaries() {
+            // ^$ should match empty lines within content, not just at the absolute
+            // start/end of the string. This is the core fix for #1253.
+            let re = compile_replace_regex("^$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\n\nworld\n";
+            let (result, count) = replace_content(content, "^$", "BLANK", Some(&re), None);
+            assert_eq!(count, 1, "should match the empty line");
+            assert_eq!(&*result, "hello\nBLANK\nworld\n");
+        }
+
+        #[test]
+        fn regex_caret_matches_line_start() {
+            // ^ should match the start of every line, not just the start of the file.
+            let re = compile_replace_regex("^#", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "# heading\ntext\n# another\n";
+            let (result, count) = replace_content(content, "^#", "##", Some(&re), None);
+            assert_eq!(count, 2, "should match both lines starting with #");
+            assert_eq!(&*result, "## heading\ntext\n## another\n");
+        }
+
+        #[test]
+        fn regex_dollar_matches_line_end() {
+            // $ should match the end of every line, not just the end of the file.
+            let re = compile_replace_regex(";$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "let a = 1;\nlet b = 2\nlet c = 3;\n";
+            let (result, count) = replace_content(content, ";$", "", Some(&re), None);
+            assert_eq!(count, 2, "should match both lines ending with ;");
+            assert_eq!(&*result, "let a = 1\nlet b = 2\nlet c = 3\n");
+        }
+
+        #[test]
+        fn regex_empty_line_pattern_with_whitespace() {
+            let re = compile_replace_regex(r"^\s*$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\n  \nworld\n";
+            let (result, count) = replace_content(content, r"^\s*$", "BLANK", Some(&re), None);
+            assert_eq!(count, 1, "should match the whitespace-only line");
+            assert_eq!(&*result, "hello\nBLANK\nworld\n");
+        }
+
+        #[test]
+        fn regex_anchors_nth_skips_phantom_eof() {
+            // With multi_line(true), ^$ on "hello\n\nworld\n" produces matches:
+            // 1. the empty line (real match)
+            // 2. after the final \n (phantom zero-length EOF match)
+            // nth=2 should NOT land on the phantom match; it should return no-match.
+            let re = compile_replace_regex("^$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\n\nworld\n";
+            let (result, count) = replace_content(content, "^$", "BLANK", Some(&re), Some(2));
+            assert_eq!(count, 0, "nth=2 should not match the phantom EOF");
+            assert_eq!(&*result, content, "content should be unchanged");
+        }
+
+        #[test]
+        fn regex_anchors_nth_first_match() {
+            // nth=1 should hit the real empty-line match.
+            let re = compile_replace_regex("^$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\n\nworld\n";
+            let (result, count) = replace_content(content, "^$", "BLANK", Some(&re), Some(1));
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "hello\nBLANK\nworld\n");
+        }
+
+        #[test]
+        fn regex_anchors_no_trailing_newline() {
+            // Content without a trailing newline should still match ^$ on empty lines.
+            let re = compile_replace_regex("^$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "hello\n\nworld";
+            let (result, count) = replace_content(content, "^$", "BLANK", Some(&re), None);
+            assert_eq!(count, 1, "should match the empty line");
+            assert_eq!(&*result, "hello\nBLANK\nworld");
+        }
+
+        #[test]
+        fn regex_anchors_empty_file() {
+            // An empty file: the only ^$ match is at position (0,0) which equals
+            // content_len, so the trailing-match filter drops it. This is consistent
+            // with search, which iterates lines and finds no lines in empty content.
+            let re = compile_replace_regex("^$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "";
+            let (result, count) = replace_content(content, "^$", "BLANK", Some(&re), None);
+            assert_eq!(count, 0, "empty file should produce no matches");
+            assert_eq!(&*result, "");
+        }
+
+        #[test]
         fn whole_lines_delete_literal() {
             let content = "aaa\nbbb\nccc\nbbb\neee\n";
             let (result, count) = replace_whole_lines(content, "bbb", "", None, None, None);

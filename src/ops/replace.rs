@@ -19,6 +19,7 @@ pub fn compile_replace_regex(
         return Ok(Some(
             regex::RegexBuilder::new(&wb_pattern)
                 .case_insensitive(case_insensitive)
+                .multi_line(true)
                 .dot_matches_new_line(multiline)
                 .build()?,
         ));
@@ -32,6 +33,7 @@ pub fn compile_replace_regex(
         Ok(Some(
             regex::RegexBuilder::new(&effective)
                 .case_insensitive(case_insensitive)
+                .multi_line(true)
                 .dot_matches_new_line(multiline)
                 .build()?,
         ))
@@ -39,6 +41,7 @@ pub fn compile_replace_regex(
         Ok(Some(
             regex::RegexBuilder::new(&regex::escape(pattern))
                 .case_insensitive(true)
+                .multi_line(true)
                 .build()?,
         ))
     } else {
@@ -210,9 +213,20 @@ pub fn replace_content<'a>(
     use std::borrow::Cow;
     match (nth, compiled_re) {
         (Some(n), Some(re)) => {
+            let content_len = content.len();
             let mut count = 0usize;
             let mut result = String::with_capacity(content.len());
             for caps in re.captures_iter(content) {
+                // Skip zero-length matches at the very end of the content.
+                // With multi_line(true), patterns like ^$ produce a trailing
+                // match after the final newline that search (line-by-line) does
+                // not see. Dropping it keeps nth consistent with search.
+                if let Some(m) = caps.get(0)
+                    && m.start() == content_len
+                    && m.end() == content_len
+                {
+                    continue;
+                }
                 count += 1;
                 if count != n {
                     continue;
@@ -244,8 +258,19 @@ pub fn replace_content<'a>(
             (Cow::Borrowed(content), 0)
         }
         (None, Some(re)) => {
+            let content_len = content.len();
             let mut count = 0usize;
             let replaced = re.replace_all(content, |caps: &regex::Captures| {
+                // Skip zero-length matches at the very end of the content.
+                // With multi_line(true), patterns like ^$ produce a trailing
+                // match after the final newline that search (line-by-line) does
+                // not see. Dropping it keeps replace consistent with search.
+                if let Some(m) = caps.get(0)
+                    && m.start() == content_len
+                    && m.end() == content_len
+                {
+                    return String::new();
+                }
                 count += 1;
                 expand_regex_replacement(caps, to)
             });

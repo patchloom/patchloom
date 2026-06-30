@@ -297,6 +297,7 @@ pub fn search_one_file(
     let re = if opts.regex || opts.case_insensitive || opts.multiline {
         match regex::RegexBuilder::new(&pat)
             .case_insensitive(opts.case_insensitive)
+            .multi_line(true)
             .dot_matches_new_line(opts.multiline)
             .build()
         {
