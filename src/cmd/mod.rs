@@ -384,9 +384,10 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "### Rename a function across a codebase\n\n\
              ```bash\n\
-             # Find all occurrences first\n\
-             patchloom search --count \"old_function_name\" src/\n\n\
-             # Replace in all matching files\n\
+             # Prefer AST-aware rename for code identifiers (skips strings/comments)\n\
+             patchloom ast rename old_function_name new_function_name src/ --apply\n\n\
+             # Fallback: text-based workflow when AST mode is unavailable\n\
+             patchloom search --count \"old_function_name\" src/\n\
              patchloom replace \"old_function_name\" --new \"new_function_name\" src/ --apply\n\
              ```\n\n",
         );

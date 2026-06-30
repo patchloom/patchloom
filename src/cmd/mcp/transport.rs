@@ -103,12 +103,9 @@ pub(crate) fn run_mcp_http_server(
         config = config.disable_allowed_hosts();
     }
 
-    let log_clone = log;
+    let log_path = log;
     let service = StreamableHttpService::new(
-        move || {
-            PatchloomService::new(cwd.clone(), log_clone.clone())
-                .map_err(|e| std::io::Error::other(e.to_string()))
-        },
+        move || PatchloomService::new(cwd.clone(), log_path.clone()).map_err(std::io::Error::other),
         std::sync::Arc::new(LocalSessionManager::default()),
         config,
     );

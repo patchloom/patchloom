@@ -124,10 +124,11 @@ CLI flags override config values. The file is searched upward from the working d
 ### Rename a function across a codebase
 
 ```bash
-# Find all occurrences first
-patchloom search --count "old_function_name" src/
+# Prefer AST-aware rename for code identifiers (skips strings/comments)
+patchloom ast rename old_function_name new_function_name src/ --apply
 
-# Replace in all matching files
+# Fallback: text-based workflow when AST mode is unavailable
+patchloom search --count "old_function_name" src/
 patchloom replace "old_function_name" --new "new_function_name" src/ --apply
 ```
 
