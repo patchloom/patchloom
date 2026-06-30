@@ -1421,7 +1421,11 @@ pub(crate) fn execute_and_collect(
         }
         let write_policy = build_write_policy(plan, global, path)?;
         let final_content = apply_policy(current, &write_policy);
-        if *original != *final_content {
+        // A file creation with empty content still has original == final == "",
+        // but must be treated as an effective change because the file does not
+        // exist on disk yet (#create-empty-file).
+        let is_new_file = !existed_before.contains(path);
+        if *original != *final_content || is_new_file {
             changes.push((path.clone(), original.clone(), final_content.into_owned()));
         }
     }

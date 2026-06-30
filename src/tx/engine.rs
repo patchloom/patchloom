@@ -340,6 +340,30 @@ mod tests {
     }
 
     #[test]
+    fn execute_single_create_empty_file() {
+        let dir = TempDir::new().unwrap();
+        let global = GlobalFlags::test_default();
+
+        let op = Operation::FileCreate {
+            path: "empty.txt".to_string(),
+            content: String::new(),
+            force: None,
+        };
+
+        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
+        assert!(
+            result.has_changes,
+            "creating a new file with empty content is still a change"
+        );
+
+        result.commit().unwrap();
+        assert!(
+            dir.path().join("empty.txt").exists(),
+            "empty file should exist after commit"
+        );
+    }
+
+    #[test]
     fn execute_single_no_changes() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("stable.txt");
