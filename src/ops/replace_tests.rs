@@ -660,3 +660,43 @@ mod replace_tests {
         }
     }
 }
+
+// ── context_filtered_offset tests ─────────────────────────────────
+mod context_filter_tests {
+    use crate::ops::replace::context_filtered_offset;
+
+    #[test]
+    fn after_context_picks_correct_occurrence() {
+        let content =
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n";
+        let offset =
+            context_filtered_offset(content, "host = localhost", None, Some("port = 5432"));
+        // Should pick the first occurrence (under [database]).
+        assert_eq!(offset, Some(11)); // "[database]\n" is 11 bytes
+    }
+
+    #[test]
+    fn before_context_picks_correct_occurrence() {
+        let content =
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n";
+        let offset = context_filtered_offset(content, "host = localhost", Some("[cache]"), None);
+        // Should pick the second occurrence (under [cache]).
+        let expected = content.find("[cache]\n").unwrap() + "[cache]\n".len();
+        assert_eq!(offset, Some(expected));
+    }
+
+    #[test]
+    fn no_context_returns_none() {
+        let content = "a\na\n";
+        assert_eq!(context_filtered_offset(content, "a", None, None), None);
+    }
+
+    #[test]
+    fn single_match_returns_none() {
+        let content = "unique line\n";
+        assert_eq!(
+            context_filtered_offset(content, "unique line", None, Some("x")),
+            None
+        );
+    }
+}

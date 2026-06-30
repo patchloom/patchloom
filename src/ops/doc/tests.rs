@@ -780,16 +780,36 @@ mod error_handling {
     }
 
     #[test]
-    fn yaml_multi_document_rejected_by_parser() {
-        // Multi-document YAML (--- separated) is rejected by serde_yaml_ng.
-        // This test documents the current behavior: parse_doc returns an error
-        // rather than silently dropping documents.
+    fn yaml_multi_document_parsed_as_array() {
+        // Multi-document YAML (--- separated) is parsed as an array of documents.
         let yaml = "---\nname: first\n---\nname: second\n";
-        let err = parse_doc(yaml, &FileFormat::Yaml).unwrap_err();
+        let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let arr = val.as_array().expect("multi-doc should be an array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["name"], json!("first"));
+        assert_eq!(arr[1]["name"], json!("second"));
+    }
+
+    #[test]
+    fn yaml_single_doc_with_leading_separator_is_not_multi() {
+        // A single document with a leading --- is standard YAML, not multi-doc.
+        let yaml = "---\nname: only\n";
+        let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        // Should be parsed as a single object, not wrapped in an array.
         assert!(
-            err.to_string().contains("more than one document"),
-            "expected multi-document rejection, got: {err}"
+            val.is_object(),
+            "single doc should be an object, got: {val}"
         );
+        assert_eq!(val["name"], json!("only"));
+    }
+
+    #[test]
+    fn yaml_multi_document_get_second_doc() {
+        // Read operations can address individual documents by index.
+        let yaml = "---\napiVersion: v1\nkind: ConfigMap\n---\napiVersion: v1\nkind: Service\n";
+        let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let arr = val.as_array().expect("multi-doc should be an array");
+        assert_eq!(arr[1]["kind"], json!("Service"));
     }
 
     #[test]

@@ -35,7 +35,7 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 } => {
                     if let Some(arr) = val.as_array() {
                         for item in arr {
-                            if let Some(field) = item.get(key.as_str())
+                            if let Some(field) = crate::selector::get_nested(item, key)
                                 && crate::selector::value_matches_str(field, pred_val)
                             {
                                 next.push(item);
@@ -43,7 +43,7 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                         }
                     } else if let Some(obj) = val.as_object() {
                         for item in obj.values() {
-                            if let Some(field) = item.get(key.as_str())
+                            if let Some(field) = crate::selector::get_nested(item, key)
                                 && crate::selector::value_matches_str(field, pred_val)
                             {
                                 next.push(item);
@@ -182,6 +182,23 @@ mod tests {
         let results = eval(&data, &sel);
         let expected = json!(8080);
         assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_predicate_nested_path() {
+        // #1246: predicates should support dotted paths like settings.theme
+        let data = json!({
+            "users": [
+                {"name": "Alice", "settings": {"theme": "dark"}},
+                {"name": "Bob", "settings": {"theme": "light"}},
+                {"name": "Charlie", "settings": {"theme": "dark"}}
+            ]
+        });
+        let sel = parse("users[settings.theme=dark].name").unwrap();
+        let results = eval(&data, &sel);
+        let alice = json!("Alice");
+        let charlie = json!("Charlie");
+        assert_eq!(results, vec![&alice, &charlie]);
     }
 
     #[test]

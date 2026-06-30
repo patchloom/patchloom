@@ -1,6 +1,7 @@
 use super::execute::{TxState, read_and_probe, read_file_content, update_file_content};
 use crate::ops::replace::{
-    compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
+    compile_replace_regex, context_filtered_offset, replace_content, replace_whole_lines,
+    replacement_text,
 };
 use crate::plan::Operation;
 use globset::Glob;
@@ -92,6 +93,35 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             replace_content(content, old, &replacement, compiled_re.as_ref(), *nth)
         };
         if match_count > 0 {
+            // When there are multiple exact matches and context is provided
+            // (but no nth), use context to disambiguate instead of replacing all.
+            if match_count > 1
+                && nth.is_none()
+                && !*whole_line
+                && !regex_mode
+                && (before_context.is_some() || after_context.is_some())
+                && let Some(target_offset) = context_filtered_offset(
+                    content,
+                    old,
+                    before_context.as_deref(),
+                    after_context.as_deref(),
+                )
+            {
+                let new_content = format!(
+                    "{}{}{}",
+                    &content[..target_offset],
+                    &replacement,
+                    &content[target_offset + old.len()..],
+                );
+                update_file_content(
+                    tx.pending,
+                    tx.deletions,
+                    tx.write_targets,
+                    &file_path,
+                    new_content,
+                );
+                return Ok(1);
+            }
             let owned = replaced.into_owned();
             update_file_content(
                 tx.pending,
@@ -488,6 +518,99 @@ mod tests {
         assert!(
             result.contains("/// Process input."),
             "insert_before text must be present, got: {result}"
+        );
+    }
+
+    #[test]
+    fn replace_context_disambiguates_multiple_exact_matches() {
+        // #1244: before_context/after_context should disambiguate when
+        // the old text matches multiple times.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        std::fs::write(
+            &file,
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        )
+        .unwrap();
+
+        // Use after_context to target the [database] occurrence (port = 5432 follows it).
+        let op = Operation::Replace {
+            path: Some("config.ini".into()),
+            glob: None,
+            regex: false,
+            old: "host = localhost".into(),
+            new_text: Some("host = db.primary".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: Some("port = 5432".into()),
+            if_exists: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1, "should replace exactly one occurrence");
+        let result = &f.pending[&file].1;
+        assert!(
+            result.contains("[database]\nhost = db.primary"),
+            "database section should be updated: {result}"
+        );
+        assert!(
+            result.contains("[cache]\nhost = localhost"),
+            "cache section should be unchanged: {result}"
+        );
+    }
+
+    #[test]
+    fn replace_before_context_disambiguates() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        std::fs::write(
+            &file,
+            "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        )
+        .unwrap();
+
+        let op = Operation::Replace {
+            path: Some("config.ini".into()),
+            glob: None,
+            regex: false,
+            old: "host = localhost".into(),
+            new_text: Some("host = db.internal".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: Some("[database]".into()),
+            after_context: None,
+            if_exists: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        let result = &f.pending[&file].1;
+        assert!(
+            result.contains("[database]\nhost = db.internal"),
+            "database section should be updated: {result}"
+        );
+        assert!(
+            result.contains("[cache]\nhost = localhost"),
+            "cache section should be unchanged: {result}"
         );
     }
 
