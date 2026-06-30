@@ -66,8 +66,9 @@ fn run_lifecycle_steps(
                 status,
                 stderr_head,
             }) if !status.success() => {
+                let step_label = if required { label } else { error_label };
                 let header = format!(
-                    "{label} failed (step {}, {}, cwd: {})",
+                    "{step_label} failed (step {}, {}, cwd: {})",
                     index + 1,
                     describe_exit_status(status),
                     lifecycle_cwd
