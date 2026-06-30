@@ -69,6 +69,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     let re = {
         let mut builder = RegexBuilder::new(&pat);
         builder.case_insensitive(*case_insensitive);
+        builder.multi_line(true);
         builder.dot_matches_new_line(*multiline);
         builder.build()?
     };

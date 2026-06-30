@@ -48,7 +48,7 @@ pub fn replace_in_symbol(
 
     // Perform replacement within the body
     let (new_body, count) = if regex {
-        let re = regex::Regex::new(from)?;
+        let re = regex::RegexBuilder::new(from).multi_line(true).build()?;
         let count = re.find_iter(&body).count();
         let new = re.replace_all(&body, to).into_owned();
         (new, count)

@@ -122,11 +122,14 @@ pub fn build_matcher(
     };
     let re = if multiline || case_insensitive {
         regex::RegexBuilder::new(&escaped)
+            .multi_line(true)
             .dot_matches_new_line(multiline)
             .case_insensitive(case_insensitive)
             .build()?
     } else {
-        Regex::new(&escaped)?
+        regex::RegexBuilder::new(&escaped)
+            .multi_line(true)
+            .build()?
     };
     Ok(Matcher::Regex(re))
 }
