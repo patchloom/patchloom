@@ -813,6 +813,76 @@ mod error_handling {
     }
 
     #[test]
+    fn is_multi_document_detects_two_docs() {
+        assert!(is_multi_document_yaml("---\nfirst: 1\n---\nsecond: 2\n"));
+    }
+
+    #[test]
+    fn is_multi_document_single_leading_separator() {
+        // A single leading --- is standard YAML preamble, not multi-doc.
+        assert!(!is_multi_document_yaml("---\nname: only\n"));
+    }
+
+    #[test]
+    fn is_multi_document_no_separator() {
+        assert!(!is_multi_document_yaml("name: value\ncount: 1\n"));
+    }
+
+    #[test]
+    fn is_multi_document_dashes_in_value_not_separator() {
+        // "---" embedded in a value (not on its own line) is not a separator.
+        assert!(!is_multi_document_yaml("name: ---foo\ncount: 1\n"));
+    }
+
+    #[test]
+    fn is_multi_document_without_leading_separator() {
+        // Two documents without a leading ---.
+        assert!(is_multi_document_yaml("first: 1\n---\nsecond: 2\n"));
+    }
+
+    #[test]
+    fn is_multi_document_three_docs() {
+        assert!(is_multi_document_yaml("---\na: 1\n---\nb: 2\n---\nc: 3\n"));
+    }
+
+    #[test]
+    fn is_multi_document_trailing_whitespace_after_separator() {
+        // YAML spec allows trailing whitespace after ---.
+        assert!(is_multi_document_yaml("---\nfirst: 1\n---  \nsecond: 2\n"));
+    }
+
+    #[test]
+    fn is_multi_document_comment_after_separator() {
+        // YAML spec allows comments after ---.
+        assert!(is_multi_document_yaml(
+            "--- # doc1\nfirst: 1\n--- # doc2\nsecond: 2\n"
+        ));
+    }
+
+    #[test]
+    fn is_multi_document_consecutive_separators() {
+        // Two consecutive --- with no content between them.
+        assert!(is_multi_document_yaml("---\n---\nsecond: 2\n"));
+    }
+
+    #[test]
+    fn yaml_multi_document_with_merge_keys() {
+        // Multi-document YAML where at least one document uses <<: merge keys.
+        // Merge key resolution should work correctly per document.
+        let yaml = "---\ndefaults: &defaults\n  timeout: 30\n  retries: 3\nservice:\n  name: api\n  <<: *defaults\n---\nkind: Service\nport: 8080\n";
+        let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let arr = val.as_array().expect("multi-doc should be an array");
+        assert_eq!(arr.len(), 2);
+        // First doc: merge key should be resolved.
+        assert_eq!(arr[0]["service"]["timeout"], json!(30));
+        assert_eq!(arr[0]["service"]["retries"], json!(3));
+        assert_eq!(arr[0]["service"]["name"], json!("api"));
+        // Second doc: plain mapping, no merge keys.
+        assert_eq!(arr[1]["kind"], json!("Service"));
+        assert_eq!(arr[1]["port"], json!(8080));
+    }
+
+    #[test]
     fn mutation_append_to_non_array() {
         let mut root = json!({"items": "not-array"});
         let result = apply_doc_mutation(

@@ -393,29 +393,94 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
     match format {
         FileFormat::Json => Ok(serde_json::from_str(content)?),
         FileFormat::Yaml => {
-            match serde_yaml_ng::from_str::<serde_json::Value>(content) {
-                Ok(mut val) => {
-                    resolve_yaml_merge_keys(&mut val);
-                    Ok(val)
-                }
-                Err(e) if e.to_string().contains("more than one document") => {
-                    // Multi-document YAML: parse each document and wrap in an array.
-                    let mut docs = Vec::new();
-                    for de in serde_yaml_ng::Deserializer::from_str(content) {
-                        let mut val: serde_json::Value = serde_json::Value::deserialize(de)?;
-                        resolve_yaml_merge_keys(&mut val);
-                        docs.push(val);
-                    }
-                    if docs.is_empty() {
-                        anyhow::bail!("empty multi-document YAML");
-                    }
-                    Ok(serde_json::Value::Array(docs))
-                }
-                Err(e) => Err(e.into()),
+            if is_multi_document_yaml(content) {
+                parse_multi_document_yaml(content)
+            } else {
+                let mut val: serde_json::Value = serde_yaml_ng::from_str(content)?;
+                resolve_yaml_merge_keys(&mut val);
+                Ok(val)
             }
         }
         FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
     }
+}
+
+/// Check whether YAML content contains multiple documents.
+///
+/// A `---` on its own line is the YAML document separator. A single leading
+/// `---` is standard YAML preamble, not multi-document. We look for a second
+/// `---` separator after stripping the optional leading one.
+pub(crate) fn is_multi_document_yaml(content: &str) -> bool {
+    // Skip the optional leading document marker.
+    let rest = content.strip_prefix("---").map_or(content, |after| {
+        // The leading `---` must be followed by whitespace, a comment, newline,
+        // or EOF to count as a document marker rather than part of a value.
+        if is_after_yaml_marker(after) {
+            skip_to_next_line(after)
+        } else {
+            content
+        }
+    });
+
+    // Check if rest itself starts with a `---` separator (consecutive markers).
+    if rest.starts_with("---") && is_after_yaml_marker(&rest[3..]) {
+        return true;
+    }
+
+    // Look for `\n---` followed by whitespace, comment, newline, or EOF.
+    for (i, _) in rest.match_indices("\n---") {
+        let after_marker = &rest[i + 4..];
+        if is_after_yaml_marker(after_marker) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check whether the text after `---` constitutes a valid document marker
+/// ending: empty (EOF), newline, whitespace before newline, or `#` comment.
+fn is_after_yaml_marker(after: &str) -> bool {
+    if after.is_empty() {
+        return true;
+    }
+    let b = after.as_bytes()[0];
+    // Direct newline or carriage return.
+    if b == b'\n' || b == b'\r' {
+        return true;
+    }
+    // Trailing whitespace or comment: skip spaces/tabs, then expect newline/comment/EOF.
+    if b == b' ' || b == b'\t' || b == b'#' {
+        let rest = after
+            .as_bytes()
+            .iter()
+            .skip_while(|&&c| c == b' ' || c == b'\t')
+            .copied()
+            .next();
+        return rest.is_none() || rest == Some(b'\n') || rest == Some(b'\r') || rest == Some(b'#');
+    }
+    false
+}
+
+/// Skip past the current line (after `---`) to the start of the next line.
+fn skip_to_next_line(s: &str) -> &str {
+    match s.find('\n') {
+        Some(pos) => &s[pos + 1..],
+        None => "",
+    }
+}
+
+/// Parse multi-document YAML into a JSON array, resolving merge keys per doc.
+fn parse_multi_document_yaml(content: &str) -> anyhow::Result<serde_json::Value> {
+    let mut docs = Vec::new();
+    for de in serde_yaml_ng::Deserializer::from_str(content) {
+        let mut val: serde_json::Value = serde_json::Value::deserialize(de)?;
+        resolve_yaml_merge_keys(&mut val);
+        docs.push(val);
+    }
+    if docs.is_empty() {
+        anyhow::bail!("empty multi-document YAML");
+    }
+    Ok(serde_json::Value::Array(docs))
 }
 
 // ---------------------------------------------------------------------------
