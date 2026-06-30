@@ -16,7 +16,30 @@ impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) for any multi-op or multi-file work to ensure atomicity and avoid races from parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform ops across files. Per-call success does not guarantee combined success if you issue conflicting parallel writes.",
+                "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) \
+                for any multi-op or multi-file work to ensure atomicity and avoid races from \
+                parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform \
+                ops across files. Per-call success does not guarantee combined success if you \
+                issue conflicting parallel writes.\n\n\
+                Tool categories:\n\
+                - Document ops (JSON/YAML/TOML by key path): doc_set, doc_get, doc_delete, \
+                doc_merge, doc_query, doc_update, doc_ensure, doc_move, doc_append, doc_prepend, \
+                doc_delete_where, doc_diff\n\
+                - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
+                md_table_append, md_insert_after_heading, md_insert_before_heading, \
+                md_move_section, md_dedupe_headings, md_lint\n\
+                - Text ops: replace_text, batch_replace, search_files, apply_patch\n\
+                - File ops: create_file, read_file, delete_file, move_file, append_file, \
+                prepend_file, fix_whitespace, batch_tidy, git_status\n\
+                - AST ops (code-aware, 20 languages): ast_list, ast_read, ast_rename, \
+                ast_replace, ast_search, ast_refs, ast_impact, ast_deps, ast_diff, ast_imports, \
+                ast_insert, ast_wrap, ast_move, ast_reorder, ast_group, ast_extract_to_file, \
+                ast_split, ast_map, ast_validate\n\
+                - Plan ops: execute_plan\n\
+                - Server: server_info\n\n\
+                Use doc_* tools for parser-backed JSON/YAML/TOML mutations by key path \
+                (e.g. doc_set for setting values, doc_merge for merging objects). Use replace_text \
+                only for literal or regex text replacement where structure does not matter.",
             );
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
