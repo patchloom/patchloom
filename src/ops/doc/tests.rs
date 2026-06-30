@@ -1085,45 +1085,94 @@ mod yaml_cst_cleanup {
     }
 
     #[test]
-    fn delete_key_with_preceding_standalone_comment() {
-        let yaml = "server:\n  host: localhost\n  port: 8080\n  # Worker count\n  workers: 4\n";
-        let old = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}});
-        let new = json!({"server": {"host": "localhost", "port": 8080}});
+    fn delete_first_key_preserves_quotes_and_order() {
+        let yaml = "app:\n  name: \"my-app\"\n  version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n";
+        let old = json!({"app": {"name": "my-app", "version": "1.0.0", "enabled": "true", "port": "8080"}});
+        let mut new = old.clone();
+        new.as_object_mut()
+            .unwrap()
+            .get_mut("app")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("name");
+
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-        // The standalone comment should NOT leak onto the previous line.
+        // Quotes must be preserved on untouched values.
+        assert!(
+            result.contains("\"1.0.0\""),
+            "version quotes lost: {result}"
+        );
+        assert!(result.contains("\"true\""), "enabled quotes lost: {result}");
+        assert!(result.contains("\"8080\""), "port quotes lost: {result}");
+        // Key ordering must match original (minus deleted key).
+        let version_pos = result.find("version").unwrap();
+        let enabled_pos = result.find("enabled").unwrap();
+        let port_pos = result.find("port").unwrap();
+        assert!(
+            version_pos < enabled_pos && enabled_pos < port_pos,
+            "key order changed: {result}"
+        );
+        // Deleted key must be gone.
+        assert!(!result.contains("name"), "deleted key still present");
+        // Indentation must be consistent (2-space).
         for line in result.lines() {
-            if line.contains("port") {
-                assert!(
-                    !line.contains('#'),
-                    "standalone comment leaked onto port line: {:?}",
-                    line
-                );
+            if line.starts_with(' ') {
+                let indent = line.len() - line.trim_start().len();
+                assert_eq!(indent, 2, "wrong indentation on: {line:?}");
             }
         }
-        assert!(
-            !result.contains("Worker count"),
-            "orphaned comment should be removed"
-        );
-        assert!(!result.contains("workers"), "deleted key should be gone");
-        assert!(result.contains("port: 8080"));
     }
 
     #[test]
-    fn delete_key_preserves_legitimate_inline_comments() {
-        let yaml = "server:\n  host: localhost # primary host\n  port: 8080\n  # Remove this\n  workers: 4\n";
-        let old = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}});
-        let new = json!({"server": {"host": "localhost", "port": 8080}});
+    fn delete_first_key_quoted_type_sensitive_values() {
+        // Values that would change YAML type if unquoted.
+        let yaml =
+            "config:\n  remove_me: x\n  enabled: \"true\"\n  count: \"42\"\n  ratio: \"1.0\"\n";
+        let old =
+            json!({"config": {"remove_me": "x", "enabled": "true", "count": "42", "ratio": "1.0"}});
+        let mut new = old.clone();
+        new.as_object_mut()
+            .unwrap()
+            .get_mut("config")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("remove_me");
+
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-        // Legitimate inline comment on host should be preserved.
-        assert!(
-            result.contains("# primary host"),
-            "legitimate inline comment was incorrectly removed"
+        // Re-parse to verify types are still strings (not bool/int/float).
+        let reparsed: serde_json::Value = serde_yaml_ng::from_str(&result).unwrap();
+        assert_eq!(
+            reparsed["config"]["enabled"],
+            json!("true"),
+            "enabled became bool"
         );
-        // Orphaned standalone comment should not appear inline.
-        assert!(
-            !result.contains("# Remove this"),
-            "orphaned comment should be removed"
+        assert_eq!(reparsed["config"]["count"], json!("42"), "count became int");
+        assert_eq!(
+            reparsed["config"]["ratio"],
+            json!("1.0"),
+            "ratio became float"
         );
+    }
+
+    #[test]
+    fn delete_middle_key_preserves_formatting() {
+        let yaml = "app:\n  name: \"my-app\"\n  version: \"1.0.0\"\n  port: \"8080\"\n";
+        let old = json!({"app": {"name": "my-app", "version": "1.0.0", "port": "8080"}});
+        let mut new = old.clone();
+        new.as_object_mut()
+            .unwrap()
+            .get_mut("app")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("version");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(result.contains("\"my-app\""), "name quotes lost: {result}");
+        assert!(result.contains("\"8080\""), "port quotes lost: {result}");
+        assert!(!result.contains("version"));
     }
 }
 

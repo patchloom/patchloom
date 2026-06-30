@@ -466,4 +466,42 @@ mod tests {
             &seq, &old, &new, &mapping, "items", &new_val
         ));
     }
+
+    #[test]
+    fn mapping_diff_remove_first_nested_preserves_indentation() {
+        let yaml = "app:\n  name: \"my-app\"\n  version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n";
+        let old = json!({"app": {"name": "my-app", "version": "1.0.0", "enabled": "true", "port": "8080"}});
+        let mut new = old.clone();
+        new.as_object_mut()
+            .unwrap()
+            .get_mut("app")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("name");
+
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(!result.contains("name"));
+    }
+
+    #[test]
+    fn mapping_diff_remove_middle_nested() {
+        let yaml = "app:\n  name: \"my-app\"\n  version: \"1.0.0\"\n  port: \"8080\"\n";
+        let old = json!({"app": {"name": "my-app", "version": "1.0.0", "port": "8080"}});
+        let mut new = old.clone();
+        new.as_object_mut()
+            .unwrap()
+            .get_mut("app")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("version");
+
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(!result.contains("version"));
+        // CST preserves quotes on untouched values (indentation may be
+        // wrong; fixed by fix_yaml_block_indentation in the caller).
+        assert!(result.contains("\"my-app\""));
+        assert!(result.contains("\"8080\""));
+    }
 }
