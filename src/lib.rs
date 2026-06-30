@@ -72,9 +72,9 @@
 //! ```
 //!
 //! For AST signature edits (replacing line-scan heuristics):
-//! Use `ast::symbols::rewrite_function_signature` with `FunctionSigEdit` for structured
-//! changes to visibility, parameters, return type (Rust).
-//! See `ast::symbols` docs.
+//! Use `ast::symbols::rewrite_function_signature` with `FunctionSigEdit` and a `Language`
+//! for structured changes to visibility, parameters, return type across all supported languages.
+//! See `ast::symbols` docs and #1266.
 //!
 //! Decision for #821: kept library-only (specialized, currently Rust-focused). Full CLI (`ast signature`),
 //! plan op, and MCP exposure deferred unless demand arises. Tracked in #821.
