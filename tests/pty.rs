@@ -28,9 +28,14 @@ fn patchloom_cmd(cwd: &std::path::Path) -> Command {
 }
 
 /// Spawn a PTY session with a generous timeout for CI reliability.
+///
+/// The 30-second timeout is deliberately long: under normal conditions each
+/// `expect()` call returns in milliseconds, so the timeout adds zero latency.
+/// But when PTY tests run right after 800+ integration tests in `make check-fast`,
+/// system load can delay process startup enough to hit a 10-second ceiling.
 fn spawn_pty(cmd: Command) -> OsSession {
     let mut session = OsSession::spawn(cmd).expect("failed to spawn PTY session");
-    session.set_expect_timeout(Some(Duration::from_secs(10)));
+    session.set_expect_timeout(Some(Duration::from_secs(30)));
     session
 }
 
