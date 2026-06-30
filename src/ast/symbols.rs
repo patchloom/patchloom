@@ -571,6 +571,7 @@ fn try_extract_symbol(
         Language::Hcl => extract_hcl(node, source)?,
         Language::Protobuf => extract_proto(node, source)?,
         Language::Shell => extract_bash(node, source)?,
+        Language::Ruby => extract_ruby(node, source)?,
         _ => extract_generic(node, source)?,
     };
 
@@ -912,6 +913,25 @@ fn extract_bash(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind
     }
     let name = child_text_by_kinds(node, &["word", "name", "identifier"], source)?;
     Some((SymbolKind::Function, name.to_string()))
+}
+
+fn extract_ruby(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, String)> {
+    match node.kind() {
+        "class" => {
+            // Ruby class names use `constant` nodes, not `identifier`.
+            let name = child_text_by_kinds(node, &["constant", "scope_resolution"], source)?;
+            Some((SymbolKind::Class, name.to_string()))
+        }
+        "module" => {
+            let name = child_text_by_kinds(node, &["constant", "scope_resolution"], source)?;
+            Some((SymbolKind::Module, name.to_string()))
+        }
+        "method" | "singleton_method" => {
+            let name = child_text_by_kinds(node, &["identifier", "setter", "operator"], source)?;
+            Some((SymbolKind::Method, name.to_string()))
+        }
+        _ => None,
+    }
 }
 
 // Generic extractor for languages without a hand-tuned extractor
