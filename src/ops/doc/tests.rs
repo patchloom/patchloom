@@ -1043,6 +1043,48 @@ mod regression {
     }
 }
 
+mod yaml_cst_cleanup {
+    use super::*;
+
+    #[test]
+    fn delete_last_key_no_trailing_whitespace() {
+        let yaml = "top:\n  first: aaa\n  second: bbb\n  third: ccc\n";
+        let old = json!({"top": {"first": "aaa", "second": "bbb", "third": "ccc"}});
+        let new = json!({"top": {"first": "aaa", "second": "bbb"}});
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        // No line should have trailing whitespace
+        for line in result.lines() {
+            assert_eq!(
+                line,
+                line.trim_end(),
+                "trailing whitespace found in: {:?}",
+                line
+            );
+        }
+        // Must end with exactly one newline
+        assert!(result.ends_with('\n'), "missing final newline");
+        assert!(
+            !result.ends_with("\n\n"),
+            "double final newline: {:?}",
+            &result[result.len().saturating_sub(4)..]
+        );
+    }
+
+    #[test]
+    fn delete_last_key_in_nested_section() {
+        let yaml = "server:\n  host: localhost\n  port: 8080\n  workers: 4\n\ndb:\n  url: pg\n  pool: 10\n";
+        let old = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}, "db": {"url": "pg", "pool": 10}});
+        let new = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}, "db": {"url": "pg"}});
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        for line in result.lines() {
+            assert_eq!(line, line.trim_end(), "trailing whitespace: {:?}", line);
+        }
+        assert!(result.ends_with('\n'));
+        assert!(result.contains("url: pg"));
+        assert!(!result.contains("pool"));
+    }
+}
+
 mod format_preservation {
     use super::*;
     use ::proptest::prelude::*;
