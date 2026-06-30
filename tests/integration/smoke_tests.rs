@@ -783,13 +783,13 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("1,800+ tests"));
+    assert!(launch.contains("2,700+ tests"));
     assert!(
         launch.contains("22 commands"),
         "launch announcement CLI command count drifted"
     );
     assert!(
-        launch.contains("43 structured tool calls"),
+        launch.contains("53 structured tool calls"),
         "launch announcement MCP tool count drifted"
     );
     let merge_value = r#"{"settings": {"debug": true}}"#;

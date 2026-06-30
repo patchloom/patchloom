@@ -3098,3 +3098,152 @@ async fn test_mcp_md_dedupe_headings() {
     );
     client.cancel().await.unwrap();
 }
+
+// ── MCP ast_insert round-trip ──────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_insert_after_symbol() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_insert",
+        serde_json::json!({
+            "path": "lib.rs",
+            "content": "fn added() { 42 }",
+            "after": "existing"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_insert should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_insert ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("fn added()"),
+        "inserted function should appear: {content}"
+    );
+    let existing_pos = content.find("fn existing").unwrap();
+    let added_pos = content.find("fn added").unwrap();
+    assert!(
+        added_pos > existing_pos,
+        "added should come after existing: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_wrap round-trip ────────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_wrap_symbols_in_module() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn test_a() {}\nfn test_b() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_wrap",
+        serde_json::json!({
+            "path": "lib.rs",
+            "symbols": ["test_a", "test_b"],
+            "wrapper": "mod tests"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_wrap should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_wrap ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("mod tests"),
+        "wrapper module should appear: {content}"
+    );
+    assert!(
+        content.contains("fn test_a"),
+        "wrapped function test_a should remain: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+// ── MCP ast_imports round-trip ─────────────────────────────────
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_imports_add() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.rs"), "use std::io;\n\nfn main() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_imports",
+        serde_json::json!({
+            "path": "main.rs",
+            "add": ["use std::collections::HashMap;"]
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_imports add should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_imports ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("main.rs")).unwrap();
+    assert!(
+        content.contains("use std::collections::HashMap"),
+        "added import should appear: {content}"
+    );
+    assert!(
+        content.contains("use std::io"),
+        "existing import should remain: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_imports_list_only() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "use std::io;\nuse std::fs;\n\nfn f() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_imports",
+        serde_json::json!({"path": "lib.rs"}),
+    )
+    .await;
+    assert!(!is_error, "ast_imports list should succeed: {val}");
+    // List-only mode returns the imports array rather than ok:true.
+    assert_eq!(val["count"], 2, "should list 2 imports: {val}");
+
+    // File should be unchanged (read-only operation).
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert_eq!(
+        content, "use std::io;\nuse std::fs;\n\nfn f() {}\n",
+        "file should be unchanged"
+    );
+    client.cancel().await.unwrap();
+}
