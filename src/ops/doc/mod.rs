@@ -105,79 +105,184 @@ pub fn serialize_value_preserving(
     }
 }
 
-/// Clean up whitespace and comment artifacts left by `yaml_edit` CST mutations.
+/// Clean up whitespace artifacts left by `yaml_edit` CST mutations.
 ///
-/// `Mapping::remove()` can leave trailing whitespace on lines, drop the final
-/// newline, and migrate standalone comments (that preceded the removed key)
-/// onto the end of the previous key's line as spurious inline comments.
-///
-/// When `original` is provided, standalone comment lines that disappeared
-/// from the output but whose text reappears as a newly-introduced inline
-/// comment are stripped. This catches the case where `  # Worker count` on
-/// its own line is absorbed into `port: 8080  # Worker count` after the key
-/// below it is removed.
-fn cleanup_yaml_cst_whitespace(text: &str, original: Option<&str>) -> String {
-    use std::collections::HashSet;
-
-    // Collect standalone comment bodies from the original (lines that are
-    // ONLY a comment) and inline comment bodies that were already present.
-    // We strip an inline comment only if its body matches a standalone
-    // comment AND was NOT already inline in the original.
-    let (standalone_bodies, original_inline_bodies): (HashSet<String>, HashSet<String>) = original
-        .map(|orig| {
-            let mut standalone = HashSet::new();
-            let mut inline = HashSet::new();
-            for line in orig.lines() {
-                let trimmed = line.trim_start();
-                if trimmed.starts_with('#') {
-                    let body = trimmed.trim_start_matches('#').trim_start().to_string();
-                    standalone.insert(body);
-                } else if let Some(hash_pos) = line.find(" #") {
-                    let before = line[..hash_pos].trim_end();
-                    if !before.is_empty() {
-                        let body = line[hash_pos..]
-                            .trim_start()
-                            .trim_start_matches('#')
-                            .trim_start()
-                            .to_string();
-                        inline.insert(body);
-                    }
-                }
-            }
-            (standalone, inline)
-        })
-        .unwrap_or_default();
-
+/// `Mapping::remove()` can leave trailing whitespace on lines and may
+/// drop the final newline. This trims each line's trailing spaces and
+/// ensures the output ends with exactly one newline.
+fn cleanup_yaml_cst_whitespace(text: &str) -> String {
     let mut result: String = text
         .lines()
-        .map(|line| {
-            let trimmed = line.trim_end();
-            if !standalone_bodies.is_empty()
-                && let Some(hash_pos) = trimmed.find(" #")
-            {
-                let before = trimmed[..hash_pos].trim_end();
-                if !before.is_empty() && !trimmed.trim_start().starts_with('#') {
-                    let body = trimmed[hash_pos..]
-                        .trim_start()
-                        .trim_start_matches('#')
-                        .trim_start()
-                        .to_string();
-                    // Strip if the comment body came from a standalone
-                    // line and was NOT already inline in the original.
-                    if standalone_bodies.contains(&body) && !original_inline_bodies.contains(&body)
-                    {
-                        return before.to_string();
-                    }
-                }
-            }
-            trimmed.to_string()
-        })
+        .map(|line| line.trim_end())
         .collect::<Vec<_>>()
         .join("\n");
     if !result.ends_with('\n') {
         result.push('\n');
     }
     result
+}
+
+/// Fix broken block-mapping indentation left by `yaml_edit` CST removals.
+///
+/// When `Mapping::remove()` deletes an entry in a block mapping, the
+/// whitespace tokens surrounding the removed key may be absorbed by the
+/// adjacent entry, giving it extra leading spaces. For example, removing
+/// `name` from:
+///
+/// ```yaml
+/// app:
+///   name: "my-app"
+///   version: "1.0.0"
+///   port: "8080"
+/// ```
+///
+/// can produce:
+///
+/// ```yaml
+/// app:
+///     version: "1.0.0"
+///   port: "8080"
+/// ```
+///
+/// or (when the middle key is removed):
+///
+/// ```yaml
+/// app:
+///   name: "my-app"
+///     port: "8080"
+/// ```
+///
+/// This function detects entries whose indentation exceeds their siblings
+/// in the same block mapping and normalizes them to match.
+fn fix_yaml_block_indentation(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut result: Vec<String> = Vec::with_capacity(lines.len());
+
+    for i in 0..lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim_start();
+
+        // Skip empty lines; comments are handled below.
+        if trimmed.is_empty() {
+            result.push(line.to_string());
+            continue;
+        }
+
+        // Fix comment lines: a comment that is indented more than the next
+        // mapping entry at the same level has orphaned whitespace from a
+        // removed sibling.  Re-indent it to match the next entry.
+        if trimmed.starts_with('#') {
+            let comment_indent = line.len() - trimmed.len();
+            if comment_indent > 0
+                && let Some(next_indent) = next_entry_indent(&lines, i)
+                && next_indent < comment_indent
+            {
+                result.push(format!("{}{}", " ".repeat(next_indent), trimmed));
+                continue;
+            }
+            result.push(line.to_string());
+            continue;
+        }
+
+        let indent = line.len() - trimmed.len();
+        let is_mapping_entry = indent > 0 && (trimmed.contains(": ") || trimmed.ends_with(':'));
+
+        if is_mapping_entry
+            && let Some(expected) = expected_sibling_indent(&lines, i, indent)
+            && expected < indent
+        {
+            result.push(format!("{}{}", " ".repeat(expected), trimmed));
+            continue;
+        }
+
+        result.push(line.to_string());
+    }
+
+    let mut out = result.join("\n");
+    if text.ends_with('\n') && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+/// Find the indentation of the next non-empty, non-comment line after `i`.
+/// Used to align orphaned comment lines with their associated mapping entry.
+fn next_entry_indent(lines: &[&str], i: usize) -> Option<usize> {
+    for line in &lines[i + 1..] {
+        let t = line.trim();
+        if !t.is_empty() && !t.starts_with('#') {
+            return Some(line.len() - t.len());
+        }
+    }
+    None
+}
+
+/// Determine the expected indentation for a mapping entry by inspecting
+/// its neighbors. Returns `Some(indent)` if a sibling at a lower indent
+/// is found (indicating the current line has orphaned extra whitespace).
+fn expected_sibling_indent(lines: &[&str], i: usize, current_indent: usize) -> Option<usize> {
+    let is_significant = |l: &&str| {
+        let t = l.trim();
+        !t.is_empty() && !t.starts_with('#')
+    };
+
+    // Strategy 1: look DOWN for a sibling with less indent.
+    if let Some(next_line) = lines[i + 1..].iter().find(|l| is_significant(l)) {
+        let nt = next_line.trim_start();
+        let ni = next_line.len() - nt.len();
+        let next_is_entry = nt.contains(": ") || nt.ends_with(':');
+
+        if ni < current_indent && ni > 0 && next_is_entry {
+            // Verify: prev line must be a parent (indent < ni, ends ':')
+            // or another sibling at the correct indent (== ni).
+            let prev_ok = lines[..i]
+                .iter()
+                .rev()
+                .find(|l| is_significant(l))
+                .is_some_and(|l| {
+                    let pi = l.len() - l.trim_start().len();
+                    (pi < ni && l.trim_end().ends_with(':')) || pi == ni
+                });
+            if prev_ok {
+                return Some(ni);
+            }
+        }
+    }
+
+    // Strategy 2: look UP for a sibling with less indent (handles the case
+    // where the corrupted line is the last entry in the mapping).
+    if let Some(prev_line) = lines[..i].iter().rev().find(|l| is_significant(l)) {
+        let pt = prev_line.trim_start();
+        let pi = prev_line.len() - pt.len();
+
+        // Prev must be a complete mapping entry (has a value after the colon,
+        // so it is a sibling rather than a parent). A parent key ends with ':'
+        // alone; a complete entry has ': <value>'.
+        if pi < current_indent && pi > 0 && pt.contains(": ") && !is_yaml_parent_line(pt) {
+            return Some(pi);
+        }
+    }
+
+    None
+}
+
+/// Check if a trimmed YAML line is a parent key (value is on the next line).
+///
+/// Parent patterns:
+///   `key:`
+///   `key: # comment`
+///   `key:  `
+///
+/// Complete entry: `key: value`
+fn is_yaml_parent_line(trimmed: &str) -> bool {
+    if trimmed.ends_with(':') {
+        return true;
+    }
+    if let Some(pos) = trimmed.find(": ") {
+        let after = trimmed[pos + 2..].trim();
+        return after.is_empty() || after.starts_with('#');
+    }
+    false
 }
 
 /// Attempt CST-preserving update for YAML. Returns Some(result) on success,
@@ -195,13 +300,7 @@ fn try_preserve_yaml(
     if let Some(doc) = file.document() {
         if let Some(mapping) = doc.as_mapping() {
             if old_value.is_object() && new_value.is_object() {
-                return try_preserve_yaml_object(
-                    &file,
-                    &mapping,
-                    old_value,
-                    new_value,
-                    original_content,
-                );
+                return try_preserve_yaml_object(&file, &mapping, old_value, new_value);
             }
         } else if let Some(seq) = doc.as_sequence()
             && let (Some(old_arr), Some(new_arr)) = (old_value.as_array(), new_value.as_array())
@@ -224,14 +323,14 @@ fn try_preserve_yaml_object(
     mapping: &yaml_edit::Mapping,
     old_value: &serde_json::Value,
     new_value: &serde_json::Value,
-    original_content: &str,
 ) -> anyhow::Result<Option<String>> {
     let has_array_growth = yaml_splice::has_array_growth_diffs(old_value, new_value);
     let all_cst_applied = apply_yaml_mapping_diff(mapping, old_value, new_value)?;
     // yaml_edit's Mapping::remove() can leave trailing whitespace on the
-    // line preceding the removed key, and may migrate standalone comments
-    // onto the previous line as spurious inline comments. Clean both up.
-    let result = cleanup_yaml_cst_whitespace(&file.to_string(), Some(original_content));
+    // line preceding the removed key and may shift the indentation of the
+    // next sibling entry. Clean both artifacts so the output is valid YAML
+    // that preserves original quote styles and key ordering.
+    let result = fix_yaml_block_indentation(&cleanup_yaml_cst_whitespace(&file.to_string()));
 
     if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
         && reparsed.is_object()
@@ -271,7 +370,7 @@ fn try_preserve_yaml_array(
         false
     };
     if applied {
-        let result = cleanup_yaml_cst_whitespace(&file.to_string(), Some(original_content));
+        let result = cleanup_yaml_cst_whitespace(&file.to_string());
         if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *new_value) {
             return Ok(Some(result));
         }
