@@ -175,7 +175,7 @@ pub mod write;
 pub use api::search_one_file;
 pub use api::{
     ApplyMode, ContentEditResult, EditResult, ReplaceOptions, SearchOptions, SearchResult,
-    WritePolicyOptions, build_context_lines, format_search_results, search_file,
+    WritePolicyOptions, build_context_lines, format_search_results, search_file, text_diff,
 };
 pub use plan::Plan;
 

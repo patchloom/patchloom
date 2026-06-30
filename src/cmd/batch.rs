@@ -172,6 +172,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 word_boundary: false,
                 before_context: None,
                 after_context: None,
+                unique: false,
             })
         }
 

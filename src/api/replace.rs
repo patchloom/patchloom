@@ -56,6 +56,7 @@ pub fn replace_text(
         word_boundary: opts.word_boundary,
         before_context: None,
         after_context: None,
+        unique: opts.unique,
     };
     replace_write(op, path, mode, guard)
 }
@@ -96,6 +97,7 @@ fn replace_write(
         range,
         word_boundary,
         nth,
+        unique,
         ..
     } = _op
     {
@@ -153,6 +155,14 @@ fn replace_write(
         };
         let new_content = new_content.into_owned();
 
+        if unique && count > 1 {
+            bail!(
+                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+                old,
+                count
+            );
+        }
+
         if count == 0 && if_exists {
             return Ok(super::build_edit_result(
                 &path_str,
@@ -166,14 +176,10 @@ fn replace_write(
 
         let policy = crate::write::WritePolicy::default();
         let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
-        Ok(super::build_edit_result(
-            &path_str,
-            original,
-            new_content,
-            applied,
-            "replace",
-            None,
-        ))
+        let mut result =
+            super::build_edit_result(&path_str, original, new_content, applied, "replace", None);
+        result.match_count = count;
+        Ok(result)
     } else {
         bail!("expected Replace operation")
     }
@@ -243,12 +249,21 @@ pub fn replace_in_content(
     };
     let new_content = new_content.into_owned();
 
+    if opts.unique && count > 1 {
+        anyhow::bail!(
+            "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+            from,
+            count
+        );
+    }
+
     if count == 0 && opts.if_exists {
         return Ok(ContentEditResult {
             original: content.to_string(),
             new_content: content.to_string(),
             diff: String::new(),
             changed: false,
+            match_count: 0,
         });
     }
 
@@ -264,5 +279,6 @@ pub fn replace_in_content(
         new_content,
         diff,
         changed,
+        match_count: count,
     })
 }

@@ -2268,6 +2268,7 @@ fn adapter_unchanged_returns_no_diff() {
         word_boundary: false,
         before_context: None,
         after_context: None,
+        unique: false,
     };
 
     let result =
@@ -2470,5 +2471,172 @@ fn replace_in_content_whole_line_multiline_conflict() {
             .unwrap_err()
             .to_string()
             .contains("whole_line and multiline cannot be combined")
+    );
+}
+
+// --- #1264: text_diff API ---
+
+#[test]
+fn text_diff_identical_returns_empty() {
+    let result = text_diff("hello\nworld\n", "hello\nworld\n", None);
+    assert!(result.is_empty());
+}
+
+#[test]
+fn text_diff_with_changes_returns_unified_diff() {
+    let result = text_diff("hello\nworld\n", "hello\nearth\n", None);
+    assert!(result.contains("-world"));
+    assert!(result.contains("+earth"));
+    assert!(result.contains("--- a/<content>"));
+    assert!(result.contains("+++ b/<content>"));
+}
+
+#[test]
+fn text_diff_with_custom_path() {
+    let result = text_diff("old\n", "new\n", Some("src/main.rs"));
+    assert!(result.contains("--- a/src/main.rs"));
+    assert!(result.contains("+++ b/src/main.rs"));
+}
+
+#[test]
+fn text_diff_empty_original() {
+    let result = text_diff("", "new content\n", Some("file.txt"));
+    assert!(!result.is_empty());
+    assert!(result.contains("+new content"));
+}
+
+#[test]
+fn text_diff_empty_modified() {
+    let result = text_diff("old content\n", "", Some("file.txt"));
+    assert!(!result.is_empty());
+    assert!(result.contains("-old content"));
+}
+
+// --- #1265: match_count on ContentEditResult ---
+
+#[test]
+fn replace_in_content_match_count_single() {
+    let result = replace::replace_in_content(
+        "hello world\n",
+        "hello",
+        "goodbye",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(result.match_count, 1);
+    assert!(result.changed);
+}
+
+#[test]
+fn replace_in_content_match_count_multiple() {
+    let result = replace::replace_in_content(
+        "aaa bbb aaa ccc aaa\n",
+        "aaa",
+        "xxx",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(result.match_count, 3);
+    assert!(result.changed);
+}
+
+#[test]
+fn replace_in_content_match_count_zero() {
+    let opts = ReplaceOptions {
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("hello world\n", "missing", "x", &opts).unwrap();
+    assert_eq!(result.match_count, 0);
+    assert!(!result.changed);
+}
+
+#[test]
+fn replace_in_content_match_count_with_nth() {
+    let opts = ReplaceOptions {
+        nth: Some(2),
+        ..Default::default()
+    };
+    // nth replaces only the 2nd match, but match_count reflects how many
+    // matches the ops layer found (1 for the nth path, since it stops early).
+    let result = replace::replace_in_content("aaa bbb aaa\n", "aaa", "xxx", &opts).unwrap();
+    assert!(result.changed);
+    // nth=2 replaces exactly the 2nd occurrence. The ops layer returns count=1
+    // (it found and replaced the nth match).
+    assert_eq!(result.match_count, 1);
+}
+
+// --- #1265: unique mode ---
+
+#[test]
+fn replace_in_content_unique_single_match_succeeds() {
+    let opts = ReplaceOptions {
+        unique: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("hello world\n", "hello", "goodbye", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_unique_multiple_matches_fails() {
+    let opts = ReplaceOptions {
+        unique: true,
+        ..Default::default()
+    };
+    let err = replace::replace_in_content("aaa bbb aaa\n", "aaa", "xxx", &opts).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("ambiguous match"),
+        "expected ambiguous match error, got: {msg}"
+    );
+    assert!(
+        msg.contains("2 times"),
+        "should report match count, got: {msg}"
+    );
+}
+
+#[test]
+fn replace_in_content_unique_no_match_not_ambiguous() {
+    // unique + if_exists: no matches should not trigger ambiguity error
+    let opts = ReplaceOptions {
+        unique: true,
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content("hello world\n", "missing", "x", &opts).unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.match_count, 0);
+}
+
+#[test]
+fn replace_in_content_unique_with_word_boundary() {
+    let opts = ReplaceOptions {
+        unique: true,
+        word_boundary: true,
+        ..Default::default()
+    };
+    // "set" appears as a word only once (not inside "reset")
+    let result = replace::replace_in_content("set the reset\n", "set", "get", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_text_unique_fails_on_ambiguity() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "foo bar foo baz foo\n").unwrap();
+
+    let opts = ReplaceOptions {
+        unique: true,
+        ..Default::default()
+    };
+    let err = replace_text(&file, "foo", "x", &opts, ApplyMode::Preview, None).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("ambiguous"),
+        "expected ambiguous error, got: {msg}"
     );
 }

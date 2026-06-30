@@ -173,6 +173,9 @@ pub enum Operation {
         before_context: Option<String>,
         /// Context line(s) after the target for anchor-based fallback matching.
         after_context: Option<String>,
+        /// Fail if the pattern matches more than once (enforce unambiguous edits).
+        #[serde(default)]
+        unique: bool,
     },
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {

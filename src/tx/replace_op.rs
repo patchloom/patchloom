@@ -40,6 +40,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         range,
         before_context,
         after_context,
+        unique,
         ..
     } = op
     else {
@@ -92,6 +93,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         } else {
             replace_content(content, old, &replacement, compiled_re.as_ref(), *nth)
         };
+        if *unique && match_count > 1 {
+            anyhow::bail!(
+                "ambiguous match: pattern {:?} matches {} times in {}; provide more context to disambiguate",
+                crate::fallback::truncate_str(old, 60),
+                match_count,
+                p
+            );
+        }
         if match_count > 0 {
             // When there are multiple exact matches and context is provided
             // (but no nth), use context to disambiguate instead of replacing all.
@@ -306,6 +315,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -339,6 +349,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -370,6 +381,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -403,6 +415,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -434,6 +447,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -467,6 +481,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -503,6 +518,7 @@ mod tests {
             before_context: Some("fn process".into()),
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -551,6 +567,7 @@ mod tests {
             before_context: None,
             after_context: Some("port = 5432".into()),
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -596,6 +613,7 @@ mod tests {
             before_context: Some("[database]".into()),
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -637,6 +655,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -676,6 +695,7 @@ mod tests {
             before_context: None,
             after_context: None,
             if_exists: false,
+            unique: false,
         };
 
         let mut f = TxStateFixture::new();
