@@ -19,7 +19,7 @@ Serde aliases preserve backward compatibility for plan files: both `"from"` and 
 
 ### 480+ rounds of runtime testing
 
-The `/fixrealloop` methodology was applied to patchloom itself for the first time. Every command was exercised with real files, edge-case inputs, and adversarial patterns. Combined with 12 rounds of systematic code audit and 8 multi-perspective improvement cycles, this surfaced 98 bug fixes across all major modules.
+Every command was exercised with real files, edge-case inputs, and adversarial patterns through systematic runtime testing. Combined with 12 rounds of code audit and 8 multi-perspective improvement cycles, this surfaced 98 bug fixes across all major modules.
 
 Areas of highest bug density:
 - **YAML operations:** quote style preservation, comment migration after key deletion, multi-document detection, CST trailing whitespace cleanup
@@ -105,7 +105,7 @@ Pre-checks confirm symbols exist before modification. Post-checks confirm the re
 
 ## Test quality
 
-- Removed 14 duplicate test functions accumulated during automated bug-hunting sessions (#1255).
+- Removed 14 duplicate test functions accumulated across audit sessions (#1255).
 - Replaced 2 dead defensive guards (unreachable through any API path) with `debug_assert!()` (#1255).
 - PTY test expect timeout increased from 10s to 30s to eliminate flakiness under load (#1256).
 - Replaced 19 bare `assert!(x.is_ok())` with `.unwrap()` for proper panic messages (#955).
