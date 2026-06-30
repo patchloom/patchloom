@@ -17,7 +17,7 @@ use crate::plan::Operation;
 use super::ast_tools;
 use super::params::*;
 use super::{
-    PatchloomService, doc_readonly, execute_plan_validated, exit_code_to_result,
+    PatchloomService, doc_readonly, execute_plan_validated, exit_code_to_result, no_results,
     validate_batch_size, validate_content_size, validate_param_size,
 };
 
@@ -229,7 +229,7 @@ impl PatchloomService {
                 results.has_matches()
             };
             if !has_matches {
-                return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
+                return no_results("No matches found.");
             }
 
             let output = crate::cmd::search::format_results(results, &search_args, &global)
@@ -857,6 +857,20 @@ impl PatchloomService {
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
         .await
+    }
+
+    #[tool(
+        description = "Return the server's working directory. Use this to discover the root path before file operations. All path parameters in other tools are relative to this directory."
+    )]
+    async fn server_info(
+        &self,
+        Parameters(_p): Parameters<EmptyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let cwd = self.cwd().to_string_lossy().to_string();
+        let info = serde_json::json!({ "cwd": cwd });
+        let json = serde_json::to_string_pretty(&info)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
     // move_file, append_file, create_file, and delete_file are auto-generated

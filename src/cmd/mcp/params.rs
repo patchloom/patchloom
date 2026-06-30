@@ -14,7 +14,7 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct ReplaceParams {
-    /// File path.
+    /// File path (relative to working directory).
     pub path: String,
     /// Text to find.
     pub old: String,
@@ -77,7 +77,7 @@ pub(crate) struct DocGetParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct MdLintAgentsParams {
-    /// Markdown file path (typically AGENTS.md).
+    /// Markdown file path, relative to working directory (typically AGENTS.md).
     pub path: String,
 }
 
@@ -85,11 +85,11 @@ pub(crate) struct MdLintAgentsParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct MdMoveSectionParams {
-    /// Source file path containing the section to move.
+    /// Source file path containing the section to move (relative to working directory).
     pub path: String,
     /// Heading of the section to move (e.g., "## FAQ").
     pub heading: String,
-    /// Destination file path. Omit for same-file reorder.
+    /// Destination file path (relative to working directory). Omit for same-file reorder.
     #[serde(default)]
     pub to: Option<String>,
     /// Insert before this heading at the destination.
@@ -104,7 +104,7 @@ pub(crate) struct MdMoveSectionParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct TidyParams {
-    /// File path to normalize.
+    /// File path to normalize (relative to working directory).
     pub path: String,
     /// Dedent: remove leading whitespace. Values: "auto", "tab", or a number (e.g. "4").
     #[serde(default)]
@@ -140,7 +140,7 @@ pub(crate) struct PatchParams {
 pub(crate) struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
-    /// Paths to search in (defaults to current directory).
+    /// Paths to search in, relative to working directory (defaults to working directory root).
     #[serde(default)]
     pub paths: Vec<String>,
     /// Treat pattern as a literal string instead of regex.
@@ -200,9 +200,9 @@ pub(crate) struct DocQueryParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct DocDiffParams {
-    /// First file path.
+    /// First file path (relative to working directory).
     pub file_a: String,
-    /// Second file path.
+    /// Second file path (relative to working directory).
     pub file_b: String,
 }
 
@@ -263,7 +263,7 @@ pub(crate) struct BatchTidyParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstListParams {
-    /// File or directory to list symbols from.
+    /// File or directory to list symbols from (relative to working directory).
     pub path: String,
     /// Filter by symbol kind (comma-separated: function,struct,enum,class,method,trait,impl,const,type,interface,module).
     pub kind: Option<String>,
@@ -276,7 +276,7 @@ pub(crate) struct AstListParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstReadParams {
-    /// File to read from.
+    /// File to read from (relative to working directory).
     pub path: String,
     /// Symbol name (e.g. "run" or "Server::start").
     pub symbol: String,
@@ -296,7 +296,7 @@ pub(crate) struct AstRenameParams {
     pub old_name: String,
     /// The new identifier name.
     pub new_name: String,
-    /// File or directory to rename in.
+    /// File or directory to rename in (relative to working directory).
     pub path: String,
     /// Language hint.
     pub lang: Option<String>,
@@ -307,7 +307,7 @@ pub(crate) struct AstRenameParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstValidateParams {
-    /// File or directory to validate syntax.
+    /// File or directory to validate syntax (relative to working directory).
     pub path: String,
     /// Language hint.
     pub lang: Option<String>,
@@ -320,7 +320,7 @@ pub(crate) struct AstValidateParams {
 pub(crate) struct AstSearchParams {
     /// Tree-sitter S-expression query, or a code pattern (with pattern=true).
     pub query: String,
-    /// File or directory to search.
+    /// File or directory to search (relative to working directory).
     pub path: String,
     /// Treat the query as a code pattern with meta-variables ($VAR, $$$MULTI).
     #[serde(default)]
@@ -338,7 +338,7 @@ pub(crate) struct AstSearchParams {
 pub(crate) struct AstRefsParams {
     /// Symbol name to find references for.
     pub symbol: String,
-    /// File or directory to search.
+    /// File or directory to search (relative to working directory).
     pub path: String,
     /// Include the definition site in results.
     #[serde(default)]
@@ -352,7 +352,7 @@ pub(crate) struct AstRefsParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstDepsParams {
-    /// File or directory to analyze.
+    /// File or directory to analyze (relative to working directory).
     pub path: String,
     /// Show reverse dependencies (what imports this file).
     #[serde(default)]
@@ -366,7 +366,7 @@ pub(crate) struct AstDepsParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstMapParams {
-    /// Directory to map.
+    /// Directory to map (relative to working directory).
     pub path: String,
     /// Maximum approximate token count for output.
     #[serde(default = "default_map_max_tokens")]
@@ -389,7 +389,7 @@ fn default_map_max_tokens() -> usize {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstDiffParams {
-    /// File to diff.
+    /// File to diff (relative to working directory).
     pub path: String,
     /// Git ref for the "old" version (default: HEAD).
     #[serde(default = "default_head")]
@@ -412,7 +412,7 @@ fn default_head() -> String {
 pub(crate) struct AstImpactParams {
     /// Symbol name to analyze.
     pub symbol: String,
-    /// Directory to scan for references.
+    /// Directory to scan for references (relative to working directory).
     pub path: String,
     /// Maximum traversal depth (1 = direct refs only).
     #[serde(default = "default_impact_depth")]
@@ -429,7 +429,7 @@ fn default_impact_depth() -> usize {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstReplaceParams {
-    /// File containing the symbol.
+    /// File containing the symbol (relative to working directory).
     pub path: String,
     /// Symbol name to scope the replacement to.
     pub symbol: String,
@@ -450,7 +450,7 @@ pub(crate) struct AstReplaceParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstInsertParams {
-    /// File to insert code into.
+    /// File to insert code into (relative to working directory).
     pub path: String,
     /// Code to insert.
     pub content: String,
@@ -475,7 +475,7 @@ pub(crate) struct AstInsertParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstWrapParams {
-    /// File to modify.
+    /// File to modify (relative to working directory).
     pub path: String,
     /// Symbols to wrap (mutually exclusive with lines).
     #[serde(default)]
@@ -497,7 +497,7 @@ pub(crate) struct AstWrapParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstImportsParams {
-    /// File to modify.
+    /// File to modify (relative to working directory).
     pub path: String,
     /// Import statements to add (idempotent; skips if already present).
     #[serde(default)]
@@ -517,7 +517,7 @@ pub(crate) struct AstImportsParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstReorderParams {
-    /// File to reorder symbols in.
+    /// File to reorder symbols in (relative to working directory).
     pub path: String,
     /// Scope to reorder within (module/impl). Default: top-level.
     #[serde(default)]
@@ -533,7 +533,7 @@ pub(crate) struct AstReorderParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstGroupParams {
-    /// File to modify.
+    /// File to modify (relative to working directory).
     pub path: String,
     /// Module name to create or append to.
     pub module: String,
@@ -554,7 +554,7 @@ pub(crate) struct AstGroupParams {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub(crate) struct AstMoveParams {
-    /// Source file.
+    /// Source file (relative to working directory).
     pub path: String,
     /// Target file.
     pub target: String,
@@ -626,7 +626,7 @@ pub(crate) struct AstSplitParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AstSplitTargetParam {
-    /// Target file path.
+    /// Target file path (relative to working directory).
     pub path: String,
     /// Symbols to move into this file.
     pub symbols: Vec<String>,

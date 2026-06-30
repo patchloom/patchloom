@@ -9,7 +9,9 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 
 use super::params::*;
-use super::{PatchloomService, exit_code_to_result, validate_content_size, validate_param_size};
+use super::{
+    PatchloomService, exit_code_to_result, no_results, validate_content_size, validate_param_size,
+};
 
 pub(super) fn handle_ast_list(
     svc: &PatchloomService,
@@ -78,7 +80,7 @@ pub(super) fn handle_ast_list(
     }
 
     if results.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No symbols found.");
+        return no_results("No symbols found.");
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
@@ -184,7 +186,7 @@ pub(super) fn handle_ast_rename(
     }
 
     if operations.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
+        return no_results("No matches found.");
     }
 
     svc.run_ops(operations, None)
@@ -219,7 +221,7 @@ pub(super) fn handle_ast_validate(
     });
 
     if results.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No files with grammars found.");
+        return no_results("No files with grammars found.");
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
@@ -274,7 +276,7 @@ pub(super) fn handle_ast_search(
         par_results.into_iter().flat_map(|r| r.entries).collect();
 
     if all_matches.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No matches found.");
+        return no_results("No matches found.");
     }
     let json = serde_json::to_string_pretty(&all_matches)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
@@ -308,7 +310,7 @@ pub(super) fn handle_ast_refs(
     }
 
     if all_refs.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No references found.");
+        return no_results("No references found.");
     }
 
     let obj = serde_json::json!({
@@ -408,7 +410,7 @@ pub(super) fn handle_ast_deps(
     }
 
     if results.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No imports found.");
+        return no_results("No imports found.");
     }
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
@@ -456,7 +458,7 @@ pub(super) fn handle_ast_map(
     let entries = crate::ast::map::generate_map(&file_pairs, &opts);
 
     if entries.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No symbols found.");
+        return no_results("No symbols found.");
     }
 
     let json = serde_json::to_string_pretty(&entries)
@@ -492,7 +494,7 @@ pub(super) fn handle_ast_diff(
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
 
     if changes.is_empty() {
-        return exit_code_to_result(exit::NO_MATCHES, "", "No structural changes.");
+        return no_results("No structural changes.");
     }
 
     let obj = serde_json::json!({
@@ -530,11 +532,7 @@ pub(super) fn handle_ast_impact(
     let nodes = crate::ast::impact::compute_impact(&p.symbol, &file_pairs, p.depth);
 
     if nodes.is_empty() {
-        return exit_code_to_result(
-            exit::NO_MATCHES,
-            "",
-            &format!("No references found for '{}'.", p.symbol),
-        );
+        return no_results(&format!("No references found for '{}'.", p.symbol));
     }
 
     let obj = serde_json::json!({

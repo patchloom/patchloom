@@ -91,6 +91,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `doc_diff` | Compare two structured files (read-only) |
 | `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
+| `server_info` | Return the server's working directory so the agent can discover the root path before file operations (read-only) |
 | `read_file` | Read file contents with optional line range |
 | `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
 | `md_upsert_bullet` | Add a bullet under a markdown heading |

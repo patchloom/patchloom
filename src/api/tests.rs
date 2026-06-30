@@ -2624,6 +2624,94 @@ fn replace_in_content_unique_with_word_boundary() {
 }
 
 #[test]
+fn parse_unified_diff_basic() {
+    let diff = "\
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,3 @@
+ fn main() {
+-    println!(\"hello\");
++    println!(\"world\");
+ }
+";
+    let files = parse_unified_diff(diff).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "src/main.rs");
+    assert_eq!(files[0].hunks.len(), 1);
+    let hunk = &files[0].hunks[0];
+    assert_eq!(hunk.old_start, 1);
+    assert_eq!(hunk.old_count, 3);
+    assert_eq!(hunk.new_start, 1);
+    assert_eq!(hunk.new_count, 3);
+    assert!(
+        hunk.lines
+            .contains(&PatchLine::Remove("    println!(\"hello\");".into()))
+    );
+    assert!(
+        hunk.lines
+            .contains(&PatchLine::Add("    println!(\"world\");".into()))
+    );
+}
+
+#[test]
+fn parse_unified_diff_multiple_files() {
+    let diff = "\
+--- a/foo.txt
++++ b/foo.txt
+@@ -1 +1 @@
+-old
++new
+--- a/bar.txt
++++ b/bar.txt
+@@ -1,2 +1,2 @@
+ keep
+-remove
++add
+";
+    let files = parse_unified_diff(diff).unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, "foo.txt");
+    assert_eq!(files[1].path, "bar.txt");
+}
+
+#[test]
+fn parse_unified_diff_new_file() {
+    let diff = "\
+--- /dev/null
++++ b/new_file.txt
+@@ -0,0 +1,2 @@
++line one
++line two
+";
+    let files = parse_unified_diff(diff).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(files[0].is_creation);
+    assert_eq!(files[0].path, "new_file.txt");
+}
+
+#[test]
+fn parse_unified_diff_empty_input() {
+    let err = parse_unified_diff("").unwrap_err();
+    assert!(
+        err.contains("no files"),
+        "empty input should report no files, got: {err}"
+    );
+}
+
+#[test]
+fn parse_unified_diff_roundtrip_with_text_diff() {
+    let original = "hello\nworld\n";
+    let modified = "hello\nearth\n";
+    let diff_text = text_diff(original, modified, Some("test.txt"));
+    let files = parse_unified_diff(&diff_text).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "test.txt");
+    let hunk = &files[0].hunks[0];
+    assert!(hunk.lines.contains(&PatchLine::Remove("world".into())));
+    assert!(hunk.lines.contains(&PatchLine::Add("earth".into())));
+}
+
+#[test]
 fn replace_text_unique_fails_on_ambiguity() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
