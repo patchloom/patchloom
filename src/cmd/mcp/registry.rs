@@ -110,7 +110,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_delete_where",
         op_name: "doc.delete_where",
-        description: "Remove array items matching a predicate from JSON/YAML/TOML. Example: {\"path\": \"config.yaml\", \"key\": \"users\", \"predicate\": \"role=admin\"}",
+        description: "Remove array items matching a predicate from JSON/YAML/TOML. For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'. Example: {\"path\": \"config.yaml\", \"key\": \"users\", \"predicate\": \"role=admin\"}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),

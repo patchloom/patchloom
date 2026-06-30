@@ -1,4 +1,5 @@
 use crate::selector;
+use serde::Deserialize;
 use std::path::Path;
 
 mod navigate;
@@ -392,9 +393,26 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
     match format {
         FileFormat::Json => Ok(serde_json::from_str(content)?),
         FileFormat::Yaml => {
-            let mut val: serde_json::Value = serde_yaml_ng::from_str(content)?;
-            resolve_yaml_merge_keys(&mut val);
-            Ok(val)
+            match serde_yaml_ng::from_str::<serde_json::Value>(content) {
+                Ok(mut val) => {
+                    resolve_yaml_merge_keys(&mut val);
+                    Ok(val)
+                }
+                Err(e) if e.to_string().contains("more than one document") => {
+                    // Multi-document YAML: parse each document and wrap in an array.
+                    let mut docs = Vec::new();
+                    for de in serde_yaml_ng::Deserializer::from_str(content) {
+                        let mut val: serde_json::Value = serde_json::Value::deserialize(de)?;
+                        resolve_yaml_merge_keys(&mut val);
+                        docs.push(val);
+                    }
+                    if docs.is_empty() {
+                        anyhow::bail!("empty multi-document YAML");
+                    }
+                    Ok(serde_json::Value::Array(docs))
+                }
+                Err(e) => Err(e.into()),
+            }
         }
         FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
     }

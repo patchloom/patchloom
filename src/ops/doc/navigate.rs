@@ -143,6 +143,10 @@ pub fn delete_at_selector(
 
 /// Parse a `key=value` predicate and remove matching items from the array
 /// at `segments`. Returns the number of items removed.
+///
+/// Predicate keys support dotted paths (e.g. `settings.theme=dark`) for
+/// nested field matching. For simple (non-object) arrays, use `_=value`
+/// or `.=value` to match against the element value itself.
 pub fn delete_where(
     root: &mut serde_json::Value,
     segments: &[selector::Segment],
@@ -167,10 +171,15 @@ pub fn delete_where(
         .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
 
     let before_len = arr.len();
-    arr.retain(|item| {
-        item.get(pred_key)
-            .is_none_or(|field| !selector::value_matches_str(field, pred_val))
-    });
+    if pred_key == "_" || pred_key == "." {
+        // Simple value matching: compare the array item itself.
+        arr.retain(|item| !selector::value_matches_str(item, pred_val));
+    } else {
+        arr.retain(|item| {
+            selector::get_nested(item, pred_key)
+                .is_none_or(|field| !selector::value_matches_str(field, pred_val))
+        });
+    }
     Ok(before_len - arr.len())
 }
 
@@ -356,8 +365,7 @@ pub fn update_matching(
             let mut count = 0;
             if let Some(arr) = value.as_array_mut() {
                 for item in arr.iter_mut() {
-                    let matches = item
-                        .get(key.as_str())
+                    let matches = selector::get_nested(item, key)
                         .is_some_and(|field| selector::value_matches_str(field, pred_val));
                     if matches {
                         count += update_matching(item, rest, new_val);
@@ -365,8 +373,7 @@ pub fn update_matching(
                 }
             } else if let Some(obj) = value.as_object_mut() {
                 for item in obj.values_mut() {
-                    let matches = item
-                        .get(key.as_str())
+                    let matches = selector::get_nested(item, key)
                         .is_some_and(|field| selector::value_matches_str(field, pred_val));
                     if matches {
                         count += update_matching(item, rest, new_val);
@@ -472,6 +479,47 @@ mod tests {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "noequalssign");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn delete_where_simple_string_array() {
+        // #1247: delete-where with _=value on simple arrays.
+        let mut root = json!({"tags": ["alpha", "beta", "gamma", "beta"]});
+        let count = delete_where(&mut root, &segs("tags"), "_=beta").unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(root["tags"], json!(["alpha", "gamma"]));
+    }
+
+    #[test]
+    fn delete_where_simple_number_array() {
+        let mut root = json!({"nums": [1, 2, 3, 2]});
+        let count = delete_where(&mut root, &segs("nums"), "_=2").unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(root["nums"], json!([1, 3]));
+    }
+
+    #[test]
+    fn delete_where_dot_key_also_works() {
+        // Alternative syntax: .=value
+        let mut root = json!({"vals": ["a", "b", "c"]});
+        let count = delete_where(&mut root, &segs("vals"), ".=b").unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(root["vals"], json!(["a", "c"]));
+    }
+
+    #[test]
+    fn delete_where_nested_predicate_path() {
+        // #1246: dotted predicate key for delete_where.
+        let mut root = json!({
+            "users": [
+                {"name": "Alice", "prefs": {"notify": "true"}},
+                {"name": "Bob", "prefs": {"notify": "false"}}
+            ]
+        });
+        let count = delete_where(&mut root, &segs("users"), "prefs.notify=false").unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(root["users"].as_array().unwrap().len(), 1);
+        assert_eq!(root["users"][0]["name"], json!("Alice"));
     }
 
     #[test]

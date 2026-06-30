@@ -280,6 +280,90 @@ pub fn replace_content<'a>(
     }
 }
 
+/// Filter multiple exact matches by `before_context` / `after_context`.
+///
+/// When the `old` text occurs more than once in `content` and no `nth` is
+/// specified, this function uses context lines to pick the right occurrence.
+/// It returns the byte offset of the winning match, or `None` if no
+/// occurrence (or all occurrences) match the context equally well.
+pub fn context_filtered_offset(
+    content: &str,
+    old: &str,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+) -> Option<usize> {
+    if before_context.is_none() && after_context.is_none() {
+        return None;
+    }
+
+    let offsets: Vec<usize> = content.match_indices(old).map(|(i, _)| i).collect();
+    if offsets.len() < 2 {
+        return None; // single match: no disambiguation needed
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    // Build a map: byte-offset-of-line-start -> line-index
+    let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+    let mut off = 0;
+    for line in &lines {
+        line_starts.push(off);
+        off += line.len();
+        // skip the newline character(s)
+        if content.as_bytes().get(off) == Some(&b'\r') {
+            off += 1;
+        }
+        if content.as_bytes().get(off) == Some(&b'\n') {
+            off += 1;
+        }
+    }
+
+    let line_index_at = |byte_offset: usize| -> usize {
+        match line_starts.binary_search(&byte_offset) {
+            Ok(idx) => idx,
+            Err(idx) => idx.saturating_sub(1),
+        }
+    };
+
+    let mut best: Option<(usize, f64)> = None;
+    for &match_off in &offsets {
+        let match_line = line_index_at(match_off);
+        let mut score = 0.0f64;
+        let mut checks = 0u32;
+
+        if let Some(before) = before_context {
+            checks += 1;
+            let before_line = before.lines().last().unwrap_or(before).trim();
+            if match_line > 0 {
+                let prev = lines[match_line - 1].trim();
+                let sim = strsim::jaro_winkler(prev, before_line);
+                if sim >= 0.8 {
+                    score += sim;
+                }
+            }
+        }
+
+        if let Some(after) = after_context {
+            checks += 1;
+            let after_line = after.lines().next().unwrap_or(after).trim();
+            let old_lines = old.lines().count();
+            let end_line = match_line + old_lines;
+            if end_line < lines.len() {
+                let next = lines[end_line].trim();
+                let sim = strsim::jaro_winkler(next, after_line);
+                if sim >= 0.8 {
+                    score += sim;
+                }
+            }
+        }
+
+        if checks > 0 && score > 0.0 && (best.is_none() || score > best.unwrap().1) {
+            best = Some((match_off, score));
+        }
+    }
+
+    best.map(|(off, _)| off)
+}
+
 /// Whole-line replacement: when a line matches the pattern, the entire line
 /// (including its newline) is replaced with `to`. When `to` is empty, the
 /// line is deleted. Supports optional line-range restriction and nth match.
