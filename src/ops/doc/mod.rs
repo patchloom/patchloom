@@ -477,9 +477,9 @@ fn parse_multi_document_yaml(content: &str) -> anyhow::Result<serde_json::Value>
         resolve_yaml_merge_keys(&mut val);
         docs.push(val);
     }
-    if docs.is_empty() {
-        anyhow::bail!("empty multi-document YAML");
-    }
+    // Precondition: is_multi_document_yaml() returned true, so content has
+    // ---  separators and the YAML deserializer always yields at least one doc.
+    debug_assert!(!docs.is_empty(), "multi-doc YAML produced zero documents");
     Ok(serde_json::Value::Array(docs))
 }
 

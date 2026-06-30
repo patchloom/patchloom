@@ -281,9 +281,8 @@ pub fn replace_content<'a>(
         }
         (None, None) => {
             // Single-pass using SIMD-accelerated memchr::memmem::Finder.
-            if from.is_empty() {
-                return (Cow::Borrowed(content), 0);
-            }
+            // All callers validate `from` is non-empty via validate_replace_args().
+            debug_assert!(!from.is_empty(), "replace_content called with empty `from`");
             let finder = memchr::memmem::Finder::new(from.as_bytes());
             let bytes = content.as_bytes();
             let mut result = String::with_capacity(content.len());

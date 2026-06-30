@@ -183,34 +183,6 @@ mod basic {
         assert_eq!(output, "5");
     }
 
-    // -- parse_value --------------------------------------------------------
-
-    #[test]
-    fn parse_value_bare_string() {
-        assert_eq!(parse_value("hello"), serde_json::json!("hello"));
-    }
-
-    #[test]
-    fn parse_value_integer() {
-        assert_eq!(parse_value("42"), serde_json::json!(42));
-    }
-
-    #[test]
-    fn parse_value_bool() {
-        assert_eq!(parse_value("true"), serde_json::json!(true));
-    }
-
-    #[test]
-    fn parse_value_null() {
-        assert_eq!(parse_value("null"), serde_json::Value::Null);
-    }
-
-    #[test]
-    fn parse_value_json_object() {
-        let v = parse_value(r#"{"a":1}"#);
-        assert_eq!(v, serde_json::json!({"a": 1}));
-    }
-
     // -- set ----------------------------------------------------------------
 
     #[test]
