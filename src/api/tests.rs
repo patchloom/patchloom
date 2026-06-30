@@ -2699,6 +2699,22 @@ fn parse_unified_diff_empty_input() {
 }
 
 #[test]
+fn parse_unified_diff_deleted_file() {
+    let diff = "\
+--- a/removed.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line one
+-line two
+";
+    let files = parse_unified_diff(diff).unwrap();
+    assert_eq!(files.len(), 1);
+    assert!(files[0].is_deletion);
+    assert!(!files[0].is_creation);
+    assert_eq!(files[0].path, "removed.txt");
+}
+
+#[test]
 fn parse_unified_diff_roundtrip_with_text_diff() {
     let original = "hello\nworld\n";
     let modified = "hello\nearth\n";

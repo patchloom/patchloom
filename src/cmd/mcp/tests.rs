@@ -773,6 +773,37 @@ mod server_info_tests {
         );
         client.cancel().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn server_info_handles_unicode_path() {
+        let base = tempfile::TempDir::new().unwrap();
+        let unicode_dir = base.path().join("проект_工作区");
+        std::fs::create_dir(&unicode_dir).unwrap();
+        let client = spawn_test_client(unicode_dir.clone()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("server_info");
+        let result = client.peer().call_tool(params).await.unwrap();
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "server_info should succeed with unicode path"
+        );
+
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text content"),
+        };
+        let info: serde_json::Value = serde_json::from_str(text).unwrap();
+        let cwd = info["cwd"].as_str().unwrap();
+        assert!(
+            !cwd.contains('\u{FFFD}'),
+            "cwd should not contain replacement character"
+        );
+        assert!(
+            cwd.contains("проект"),
+            "cwd should preserve unicode characters"
+        );
+        client.cancel().await.unwrap();
+    }
 }
 
 // --- #1270: no_results returns isError: false ---
@@ -832,6 +863,41 @@ mod no_results_tests {
         assert!(
             !result.is_error.unwrap_or(false),
             "ast_list with no symbols should return isError: false, not true"
+        );
+
+        client.cancel().await.unwrap();
+    }
+
+    #[cfg(feature = "ast")]
+    #[tokio::test]
+    async fn ast_refs_no_match_returns_success() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // File has a function definition but nothing references it
+        std::fs::write(dir.path().join("lib.rs"), "fn standalone() {}\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let params = rmcp::model::CallToolRequestParams::new("ast_refs").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "lib.rs",
+                "symbol": "standalone"
+            }))
+            .unwrap(),
+        );
+
+        let result = client.peer().call_tool(params).await.unwrap();
+        // #1270: no references is a valid answer, not an error
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "ast_refs with no references should return isError: false (#1270)"
+        );
+
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text content"),
+        };
+        assert!(
+            text.contains("No references found"),
+            "should contain descriptive message, got: {text}"
         );
 
         client.cancel().await.unwrap();
