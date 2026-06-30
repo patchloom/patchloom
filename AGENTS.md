@@ -185,6 +185,17 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - For non-existent file paths in tests, use `nonexistent_path("name")` which returns a platform-appropriate path.
 - `cargo test --lib` runs tests in parallel (CI too). For test-only failure-injection hooks, use `thread_local!` plus an RAII guard (e.g. `RestoreFailGuard`, defined in `src/tx.rs` and re-exported via `cmd::tx` for CLI/test paths), not a process-global `static`. Verify hook-related unit tests with `cargo test --lib <filter> -- --test-threads=16` before push.
 - Integration tests that need `#[cfg(test)]` hooks on tx commit/rollback paths must call in-process helpers such as `execute_plan_direct()` in `tests/integration.rs`. `assert_cmd::cargo_bin` subprocesses load the release binary and cannot see library `cfg(test)` hooks.
+- **Permission-based tests (`chmod 000`) must include a root-skip guard.** Root bypasses UNIX permission checks, so `from_mode(0o000)` tests fail inside Docker containers and root CI runners. After setting mode 000, try to read the file; if the read succeeds, restore permissions and return early. This tests actual behavior rather than checking the UID:
+
+```rust
+fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+// Root (common in Docker) can still read mode-000 files. Skip when
+// permissions do not actually block reading.
+if fs::read_to_string(&file).is_ok() {
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    return;
+}
+```
 
 ### Writes
 

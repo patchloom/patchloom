@@ -465,6 +465,13 @@ mod tests {
         std::fs::write(&file, "line1\nline2\nline3\n").unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
 
+        // Root (common in Docker) can still read mode-000 files. Skip when
+        // permissions do not actually block reading (#1276).
+        if std::fs::read_to_string(&file).is_ok() {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+
         let diff_path = tmp.path().join("fix.patch");
         std::fs::write(
             &diff_path,
