@@ -1083,6 +1083,48 @@ mod yaml_cst_cleanup {
         assert!(result.contains("url: pg"));
         assert!(!result.contains("pool"));
     }
+
+    #[test]
+    fn delete_key_with_preceding_standalone_comment() {
+        let yaml = "server:\n  host: localhost\n  port: 8080\n  # Worker count\n  workers: 4\n";
+        let old = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}});
+        let new = json!({"server": {"host": "localhost", "port": 8080}});
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        // The standalone comment should NOT leak onto the previous line.
+        for line in result.lines() {
+            if line.contains("port") {
+                assert!(
+                    !line.contains('#'),
+                    "standalone comment leaked onto port line: {:?}",
+                    line
+                );
+            }
+        }
+        assert!(
+            !result.contains("Worker count"),
+            "orphaned comment should be removed"
+        );
+        assert!(!result.contains("workers"), "deleted key should be gone");
+        assert!(result.contains("port: 8080"));
+    }
+
+    #[test]
+    fn delete_key_preserves_legitimate_inline_comments() {
+        let yaml = "server:\n  host: localhost # primary host\n  port: 8080\n  # Remove this\n  workers: 4\n";
+        let old = json!({"server": {"host": "localhost", "port": 8080, "workers": 4}});
+        let new = json!({"server": {"host": "localhost", "port": 8080}});
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        // Legitimate inline comment on host should be preserved.
+        assert!(
+            result.contains("# primary host"),
+            "legitimate inline comment was incorrectly removed"
+        );
+        // Orphaned standalone comment should not appear inline.
+        assert!(
+            !result.contains("# Remove this"),
+            "orphaned comment should be removed"
+        );
+    }
 }
 
 mod format_preservation {
