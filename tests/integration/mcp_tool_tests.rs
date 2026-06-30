@@ -3188,11 +3188,7 @@ async fn test_mcp_ast_imports_add() {
         return;
     }
     let dir = TempDir::new().unwrap();
-    fs::write(
-        dir.path().join("main.rs"),
-        "use std::io;\n\nfn main() {}\n",
-    )
-    .unwrap();
+    fs::write(dir.path().join("main.rs"), "use std::io;\n\nfn main() {}\n").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, val) = call_tool_value(

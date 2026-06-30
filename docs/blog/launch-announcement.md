@@ -98,8 +98,8 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 
 ## By the numbers
 
-- **1,800+ tests**, zero unsafe in library code (one `unsafe killpg` in exec.rs behind `#[expect]`)
-- **22 commands** including MCP server with 43 structured tool calls
+- **2,700+ tests**, zero unsafe in library code (one `unsafe killpg` in exec.rs behind `#[expect]`)
+- **22 commands** including MCP server with 53 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
 - **MIT OR Apache-2.0** licensed

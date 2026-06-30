@@ -78,8 +78,8 @@ src/
                        generator, and inline Completions command
   cmd/append.rs        Append content to an existing file
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
-  cmd/mcp/mod.rs       MCP server (feature-gated): 19 auto-generated tools via MCP_TOOL_REGISTRY +
-                       24 hand-written #[tool] handlers, dynamic registration via ToolRoute::new_dyn()
+  cmd/mcp/mod.rs       MCP server (feature-gated): 22 auto-generated tools via MCP_TOOL_REGISTRY +
+                       33 hand-written #[tool] handlers, dynamic registration via ToolRoute::new_dyn()
   cmd/mcp/params.rs    Parameter structs for hand-written MCP tool handlers only; simple tools use
                        Operation variant schemas directly via operation_variant_schema()
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
