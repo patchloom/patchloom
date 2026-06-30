@@ -839,11 +839,11 @@ mod dedent_indent {
     }
 }
 
+#[cfg(unix)]
 mod symlink_handling {
     use super::*;
 
     #[test]
-    #[cfg(unix)]
     fn atomic_write_through_symlink_preserves_symlink() {
         // #1230: atomic_write through a symlink should modify the target,
         // not replace the symlink with a regular file.
@@ -871,7 +871,6 @@ mod symlink_handling {
     }
 
     #[test]
-    #[cfg(unix)]
     fn atomic_write_through_symlink_chain() {
         // Symlink chain: link2 -> link1 -> real.txt
         let dir = tempfile::tempdir().unwrap();
@@ -892,7 +891,6 @@ mod symlink_handling {
     }
 
     #[test]
-    #[cfg(unix)]
     fn atomic_write_through_dangling_symlink_fails() {
         // A dangling symlink (target does not exist) should produce
         // a clear error, not silently create a file at the symlink path.
@@ -909,7 +907,6 @@ mod symlink_handling {
     }
 
     #[test]
-    #[cfg(unix)]
     fn atomic_write_through_symlink_preserves_target_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
