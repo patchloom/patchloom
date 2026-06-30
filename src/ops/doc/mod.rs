@@ -105,6 +105,23 @@ pub fn serialize_value_preserving(
     }
 }
 
+/// Clean up whitespace artifacts left by `yaml_edit` CST mutations.
+///
+/// `Mapping::remove()` can leave trailing whitespace on lines and may
+/// drop the final newline. This trims each line's trailing spaces and
+/// ensures the output ends with exactly one newline.
+fn cleanup_yaml_cst_whitespace(text: &str) -> String {
+    let mut result: String = text
+        .lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
 /// Attempt CST-preserving update for YAML. Returns Some(result) on success,
 /// None if a text-level fallback (or plain serialize) is required.
 fn try_preserve_yaml(
@@ -146,7 +163,10 @@ fn try_preserve_yaml_object(
 ) -> anyhow::Result<Option<String>> {
     let has_array_growth = yaml_splice::has_array_growth_diffs(old_value, new_value);
     let all_cst_applied = apply_yaml_mapping_diff(mapping, old_value, new_value)?;
-    let result = file.to_string();
+    // yaml_edit's Mapping::remove() can leave trailing whitespace on the
+    // line preceding the removed key. Clean it up so the output file does
+    // not contain spurious trailing spaces or a missing final newline.
+    let result = cleanup_yaml_cst_whitespace(&file.to_string());
 
     if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
         && reparsed.is_object()
@@ -186,7 +206,7 @@ fn try_preserve_yaml_array(
         false
     };
     if applied {
-        let result = file.to_string();
+        let result = cleanup_yaml_cst_whitespace(&file.to_string());
         if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *new_value) {
             return Ok(Some(result));
         }
