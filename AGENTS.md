@@ -69,6 +69,10 @@ src/
   lib.rs              Parses CLI with clap, delegates to cmd::dispatch; re-exports modules
   files.rs             File-walking utilities: is_binary, collect_file_paths, build_glob_matcher,
                        matches_glob. Used by search, replace, tidy, and status commands.
+  api/mod.rs           Public library API for embedding patchloom in Rust applications.
+                       CLI-independent interface: replace_text, search_file, doc_set, md_replace_section,
+                       execute_plan, parse_unified_diff, etc. All write ops accept ApplyMode
+                       (Preview/Apply/Check) and optional PathGuard for containment.
   cli/mod.rs           Defines Cli struct (clap Parser) with GlobalFlags and Command subcommand
   cli/global.rs        GlobalFlags (read-only: --json, --jsonl, --quiet, --cwd, --glob,
                        --files-from) and WriteFlags (--diff, --apply, --check,

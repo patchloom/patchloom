@@ -219,22 +219,29 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "## Tool selection guide\n\n\
              | Task pattern | Tool to use |\n\
              |---|---|\n\
+             | Read file contents (with optional line range) | `read_file` |\n\
+             | See uncommitted changes vs git HEAD | `git_status` |\n\
              | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
+             | Delete, merge, or ensure a key exists | `doc_delete`, `doc_merge`, `doc_ensure` |\n\
+             | Compare two structured files | `doc_diff` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Move a heading section (same file or cross-file) | `md_move_section` |\n\
              | Remove duplicate headings | `md_dedupe_headings` |\n\
+             | Lint markdown for structural issues | `md_lint` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
              | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\
+             | Apply a unified diff patch | `apply_patch` |\n\
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |\n\
              | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
              | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |\n\
              | Extract or split files by symbol | `ast_extract`, `ast_split` |\n\
              | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
              | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\
-             | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\n",
+             | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\
+             | Get server version and working directory | `server_info` |\n\n",
         );
     }
     if show_cli {
