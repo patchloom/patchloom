@@ -152,6 +152,54 @@ mod basic {
         client.cancel().await.unwrap();
     }
 
+    /// Verify server instructions contain tool category guide (#1273).
+    ///
+    /// Models search for tools by keyword (e.g. "replace_text" for YAML edits)
+    /// and miss better-fit tools (doc_set) when the instructions don't mention
+    /// categories. This test ensures the instructions always include the
+    /// category guide that steers models to the right tool class.
+    #[tokio::test]
+    async fn mcp_instructions_contain_tool_categories() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let info = client.peer_info().expect("peer info should be set");
+        let instructions = info
+            .instructions
+            .as_deref()
+            .expect("server should have instructions");
+        // Must contain category headers
+        assert!(
+            instructions.contains("Document ops"),
+            "instructions must mention Document ops category"
+        );
+        assert!(
+            instructions.contains("Markdown ops"),
+            "instructions must mention Markdown ops category"
+        );
+        assert!(
+            instructions.contains("Text ops"),
+            "instructions must mention Text ops category"
+        );
+        assert!(
+            instructions.contains("AST ops"),
+            "instructions must mention AST ops category"
+        );
+        assert!(
+            instructions.contains("File ops"),
+            "instructions must mention File ops category"
+        );
+        // Must contain the key steering hint from #1273
+        assert!(
+            instructions.contains("doc_set"),
+            "instructions must mention doc_set for discoverability"
+        );
+        assert!(
+            instructions.contains("JSON/YAML/TOML"),
+            "instructions must associate doc_* with JSON/YAML/TOML"
+        );
+        client.cancel().await.unwrap();
+    }
+
     #[tokio::test]
     async fn mcp_example_argument_keys_match_schemas() {
         let dir = tempfile::TempDir::new().unwrap();
