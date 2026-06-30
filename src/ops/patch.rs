@@ -20,6 +20,10 @@ pub struct Hunk {
 pub struct PatchFile {
     pub path: String,
     pub hunks: Vec<Hunk>,
+    /// `true` when the `---` line is `/dev/null` (new file creation).
+    pub is_creation: bool,
+    /// `true` when the `+++` line is `/dev/null` (file deletion).
+    pub is_deletion: bool,
 }
 
 /// Check whether line `idx` is a real file header ("--- " followed by "+++"),
@@ -74,12 +78,11 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         }
 
         // For deletions the `+++` line is `/dev/null`; take path from `---`.
+        let minus_path = parse_file_path(lines[i]);
         let plus_path = parse_file_path(lines[i + 1]);
-        let path = if plus_path == "/dev/null" {
-            parse_file_path(lines[i])
-        } else {
-            plus_path
-        };
+        let is_creation = minus_path == "/dev/null";
+        let is_deletion = plus_path == "/dev/null";
+        let path = if is_deletion { minus_path } else { plus_path };
         i += 2;
 
         let mut hunks: Vec<Hunk> = Vec::new();
@@ -124,7 +127,12 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             return Err(format!("no hunks found for file {path}"));
         }
 
-        files.push(PatchFile { path, hunks });
+        files.push(PatchFile {
+            path,
+            hunks,
+            is_creation,
+            is_deletion,
+        });
     }
 
     if files.is_empty() {
@@ -268,6 +276,10 @@ pub struct PatchApplyFileResult {
     pub content: String,
     pub status: ApplyHunksStatus,
     pub conflicts: Vec<ConflictRange>,
+    /// `true` when the patch creates a new file (`--- /dev/null`).
+    pub is_creation: bool,
+    /// `true` when the patch deletes a file (`+++ /dev/null`).
+    pub is_deletion: bool,
 }
 
 pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
@@ -699,7 +711,24 @@ where
         parse_patch(diff_text).map_err(|msg| anyhow::anyhow!("patch parse error: {msg}"))?;
     let mut results = Vec::new();
     for pf in &patch_files {
-        let original = load_original(&pf.path)?;
+        // New file creation: original is empty, don't try to load from disk.
+        let original = if pf.is_creation {
+            String::new()
+        } else {
+            load_original(&pf.path)?
+        };
+        // File deletion: result is empty string (caller handles removal).
+        if pf.is_deletion {
+            results.push(PatchApplyFileResult {
+                path: pf.path.clone(),
+                content: String::new(),
+                status: ApplyHunksStatus::Clean,
+                conflicts: Vec::new(),
+                is_creation: false,
+                is_deletion: true,
+            });
+            continue;
+        }
         let applied = apply_hunks_with_options(&original, &pf.hunks, options)
             .map_err(|msg| anyhow::anyhow!("patch apply: {} -- {msg}", pf.path))?;
         results.push(PatchApplyFileResult {
@@ -707,6 +736,8 @@ where
             content: applied.content,
             status: applied.status,
             conflicts: applied.conflicts,
+            is_creation: pf.is_creation,
+            is_deletion: false,
         });
     }
     Ok(results)

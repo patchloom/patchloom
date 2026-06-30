@@ -807,13 +807,19 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     );
                 }
                 let file_path = tx.cwd.join(&result.path);
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    result.content,
-                );
+                if result.is_deletion {
+                    // File deletion via patch: mark for deletion.
+                    tx.deletions.insert(file_path.clone());
+                    tx.write_targets.insert(file_path);
+                } else {
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &file_path,
+                        result.content,
+                    );
+                }
             }
         }
 
