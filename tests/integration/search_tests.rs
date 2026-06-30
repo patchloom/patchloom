@@ -682,8 +682,8 @@ fn test_search_context_separator_for_distant_matches() {
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("--"),
-        "distant matches should have a separator: {stdout}"
+        stdout.contains("\n--\n"),
+        "distant matches should have a line-delimited separator: {stdout}"
     );
 }
 

@@ -218,8 +218,8 @@ mod tests {
         apply_value_diff(doc.as_item_mut(), &old, &new);
         let result = doc.to_string();
         assert!(
-            result.contains("99"),
-            "array element 99 should appear: {result}"
+            result.contains(", 99,") || result.contains("[99,") || result.contains(", 99]"),
+            "array element 99 should appear in array context: {result}"
         );
         assert!(
             !result.contains(", 2, 3]"),
