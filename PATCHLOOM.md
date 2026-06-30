@@ -9,15 +9,21 @@
 
 | Task pattern | Tool to use |
 |---|---|
+| Read file contents (with optional line range) | `read_file` |
+| See uncommitted changes vs git HEAD | `git_status` |
 | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
+| Delete, merge, or ensure a key exists | `doc_delete`, `doc_merge`, `doc_ensure` |
+| Compare two structured files | `doc_diff` |
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
 | Move a heading section (same file or cross-file) | `md_move_section` |
 | Remove duplicate headings | `md_dedupe_headings` |
+| Lint markdown for structural issues | `md_lint` |
 | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |
 | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
+| Apply a unified diff patch | `apply_patch` |
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
@@ -25,6 +31,7 @@
 | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |
 | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |
 | Apply same operation to many files | `execute_plan` with `for_each` glob |
+| Get server version and working directory | `server_info` |
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
