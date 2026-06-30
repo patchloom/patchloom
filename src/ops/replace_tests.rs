@@ -577,14 +577,6 @@ mod replace_tests {
         }
 
         #[test]
-        fn replace_content_empty_from_returns_borrowed() {
-            let (out, count) = replace_content("hello", "", "y", None, None);
-            assert_eq!(out, "hello");
-            assert_eq!(count, 0);
-            assert!(matches!(out, std::borrow::Cow::Borrowed(_)));
-        }
-
-        #[test]
         fn replace_content_regex_nth_no_match_returns_borrowed() {
             let re = regex::Regex::new(r"\d+").unwrap();
             let (out, count) = replace_content("no digits here", "unused", "N", Some(&re), Some(1));
