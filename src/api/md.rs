@@ -64,7 +64,25 @@ fn md_write(
             heading, bullet, ..
         } => ops::md::upsert_bullet_in(&original, &heading, &bullet),
         Operation::MdTableAppend { heading, row, .. } => {
-            ops::md::table_append_for_tx(&original, &heading, &row)
+            let (body_start, body_end) = ops::md::find_section(&original, &heading)
+                .ok_or_else(|| anyhow::anyhow!("heading not found in {path_str}"))?;
+            return match ops::md::table_append_in(&original, body_start, body_end, &row) {
+                Ok(new_content) => {
+                    let policy = WritePolicy::default();
+                    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+                    Ok(super::build_edit_result(
+                        &path_str,
+                        original,
+                        new_content,
+                        applied,
+                        action,
+                        None,
+                    ))
+                }
+                Err(e) => Err(anyhow::anyhow!(
+                    "{e} under heading {heading:?} in {path_str}"
+                )),
+            };
         }
         _ => None,
     }

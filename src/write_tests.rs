@@ -839,6 +839,96 @@ mod dedent_indent {
     }
 }
 
+mod symlink_handling {
+    use super::*;
+
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_through_symlink_preserves_symlink() {
+        // #1230: atomic_write through a symlink should modify the target,
+        // not replace the symlink with a regular file.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        fs::write(&target, "original content\n").unwrap();
+
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&link, "modified content\n", &policy).unwrap();
+
+        // The symlink must still be a symlink.
+        assert!(
+            link.is_symlink(),
+            "link.txt should still be a symlink after atomic_write"
+        );
+        // The target file must have the new content.
+        let target_content = fs::read_to_string(&target).unwrap();
+        assert_eq!(target_content, "modified content\n");
+        // Reading through the symlink should also show the new content.
+        let link_content = fs::read_to_string(&link).unwrap();
+        assert_eq!(link_content, "modified content\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_through_symlink_chain() {
+        // Symlink chain: link2 -> link1 -> real.txt
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        fs::write(&target, "deep target\n").unwrap();
+
+        let link1 = dir.path().join("link1.txt");
+        std::os::unix::fs::symlink(&target, &link1).unwrap();
+        let link2 = dir.path().join("link2.txt");
+        std::os::unix::fs::symlink(&link1, &link2).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&link2, "chain modified\n", &policy).unwrap();
+
+        assert!(link2.is_symlink(), "link2 should still be a symlink");
+        assert!(link1.is_symlink(), "link1 should still be a symlink");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "chain modified\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_through_dangling_symlink_fails() {
+        // A dangling symlink (target does not exist) should produce
+        // a clear error, not silently create a file at the symlink path.
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("nonexistent.txt"), &link).unwrap();
+
+        let policy = WritePolicy::default();
+        let err = atomic_write(&link, "content\n", &policy).unwrap_err();
+        assert!(
+            err.to_string().contains("resolve symlink") || err.to_string().contains("No such file"),
+            "expected symlink resolution error, got: {err}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn atomic_write_through_symlink_preserves_target_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        fs::write(&target, "original\n").unwrap();
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&target, perms).unwrap();
+
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&link, "modified\n", &policy).unwrap();
+
+        let meta = std::fs::metadata(&target).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+    }
+}
+
 mod error_handling {
     use super::*;
 
@@ -1047,18 +1137,19 @@ mod format_preservation {
         );
     }
 
-    /// Regression (#1062): when `path` is a symlink, atomic_write should not
-    /// carry over the symlink target's permissions to the new regular file.
+    /// After #1230: when `path` is a symlink, atomic_write resolves it and
+    /// writes to the target file. The symlink is preserved, the target gets
+    /// new content, and the target's permissions are carried over (since we
+    /// are writing to the actual target, not creating a new file at the
+    /// symlink entry).
     #[test]
     #[cfg(unix)]
-    fn atomic_write_symlink_does_not_carry_target_permissions() {
+    fn atomic_write_symlink_writes_to_target_preserves_permissions() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("target.txt");
         fs::write(&target, "content").unwrap();
-        // Use 0o444 (read-only) which is distinctive from default tempfile
-        // permissions (typically 0o600).
         fs::set_permissions(&target, std::fs::Permissions::from_mode(0o444)).unwrap();
 
         let link = dir.path().join("link.txt");
@@ -1067,16 +1158,15 @@ mod format_preservation {
         let policy = WritePolicy::default();
         atomic_write(&link, "new content", &policy).unwrap();
 
-        // The link should now be a regular file, not a symlink.
-        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
-        // The original target should be untouched.
-        assert_eq!(fs::read_to_string(&target).unwrap(), "content");
-        // The new file should NOT have the target's 0o444 permissions forced
-        // on it; it should have the default tempfile permissions instead.
-        let mode = fs::metadata(&link).unwrap().permissions().mode() & 0o777;
-        assert_ne!(
+        // The symlink must still be a symlink (#1230).
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        // The target file now has the new content.
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new content");
+        // The target's original permissions are preserved.
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
             mode, 0o444,
-            "symlink target permissions should not be carried over"
+            "target permissions should be preserved when writing through symlink"
         );
     }
 
