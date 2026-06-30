@@ -116,13 +116,50 @@ pub fn search_file(
 /// and its AST node kinds are converted into an S-expression query.
 /// `$NAME` meta-variables become `@name` captures on identifier nodes.
 ///
-/// For MVP, we support a simpler approach: find AST nodes of a specific
-/// kind that match a text pattern.
+/// Before parsing, meta-variables (`$NAME`) are replaced with valid placeholder
+/// identifiers (`_pl_NAME_`) so tree-sitter can parse the pattern without errors.
+/// After parsing, placeholder identifiers are detected and converted back to
+/// query captures.
 pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<String> {
-    let (tree, _) = parse_source(pattern, lang)
+    // Collect meta-variable names and replace with valid placeholder identifiers.
+    let mut placeholders: Vec<String> = Vec::new();
+    let mut sanitized = pattern.to_string();
+    // Handle $$$MULTI first (greedy), then $NAME.
+    // For now, we only handle $NAME (single meta-variables).
+    let mut i = 0;
+    let bytes = pattern.as_bytes();
+    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+    while i < bytes.len() {
+        if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_alphabetic() {
+            let start = i;
+            i += 1; // skip $
+            let name_start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let name = &pattern[name_start..i];
+            let placeholder = format!("_pl_{name}_");
+            placeholders.push(name.to_string());
+            replacements.push((start, i, placeholder));
+        } else {
+            i += 1;
+        }
+    }
+    // Apply replacements in reverse order to preserve offsets
+    for (start, end, placeholder) in replacements.into_iter().rev() {
+        sanitized.replace_range(start..end, &placeholder);
+    }
+
+    let (tree, _) = parse_source(&sanitized, lang)
         .ok_or_else(|| anyhow::anyhow!("cannot parse pattern for {lang}"))?;
 
     let root = tree.root_node();
+    if root.has_error() {
+        anyhow::bail!(
+            "pattern is not valid {lang} syntax (after meta-variable substitution): {sanitized}"
+        );
+    }
+
     // Walk to the first meaningful child (skip source_file wrapper)
     let child = if root.child_count() == 1 {
         root.child(0).unwrap_or(root)
@@ -130,8 +167,11 @@ pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<St
         root
     };
 
+    let placeholder_set: std::collections::HashSet<String> =
+        placeholders.iter().map(|n| format!("_pl_{n}_")).collect();
+
     let mut query = String::new();
-    build_query_from_node(child, pattern, &mut query, &mut 0);
+    build_query_from_node(child, &sanitized, &mut query, &mut 0, &placeholder_set);
     Ok(query)
 }
 
@@ -140,15 +180,19 @@ fn build_query_from_node(
     source: &str,
     query: &mut String,
     capture_idx: &mut usize,
+    placeholders: &std::collections::HashSet<String>,
 ) {
     let kind = node.kind();
     let text = node.utf8_text(source.as_bytes()).unwrap_or_default();
 
-    // Check for meta-variables ($NAME pattern)
-    if text.starts_with('$') && !text.starts_with("$$$") {
-        // Single meta-variable: match any node of this kind
-        let capture_name = &text[1..];
-        query.push_str(&format!("({kind} ) @{capture_name}"));
+    // Check if this node is a placeholder for a meta-variable
+    if placeholders.contains(text) {
+        // Extract capture name: _pl_NAME_ -> NAME
+        let capture_name = text
+            .strip_prefix("_pl_")
+            .and_then(|s| s.strip_suffix('_'))
+            .unwrap_or(text);
+        query.push_str(&format!("({kind}) @{capture_name}"));
         *capture_idx += 1;
         return;
     }
@@ -167,7 +211,7 @@ fn build_query_from_node(
             continue;
         }
         query.push(' ');
-        build_query_from_node(child, source, query, capture_idx);
+        build_query_from_node(child, source, query, capture_idx, placeholders);
     }
     query.push(')');
 }
@@ -235,5 +279,50 @@ fn main() {
     fn unknown_language_returns_error() {
         let result = search_query("anything", "(identifier)", Language::Unknown, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn compile_pattern_rust_struct() {
+        let query = compile_pattern_query("struct $NAME {}", Language::Rust).unwrap();
+        // Should produce a query that matches struct items
+        let source = "struct Config {}\nstruct Server {}\n";
+        let results = search_query(source, &query, Language::Rust, None).unwrap();
+        assert!(
+            results.len() >= 2,
+            "expected >=2 struct matches, got {}",
+            results.len()
+        );
+    }
+
+    #[test]
+    fn compile_pattern_rust_fn() {
+        let query = compile_pattern_query("fn $NAME() {}", Language::Rust).unwrap();
+        let source = "fn main() {}\nfn helper() {}\nfn process(x: i32) {}\n";
+        let results = search_query(source, &query, Language::Rust, None).unwrap();
+        // Should match main and helper (no params), may or may not match process
+        assert!(!results.is_empty(), "expected matches for fn pattern");
+    }
+
+    #[test]
+    fn compile_pattern_python_class() {
+        let query = compile_pattern_query("class $NAME:", Language::Python).unwrap();
+        let source = "class Foo:\n    pass\nclass Bar:\n    pass\n";
+        let results = search_query(source, &query, Language::Python, None).unwrap();
+        assert!(
+            results.len() >= 2,
+            "expected >=2 class matches, got {}",
+            results.len()
+        );
+    }
+
+    #[test]
+    fn compile_pattern_js_function() {
+        let query = compile_pattern_query("function $NAME() {}", Language::JavaScript).unwrap();
+        let source = "function foo() {}\nfunction bar(x) {}\n";
+        let results = search_query(source, &query, Language::JavaScript, None).unwrap();
+        assert!(
+            !results.is_empty(),
+            "expected matches for JS function pattern"
+        );
     }
 }

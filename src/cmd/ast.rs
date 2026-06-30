@@ -532,7 +532,16 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let lang = resolve_lang(lang_hint, path);
             let query_str = if args.pattern {
-                crate::ast::search::compile_pattern_query(&args.query, lang).ok()?
+                match crate::ast::search::compile_pattern_query(&args.query, lang) {
+                    Ok(q) => q,
+                    Err(e) => {
+                        eprintln!(
+                            "patchloom: pattern compile error for {}: {e}",
+                            path.display()
+                        );
+                        return None;
+                    }
+                }
             } else {
                 args.query.clone()
             };
