@@ -190,7 +190,8 @@ fn replace_write(
 /// Applies the same replacement logic as [`replace_text`] but operates on an
 /// in-memory string instead of a file path. Supports all [`ReplaceOptions`]
 /// features: regex, word boundary, nth, case insensitive, multiline,
-/// insert_before/after, whole_line, range, and if_exists.
+/// insert_before/after, whole_line, range, if_exists, unique, fuzzy,
+/// before_context, and after_context.
 pub fn replace_in_content(
     content: &str,
     from: &str,
