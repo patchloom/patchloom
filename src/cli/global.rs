@@ -96,6 +96,11 @@ pub struct GlobalFlags {
     pub format_timeout: Option<u64>,
     #[cfg_attr(feature = "cli", clap(skip))]
     pub no_format: bool,
+
+    /// Per-extension format config from `.patchloom.toml`.
+    /// Populated by `apply_config`, not by CLI flags.
+    #[cfg_attr(feature = "cli", clap(skip))]
+    pub format_config: Option<crate::config::FormatConfig>,
 }
 
 /// Write-only flags exposed in subcommands that mutate files.
@@ -453,6 +458,7 @@ impl GlobalFlags {
             no_format: base.no_format,
             format: base.format.clone(),
             format_timeout: base.format_timeout,
+            format_config: base.format_config.clone(),
             verbose: base.verbose,
             color: base.color,
         }

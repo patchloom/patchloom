@@ -171,6 +171,12 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** You need to override the default terminal detection, for example forcing color into a pager or disabling it in a terminal that renders escape codes literally.
 - **Prefer instead:** Set the `NO_COLOR` environment variable when you want a global, tool-agnostic way to disable color across all CLI tools.
 
+<!-- ref:global-flag:format-config -->
+### `format_config` (internal)
+
+- **What it does:** Carries the per-extension formatter configuration loaded from `.patchloom.toml` (`[format.by_extension]` table) so that post-write formatting can run the correct formatter for each file type.
+- **Use when:** You configure `[format] auto = true` and `[format.by_extension]` in `.patchloom.toml`. The field is populated automatically; it is not set via CLI flags.
+
 <!-- ref:global-flag:verbose -->
 ### `--verbose`
 

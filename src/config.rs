@@ -158,6 +158,13 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         }
     }
 
+    // Store per-extension format config so run_format_command can use it.
+    if config.format.auto == Some(true)
+        && (!config.format.by_extension.is_empty() || config.format.command.is_some())
+    {
+        global.format_config = Some(config.format.clone());
+    }
+
     // Exclude globs: prepend config globs before user excludes.
     if !config.exclude.globs.is_empty() {
         let mut merged = config.exclude.globs.clone();
@@ -718,6 +725,53 @@ rs = "rustfmt"
         assert!(global.format.is_none());
         apply_config(&mut global, &config);
         assert_eq!(global.format.as_deref(), Some("treefmt"));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_stores_format_config_for_by_extension() {
+        let mut by_ext = std::collections::HashMap::new();
+        by_ext.insert("rs".into(), "rustfmt".into());
+        by_ext.insert("py".into(), "black".into());
+        let config = ProjectConfig {
+            format: FormatConfig {
+                auto: Some(true),
+                command: None,
+                by_extension: by_ext,
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        assert!(global.format_config.is_none());
+        apply_config(&mut global, &config);
+        let fc = global
+            .format_config
+            .as_ref()
+            .expect("format_config should be set");
+        assert_eq!(fc.auto, Some(true));
+        assert_eq!(fc.by_extension.len(), 2);
+        assert_eq!(fc.by_extension.get("rs").unwrap(), "rustfmt");
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_skips_format_config_when_auto_false() {
+        let mut by_ext = std::collections::HashMap::new();
+        by_ext.insert("rs".into(), "rustfmt".into());
+        let config = ProjectConfig {
+            format: FormatConfig {
+                auto: None,
+                command: None,
+                by_extension: by_ext,
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        apply_config(&mut global, &config);
+        assert!(
+            global.format_config.is_none(),
+            "format_config should not be set when auto != true"
+        );
     }
 
     /// Regression: normalize_eol = "keep" in config must be accepted (no-op).

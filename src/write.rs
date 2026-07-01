@@ -763,7 +763,7 @@ pub fn run_format_command(
     global: &crate::cli::global::GlobalFlags,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
-    run_format_command_ext(global, cwd, None, None)
+    run_format_command_ext(global, cwd, None, global.format_config.as_ref())
 }
 
 /// Extended format runner that accepts an optional list of modified paths
@@ -827,9 +827,22 @@ pub fn run_format_command_ext(
         return Ok(());
     }
 
-    let paths = match modified_paths {
+    // When modified_paths are not passed explicitly, discover them via
+    // `git diff --name-only HEAD`. This covers CLI commands (replace, md,
+    // ast replace, etc.) that call run_format_command without tracking
+    // which files they touched.
+    let discovered: Vec<String>;
+    let discovered_refs: Vec<&str>;
+    let paths: &[&str] = match modified_paths {
         Some(p) => p,
-        None => return Ok(()),
+        None => {
+            discovered = discover_modified_files(cwd);
+            if discovered.is_empty() {
+                return Ok(());
+            }
+            discovered_refs = discovered.iter().map(|s| s.as_str()).collect();
+            &discovered_refs
+        }
     };
 
     // Group modified files by extension
@@ -866,6 +879,25 @@ pub fn run_format_command_ext(
     }
 
     Ok(())
+}
+
+/// Discover files modified since the last commit by running
+/// `git diff --name-only HEAD` in `cwd`. Returns relative paths.
+/// Falls back to an empty list on any error (not a git repo, etc.).
+#[cfg(feature = "cli")]
+fn discover_modified_files(cwd: &std::path::Path) -> Vec<String> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(cwd)
+        .output();
+    match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Shell-escape a file path for safe inclusion in a command string.
