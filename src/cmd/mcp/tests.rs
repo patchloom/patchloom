@@ -116,7 +116,7 @@ mod basic {
             "missing ast_extract_to_file tool"
         );
         assert!(names.contains(&"ast_split"), "missing ast_split tool");
-        // 32 base tools + 14 AST tools = 46
+        // 21 auto-generated (registry) + 33 hand-written (#[tool]) = 54
         assert!(
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"
