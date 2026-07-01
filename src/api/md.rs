@@ -29,7 +29,7 @@ fn md_write(
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action)
+    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action, None)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

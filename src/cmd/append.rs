@@ -24,8 +24,27 @@ pub struct AppendArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
+pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    run_content_inject(
+        &args.file,
+        args.content.as_deref(),
+        args.stdin,
+        ContentPosition::Append,
+        global,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Shared append/prepend implementation
+// ---------------------------------------------------------------------------
+
+pub(crate) enum ContentPosition {
+    Append,
+    Prepend,
+}
+
 #[derive(Debug, Serialize)]
-struct AppendOutput {
+struct ContentInjectOutput {
     ok: bool,
     path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -34,45 +53,61 @@ struct AppendOutput {
     applied: Option<bool>,
 }
 
-pub fn run(args: AppendArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    crate::verbose!("append: file={}", args.file);
-    if args.content.is_some() && args.stdin {
+pub(crate) fn run_content_inject(
+    file: &str,
+    content: Option<&str>,
+    stdin: bool,
+    position: ContentPosition,
+    global: &GlobalFlags,
+) -> anyhow::Result<u8> {
+    let verb = match position {
+        ContentPosition::Append => "append",
+        ContentPosition::Prepend => "prepend",
+    };
+
+    crate::verbose!("{verb}: file={file}");
+    if content.is_some() && stdin {
         bail!("--content and --stdin cannot be combined");
     }
 
-    let append_content = if let Some(ref c) = args.content {
-        c.clone()
-    } else if args.stdin {
+    let inject_content = if let Some(c) = content {
+        c.to_string()
+    } else if stdin {
         std::io::read_to_string(std::io::stdin())?
     } else {
         bail!("either --content or --stdin must be provided");
     };
 
-    // Pre-validation: the engine's FileAppend op checks existence too,
-    // but we validate here for consistent CLI error messages.
     let cwd = global.resolve_cwd()?;
-    let path = cwd.join(&args.file);
+    let path = cwd.join(file);
     if !path.exists() {
-        bail!("file does not exist: {}", args.file);
+        bail!("file does not exist: {file}");
     }
     if !path.is_file() {
-        bail!("target is not a file: {}", args.file);
+        bail!("target is not a file: {file}");
     }
 
-    let op = Operation::FileAppend {
-        path: args.file.clone(),
-        content: append_content,
+    let op = match position {
+        ContentPosition::Append => Operation::FileAppend {
+            path: file.to_string(),
+            content: inject_content,
+        },
+        ContentPosition::Prepend => Operation::FilePrepend {
+            path: file.to_string(),
+            content: inject_content,
+        },
     };
 
-    let check_msg = format!("would append to {}", args.file);
-    let apply_msg = format!("appended to {}", args.file);
+    let check_msg = format!("would {verb} to {file}");
+    let apply_msg = format!("{verb}ed to {file}");
+    let file_owned = file.to_string();
 
     execute_via_engine(
         op,
         global,
-        |phase, diff| AppendOutput {
+        |phase, diff| ContentInjectOutput {
             ok: true,
-            path: args.file.clone(),
+            path: file_owned.clone(),
             diff,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),

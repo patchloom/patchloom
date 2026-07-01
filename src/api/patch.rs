@@ -37,7 +37,7 @@ fn patch_write(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd, guard, "patch")
+    super::execute_as_edit_result(op, mode, cwd, guard, "patch", None)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

@@ -28,7 +28,7 @@ fn file_write(
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action)
+    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action, None)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
@@ -86,7 +86,9 @@ fn file_write(
                 None,
             ))
         }
-        Operation::FileAppend { content, .. } => {
+        Operation::FileAppend { ref content, .. } | Operation::FilePrepend { ref content, .. } => {
+            let is_append = matches!(op, Operation::FileAppend { .. });
+            let content = content.clone();
             let path_str = path.to_string_lossy();
             if path.exists() && !path.is_file() {
                 bail!("target is not a file: {}", path.display());
@@ -96,24 +98,11 @@ fn file_write(
             }
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
-            let combined = crate::ops::file::append_content(&original, &content);
-            let policy = crate::write::WritePolicy::default();
-            let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
-            Ok(super::build_edit_result(
-                &path_str, original, combined, applied, action, None,
-            ))
-        }
-        Operation::FilePrepend { content, .. } => {
-            let path_str = path.to_string_lossy();
-            if path.exists() && !path.is_file() {
-                bail!("target is not a file: {}", path.display());
-            }
-            if !path.exists() {
-                bail!("file does not exist: {}", path.display());
-            }
-            let original = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
-            let combined = crate::ops::file::prepend_content(&original, &content);
+            let combined = if is_append {
+                crate::ops::file::append_content(&original, &content)
+            } else {
+                crate::ops::file::prepend_content(&original, &content)
+            };
             let policy = crate::write::WritePolicy::default();
             let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
             Ok(super::build_edit_result(
@@ -134,7 +123,7 @@ fn file_write_cross(
     action: &'static str,
     dest_path: Option<String>,
 ) -> anyhow::Result<EditResult> {
-    super::execute_cross_file_as_edit_result(op, mode, cwd_from_path(src), guard, action, dest_path)
+    super::execute_as_edit_result(op, mode, cwd_from_path(src), guard, action, dest_path)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
