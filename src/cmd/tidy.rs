@@ -34,7 +34,7 @@ pub enum TidyAction {
         /// Indent: add leading whitespace. Values: "tab" or a number (e.g. "4").
         #[arg(long)]
         indent: Option<String>,
-        /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50").
+        /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50" or "10-50").
         #[arg(long)]
         lines: Option<String>,
     },
