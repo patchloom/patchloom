@@ -690,9 +690,15 @@ pub fn table_append_in(
     Ok(out)
 }
 
-pub fn table_append_for_tx(content: &str, heading: &str, row: &str) -> Option<String> {
-    let (body_start, body_end) = find_section(content, heading)?;
-    table_append_in(content, body_start, body_end, row).ok()
+pub fn table_append_for_tx(
+    content: &str,
+    heading: &str,
+    row: &str,
+) -> Result<Option<String>, TableAppendError> {
+    let Some((body_start, body_end)) = find_section(content, heading) else {
+        return Ok(None);
+    };
+    table_append_in(content, body_start, body_end, row).map(Some)
 }
 
 /// Strip inline code spans (between backticks) from a line so that

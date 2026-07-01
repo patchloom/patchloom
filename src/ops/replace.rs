@@ -398,7 +398,7 @@ pub fn context_filtered_offset(
             }
         }
 
-        if checks > 0 && score > 0.0 && (best.is_none() || score > best.unwrap().1) {
+        if checks > 0 && score > 0.0 && best.is_none_or(|(_, s)| score > s) {
             best = Some((match_off, score));
         }
     }

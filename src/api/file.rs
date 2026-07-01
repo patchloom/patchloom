@@ -149,6 +149,12 @@ fn file_write_cross(
     // Fallback: rename directly.
     if let Operation::FileRename { to, force, .. } = _op {
         let dst = Path::new(&to);
+        if !force && dst.exists() {
+            bail!(
+                "destination already exists: {} (use force to overwrite)",
+                dst.display()
+            );
+        }
         let original = std::fs::read_to_string(src)
             .with_context(|| format!("failed to read {}", src.display()))?;
         let applied = super::apply_cross_file_mutation(
