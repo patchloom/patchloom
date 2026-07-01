@@ -834,7 +834,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             // Apply dedent/indent after policy normalization.
             let line_range = lines
                 .as_deref()
-                .map(crate::write::parse_line_range)
+                .map(crate::ops::read::parse_line_range)
                 .transpose()?;
             if let Some(spec) = dedent {
                 new = crate::write::dedent_content(&new, spec, line_range);

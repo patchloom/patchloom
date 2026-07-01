@@ -785,51 +785,6 @@ mod dedent_indent {
     }
 
     #[test]
-    fn parse_line_range_full() {
-        let (start, end) = parse_line_range("10:50").unwrap();
-        assert_eq!(start, 10);
-        assert_eq!(end, Some(50));
-    }
-
-    #[test]
-    fn parse_line_range_open_ended() {
-        let (start, end) = parse_line_range("5:").unwrap();
-        assert_eq!(start, 5);
-        assert_eq!(end, None);
-    }
-
-    #[test]
-    fn parse_line_range_single_line() {
-        let (start, end) = parse_line_range("3").unwrap();
-        assert_eq!(start, 3);
-        assert_eq!(end, Some(3));
-    }
-
-    #[test]
-    fn parse_line_range_invalid() {
-        assert!(parse_line_range("abc").is_err());
-        assert!(parse_line_range("1:xyz").is_err());
-    }
-
-    #[test]
-    fn parse_line_range_rejects_zero() {
-        // Line numbers are 1-based; 0 is invalid.
-        assert!(parse_line_range("0").is_err());
-        assert!(parse_line_range("0:5").is_err());
-        assert!(parse_line_range("1:0").is_err());
-    }
-
-    #[test]
-    fn parse_line_range_rejects_inverted() {
-        // start > end is an error, not a silent no-op.
-        let err = parse_line_range("50:10").unwrap_err();
-        assert!(
-            err.to_string().contains("inverted"),
-            "should mention inverted range: {err}"
-        );
-    }
-
-    #[test]
     fn dedent_auto_line_range() {
         // Only dedent lines 2-3; leave lines 1 and 4 alone.
         let input = "    a\n        b\n        c\n    d\n";

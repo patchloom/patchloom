@@ -313,7 +313,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Parse line range once (shared across all files).
             let line_range = lines
                 .as_deref()
-                .map(crate::write::parse_line_range)
+                .map(crate::ops::read::parse_line_range)
                 .transpose()?;
 
             // Parallel read+compute phase: identify which files need fixing.
