@@ -131,6 +131,25 @@ mod basic {
     }
 
     #[test]
+    fn replace_section_preserves_blank_line_before_next_heading() {
+        let content =
+            "# Project\n\nIntro.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.\n";
+        let result = replace_section_in(content, "## Section A", "New A.").unwrap();
+        assert_eq!(
+            result,
+            "# Project\n\nIntro.\n\n## Section A\nNew A.\n\n## Section B\n\nContent B.\n"
+        );
+    }
+
+    #[test]
+    fn replace_section_no_extra_blank_when_original_had_none() {
+        // When the original had no blank line before the next heading, don't add one.
+        let content = "# Title\nOld body\n# Next\nKeep\n";
+        let result = replace_section_in(content, "# Title", "New body").unwrap();
+        assert_eq!(result, "# Title\nNew body\n# Next\nKeep\n");
+    }
+
+    #[test]
     fn insert_after_heading() {
         let content = "# Title\nExisting\n";
         let result = insert_after_heading_in(content, "Title", "Inserted\n").unwrap();
@@ -1081,8 +1100,8 @@ mod format_preservation {
         let content = "Title\n=====\n\nOld body\n\nNext\n=====\nKeep\n";
         let result = replace_section_in(content, "Title", "New body").unwrap();
         assert_eq!(
-            result, "Title\n=====\nNew body\nNext\n=====\nKeep\n",
-            "underline must be preserved: {result}"
+            result, "Title\n=====\nNew body\n\nNext\n=====\nKeep\n",
+            "underline must be preserved and blank line before next heading kept: {result}"
         );
     }
 
