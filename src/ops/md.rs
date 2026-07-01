@@ -410,11 +410,26 @@ pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Op
     // The heading is already preserved in content[..body_start].
     let replacement = strip_leading_heading(replacement, heading);
 
+    // Check whether the original body had a trailing blank line before
+    // the next heading. If so, preserve that separator so the output
+    // remains well-formatted markdown.
+    let original_body = &content[body_start..body_end];
+    let had_trailing_blank = original_body.ends_with("\n\n") || original_body.ends_with("\r\n\r\n");
+
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
     if !replacement.is_empty() {
         out.push_str(replacement);
         if !replacement.ends_with('\n') {
+            out.push_str(eol);
+        }
+        // Restore the blank-line separator before the next heading when
+        // the original content had one and the replacement does not.
+        if had_trailing_blank
+            && !replacement.ends_with("\n\n")
+            && !replacement.ends_with("\r\n\r\n")
+            && body_end < content.len()
+        {
             out.push_str(eol);
         }
     }
