@@ -51,10 +51,10 @@ editing operations:
 |--------|-------------|
 | Replace text | Literal text replacement with diff preview |
 | Tidy file | Whitespace and newline cleanup with diff preview |
-| Set structured value | Update a JSON, YAML, or TOML key with diff preview |
+| Set structured value | Update a JSON, YAML, or TOML value by selector path with diff preview |
 | Search text | Find pattern matches across workspace files |
 | Create file | Scaffold a new file and open it in the editor |
-| Read structured value | Read a JSON/YAML/TOML key and copy to clipboard |
+| Read structured value | Read a JSON/YAML/TOML value by selector path and copy to clipboard |
 | Merge patch (three-way) | Apply a stale patch using three-way merge |
 
 ### Batch operations

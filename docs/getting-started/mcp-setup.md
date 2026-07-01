@@ -77,16 +77,16 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 | Tool | Description |
 |------|-------------|
-| `doc_set` | Set a value by key in a JSON, YAML, or TOML file |
-| `doc_delete` | Delete a value by key from a structured file |
+| `doc_set` | Set a value by selector path in a JSON, YAML, or TOML file |
+| `doc_delete` | Delete a value by selector path from a structured file |
 | `doc_merge` | Deep-merge an object into a document |
 | `doc_append` | Append a value to an array |
 | `doc_prepend` | Prepend a value to an array |
-| `doc_ensure` | Set a value only if the key path does not exist |
+| `doc_ensure` | Set a value only if the selector path does not exist |
 | `doc_delete_where` | Delete array elements matching a predicate |
 | `doc_update` | Update array elements matching a predicate |
-| `doc_move` | Move a value from one key path to another |
-| `doc_get` | Read a value by key (read-only) |
+| `doc_move` | Move a value from one selector path to another |
+| `doc_get` | Read a value by selector path (read-only) |
 | `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only) |
 | `doc_diff` | Compare two structured files (read-only) |
 | `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |

@@ -2,14 +2,14 @@
 
 ## Commands
 
-Patchloom has 22 commands:
+Patchloom has 23 commands:
 
 - **search** / **replace** -- text-level find and replace across files
 - **patch** -- apply unified diffs
 - **md** -- markdown-aware editing (sections, bullets, tables, headings)
 - **doc** -- parser-backed JSON, YAML, and TOML mutations
 - **tidy** -- whitespace and line-ending normalization
-- **append** -- append content to an existing file
+- **append** / **prepend** -- append or prepend content to an existing file
 - **create** / **delete** / **rename** -- file lifecycle
 - **read** -- file content inspection with optional line range (supports multiple files)
 - **status** -- uncommitted change summary from git

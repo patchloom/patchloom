@@ -8,7 +8,7 @@ Patchloom fixes all three problems with a single Rust binary.
 
 ## What it does
 
-- **Structured editing**: Edit JSON, YAML, and TOML files by key path, not regex. Comments and formatting are preserved because the file is parsed, not pattern-matched.
+- **Structured editing**: Edit JSON, YAML, and TOML files by selector path, not regex. Comments and formatting are preserved because the file is parsed, not pattern-matched.
 - **Batch operations**: Bundle multiple file edits into a single tool call, cutting round-trips from six to one.
 - **Cross-platform**: Works identically on Linux, macOS, and Windows with zero dependencies.
 - **Safe by default**: All write operations preview changes without mutating files unless `--apply` is passed.
@@ -17,7 +17,7 @@ Patchloom fixes all three problems with a single Rust binary.
 ## Quick example
 
 ```bash
-# Edit a YAML value by key; comments and formatting survive
+# Edit a YAML value by selector path; comments and formatting survive
 patchloom doc set config.yaml database.port 5432 --apply
 
 # Version bump across 6 files in a single tool call
@@ -28,7 +28,7 @@ replace README.md "1.0.0" "2.0.0"
 EOF
 ```
 
-## 22 commands
+## 23 commands
 
 | Category | Command | Description |
 |----------|---------|-------------|
@@ -39,6 +39,7 @@ EOF
 | | `md` | Markdown section-aware operations |
 | Code | `ast` | AST-aware symbol operations (20 languages) |
 | Files | `append` | Append content to an existing file |
+| | `prepend` | Prepend content to the beginning of an existing file |
 | | `create` | Create a new file with content |
 | | `delete` | Delete a file |
 | | `rename` | Rename or move a file |

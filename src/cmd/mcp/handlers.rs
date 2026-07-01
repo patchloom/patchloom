@@ -32,7 +32,7 @@ pub(super) fn new_tool_router() -> ToolRouter<PatchloomService> {
 #[tool_router]
 impl PatchloomService {
     #[tool(
-        description = "Read a value from a JSON, YAML, or TOML file by key path. Example: {\"path\": \"package.json\", \"key\": \"version\"}"
+        description = "Read a value from a JSON, YAML, or TOML file by selector path. Example: {\"path\": \"package.json\", \"selector\": \"version\"}"
     )]
     async fn doc_get(
         &self,
@@ -52,7 +52,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if key exists, returns true/false), \"keys\" (list object keys at key path), \"len\" (count items at key path), \"select\" (filter array by predicate key), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"key\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path), \"len\" (count items at selector path), \"select\" (filter array by predicate), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_query(
         &self,
@@ -735,7 +735,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"from\": \"unwrap()\", \"to\": \"expect(\\\"parse failed\\\")\"}"
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
     )]
     async fn ast_replace(
         &self,

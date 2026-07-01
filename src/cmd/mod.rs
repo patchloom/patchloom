@@ -225,8 +225,8 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              |---|---|\n\
              | Read file contents (with optional line range) | `read_file` |\n\
              | See uncommitted changes vs git HEAD | `git_status` |\n\
-             | Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
-             | Delete, merge, or ensure a key exists | `doc_delete`, `doc_merge`, `doc_ensure` |\n\
+             | Set/get a value in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
+             | Delete, merge, or ensure a value exists | `doc_delete`, `doc_merge`, `doc_ensure` |\n\
              | Compare two structured files | `doc_diff` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
@@ -241,7 +241,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |\n\
              | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
              | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |\n\
-             | Extract or split files by symbol | `ast_extract`, `ast_split` |\n\
+             | Extract or split files by symbol | `ast_extract_to_file`, `ast_split` |\n\
              | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
              | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\
              | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\
@@ -334,7 +334,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         if show_linux {
             out.push_str(
                 "```bash\n\
-                 # Edit a value in JSON/YAML/TOML by key (parser-backed, preserves comments)\n\
+                 # Edit a value in JSON/YAML/TOML by selector path (parser-backed, preserves comments)\n\
                  patchloom doc set config.json version '\"2.0.0\"' --apply\n\
                  patchloom doc merge config.yaml --value '{\"db\":{\"pool\":10}}' --apply\n\
                  \n\
@@ -409,7 +409,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "### Edit a CI workflow\n\n\
              ```bash\n\
-             # Set a value in a YAML workflow by key (preserves comments and formatting)\n\
+             # Set a value in a YAML workflow by selector path (preserves comments and formatting)\n\
              patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply\n\
              ```\n\n",
         );
@@ -460,7 +460,7 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  patchloom tx - --apply <<'EOF'\n\
                  {\"version\": 1, \"operations\": [\n\
                    {\"op\": \"replace\", \"path\": \"src/config.rs\", \"old\": \"old_default\", \"new\": \"new_default\"},\n\
-                   {\"op\": \"doc.set\", \"path\": \"config.toml\", \"key\": \"default_value\", \"value\": \"new_default\"},\n\
+                   {\"op\": \"doc.set\", \"path\": \"config.toml\", \"selector\": \"default_value\", \"value\": \"new_default\"},\n\
                    {\"op\": \"md.replace_section\", \"path\": \"docs/config.md\", \"heading\": \"## Defaults\",\n\
                     \"content\": \"The default value is now `new_default`.\\n\"}\n\
                  ]}\n\
@@ -495,19 +495,19 @@ fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
-    // Key path syntax (always shown — used by all doc.* operations)
+    // Selector path syntax (always shown — used by all doc.* operations)
     out.push_str(
-        "## Key path syntax\n\n\
-         All `doc` operations use key paths to address values inside JSON, YAML, and TOML files.\n\n\
+        "## Selector path syntax\n\n\
+         All `doc` operations use selector paths to address values inside JSON, YAML, and TOML files.\n\n\
          | Syntax | Meaning | Example |\n\
          |--------|---------|---------|\n\
-         | `key` | Object key | `database.host` |\n\
+         | `name` | Object key | `database.host` |\n\
          | `[N]` | Array index (zero-based) | `servers[0].port` |\n\
          | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |\n\
          | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |\n\n\
          Segments are separated by `.` or adjacent brackets. Examples:\n\n\
          ```text\n\
-         scripts.test                    # simple key path\n\
+         scripts.test                    # simple selector path\n\
          jobs[0].steps[*].name           # index + wildcard\n\
          dependencies[name=react].version # predicate filter\n\
          ```\n\n",

@@ -252,10 +252,10 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "doc.delete",
-        description: "Delete a key at a selector path in a JSON, YAML, or TOML file.",
+        description: "Delete a value at a selector path in a JSON, YAML, or TOML file.",
         tier: Tier::Medium,
         examples: &[(
-            "Remove a deprecated config key",
+            "Remove a deprecated config entry",
             r###"{"op":"doc.delete","path":"config.json","selector":"deprecated_key"}"###,
         )],
     },
@@ -282,7 +282,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         description: "Move a value from one selector path to another within the same file.",
         tier: Tier::Medium,
         examples: &[(
-            "Rename a config key",
+            "Rename a config path",
             r###"{"op":"doc.move","path":"config.json","from":"old_key","to":"new_key"}"###,
         )],
     },
@@ -376,7 +376,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "search",
-        description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores (parity with library SearchOptions for Bline): literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results, before_context/after_context.",
+        description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.",
         tier: Tier::Strong,
         examples: &[],
     },
