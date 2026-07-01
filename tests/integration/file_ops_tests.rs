@@ -151,3 +151,61 @@ fn test_append_format_flag_runs_after_apply() {
         "--format command should have run after append --apply"
     );
 }
+
+// ---------------------------------------------------------------------------
+// prepend CLI (direct subcommand, not via tx/doc)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_prepend_cli_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "line two\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "log.txt", "--content", "line one\n", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "line one\nline two\n");
+}
+
+#[test]
+fn test_prepend_cli_check_returns_exit_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "existing\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "log.txt", "--content", "new\n", "--check"])
+        .assert()
+        .code(2);
+
+    // File must be unchanged.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "existing\n");
+}
+
+#[test]
+fn test_prepend_cli_missing_file_fails() {
+    let dir = TempDir::new().unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "nope.txt", "--content", "data\n", "--apply"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("does not exist"));
+}
+
+#[test]
+fn test_prepend_cli_diff_shows_unified_diff() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "second\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "log.txt", "--content", "first\n"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("+first"));
+}

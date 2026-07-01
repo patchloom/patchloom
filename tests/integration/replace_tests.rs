@@ -1046,3 +1046,119 @@ fn test_replace_format_flag_skipped_in_diff_mode() {
         "--format should NOT run in diff-only mode"
     );
 }
+
+#[test]
+fn test_replace_before_context_disambiguates() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    // Two identical "port = 8080" lines; before_context picks the right one.
+    fs::write(&file, "[server]\nport = 8080\n\n[database]\nport = 8080\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("port = 8080")
+        .arg("--new")
+        .arg("port = 9090")
+        .arg("--before-context")
+        .arg("[database]")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert!(
+        result.contains("[server]\nport = 8080"),
+        "server port should be unchanged: {result}"
+    );
+    assert!(
+        result.contains("[database]\nport = 9090"),
+        "database port should be updated: {result}"
+    );
+}
+
+#[test]
+fn test_replace_after_context_disambiguates() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(
+        &file,
+        "name = alpha\nrole = admin\n\nname = beta\nrole = user\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("name = alpha")
+        .arg("--new")
+        .arg("name = gamma")
+        .arg("--after-context")
+        .arg("role = admin")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert!(
+        result.contains("name = gamma\nrole = admin"),
+        "first name should be updated: {result}"
+    );
+    assert!(
+        result.contains("name = beta"),
+        "second name should be unchanged: {result}"
+    );
+}
+
+#[test]
+fn test_replace_context_requires_explicit_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+
+    // No file paths at all (only --cwd is set via patchloom_in).
+    patchloom_in(dir.path())
+        .arg("replace")
+        .arg("hello")
+        .arg("--new")
+        .arg("world")
+        .arg("--before-context")
+        .arg("ctx")
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("explicit file paths"));
+}
+
+#[test]
+fn test_replace_context_in_tx_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("conf.ini");
+    fs::write(&file, "[a]\nval = 1\n\n[b]\nval = 1\n").unwrap();
+
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        format!(
+            r#"{{"version":1,"operations":[{{"op":"replace","path":"{}","old":"val = 1","new":"val = 2","before_context":"[b]"}}]}}"#,
+            portable_path_str(&file)
+        ),
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert!(
+        result.contains("[a]\nval = 1"),
+        "section [a] should be unchanged: {result}"
+    );
+    assert!(
+        result.contains("[b]\nval = 2"),
+        "section [b] should be updated: {result}"
+    );
+}

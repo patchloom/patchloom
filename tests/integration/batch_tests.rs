@@ -457,3 +457,32 @@ fn test_batch_file_prepend() {
         "batch file.prepend should prepend: {content}"
     );
 }
+
+#[test]
+fn test_batch_multi_op_rollback_on_second_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"name":"original"}"#).unwrap();
+    // Do NOT create missing.json.
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(
+        &ops,
+        "doc.set data.json name \"changed\"\ndoc.set missing.json version \"1.0\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(9); // OPERATION_FAILED
+
+    // data.json must be rolled back to original content.
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("original"),
+        "data.json should be rolled back after second op fails: {content}"
+    );
+}
