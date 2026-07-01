@@ -25,38 +25,14 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
-fn legacy_error_prefix(error_kind: &str) -> &str {
-    if error_kind == "format_failed" {
-        "validation_failed"
-    } else {
-        error_kind
-    }
-}
-
-fn emit_error_json_with_prefix(
-    error_kind: &'static str,
-    legacy_error_prefix: &'static str,
-    error: &str,
-    backup_session: Option<&str>,
-    compact: bool,
-) {
-    emit_output_json(
-        &build_error_output(error_kind, legacy_error_prefix, error, backup_session),
-        compact,
-    );
-}
-
 fn emit_error_json(
     error_kind: &'static str,
     error: &str,
     backup_session: Option<&str>,
     compact: bool,
 ) {
-    emit_error_json_with_prefix(
-        error_kind,
-        legacy_error_prefix(error_kind),
-        error,
-        backup_session,
+    emit_output_json(
+        &build_error_output(error_kind, error, backup_session),
         compact,
     );
 }
@@ -92,13 +68,7 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
     };
     let backup_session = err.backup_session.as_deref();
     if structured {
-        emit_error_json_with_prefix(
-            error_kind,
-            error_kind,
-            &err.message,
-            backup_session,
-            compact,
-        );
+        emit_error_json(error_kind, &err.message, backup_session, compact);
     } else {
         let msg = format_error_with_backup_hint(&err.message, backup_session);
         eprintln!("tx: {msg}");
@@ -193,9 +163,12 @@ fn commit_and_finalize(
                 &result.existed_before,
             );
             crate::tx::restore_collateral_files(&collateral_snapshot);
-            let rollback_msg = format!("strict mode -- all changes reverted ({})", err.message);
+            let rollback_msg = format!(
+                "rollback: strict mode -- all changes reverted ({})",
+                err.message
+            );
             if ctx.structured {
-                emit_error_json_with_prefix(err.kind, "rollback", &rollback_msg, None, ctx.compact);
+                emit_error_json(err.kind, &rollback_msg, None, ctx.compact);
             } else {
                 eprintln!("tx: {rollback_msg}");
             }

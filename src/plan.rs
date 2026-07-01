@@ -132,19 +132,12 @@ pub struct FormatStep {
     pub timeout: Option<u64>,
 }
 
-/// Backward-compatible alias for [`WritePolicyOverride`](crate::write::WritePolicyOverride).
-#[deprecated(
-    since = "0.6.0",
-    note = "use crate::write::WritePolicyOverride instead"
-)]
-pub type PlanWritePolicy = crate::write::WritePolicyOverride;
-
 /// A single operation within a plan.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[non_exhaustive]
 #[serde(tag = "op")]
 pub enum Operation {
-    #[serde(rename = "replace", alias = "replace_text")]
+    #[serde(rename = "replace")]
     Replace {
         /// Glob pattern to match files (e.g. "src/**/*.rs"). Mutually exclusive with path.
         glob: Option<String>,
@@ -189,7 +182,7 @@ pub enum Operation {
         #[serde(default)]
         unique: bool,
     },
-    #[serde(rename = "doc.set", alias = "doc_set")]
+    #[serde(rename = "doc.set")]
     DocSet {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -198,21 +191,21 @@ pub enum Operation {
         /// Value to set (any JSON type).
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.delete", alias = "doc_delete")]
+    #[serde(rename = "doc.delete")]
     DocDelete {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path to delete.
         selector: String,
     },
-    #[serde(rename = "doc.merge", alias = "doc_merge")]
+    #[serde(rename = "doc.merge")]
     DocMerge {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Object to deep-merge into the file.
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.append", alias = "doc_append")]
+    #[serde(rename = "doc.append")]
     DocAppend {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -221,7 +214,7 @@ pub enum Operation {
         /// Value to append to the array.
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.prepend", alias = "doc_prepend")]
+    #[serde(rename = "doc.prepend")]
     DocPrepend {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -230,7 +223,7 @@ pub enum Operation {
         /// Value to prepend to the array.
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.update", alias = "doc_update")]
+    #[serde(rename = "doc.update")]
     DocUpdate {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -239,7 +232,7 @@ pub enum Operation {
         /// New value for all matching locations.
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.move", alias = "doc_move")]
+    #[serde(rename = "doc.move")]
     DocMove {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -248,7 +241,7 @@ pub enum Operation {
         /// Dot-notation destination path.
         to: String,
     },
-    #[serde(rename = "doc.ensure", alias = "doc_ensure")]
+    #[serde(rename = "doc.ensure")]
     DocEnsure {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -257,7 +250,7 @@ pub enum Operation {
         /// Value to set only if the key does not already exist.
         value: serde_json::Value,
     },
-    #[serde(rename = "doc.delete_where", alias = "doc_delete_where")]
+    #[serde(rename = "doc.delete_where")]
     DocDeleteWhere {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
@@ -266,40 +259,37 @@ pub enum Operation {
         /// Predicate in "field=value" format to match elements for deletion.
         predicate: String,
     },
-    #[serde(rename = "md.replace_section", alias = "md_replace_section")]
+    #[serde(rename = "md.replace_section")]
     MdReplaceSection {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.insert_after_heading", alias = "md_insert_after_heading")]
+    #[serde(rename = "md.insert_after_heading")]
     MdInsertAfterHeading {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(
-        rename = "md.insert_before_heading",
-        alias = "md_insert_before_heading"
-    )]
+    #[serde(rename = "md.insert_before_heading")]
     MdInsertBeforeHeading {
         path: String,
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.upsert_bullet", alias = "md_upsert_bullet")]
+    #[serde(rename = "md.upsert_bullet")]
     MdUpsertBullet {
         path: String,
         heading: String,
         bullet: String,
     },
-    #[serde(rename = "md.table_append", alias = "md_table_append")]
+    #[serde(rename = "md.table_append")]
     MdTableAppend {
         path: String,
         heading: String,
         row: String,
     },
-    #[serde(rename = "md.move_section", alias = "md_move_section")]
+    #[serde(rename = "md.move_section")]
     MdMoveSection {
         path: String,
         heading: String,
@@ -310,9 +300,9 @@ pub enum Operation {
         /// Insert after this heading at the destination.
         after: Option<String>,
     },
-    #[serde(rename = "md.dedupe_headings", alias = "md_dedupe_headings")]
+    #[serde(rename = "md.dedupe_headings")]
     MdDedupeHeadings { path: String },
-    #[serde(rename = "tidy.fix", alias = "fix_whitespace")]
+    #[serde(rename = "tidy.fix")]
     TidyFix {
         path: String,
         ensure_final_newline: Option<bool>,
@@ -328,19 +318,19 @@ pub enum Operation {
         /// Line range restriction for dedent/indent: "10:50" (1-based inclusive).
         lines: Option<String>,
     },
-    #[serde(rename = "file.create", alias = "create_file")]
+    #[serde(rename = "file.create")]
     FileCreate {
         path: String,
         content: String,
         force: Option<bool>,
     },
-    #[serde(rename = "file.append", alias = "append_file")]
+    #[serde(rename = "file.append")]
     FileAppend { path: String, content: String },
-    #[serde(rename = "file.prepend", alias = "prepend_file")]
+    #[serde(rename = "file.prepend")]
     FilePrepend { path: String, content: String },
-    #[serde(rename = "file.delete", alias = "delete_file")]
+    #[serde(rename = "file.delete")]
     FileDelete { path: String },
-    #[serde(rename = "file.rename", alias = "move_file")]
+    #[serde(rename = "file.rename")]
     FileRename {
         from: String,
         to: String,
@@ -348,7 +338,7 @@ pub enum Operation {
         #[serde(default)]
         force: bool,
     },
-    #[serde(rename = "patch.apply", alias = "apply_patch")]
+    #[serde(rename = "patch.apply")]
     PatchApply {
         diff: String,
         #[serde(default)]
@@ -356,7 +346,7 @@ pub enum Operation {
         #[serde(default)]
         allow_conflicts: bool,
     },
-    #[serde(rename = "search", alias = "search_files")]
+    #[serde(rename = "search")]
     Search {
         path: String,
         pattern: String,
@@ -386,16 +376,16 @@ pub enum Operation {
         #[serde(default)]
         custom_ignore_filenames: Vec<String>,
     },
-    #[serde(rename = "read", alias = "read_file")]
+    #[serde(rename = "read")]
     Read {
         path: String,
         /// Optional line range (e.g., "10:25").
         lines: Option<String>,
     },
-    #[serde(rename = "md.lint_agents", alias = "md_lint")]
+    #[serde(rename = "md.lint_agents")]
     MdLintAgents { path: String },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.rename", alias = "ast_rename")]
+    #[serde(rename = "ast.rename")]
     AstRename {
         /// File or directory to rename in. Directories are walked recursively.
         path: String,
@@ -408,7 +398,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.replace", alias = "ast_replace")]
+    #[serde(rename = "ast.replace")]
     AstReplace {
         /// File to replace in.
         path: String,
@@ -427,7 +417,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.insert", alias = "ast_insert")]
+    #[serde(rename = "ast.insert")]
     AstInsert {
         /// File to insert code into.
         path: String,
@@ -449,7 +439,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.wrap", alias = "ast_wrap")]
+    #[serde(rename = "ast.wrap")]
     AstWrap {
         path: String,
         /// Symbols to wrap (mutually exclusive with `lines`).
@@ -467,7 +457,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.imports", alias = "ast_imports")]
+    #[serde(rename = "ast.imports")]
     AstImports {
         path: String,
         /// Import statements to add.
@@ -483,7 +473,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.reorder", alias = "ast_reorder")]
+    #[serde(rename = "ast.reorder")]
     AstReorder {
         path: String,
         /// Scope to reorder within (module/impl). Default: top-level.
@@ -495,7 +485,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.group", alias = "ast_group")]
+    #[serde(rename = "ast.group")]
     AstGroup {
         path: String,
         /// Module name to create or append to.
@@ -512,7 +502,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.move", alias = "ast_move")]
+    #[serde(rename = "ast.move")]
     AstMove {
         /// Source file.
         path: String,
@@ -530,7 +520,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.extract_to_file", alias = "ast_extract_to_file")]
+    #[serde(rename = "ast.extract_to_file")]
     AstExtractToFile {
         /// Source file containing the symbol.
         source: String,
@@ -554,7 +544,7 @@ pub enum Operation {
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
-    #[serde(rename = "ast.split", alias = "ast_split")]
+    #[serde(rename = "ast.split")]
     AstSplit {
         /// The file to split.
         source: String,
@@ -1360,47 +1350,6 @@ mod tests {
         ]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.operations.len(), 45);
-    }
-
-    #[test]
-    #[cfg(feature = "ast")]
-    fn parse_op_aliases_match_mcp_tool_names() {
-        // MCP tools use underscores (doc_set, create_file). Plan ops use dots
-        // (doc.set, file.create). Both forms should parse via serde aliases.
-        let json = r#"{"version": 1, "operations": [
-            {"op": "replace_text", "old": "a", "new": "b"},
-            {"op": "doc_set", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc_delete", "path": "f.json", "selector": "k"},
-            {"op": "doc_merge", "path": "f.json", "value": {}},
-            {"op": "doc_append", "path": "f.json", "selector": "arr", "value": 1},
-            {"op": "doc_ensure", "path": "f.json", "selector": "k", "value": 1},
-            {"op": "doc_delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"},
-            {"op": "md_move_section", "path": "f.md", "heading": "H", "before": "X"},
-            {"op": "md_replace_section", "path": "f.md", "heading": "H", "content": "c"},
-            {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
-            {"op": "md_table_append", "path": "f.md", "heading": "H", "row": "| a |"},
-            {"op": "fix_whitespace", "path": "f.txt"},
-            {"op": "append_file", "path": "f.txt", "content": "extra"},
-            {"op": "create_file", "path": "f.txt", "content": "c"},
-            {"op": "delete_file", "path": "f.txt"},
-            {"op": "move_file", "from": "a.txt", "to": "b.txt"},
-            {"op": "apply_patch", "diff": "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b"},
-            {"op": "search_files", "path": ".", "pattern": "x"},
-            {"op": "read_file", "path": "f.txt"},
-            {"op": "md_lint", "path": "f.md"},
-            {"op": "ast_rename", "path": "f.rs", "old_name": "A", "new_name": "B"},
-            {"op": "ast_replace", "path": "f.rs", "symbol": "main", "old": "x", "new": "y"},
-            {"op": "ast_insert", "path": "f.rs", "content": "fn x() {}", "inside": "Foo"},
-            {"op": "ast_wrap", "path": "f.rs", "lines": "1:10", "wrapper": "mod m"},
-            {"op": "ast_imports", "path": "f.rs", "remove": ["use old;"]},
-            {"op": "ast_reorder", "path": "f.rs", "order": "reverse"},
-            {"op": "ast_group", "path": "f.rs", "module": "m", "symbols": ["x"]},
-            {"op": "ast_move", "path": "a.rs", "target": "b.rs", "symbols": ["f"]},
-            {"op": "ast_extract_to_file", "source": "a.rs", "symbol": "tests", "target": "a_tests.rs"},
-            {"op": "ast_split", "source": "big.rs", "targets": [{"path": "s.rs", "symbols": ["S"]}]}
-        ]}"#;
-        let plan = parse_plan(json).unwrap();
-        assert_eq!(plan.operations.len(), 30);
     }
 
     /// The CLI uses `selector` as the positional arg name for doc ops,
