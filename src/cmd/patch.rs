@@ -262,15 +262,20 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let original = match std::fs::read_to_string(&file_path) {
                 Ok(s) => s,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    let msg = format!("file not found: {}", file_path.display());
-                    results.push(PatchFileResult {
-                        path: pf.path.clone(),
-                        status: "missing",
-                        error: Some(msg.clone()),
-                        conflicts: None,
-                    });
-                    all_clean = false;
-                    continue;
+                    if pf.is_creation {
+                        // Creation patch: file should not exist yet.
+                        String::new()
+                    } else {
+                        let msg = format!("file not found: {}", file_path.display());
+                        results.push(PatchFileResult {
+                            path: pf.path.clone(),
+                            status: "missing",
+                            error: Some(msg.clone()),
+                            conflicts: None,
+                        });
+                        all_clean = false;
+                        continue;
+                    }
                 }
                 Err(e) => {
                     let msg = format!("failed to read {}: {}", file_path.display(), e);

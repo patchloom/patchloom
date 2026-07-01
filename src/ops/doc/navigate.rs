@@ -253,6 +253,11 @@ pub fn move_at_path(
         return Ok(());
     }
 
+    // Reject moving a path into its own descendant (would silently destroy data).
+    if to_segments.len() > from_segments.len() && to_segments.starts_with(from_segments) {
+        anyhow::bail!("cannot move a path into its own descendant: destination is under source");
+    }
+
     let (from_parent, from_last) = split_last(from_segments);
     let (to_parent, to_last) = split_last(to_segments);
 

@@ -385,7 +385,7 @@ jobs:
         run: |
           bench_txt="$RUNNER_TEMP/bench.txt"
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
-          hyperfine --warmup 3 --min-runs 20 -N \
+          hyperfine --warmup 3 --min-runs 20 -N -i \
             --export-json "$bench_json" \
             "./target/release/patchloom replace hello --new world $bench_txt" \
             --max-runs 100

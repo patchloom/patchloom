@@ -64,7 +64,7 @@ fn test_replace_dry_run_does_not_modify_file() {
         .arg("new_text")
         .arg(&file)
         .assert()
-        .code(0);
+        .code(2); // CHANGES_DETECTED: preview shows changes, not applied
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(
@@ -1039,7 +1039,7 @@ fn test_replace_format_flag_skipped_in_diff_mode() {
             &shell_touch(&marker),
         ])
         .assert()
-        .code(0);
+        .code(2); // CHANGES_DETECTED: preview mode, not applied
 
     assert!(
         !marker.exists(),
