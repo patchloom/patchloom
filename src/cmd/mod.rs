@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod md;
 pub mod output;
 pub mod patch;
+pub mod prepend;
 pub mod read;
 pub mod rename;
 pub mod replace;
@@ -38,6 +39,9 @@ pub enum Command {
     /// Delete a file.
     #[command(display_order = 12)]
     Delete(delete::DeleteArgs),
+    /// Prepend content to the beginning of an existing file.
+    #[command(display_order = 11)]
+    Prepend(prepend::PrependArgs),
     /// Read file contents with optional line range.
     #[command(display_order = 13)]
     Read(read::ReadArgs),
@@ -624,6 +628,11 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             global.merge_write(&args.write);
             load_project_config(&mut global);
             append::run(args, &global)
+        }
+        Command::Prepend(args) => {
+            global.merge_write(&args.write);
+            load_project_config(&mut global);
+            prepend::run(args, &global)
         }
         Command::Create(args) => {
             global.merge_write(&args.write);

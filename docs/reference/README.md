@@ -246,7 +246,15 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Appends content to the end of an existing file. If the file does not end with a newline, one is inserted before the appended content. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist (unlike `create`).
 - **Use when:** Adding tests, changelog entries, rules, or any content to the end of a file without reading the entire file to find a unique anchor.
 - **Prefer instead:** Use `replace` when the insertion point is not the end of the file.
-- **Related:** `create`, `tx file.append`
+- **Related:** `create`, `prepend`, `tx file.append`
+
+<!-- ref:command:prepend -->
+## `prepend`
+
+- **What it does:** Prepends content to the beginning of an existing file. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist or if the target is a directory.
+- **Use when:** Adding headers, copyright notices, shebang lines, or any content to the beginning of a file without reading the entire file to find a unique anchor.
+- **Prefer instead:** Use `replace` when the insertion point is not the beginning of the file.
+- **Related:** `append`, `create`, `tx file.prepend`
 
 <!-- ref:command:create -->
 ## `create`
@@ -521,6 +529,27 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** Restricts `--whole-line` matching to a line range (e.g. `--range 10:50`). Lines outside the range are not considered for matching. Requires `--whole-line`.
 - **Use when:** The pattern matches lines you want to keep in other parts of the file (e.g. removing dead code from implementation but not from tests).
 - **Prefer instead:** Omit when the pattern is specific enough to avoid false positives.
+
+<!-- ref:replace-mode:unique -->
+### `replace --unique`
+
+- **What it does:** Fails with exit code 5 (AMBIGUOUS) if the pattern matches more than once in any single file. Enforces unambiguous, single-target edits. The check is per-file: matching once in file A and once in file B is allowed.
+- **Use when:** You need a guardrail that the replacement targets exactly one location per file (CI scripts, automated pipelines, agent-driven edits where accidental bulk replacement is dangerous).
+- **Prefer instead:** Use `--nth` to target a specific occurrence when you know which one you want, or omit when replacing all occurrences is the intent.
+
+<!-- ref:replace-mode:before-context -->
+### `replace --before-context`
+
+- **What it does:** Provides context line(s) that must appear before the target for anchor-based disambiguation. When the pattern matches multiple times, the match nearest to this context is selected. Routes through the tx engine fallback chain, which supports fuzzy anchor matching when the exact text is not found.
+- **Use when:** The pattern matches multiple times in a file and you need to target one specific occurrence by its surrounding code. Requires explicit file paths (not directory scan).
+- **Prefer instead:** Use `--nth` when you know the ordinal position. Use `--unique` when you want to enforce single-match without specifying context.
+
+<!-- ref:replace-mode:after-context -->
+### `replace --after-context`
+
+- **What it does:** Provides context line(s) that must appear after the target for anchor-based disambiguation. Same semantics as `--before-context` but anchors on what follows the match instead of what precedes it. Both can be combined for even more precise targeting.
+- **Use when:** The pattern matches multiple times and the distinguishing context comes after the match, not before.
+- **Prefer instead:** Use `--before-context` when the preceding lines are more distinctive.
 
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`

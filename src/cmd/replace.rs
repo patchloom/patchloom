@@ -68,6 +68,26 @@ pub struct ReplaceArgs {
     /// Restrict matching to a line range (e.g. '10:50'). 1-based, inclusive.
     #[arg(long, short = 'R')]
     pub range: Option<String>,
+    // ref:replace-mode:before-context
+    /// Context line(s) before the target for anchor-based disambiguation.
+    /// When the pattern matches multiple times, the match nearest to this
+    /// context is selected. Falls back to fuzzy anchor matching when the
+    /// exact text is not found.
+    #[arg(long)]
+    pub before_context: Option<String>,
+    // ref:replace-mode:after-context
+    /// Context line(s) after the target for anchor-based disambiguation.
+    /// When the pattern matches multiple times, the match nearest to this
+    /// context is selected. Falls back to fuzzy anchor matching when the
+    /// exact text is not found.
+    #[arg(long)]
+    pub after_context: Option<String>,
+    // ref:replace-mode:unique
+    /// Fail if the pattern matches more than once in any single file.
+    /// Enforces unambiguous edits by returning exit code 5 (AMBIGUOUS)
+    /// when multiple matches exist.
+    #[arg(long, short = 'u')]
+    pub unique: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -220,8 +240,44 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let cwd = global.resolve_cwd()?;
 
+    // Context-based replace: route through the tx engine where the
+    // context_filtered_offset and fallback chain live.
+    if args.before_context.is_some() || args.after_context.is_some() {
+        return run_context_replace(args, global, &cwd);
+    }
+
     // Phase 1: Parallel file scan to identify files with matches.
     let replacements = collect_replacements(&args, global)?;
+
+    // Unique check: fail if any file has more than one match.
+    if args.unique {
+        for r in &replacements {
+            if r.match_count > 1 {
+                if global.json || global.jsonl {
+                    let output = ReplaceOutput {
+                        ok: false,
+                        match_count: r.match_count,
+                        file_count: 1,
+                        files: vec![ReplaceFileResult {
+                            path: r.display_path.clone(),
+                            match_count: r.match_count,
+                        }],
+                        diff: None,
+                    };
+                    global.emit_json(&output)?;
+                }
+                if global.show_status() {
+                    eprintln!(
+                        "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
+                        crate::fallback::truncate_str(&args.old, 60),
+                        r.match_count,
+                        r.display_path,
+                    );
+                }
+                return Ok(exit::AMBIGUOUS);
+            }
+        }
+    }
 
     if replacements.is_empty() {
         if args.if_exists {
@@ -386,6 +442,103 @@ fn replace_output(
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }
+    }
+
+    Ok(exit::SUCCESS)
+}
+
+/// Context-based replace: routes through the tx engine where
+/// `context_filtered_offset` and the fallback chain live.
+fn run_context_replace(
+    args: ReplaceArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+) -> anyhow::Result<u8> {
+    use crate::plan::Operation;
+    use crate::tx::engine::{ExecuteOptions, execute_operations};
+
+    // Context-based replace requires explicit file paths (not directory scan).
+    if args.paths.is_empty() {
+        anyhow::bail!("--before-context/--after-context requires explicit file paths");
+    }
+
+    let ops: Vec<Operation> = args
+        .paths
+        .iter()
+        .map(|p| Operation::Replace {
+            glob: None,
+            path: Some(p.clone()),
+            regex: args.regex,
+            old: args.old.clone(),
+            new_text: args.new.clone(),
+            nth: args.nth,
+            insert_before: args.insert_before.clone(),
+            insert_after: args.insert_after.clone(),
+            case_insensitive: args.case_insensitive,
+            multiline: args.multiline,
+            if_exists: args.if_exists,
+            whole_line: args.whole_line,
+            range: args.range.clone(),
+            word_boundary: args.word_boundary,
+            before_context: args.before_context.clone(),
+            after_context: args.after_context.clone(),
+            unique: args.unique,
+        })
+        .collect();
+
+    let options = ExecuteOptions {
+        cwd,
+        global,
+        guard: None,
+    };
+    let result = execute_operations(ops, options)?;
+
+    if !result.has_changes {
+        if args.if_exists {
+            return Ok(exit::SUCCESS);
+        }
+        if global.show_status() {
+            eprintln!("no matches for '{}' in context-based replace", args.old);
+        }
+        return Ok(exit::NO_MATCHES);
+    }
+
+    let total_matches = result.exec_result.changes.len();
+
+    // --check mode.
+    if global.check {
+        if !global.quiet {
+            println!("{total_matches} file(s) changed");
+        }
+        return Ok(exit::CHANGES_DETECTED);
+    }
+
+    // --apply mode.
+    if global.apply {
+        let diffs = result.build_diffs();
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
+
+        if global.diff {
+            print!("{}", render_diffs_colored(&diffs, global.should_color()));
+        } else if !global.quiet {
+            println!("replaced in {total_matches} file(s) (context-based)");
+        }
+        return Ok(exit::SUCCESS);
+    }
+
+    // Default / --diff: preview.
+    let diffs = result.build_diffs();
+    if !diffs.is_empty() {
+        print!("{}", render_diffs_colored(&diffs, global.should_color()));
+    }
+    if global.show_status() {
+        eprintln!("{total_matches} file(s) changed");
+    }
+
+    if global.should_apply() {
+        result.commit()?;
+        crate::write::run_format_command(global, cwd)?;
     }
 
     Ok(exit::SUCCESS)
