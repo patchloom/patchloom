@@ -146,22 +146,34 @@ pub type PlanWritePolicy = crate::write::WritePolicyOverride;
 pub enum Operation {
     #[serde(rename = "replace", alias = "replace_text")]
     Replace {
+        /// Glob pattern to match files (e.g. "src/**/*.rs"). Mutually exclusive with path.
         glob: Option<String>,
+        /// File path to replace in. Mutually exclusive with glob.
         path: Option<String>,
+        /// Treat `old` as a regex pattern.
         #[serde(default)]
         regex: bool,
+        /// Pattern to find (literal string or regex).
         old: String,
+        /// Replacement text. Supports $1/$2 capture group references in regex mode.
         #[serde(rename = "new")]
         new_text: Option<String>,
+        /// Replace only the Nth occurrence (1-based).
         nth: Option<usize>,
+        /// Insert text before each match instead of replacing.
         insert_before: Option<String>,
+        /// Insert text after each match instead of replacing.
         insert_after: Option<String>,
+        /// Case-insensitive matching.
         #[serde(default)]
         case_insensitive: bool,
+        /// Enable multiline matching (dot matches newlines in regex mode).
         #[serde(default)]
         multiline: bool,
+        /// Return success even if no matches found (idempotent mode).
         #[serde(default)]
         if_exists: bool,
+        /// Replace the entire line containing each match, not just the matched span.
         #[serde(default)]
         whole_line: bool,
         /// Line range restriction (e.g. "10:50"). Only valid with whole_line.
@@ -179,51 +191,79 @@ pub enum Operation {
     },
     #[serde(rename = "doc.set", alias = "doc_set")]
     DocSet {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to the key (e.g. "server.port", "env.0.value").
         key: String,
+        /// Value to set (any JSON type).
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete", alias = "doc_delete")]
-    DocDelete { path: String, key: String },
+    DocDelete {
+        /// Path to the JSON, YAML, or TOML file.
+        path: String,
+        /// Dot-notation path to the key to delete.
+        key: String,
+    },
     #[serde(rename = "doc.merge", alias = "doc_merge")]
     DocMerge {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Object to deep-merge into the file.
         value: serde_json::Value,
     },
     #[serde(rename = "doc.append", alias = "doc_append")]
     DocAppend {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to an array key.
         key: String,
+        /// Value to append to the array.
         value: serde_json::Value,
     },
     #[serde(rename = "doc.prepend", alias = "doc_prepend")]
     DocPrepend {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to an array key.
         key: String,
+        /// Value to prepend to the array.
         value: serde_json::Value,
     },
     #[serde(rename = "doc.update", alias = "doc_update")]
     DocUpdate {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to the key to update (supports wildcards and predicates).
         key: String,
+        /// New value for all matching locations.
         value: serde_json::Value,
     },
     #[serde(rename = "doc.move", alias = "doc_move")]
     DocMove {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation source path.
         from: String,
+        /// Dot-notation destination path.
         to: String,
     },
     #[serde(rename = "doc.ensure", alias = "doc_ensure")]
     DocEnsure {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to the key.
         key: String,
+        /// Value to set only if the key does not already exist.
         value: serde_json::Value,
     },
     #[serde(rename = "doc.delete_where", alias = "doc_delete_where")]
     DocDeleteWhere {
+        /// Path to the JSON, YAML, or TOML file.
         path: String,
+        /// Dot-notation path to an array.
         key: String,
+        /// Predicate in "field=value" format to match elements for deletion.
         predicate: String,
     },
     #[serde(rename = "md.replace_section", alias = "md_replace_section")]
@@ -357,29 +397,41 @@ pub enum Operation {
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.rename", alias = "ast_rename")]
     AstRename {
+        /// File or directory to rename in. Directories are walked recursively.
         path: String,
+        /// The identifier to rename.
         old_name: String,
+        /// The new identifier name.
         new_name: String,
+        /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
         #[serde(default)]
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.replace", alias = "ast_replace")]
     AstReplace {
+        /// File to replace in.
         path: String,
+        /// Symbol name to scope the replacement to.
         symbol: String,
+        /// Text or pattern to find within the symbol body.
         old: String,
+        /// Replacement text.
         #[serde(rename = "new")]
         new_text: String,
+        /// Treat `old` as a regex pattern.
         #[serde(default)]
         regex: bool,
+        /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
         #[serde(default)]
         lang: Option<String>,
     },
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.insert", alias = "ast_insert")]
     AstInsert {
+        /// File to insert code into.
         path: String,
+        /// Code to insert.
         content: String,
         /// Module/impl/struct to insert into.
         #[serde(default)]

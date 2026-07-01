@@ -6967,3 +6967,121 @@ fn test_tx_ast_list_with_lang_name_hint() {
         "lang hint 'rust' should work via lang_from_str: {content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #1287: ast.rename with directory path walks recursively
+// ---------------------------------------------------------------------------
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rename_directory_walks_recursively() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(src.join("nested")).unwrap();
+    fs::write(src.join("lib.rs"), "fn old_func() {\n    old_func();\n}\n").unwrap();
+    fs::write(
+        src.join("nested").join("mod.rs"),
+        "fn old_func() -> i32 { 0 }\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "src",
+            "old_name": "old_func",
+            "new_name": "new_func"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let lib_content = fs::read_to_string(src.join("lib.rs")).unwrap();
+    assert!(
+        lib_content.contains("new_func"),
+        "lib.rs should contain renamed identifier: {lib_content}"
+    );
+    assert!(
+        !lib_content.contains("old_func"),
+        "lib.rs should not contain old identifier: {lib_content}"
+    );
+
+    let mod_content = fs::read_to_string(src.join("nested").join("mod.rs")).unwrap();
+    assert!(
+        mod_content.contains("new_func"),
+        "nested/mod.rs should contain renamed identifier: {mod_content}"
+    );
+    assert!(
+        !mod_content.contains("old_func"),
+        "nested/mod.rs should not contain old identifier: {mod_content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rename_directory_no_matches_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("lib.rs"), "fn keep_me() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "src",
+            "old_name": "nonexistent_func",
+            "new_name": "renamed"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(9); // OPERATION_FAILED
+
+    // File must be unchanged.
+    assert_eq!(
+        fs::read_to_string(src.join("lib.rs")).unwrap(),
+        "fn keep_me() {}\n"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rename_empty_directory_fails() {
+    let dir = TempDir::new().unwrap();
+    let empty = dir.path().join("empty");
+    fs::create_dir_all(&empty).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "empty",
+            "old_name": "x",
+            "new_name": "y"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(9); // OPERATION_FAILED
+}
