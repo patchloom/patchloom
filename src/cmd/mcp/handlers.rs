@@ -32,7 +32,7 @@ pub(super) fn new_tool_router() -> ToolRouter<PatchloomService> {
 #[tool_router]
 impl PatchloomService {
     #[tool(
-        description = "Read a value from a JSON, YAML, or TOML file by key path. Example: {\"path\": \"package.json\", \"key\": \"version\"}"
+        description = "Read a value from a JSON, YAML, or TOML file by selector path. Example: {\"path\": \"package.json\", \"selector\": \"version\"}"
     )]
     async fn doc_get(
         &self,
@@ -40,11 +40,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            validate_param_size("key", &p.key)?;
+            validate_param_size("selector", &p.selector)?;
             let abs = svc.cwd().join(&p.path);
             let action = crate::cmd::doc::DocAction::Get {
                 file: abs.to_string_lossy().into_owned(),
-                selector: p.key,
+                selector: p.selector,
             };
             doc_readonly(&action)
         })
@@ -52,7 +52,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if key exists, returns true/false), \"keys\" (list object keys at key path), \"len\" (count items at key path), \"select\" (filter array by predicate key), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"key\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path), \"len\" (count items at selector path), \"select\" (filter array by predicate), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_query(
         &self,
@@ -60,23 +60,23 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            if let Some(ref sel) = p.key {
-                validate_param_size("key", sel)?;
+            if let Some(ref sel) = p.selector {
+                validate_param_size("selector", sel)?;
             }
             let abs = svc.cwd().join(&p.path);
             let file = abs.to_string_lossy().into_owned();
             let action = match p.action.as_str() {
                 "has" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
-                            "'has' action requires a key".to_string(),
+                            "'has' action requires a selector".to_string(),
                             None,
                         )
                     })?;
                     crate::cmd::doc::DocAction::Has { file, selector }
                 }
                 "keys" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'keys' action requires a selector".to_string(),
                             None,
@@ -85,7 +85,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Keys { file, selector }
                 }
                 "len" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'len' action requires a selector".to_string(),
                             None,
@@ -94,7 +94,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Len { file, selector }
                 }
                 "select" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'select' action requires a selector".to_string(),
                             None,
@@ -735,7 +735,7 @@ impl PatchloomService {
 
     #[cfg(feature = "ast")]
     #[tool(
-        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"from\": \"unwrap()\", \"to\": \"expect(\\\"parse failed\\\")\"}"
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
     )]
     async fn ast_replace(
         &self,

@@ -98,7 +98,7 @@ pub fn doc_set(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocSet {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         value,
     };
     doc_write(op, path, mode, guard, "doc.set")
@@ -113,7 +113,7 @@ pub fn doc_delete(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocDelete {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
     };
     doc_write(op, path, mode, guard, "doc.delete")
 }
@@ -164,7 +164,7 @@ pub fn doc_append(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocAppend {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         value,
     };
     doc_write(op, path, mode, guard, "doc.append")
@@ -180,7 +180,7 @@ pub fn doc_prepend(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocPrepend {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         value,
     };
     doc_write(op, path, mode, guard, "doc.prepend")
@@ -199,7 +199,7 @@ pub fn doc_update(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocUpdate {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         value,
     };
     doc_write(op, path, mode, guard, "doc.update")
@@ -215,7 +215,7 @@ pub fn doc_ensure(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocEnsure {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         value,
     };
     doc_write(op, path, mode, guard, "doc.ensure")
@@ -231,7 +231,7 @@ pub fn doc_delete_where(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocDeleteWhere {
         path: path.to_string_lossy().into(),
-        key: selector.into(),
+        selector: selector.into(),
         predicate: predicate.into(),
     };
     doc_write(op, path, mode, guard, "doc.delete_where")

@@ -22,7 +22,7 @@ impl ServerHandler for PatchloomService {
                 ops across files. Per-call success does not guarantee combined success if you \
                 issue conflicting parallel writes.\n\n\
                 Tool categories:\n\
-                - Document ops (JSON/YAML/TOML by key path): doc_set, doc_get, doc_delete, \
+                - Document ops (JSON/YAML/TOML by selector path): doc_set, doc_get, doc_delete, \
                 doc_merge, doc_query, doc_update, doc_ensure, doc_move, doc_append, doc_prepend, \
                 doc_delete_where, doc_diff\n\
                 - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
@@ -37,7 +37,7 @@ impl ServerHandler for PatchloomService {
                 ast_split, ast_map, ast_validate\n\
                 - Plan ops: execute_plan\n\
                 - Server: server_info\n\n\
-                Use doc_* tools for parser-backed JSON/YAML/TOML mutations by key path \
+                Use doc_* tools for parser-backed JSON/YAML/TOML mutations by selector path \
                 (e.g. doc_set for setting values, doc_merge for merging objects). Use replace_text \
                 only for literal or regex text replacement where structure does not matter.",
             );

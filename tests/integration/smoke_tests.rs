@@ -785,7 +785,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains(".cursor/mcp.json"));
     assert!(launch.contains("2,700+ tests"));
     assert!(
-        launch.contains("22 commands"),
+        launch.contains("23 commands"),
         "launch announcement CLI command count drifted"
     );
     assert!(

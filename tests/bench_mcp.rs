@@ -327,7 +327,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "key": "version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.json", "selector": "version", "value": "v2.0.0"}),
                 )
                 .await;
                 let elapsed = start.elapsed();
@@ -372,7 +372,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.yaml", "key": "app.version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.yaml", "selector": "app.version", "value": "v2.0.0"}),
                 )
                 .await;
                 let elapsed = start.elapsed();
@@ -579,7 +579,7 @@ mod bench {
                         call_tool(
                             &client,
                             "doc_set",
-                            serde_json::json!({"path": path, "key": selector, "value": value}),
+                            serde_json::json!({"path": path, "selector": selector, "value": value}),
                         )
                         .await;
                     } else if op.starts_with("replace") {
@@ -633,8 +633,8 @@ mod bench {
             let tx_plan_str = serde_json::json!({
                 "version": 1,
                 "operations": [
-                    {"op": "doc.set", "path": "config.json", "key": "version", "value": "v2.0.0"},
-                    {"op": "doc.set", "path": "config.yaml", "key": "app.version", "value": "v2.0.0"},
+                    {"op": "doc.set", "path": "config.json", "selector": "version", "value": "v2.0.0"},
+                    {"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "v2.0.0"},
                     {"op": "replace", "path": "VERSION", "old": "v1.0.0", "new": "v2.0.0"},
                     {"op": "md.upsert_bullet", "path": "README.md", "heading": "Changelog", "bullet": "- v2.0.0 release"}
                 ]
@@ -651,13 +651,13 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "key": "version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.json", "selector": "version", "value": "v2.0.0"}),
                 )
                 .await;
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.yaml", "key": "app.version", "value": "v2.0.0"}),
+                    serde_json::json!({"path": "config.yaml", "selector": "app.version", "value": "v2.0.0"}),
                 )
                 .await;
                 call_tool(
@@ -715,7 +715,7 @@ mod bench {
                 call_tool(
                     &client,
                     "doc_set",
-                    serde_json::json!({"path": "config.json", "key": "version", "value": val}),
+                    serde_json::json!({"path": "config.json", "selector": "version", "value": val}),
                 )
                 .await;
                 burst_mcp_total += start.elapsed();

@@ -4,7 +4,7 @@
   "operations": [
     { "op": "read", "path": "config.json" },
     { "op": "search", "path": "src", "pattern": "DB_PORT", "regex": false },
-    { "op": "doc.set", "path": "config.json", "key": "database.port", "value": 5433 },
+    { "op": "doc.set", "path": "config.json", "selector": "database.port", "value": 5433 },
     { "op": "replace", "path": "src/db.rs", "old": "DB_PORT: u16 = 5432", "new": "DB_PORT: u16 = 5433" }
   ]
 }

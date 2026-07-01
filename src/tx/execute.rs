@@ -1705,7 +1705,7 @@ mod tests {
     fn op_needs_doc_flush_false_for_doc_set() {
         let op = Operation::DocSet {
             path: "f.json".into(),
-            key: "key".into(),
+            selector: "key".into(),
             value: serde_json::json!("val"),
         };
         assert!(!op_needs_doc_flush(&op));

@@ -21,11 +21,11 @@ pub(crate) struct ReplaceParams {
     /// Text to replace with. Mutually exclusive with insert_before/insert_after.
     #[serde(rename = "new")]
     pub new_text: Option<String>,
-    /// Insert text before each match instead of replacing. Mutually exclusive with to/insert_after.
+    /// Insert text before each match instead of replacing. Mutually exclusive with new/insert_after.
     pub insert_before: Option<String>,
-    /// Insert text after each match instead of replacing. Mutually exclusive with to/insert_before.
+    /// Insert text after each match instead of replacing. Mutually exclusive with new/insert_before.
     pub insert_after: Option<String>,
-    /// Use regex mode for the `from` pattern.
+    /// Use regex mode for the `old` pattern.
     #[serde(default)]
     pub regex: bool,
     /// Replace only the Nth match (1-based). Default: replace all.
@@ -40,7 +40,7 @@ pub(crate) struct ReplaceParams {
     #[serde(default)]
     pub if_exists: bool,
     /// Replace the entire line containing each match, not just the matched span.
-    /// When combined with to="" this deletes matching lines.
+    /// When combined with new="" this deletes matching lines.
     #[serde(default)]
     pub whole_line: bool,
     /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
@@ -50,10 +50,10 @@ pub(crate) struct ReplaceParams {
     #[serde(default)]
     pub word_boundary: bool,
     /// Context line(s) before the target. Enables anchor-based fallback
-    /// matching when the exact `from` text is not found.
+    /// matching when the exact `old` text is not found.
     pub before_context: Option<String>,
     /// Context line(s) after the target. Enables anchor-based fallback
-    /// matching when the exact `from` text is not found.
+    /// matching when the exact `old` text is not found.
     pub after_context: Option<String>,
     /// Fail if the pattern matches more than once (enforce unambiguous edits).
     #[serde(default)]
@@ -69,8 +69,8 @@ pub(crate) struct ReplaceParams {
 pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Key path for the value to read (e.g., "version", "db.pool").
-    pub key: String,
+    /// Dot-notation selector path for the value to read (e.g., "version", "db.pool").
+    pub selector: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -192,8 +192,8 @@ pub(crate) struct DocQueryParams {
     pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Key path to query. Required for has/keys/len/select; ignored for flatten.
-    pub key: Option<String>,
+    /// Dot-notation selector path to query. Required for has/keys/len/select; ignored for flatten.
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -221,7 +221,7 @@ pub(crate) struct BatchReplaceParams {
     /// Text to replace with.
     #[serde(rename = "new")]
     pub new_text: String,
-    /// Use regex mode for the `from` pattern.
+    /// Use regex mode for the `old` pattern.
     #[serde(default)]
     pub regex: bool,
     /// Case-insensitive matching.

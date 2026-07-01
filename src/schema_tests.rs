@@ -326,7 +326,7 @@ mod basic {
                 "doc.set",
                 Operation::DocSet {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     value: serde_json::json!("v"),
                 },
             ),
@@ -334,7 +334,7 @@ mod basic {
                 "doc.delete",
                 Operation::DocDelete {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                 },
             ),
             (
@@ -348,7 +348,7 @@ mod basic {
                 "doc.append",
                 Operation::DocAppend {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     value: serde_json::json!([]),
                 },
             ),
@@ -356,7 +356,7 @@ mod basic {
                 "doc.prepend",
                 Operation::DocPrepend {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     value: serde_json::json!([]),
                 },
             ),
@@ -364,7 +364,7 @@ mod basic {
                 "doc.update",
                 Operation::DocUpdate {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     value: serde_json::json!({}),
                 },
             ),
@@ -380,7 +380,7 @@ mod basic {
                 "doc.ensure",
                 Operation::DocEnsure {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     value: serde_json::json!(1),
                 },
             ),
@@ -388,7 +388,7 @@ mod basic {
                 "doc.delete_where",
                 Operation::DocDeleteWhere {
                     path: "f".into(),
-                    key: "s".into(),
+                    selector: "s".into(),
                     predicate: "p".into(),
                 },
             ),

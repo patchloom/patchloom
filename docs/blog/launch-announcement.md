@@ -8,10 +8,10 @@ We built Patchloom to fix all three problems with a single Rust binary.
 
 ## What it does
 
-Patchloom edits JSON, YAML, and TOML files by key path, not regex. It preserves comments and formatting because it parses the file instead of pattern-matching it. It batches multiple file edits into one tool call, cutting round-trips from six to one. And it works identically on Linux, macOS, and Windows with zero dependencies.
+Patchloom edits JSON, YAML, and TOML files by selector path, not regex. It preserves comments and formatting because it parses the file instead of pattern-matching it. It batches multiple file edits into one tool call, cutting round-trips from six to one. And it works identically on Linux, macOS, and Windows with zero dependencies.
 
 ```bash
-# Edit a YAML value by key; comments and formatting survive
+# Edit a YAML value by selector path; comments and formatting survive
 patchloom doc set config.yaml database.port 5432 --apply
 
 # Version bump across 6 files in a single tool call
@@ -25,7 +25,7 @@ file.create VERSION "2.0.0"
 EOF
 ```
 
-22 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, file lifecycle operations, AST-aware code operations (rename, list, read, validate across 20 languages), operation schema export, and an MCP server that exposes everything as structured tool calls for MCP-capable agents.
+23 commands cover structured document editing, search and replace, markdown section editing, multi-file batching, atomic transactions with rollback, diff patching, file lifecycle operations, AST-aware code operations (rename, list, read, validate across 20 languages), operation schema export, and an MCP server that exposes everything as structured tool calls for MCP-capable agents.
 
 ## The honest benchmark
 
@@ -45,7 +45,7 @@ But Patchloom is not faster than native tools for everything. We are upfront abo
 
 | Task | Use Patchloom? | Why |
 |------|---------------|-----|
-| Edit JSON/YAML/TOML by key path | **Yes** | Parser-backed, comments preserved |
+| Edit JSON/YAML/TOML by selector path | **Yes** | Parser-backed, comments preserved |
 | Batch edits across multiple files | **Yes** | One tool call instead of N |
 | Append a row to a markdown table | **Yes** | Heading-aware, no line number guessing |
 | Read a single file | No | Native `read_file` is faster |
@@ -56,7 +56,7 @@ Patchloom tells agents when not to use it. The right tool for the right job.
 
 ## Why it matters
 
-**Comments survive.** `doc set config.yaml database.port 5432` parses the YAML as a concrete syntax tree, changes the value at the key path, and writes valid output. Inline comments, section comments, indentation, and key ordering are all preserved. A `sed` command cannot do this.
+**Comments survive.** `doc set config.yaml database.port 5432` parses the YAML as a concrete syntax tree, changes the value at the selector path, and writes valid output. Inline comments, section comments, indentation, and key ordering are all preserved. A `sed` command cannot do this.
 
 **Round-trips disappear.** Six file edits via native tools means six round-trips to the LLM. One `batch` call does the same work in a single round-trip. In our benchmarks, multi-file batch operations completed in under half the time of sequential native calls.
 
@@ -99,7 +99,7 @@ There is also a [VS Code extension](https://github.com/patchloom/patchloom-vscod
 ## By the numbers
 
 - **2,700+ tests**, zero unsafe in library code (one `unsafe killpg` in exec.rs behind `#[expect]`)
-- **22 commands** including MCP server with 54 structured tool calls
+- **23 commands** including MCP server with 54 structured tool calls
 - **Agent-tested** with Grok 4.3, GPT-5.4, and Claude Opus 4.6
 - **Cross-platform**: Linux (x64, ARM64), macOS (x64, ARM64), Windows (x64)
 - **MIT OR Apache-2.0** licensed

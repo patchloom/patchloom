@@ -46,22 +46,22 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_set",
         op_name: "doc.set",
-        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"key\": \"version\", \"value\": \"2.0.0\"}",
+        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
         has_strict: true,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
     McpToolMeta {
         tool_name: "doc_delete",
         op_name: "doc.delete",
-        description: "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"key\": \"scripts.test\"}",
+        description: "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
         ],
     },
     McpToolMeta {
@@ -77,11 +77,11 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_append",
         op_name: "doc.append",
-        description: "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"key\": \"dependencies\", \"value\": \"new-pkg\"}",
+        description: "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -92,47 +92,47 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
     McpToolMeta {
         tool_name: "doc_ensure",
         op_name: "doc.ensure",
-        description: "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"key\": \"debug\", \"value\": false}",
+        description: "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
     McpToolMeta {
         tool_name: "doc_delete_where",
         op_name: "doc.delete_where",
-        description: "Remove array items matching a predicate from JSON/YAML/TOML. For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'. Example: {\"path\": \"config.yaml\", \"key\": \"users\", \"predicate\": \"role=admin\"}",
+        description: "Remove array items matching a predicate from JSON/YAML/TOML. For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::ParamSize("predicate"),
         ],
     },
     McpToolMeta {
         tool_name: "doc_update",
         op_name: "doc.update",
-        description: "Update all items matching a wildcard key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"key\": \"servers[*].port\", \"value\": 8080}",
+        description: "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
     McpToolMeta {
         tool_name: "doc_move",
         op_name: "doc.move",
-        description: "Move/rename a key in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}",
+        description: "Move/rename a selector path in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}",
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),

@@ -148,7 +148,7 @@ fn test_tx_yaml_doc_set_preserves_comments() {
     fs::write(
         &plan,
         format!(
-            "version: 1\noperations:\n  - op: doc.set\n    path: {}\n    key: server.port\n    value: \"9090\"\n",
+            "version: 1\noperations:\n  - op: doc.set\n    path: {}\n    selector: server.port\n    value: \"9090\"\n",
             file.display()
         ),
     )
@@ -203,7 +203,7 @@ fn test_tx_multi_op_plan() {
             {
                 "op": "doc.set",
                 "path": json_file.to_str().unwrap(),
-                "key": "name",
+                "selector": "name",
                 "value": "new"
             }
         ]
@@ -249,7 +249,7 @@ fn test_tx_rollback_on_failure() {
             {
                 "op": "doc.set",
                 "path": nonexistent.to_str().unwrap(),
-                "key": "name",
+                "selector": "name",
                 "value": "test"
             }
         ]
@@ -287,8 +287,8 @@ fn test_tx_rollback_preserves_original_content() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.set", "path": "a.json", "key": "key", "value": "changed"},
-            {"op": "doc.set", "path": "b.json", "key": "missing", "value": "fail"}
+            {"op": "doc.set", "path": "a.json", "selector": "key", "value": "changed"},
+            {"op": "doc.set", "path": "b.json", "selector": "missing", "value": "fail"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -429,8 +429,8 @@ fn test_tx_success_applies_all() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.set", "path": "config.json", "key": "name", "value": "new"},
-            {"op": "doc.set", "path": "config.json", "key": "version", "value": 2}
+            {"op": "doc.set", "path": "config.json", "selector": "name", "value": "new"},
+            {"op": "doc.set", "path": "config.json", "selector": "version", "value": 2}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -461,7 +461,7 @@ fn test_tx_check_mode_reports_changes_without_writing() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.set", "path": "data.json", "key": "key", "value": "new"}
+            {"op": "doc.set", "path": "data.json", "selector": "key", "value": "new"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -828,7 +828,7 @@ fn test_tx_doc_delete_in_plan() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.delete", "path": "config.json", "key": "remove"}
+            {"op": "doc.delete", "path": "config.json", "selector": "remove"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -1722,7 +1722,7 @@ fn test_tx_doc_prepend_in_plan() {
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "value": 0
         }]
     });
@@ -1753,7 +1753,7 @@ fn test_tx_doc_set_unsupported_format_rolls_back() {
         "operations": [{
             "op": "doc.set",
             "path": portable_path_str(&file),
-            "key": "key",
+            "selector": "key",
             "value": "val"
         }]
     });
@@ -1786,7 +1786,7 @@ fn test_tx_doc_set_selector_in_plan() {
         "operations": [{
             "op": "doc.set",
             "path": file.to_str().unwrap(),
-            "key": "nested.name",
+            "selector": "nested.name",
             "value": "new"
         }]
     });
@@ -1814,8 +1814,8 @@ fn test_tx_doc_ensure_selector_in_plan() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "version", "value": "1.0"},
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "name", "value": "ignored"}
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -1843,8 +1843,8 @@ fn test_tx_doc_ensure_in_plan() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "version", "value": "1.0"},
-            {"op": "doc.ensure", "path": file.to_str().unwrap(), "key": "name", "value": "ignored"}
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "version", "value": "1.0"},
+            {"op": "doc.ensure", "path": file.to_str().unwrap(), "selector": "name", "value": "ignored"}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -1909,7 +1909,7 @@ fn test_tx_doc_delete_where_in_plan() {
         "operations": [{
             "op": "doc.delete_where",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "predicate": "name=remove"
         }]
     });
@@ -1946,7 +1946,7 @@ fn test_tx_doc_update_in_plan() {
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
-            "key": "items[*].status",
+            "selector": "items[*].status",
             "value": "archived"
         }]
     });
@@ -2486,7 +2486,7 @@ fn test_tx_doc_append_in_plan() {
         "operations": [{
             "op": "doc.append",
             "path": file.to_str().unwrap(),
-            "key": "items",
+            "selector": "items",
             "value": 3
         }]
     });
@@ -2797,7 +2797,7 @@ fn test_tx_replace_no_match_does_not_hide_other_changes() {
             {
                 "op": "doc.ensure",
                 "path": config.to_str().unwrap(),
-                "key": "version",
+                "selector": "version",
                 "value": "1.0"
             }
         ]
@@ -5026,7 +5026,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
         "operations": [{
             "op": "doc.prepend",
             "path": file.to_str().unwrap(),
-            "key": "name",
+            "selector": "name",
             "value": "oops"
         }]
     });
@@ -5059,7 +5059,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
         "operations": [{
             "op": "doc.update",
             "path": file.to_str().unwrap(),
-            "key": "items[*].status",
+            "selector": "items[*].status",
             "value": "archived"
         }]
     });
@@ -5103,8 +5103,8 @@ fn test_tx_multi_op_batch_all_new_ops() {
             "version": 1,
         "operations": [
             {"op": "replace", "path": txt.to_str().unwrap(), "old": "foo", "new": "XXX", "nth": 1},
-            {"op": "doc.set", "path": json_file.to_str().unwrap(), "key": "name", "value": "new"},
-            {"op": "doc.ensure", "path": json_file.to_str().unwrap(), "key": "version", "value": "1.0"},
+            {"op": "doc.set", "path": json_file.to_str().unwrap(), "selector": "name", "value": "new"},
+            {"op": "doc.ensure", "path": json_file.to_str().unwrap(), "selector": "version", "value": "1.0"},
             {"op": "md.upsert_bullet", "path": md_file.to_str().unwrap(), "heading": "Rules", "bullet": "- rule two"},
             {"op": "md.table_append", "path": md_file.to_str().unwrap(), "heading": "Targets", "row": "| test | run tests |"},
             {"op": "file.create", "path": new_file.to_str().unwrap(), "content": "created!\n"}
@@ -5187,9 +5187,9 @@ fn test_tx_multiple_doc_set_on_same_yaml_file() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "version", "value": "2.0"},
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "port", "value": 9090},
-            {"op": "doc.set", "path": portable_path_str(&file), "key": "debug", "value": true}
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "version", "value": "2.0"},
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "port", "value": 9090},
+            {"op": "doc.set", "path": portable_path_str(&file), "selector": "debug", "value": true}
         ]
     });
     let plan_file = dir.path().join("plan.json");
@@ -5230,7 +5230,7 @@ fn test_tx_doc_set_then_replace_on_equivalent_path_flushes_cache() {
     let plan = serde_json::json!({
             "version": 1,
         "operations": [
-            {"op": "doc.set", "path": file.to_str().unwrap(), "key": "name", "value": "new"},
+            {"op": "doc.set", "path": file.to_str().unwrap(), "selector": "name", "value": "new"},
             {"op": "replace", "path": file.to_str().unwrap(), "old": "1.0", "new": "2.0"}
         ]
     });

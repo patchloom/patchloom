@@ -193,8 +193,8 @@ pub enum Operation {
     DocSet {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to the key (e.g. "server.port", "env.0.value").
-        key: String,
+        /// Dot-notation selector path (e.g. "server.port", "env.0.value").
+        selector: String,
         /// Value to set (any JSON type).
         value: serde_json::Value,
     },
@@ -202,8 +202,8 @@ pub enum Operation {
     DocDelete {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to the key to delete.
-        key: String,
+        /// Dot-notation selector path to delete.
+        selector: String,
     },
     #[serde(rename = "doc.merge", alias = "doc_merge")]
     DocMerge {
@@ -216,8 +216,8 @@ pub enum Operation {
     DocAppend {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to an array key.
-        key: String,
+        /// Dot-notation selector path to an array.
+        selector: String,
         /// Value to append to the array.
         value: serde_json::Value,
     },
@@ -225,8 +225,8 @@ pub enum Operation {
     DocPrepend {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to an array key.
-        key: String,
+        /// Dot-notation selector path to an array.
+        selector: String,
         /// Value to prepend to the array.
         value: serde_json::Value,
     },
@@ -234,8 +234,8 @@ pub enum Operation {
     DocUpdate {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to the key to update (supports wildcards and predicates).
-        key: String,
+        /// Dot-notation selector path (supports wildcards and predicates).
+        selector: String,
         /// New value for all matching locations.
         value: serde_json::Value,
     },
@@ -252,8 +252,8 @@ pub enum Operation {
     DocEnsure {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to the key.
-        key: String,
+        /// Dot-notation selector path.
+        selector: String,
         /// Value to set only if the key does not already exist.
         value: serde_json::Value,
     },
@@ -261,8 +261,8 @@ pub enum Operation {
     DocDeleteWhere {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Dot-notation path to an array.
-        key: String,
+        /// Dot-notation selector path to an array.
+        selector: String,
         /// Predicate in "field=value" format to match elements for deletion.
         predicate: String,
     },
@@ -709,17 +709,21 @@ impl Operation {
 pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::doc::DocMutation)> {
     use crate::ops::doc::DocMutation;
     match op {
-        Operation::DocSet { path, key, value } => Some((
+        Operation::DocSet {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Set {
-                selector: key.clone(),
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocDelete { path, key } => Some((
+        Operation::DocDelete { path, selector } => Some((
             path,
             DocMutation::Delete {
-                selector: key.clone(),
+                selector: selector.clone(),
             },
         )),
         Operation::DocMerge { path, value } => Some((
@@ -728,24 +732,36 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
                 value: value.clone(),
             },
         )),
-        Operation::DocAppend { path, key, value } => Some((
+        Operation::DocAppend {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Append {
-                selector: key.clone(),
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocPrepend { path, key, value } => Some((
+        Operation::DocPrepend {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Prepend {
-                selector: key.clone(),
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),
-        Operation::DocUpdate { path, key, value } => Some((
+        Operation::DocUpdate {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Update {
-                selector: key.clone(),
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),
@@ -756,21 +772,25 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
                 to: to.clone(),
             },
         )),
-        Operation::DocEnsure { path, key, value } => Some((
+        Operation::DocEnsure {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Ensure {
-                selector: key.clone(),
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),
         Operation::DocDeleteWhere {
             path,
-            key,
+            selector,
             predicate,
         } => Some((
             path,
             DocMutation::DeleteWhere {
-                selector: key.clone(),
+                selector: selector.clone(),
                 predicate: predicate.clone(),
             },
         )),
@@ -1294,15 +1314,15 @@ mod tests {
         let json = r#"{"version": 1, "operations": [
             {"op": "replace", "old": "a", "new": "b"},
             {"op": "replace", "old": "a", "new": "b", "nth": 2},
-            {"op": "doc.set", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc.delete", "path": "f.json", "key": "k"},
+            {"op": "doc.set", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "selector": "k"},
             {"op": "doc.merge", "path": "f.json", "value": {}},
-            {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
-            {"op": "doc.prepend", "path": "f.json", "key": "arr", "value": 0},
-            {"op": "doc.update", "path": "f.json", "key": "k", "value": 2},
+            {"op": "doc.append", "path": "f.json", "selector": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "selector": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "selector": "k", "value": 2},
             {"op": "doc.move", "path": "f.json", "from": "a", "to": "b"},
-            {"op": "doc.ensure", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc.delete_where", "path": "f.json", "key": "arr", "predicate": "name=x"},
+            {"op": "doc.ensure", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "selector": "arr", "predicate": "name=x"},
             {"op": "md.replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_after_heading", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md.insert_before_heading", "path": "f.md", "heading": "H", "content": "c"},
@@ -1349,12 +1369,12 @@ mod tests {
         // (doc.set, file.create). Both forms should parse via serde aliases.
         let json = r#"{"version": 1, "operations": [
             {"op": "replace_text", "old": "a", "new": "b"},
-            {"op": "doc_set", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc_delete", "path": "f.json", "key": "k"},
+            {"op": "doc_set", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc_delete", "path": "f.json", "selector": "k"},
             {"op": "doc_merge", "path": "f.json", "value": {}},
-            {"op": "doc_append", "path": "f.json", "key": "arr", "value": 1},
-            {"op": "doc_ensure", "path": "f.json", "key": "k", "value": 1},
-            {"op": "doc_delete_where", "path": "f.json", "key": "arr", "predicate": "x=1"},
+            {"op": "doc_append", "path": "f.json", "selector": "arr", "value": 1},
+            {"op": "doc_ensure", "path": "f.json", "selector": "k", "value": 1},
+            {"op": "doc_delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"},
             {"op": "md_move_section", "path": "f.md", "heading": "H", "before": "X"},
             {"op": "md_replace_section", "path": "f.md", "heading": "H", "content": "c"},
             {"op": "md_upsert_bullet", "path": "f.md", "heading": "H", "bullet": "- item"},
@@ -1381,6 +1401,28 @@ mod tests {
         ]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(plan.operations.len(), 30);
+    }
+
+    /// The CLI uses `selector` as the positional arg name for doc ops,
+    /// but the Operation struct field is `key`. Both names must parse.
+    #[test]
+    fn parse_doc_ops_with_selector_field() {
+        let json = r#"{"version": 1, "operations": [
+            {"op": "doc.set", "path": "f.json", "selector": "a.b", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "selector": "a.b"},
+            {"op": "doc.append", "path": "f.json", "selector": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "selector": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "selector": "a.b", "value": 2},
+            {"op": "doc.ensure", "path": "f.json", "selector": "a.b", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "selector": "arr", "predicate": "x=1"}
+        ]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(plan.operations.len(), 7);
+        if let Operation::DocSet { selector, .. } = &plan.operations[0] {
+            assert_eq!(selector, "a.b");
+        } else {
+            panic!("expected DocSet");
+        }
     }
 
     #[test]
@@ -1624,7 +1666,7 @@ mod tests {
         assert!(declared_paths(&plan.operations[0]).is_empty());
 
         // Representative single-path ops
-        let json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"c.json","key":"v","value":42}]}"#;
+        let json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"c.json","selector":"v","value":42}]}"#;
         let plan = parse_plan(json).unwrap();
         assert_eq!(declared_paths(&plan.operations[0]), vec!["c.json"]);
 
@@ -1638,15 +1680,15 @@ mod tests {
         use crate::ops::doc::DocMutation;
 
         let cases = [
-            r#"{"op":"doc.set","path":"f.json","key":"k","value":1}"#,
-            r#"{"op":"doc.delete","path":"f.json","key":"k"}"#,
+            r#"{"op":"doc.set","path":"f.json","selector":"k","value":1}"#,
+            r#"{"op":"doc.delete","path":"f.json","selector":"k"}"#,
             r#"{"op":"doc.merge","path":"f.json","value":{}}"#,
-            r#"{"op":"doc.append","path":"f.json","key":"arr","value":1}"#,
-            r#"{"op":"doc.prepend","path":"f.json","key":"arr","value":0}"#,
-            r#"{"op":"doc.update","path":"f.json","key":"k","value":2}"#,
+            r#"{"op":"doc.append","path":"f.json","selector":"arr","value":1}"#,
+            r#"{"op":"doc.prepend","path":"f.json","selector":"arr","value":0}"#,
+            r#"{"op":"doc.update","path":"f.json","selector":"k","value":2}"#,
             r#"{"op":"doc.move","path":"f.json","from":"a","to":"b"}"#,
-            r#"{"op":"doc.ensure","path":"f.json","key":"k","value":1}"#,
-            r#"{"op":"doc.delete_where","path":"f.json","key":"arr","predicate":"n=x"}"#,
+            r#"{"op":"doc.ensure","path":"f.json","selector":"k","value":1}"#,
+            r#"{"op":"doc.delete_where","path":"f.json","selector":"arr","predicate":"n=x"}"#,
         ];
 
         for (i, case) in cases.iter().enumerate() {
@@ -1667,7 +1709,7 @@ mod tests {
         assert!(op_to_doc_mutation(&plan.operations[0]).is_none());
 
         // Verify the specific mutation variant matches
-        let set_json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"x.json","key":"key","value":"val"}]}"#;
+        let set_json = r#"{"version": 1,"operations":[{"op":"doc.set","path":"x.json","selector":"key","value":"val"}]}"#;
         let plan = parse_plan(set_json).unwrap();
         let (_, mutation) = op_to_doc_mutation(&plan.operations[0]).unwrap();
         assert!(matches!(mutation, DocMutation::Set { .. }));

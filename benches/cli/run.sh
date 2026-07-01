@@ -221,8 +221,8 @@ BATCHEOF
 {
   "version": 1,
   "operations": [
-    {"op": "doc.set", "path": "config.json", "key": "version", "value": "v2.0.0"},
-    {"op": "doc.set", "path": "config.yaml", "key": "app.version", "value": "v2.0.0"},
+    {"op": "doc.set", "path": "config.json", "selector": "version", "value": "v2.0.0"},
+    {"op": "doc.set", "path": "config.yaml", "selector": "app.version", "value": "v2.0.0"},
     {"op": "replace", "path": "VERSION", "old": "v1.0.0", "new": "v2.0.0"},
     {"op": "md.upsert_bullet", "path": "README.md", "heading": "Changelog", "bullet": "- v2.0.0 release"}
   ]

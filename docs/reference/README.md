@@ -180,7 +180,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:verbose -->
 ### `--verbose`
 
-- **What it does:** Prints diagnostic messages to stderr prefixed with `[patchloom]`. Shows which operations are running, search parameters, key path evaluation steps, and MCP tool call timing. Can also be enabled by setting the `PATCHLOOM_LOG` environment variable to any value.
+- **What it does:** Prints diagnostic messages to stderr prefixed with `[patchloom]`. Shows which operations are running, search parameters, selector path evaluation steps, and MCP tool call timing. Can also be enabled by setting the `PATCHLOOM_LOG` environment variable to any value.
 - **Use when:** A command produces unexpected results and you need to see what Patchloom is doing internally without reading source code.
 - **Prefer instead:** Use `--json` when you need machine-readable output for downstream tools.
 
@@ -583,8 +583,8 @@ These are meaningful command-specific modes that change how a top-level command 
 ### `doc --predicate`
 
 - **What it does:** Supplies the key-value predicate used by `doc delete-where`.
-- **Use when:** Array cleanup should target matching objects instead of deleting by fixed index or key path alone.
-- **Prefer instead:** Use `doc delete` when one direct key path can remove the target without predicate filtering.
+- **Use when:** Array cleanup should target matching objects instead of deleting by fixed index or selector path alone.
+- **Prefer instead:** Use `doc delete` when one direct selector path can remove the target without predicate filtering.
 
 <!-- ref:doc-mode:stdin -->
 ### `doc --stdin`
@@ -623,23 +623,23 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:get -->
 ### `doc get`
 
-- **What it does:** Reads the value at a key path from a JSON, YAML, or TOML file.
+- **What it does:** Reads the value at a selector path from a JSON, YAML, or TOML file.
 - **Use when:** You need one precise value without mutating the document.
 - **Prefer instead:** Use `doc flatten` when you are exploring an unfamiliar file and need a broader map of its contents.
 
 <!-- ref:doc-action:has -->
 ### `doc has`
 
-- **What it does:** Checks whether a key path exists.
+- **What it does:** Checks whether a selector path exists.
 - **Use when:** A script or workflow needs a presence check before choosing a later action.
 - **Prefer instead:** Use `doc ensure` when the real goal is to create the value if it is missing.
 
 <!-- ref:doc-action:keys -->
 ### `doc keys`
 
-- **What it does:** Lists the keys of an object at a key path.
+- **What it does:** Lists the keys of an object at a selector path.
 - **Use when:** You want to inspect the shape of a structured object before choosing an edit.
-- **Prefer instead:** Use `doc get` when you already know the exact key path you want.
+- **Prefer instead:** Use `doc get` when you already know the exact selector path you want.
 
 <!-- ref:doc-action:len -->
 ### `doc len`
@@ -651,23 +651,23 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:set -->
 ### `doc set`
 
-- **What it does:** Sets or creates a value at a key path.
-- **Use when:** One exact key path should be updated deterministically.
+- **What it does:** Sets or creates a value at a selector path.
+- **Use when:** One exact selector path should be updated deterministically.
 - **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved.
 
 <!-- ref:doc-action:delete -->
 ### `doc delete`
 
-- **What it does:** Removes the value at a key path.
-- **Use when:** A key path or node is obsolete and should disappear cleanly.
-- **Prefer instead:** Use `doc delete-where` when the target is a subset of array items instead of one direct key path.
+- **What it does:** Removes the value at a selector path.
+- **Use when:** A selector path or node is obsolete and should disappear cleanly.
+- **Prefer instead:** Use `doc delete-where` when the target is a subset of array items instead of one direct selector path.
 
 <!-- ref:doc-action:delete-where -->
 ### `doc delete-where`
 
 - **What it does:** Deletes array items that match a predicate.
 - **Use when:** You need to remove selected objects from a list without rebuilding the whole array by hand.
-- **Prefer instead:** Use `doc delete` when one direct key path can remove the target.
+- **Prefer instead:** Use `doc delete` when one direct selector path can remove the target.
 
 <!-- ref:doc-action:merge -->
 ### `doc merge`
@@ -693,7 +693,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:select -->
 ### `doc select`
 
-- **What it does:** Reads only the values that match a key path or predicate.
+- **What it does:** Reads only the values that match a selector path or predicate.
 - **Use when:** You need a filtered read view of a larger structure.
 - **Prefer instead:** Use `doc update` or `doc delete-where` when the end goal is mutation rather than inspection.
 
@@ -707,8 +707,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:move -->
 ### `doc move`
 
-- **What it does:** Moves or renames a key path.
-- **Use when:** Schema cleanup or path migration should preserve the value while changing the key path.
+- **What it does:** Moves or renames a selector path.
+- **Use when:** Schema cleanup or path migration should preserve the value while changing the selector path.
 - **Prefer instead:** Use `doc set` plus `doc delete` only when the move semantics are not a clean fit.
 
 <!-- ref:doc-action:ensure -->
@@ -716,12 +716,12 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Creates a value only if it is currently missing.
 - **Use when:** You need idempotent config bootstrapping and must not overwrite existing values.
-- **Prefer instead:** Use `doc set` when the desired value should win even if the key path already exists.
+- **Prefer instead:** Use `doc set` when the desired value should win even if the selector path already exists.
 
 <!-- ref:doc-action:flatten -->
 ### `doc flatten`
 
-- **What it does:** Lists leaf key paths and their values.
+- **What it does:** Lists leaf selector paths and their values.
 - **Use when:** You are discovering the shape of an unfamiliar structured file.
 - **Prefer instead:** Use `doc get` for one targeted read, or `doc keys` when only the object shape matters.
 
@@ -935,7 +935,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Runs a targeted structured set inside a transaction.
 - **Use when:** A precise config update must be bundled atomically with other repo changes.
-- **Field naming:** Use `key` for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
+- **Field naming:** Use `selector` for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
 - **Related:** top level `doc set`
 
 <!-- ref:tx-op:doc.delete -->
@@ -976,7 +976,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:doc.move -->
 ### `doc.move`
 
-- **What it does:** Moves or renames a structured key path inside a transaction.
+- **What it does:** Moves or renames a structured selector path inside a transaction.
 - **Use when:** Schema migration must stay atomic with related code or docs edits.
 - **Related:** top level `doc move`
 

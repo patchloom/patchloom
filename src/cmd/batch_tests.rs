@@ -70,8 +70,8 @@ mod basic {
         let op = parse_line("doc.set config.json version 42", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, key, value }
-            if path == "config.json" && key == "version" && value == serde_json::json!(42)
+            Operation::DocSet { path, selector, value }
+            if path == "config.json" && selector == "version" && value == serde_json::json!(42)
         ));
     }
 
@@ -80,8 +80,8 @@ mod basic {
         let op = parse_line(r#"doc.set config.json name "my app""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, key, value }
-            if path == "config.json" && key == "name" && value == serde_json::json!("my app")
+            Operation::DocSet { path, selector, value }
+            if path == "config.json" && selector == "name" && value == serde_json::json!("my app")
         ));
     }
 
@@ -142,8 +142,8 @@ mod basic {
         let op = parse_line(r#"doc.update config.json items[*] "{\"active\":true}""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocUpdate { path, key, value }
-            if path == "config.json" && key == "items[*]" && value == serde_json::json!({"active": true})
+            Operation::DocUpdate { path, selector, value }
+            if path == "config.json" && selector == "items[*]" && value == serde_json::json!({"active": true})
         ));
     }
 
@@ -162,8 +162,8 @@ mod basic {
         let op = parse_line(r#"doc.delete_where config.json items "status=obsolete""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocDeleteWhere { path, key, predicate }
-            if path == "config.json" && key == "items" && predicate == "status=obsolete"
+            Operation::DocDeleteWhere { path, selector, predicate }
+            if path == "config.json" && selector == "items" && predicate == "status=obsolete"
         ));
     }
 
@@ -228,8 +228,8 @@ mod basic {
     #[test]
     fn parse_line_doc_delete() {
         let op = parse_line("doc.delete config.json old_key", 1).unwrap();
-        assert!(matches!(op, Operation::DocDelete { ref path, ref key }
-            if path == "config.json" && key == "old_key"));
+        assert!(matches!(op, Operation::DocDelete { ref path, ref selector }
+            if path == "config.json" && selector == "old_key"));
     }
 
     #[test]
@@ -243,8 +243,8 @@ mod basic {
     fn parse_line_doc_ensure() {
         let op = parse_line(r#"doc.ensure config.json version "beta""#, 1).unwrap();
         assert!(
-            matches!(op, Operation::DocEnsure { ref path, ref key, ref value }
-            if path == "config.json" && key == "version" && value == &serde_json::json!("beta"))
+            matches!(op, Operation::DocEnsure { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "version" && value == &serde_json::json!("beta"))
         );
     }
 
@@ -252,8 +252,8 @@ mod basic {
     fn parse_line_doc_append() {
         let op = parse_line(r#"doc.append config.json tags "new""#, 1).unwrap();
         assert!(
-            matches!(op, Operation::DocAppend { ref path, ref key, ref value }
-            if path == "config.json" && key == "tags" && value == &serde_json::json!("new"))
+            matches!(op, Operation::DocAppend { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "tags" && value == &serde_json::json!("new"))
         );
     }
 
@@ -261,8 +261,8 @@ mod basic {
     fn parse_line_doc_prepend() {
         let op = parse_line(r#"doc.prepend config.json items "first""#, 1).unwrap();
         assert!(
-            matches!(op, Operation::DocPrepend { ref path, ref key, ref value }
-            if path == "config.json" && key == "items" && value == &serde_json::json!("first"))
+            matches!(op, Operation::DocPrepend { ref path, ref selector, ref value }
+            if path == "config.json" && selector == "items" && value == &serde_json::json!("first"))
         );
     }
 

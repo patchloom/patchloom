@@ -11,8 +11,8 @@
 |---|---|
 | Read file contents (with optional line range) | `read_file` |
 | See uncommitted changes vs git HEAD | `git_status` |
-| Set/get a key in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
-| Delete, merge, or ensure a key exists | `doc_delete`, `doc_merge`, `doc_ensure` |
+| Set/get a value in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
+| Delete, merge, or ensure a value exists | `doc_delete`, `doc_merge`, `doc_ensure` |
 | Compare two structured files | `doc_diff` |
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
@@ -27,7 +27,7 @@
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
-| Extract or split files by symbol | `ast_extract`, `ast_split` |
+| Extract or split files by symbol | `ast_extract_to_file`, `ast_split` |
 | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |
 | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |
 | Apply same operation to many files | `execute_plan` with `for_each` glob |
@@ -81,7 +81,7 @@ patchloom tx plan.json --apply
 ## Structured edits
 
 ```bash
-# Edit a value in JSON/YAML/TOML by key (parser-backed, preserves comments)
+# Edit a value in JSON/YAML/TOML by selector path (parser-backed, preserves comments)
 patchloom doc set config.json version '"2.0.0"' --apply
 patchloom doc merge config.yaml --value '{"db":{"pool":10}}' --apply
 
@@ -145,7 +145,7 @@ patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply
 ### Edit a CI workflow
 
 ```bash
-# Set a value in a YAML workflow by key (preserves comments and formatting)
+# Set a value in a YAML workflow by selector path (preserves comments and formatting)
 patchloom doc set .github/workflows/ci.yml jobs.test.timeout-minutes 30 --apply
 ```
 
@@ -189,7 +189,7 @@ EOF
 patchloom tx - --apply <<'EOF'
 {"version": 1, "operations": [
 {"op": "replace", "path": "src/config.rs", "old": "old_default", "new": "new_default"},
-{"op": "doc.set", "path": "config.toml", "key": "default_value", "value": "new_default"},
+{"op": "doc.set", "path": "config.toml", "selector": "default_value", "value": "new_default"},
 {"op": "md.replace_section", "path": "docs/config.md", "heading": "## Defaults",
 "content": "The default value is now `new_default`.\n"}
 ]}
@@ -224,13 +224,13 @@ ast.rename src/lib.rs OldStruct NewStruct
 ast.replace src/config.rs default_timeout "30" "60"
 ```
 
-## Key path syntax
+## Selector path syntax
 
-All `doc` operations use key paths to address values inside JSON, YAML, and TOML files.
+All `doc` operations use selector paths to address values inside JSON, YAML, and TOML files.
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `key` | Object key | `database.host` |
+| `name` | Object key | `database.host` |
 | `[N]` | Array index (zero-based) | `servers[0].port` |
 | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |
 | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |
@@ -238,7 +238,7 @@ All `doc` operations use key paths to address values inside JSON, YAML, and TOML
 Segments are separated by `.` or adjacent brackets. Examples:
 
 ```text
-scripts.test                    # simple key path
+scripts.test                    # simple selector path
 jobs[0].steps[*].name           # index + wildcard
 dependencies[name=react].version # predicate filter
 ```

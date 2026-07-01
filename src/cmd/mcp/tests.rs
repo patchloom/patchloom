@@ -432,7 +432,7 @@ mod basic {
         let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "nonexistent.json",
-                "key": "key",
+                "selector": "key",
                 "value": "val",
             }))
             .unwrap(),
@@ -517,7 +517,7 @@ mod basic {
                 {
                     "op": "doc.set",
                     "path": "package.json",
-                    "key": "version",
+                    "selector": "version",
                     "value": "2.0.0"
                 },
                 {
@@ -569,7 +569,7 @@ mod security {
         let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
             serde_json::from_value(serde_json::json!({
                 "path": "../../etc/passwd",
-                "key": "root",
+                "selector": "root",
                 "value": "hacked"
             }))
             .unwrap(),
@@ -677,7 +677,7 @@ mod security {
             serde_json::from_value(serde_json::json!({
                 "action": "has",
                 "path": "data.json",
-                "key": big_selector,
+                "selector": big_selector,
             }))
             .unwrap(),
         );

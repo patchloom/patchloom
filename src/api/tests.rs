@@ -2132,7 +2132,7 @@ fn adapter_preview_does_not_write() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        key: "key".into(),
+        selector: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2155,7 +2155,7 @@ fn adapter_apply_writes_to_disk() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        key: "key".into(),
+        selector: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2177,7 +2177,7 @@ fn adapter_check_does_not_write() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        key: "key".into(),
+        selector: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2206,7 +2206,7 @@ fn adapter_respects_guard() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        key: "key".into(),
+        selector: "key".into(),
         value: serde_json::json!("new"),
     };
 
@@ -2232,7 +2232,7 @@ fn adapter_guard_rejects_outside_path() {
 
     let op = crate::plan::Operation::DocSet {
         path: file.to_string_lossy().into(),
-        key: "key".into(),
+        selector: "key".into(),
         value: serde_json::json!("new"),
     };
 
