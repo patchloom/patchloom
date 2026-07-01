@@ -207,7 +207,6 @@ pub(crate) fn format_error_with_backup_hint(error: &str, backup_session: Option<
 
 pub(crate) fn build_error_output(
     error_kind: &'static str,
-    legacy_error_prefix: &str,
     error: &str,
     backup_session: Option<&str>,
 ) -> TxOutput {
@@ -223,7 +222,7 @@ pub(crate) fn build_error_output(
         lints: Vec::new(),
         error_kind: Some(error_kind.to_string()),
         error: Some(format!(
-            "{legacy_error_prefix}: {}",
+            "{error_kind}: {}",
             format_error_with_backup_hint(error, backup_session)
         )),
         backup_session: backup_session.map(str::to_string),
@@ -243,7 +242,7 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
             Some("no_matches") => exit::NO_MATCHES,
             Some("parse_error") => exit::PARSE_ERROR,
             Some("rollback") => exit::ROLLBACK,
-            Some("rollback_failed") => exit::FAILURE, // preserve historical CLI exit for this case
+            Some("rollback_failed") => exit::FAILURE,
             Some("validation_failed") | Some("format_failed") | Some("verification_failed") => {
                 exit::VALIDATION_FAILED
             }
@@ -307,7 +306,7 @@ mod tests {
 
     #[test]
     fn build_error_output_fields() {
-        let out = build_error_output("parse_error", "parse_error", "bad plan", None);
+        let out = build_error_output("parse_error", "bad plan", None);
         assert!(!out.ok);
         assert_eq!(out.status, "error");
         assert_eq!(out.error_kind.as_deref(), Some("parse_error"));
@@ -318,7 +317,7 @@ mod tests {
 
     #[test]
     fn build_error_output_with_backup() {
-        let out = build_error_output("rollback", "rollback", "fail", Some("ts123"));
+        let out = build_error_output("rollback", "fail", Some("ts123"));
         assert_eq!(out.backup_session.as_deref(), Some("ts123"));
         assert!(out.error.as_ref().unwrap().contains("patchloom undo"));
     }

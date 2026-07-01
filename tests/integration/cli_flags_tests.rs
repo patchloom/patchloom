@@ -1241,7 +1241,7 @@ fn test_verbose_init_emits_trace() {
 #[test]
 fn test_verbose_explain_emits_trace() {
     let dir = TempDir::new().unwrap();
-    let plan = "version: 1\noperations:\n  - op: create_file\n    path: f.txt\n    content: hi\n";
+    let plan = "version: 1\noperations:\n  - op: file.create\n    path: f.txt\n    content: hi\n";
     fs::write(dir.path().join("plan.yaml"), plan).unwrap();
 
     Command::cargo_bin("patchloom")

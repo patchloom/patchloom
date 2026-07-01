@@ -1,6 +1,3 @@
-#[allow(unused_imports)]
-use anyhow::bail;
-
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) type LineRange = (usize, Option<usize>);
 

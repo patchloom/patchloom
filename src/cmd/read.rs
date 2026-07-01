@@ -29,8 +29,7 @@ struct ReadOutput {
     content: String,
 }
 
-#[allow(unused_imports)]
-pub(crate) use crate::ops::read::{LineRange, SelectedLines, parse_line_range, select_lines};
+pub(crate) use crate::ops::read::{LineRange, parse_line_range, select_lines};
 
 fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
@@ -310,6 +309,7 @@ mod tests {
 
     #[test]
     fn select_lines_start_beyond_file_returns_empty() {
+        use crate::ops::read::SelectedLines;
         let content = "line1\nline2\n";
         let result = select_lines(content, (100, Some(200)));
         assert_eq!(result, SelectedLines::empty(2));
