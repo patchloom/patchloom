@@ -56,7 +56,6 @@ use clap::Args;
 
 #[cfg(feature = "cli")]
 #[derive(Debug, Args)]
-#[non_exhaustive]
 #[command(after_help = "\
 EXAMPLES:
   patchloom tx plan.json

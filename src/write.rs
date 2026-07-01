@@ -102,7 +102,6 @@ impl Default for WritePolicy {
 /// that needs to partially override write transformations.
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct WritePolicyOverride {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
@@ -665,7 +664,11 @@ pub fn policy_from_flags(
 /// partial content is never visible. `persist_noclobber` uses
 /// `link` + `unlink` (or platform equivalent) to fail if the target already
 /// exists, preserving the exclusive-create semantics.
-pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
+pub(crate) fn atomic_create_new(
+    path: &Path,
+    content: &str,
+    policy: &WritePolicy,
+) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
     let parent = path
@@ -705,7 +708,7 @@ pub fn atomic_create_new(path: &Path, content: &str, policy: &WritePolicy) -> an
 /// A temporary file is created in the same directory as `path`, written to, then
 /// renamed over `path`. This guarantees the target file is never in a
 /// partially-written state (assuming the same filesystem).
-pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
+pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
     // Resolve symlinks: write to the target file, not the symlink entry (#1230).
@@ -759,7 +762,7 @@ pub fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow:
 /// write operation already succeeded and the files are correct, just
 /// not yet formatted.
 #[cfg(feature = "cli")]
-pub fn run_format_command(
+pub(crate) fn run_format_command(
     global: &crate::cli::global::GlobalFlags,
     cwd: &std::path::Path,
 ) -> anyhow::Result<()> {
@@ -772,7 +775,7 @@ pub fn run_format_command(
 /// `modified_paths` are relative paths (as stored by the tx engine).
 /// `format_config` provides per-extension formatter commands.
 #[cfg(feature = "cli")]
-pub fn run_format_command_ext(
+pub(crate) fn run_format_command_ext(
     global: &crate::cli::global::GlobalFlags,
     cwd: &std::path::Path,
     modified_paths: Option<&[&str]>,
