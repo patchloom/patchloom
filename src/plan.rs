@@ -30,7 +30,6 @@ pub fn effective_strict(
 
 /// A transaction plan containing multiple operations to execute atomically.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-#[non_exhaustive]
 pub struct Plan {
     /// Schema version. Defaults to 1 when omitted.
     #[serde(default = "default_version")]
@@ -125,7 +124,6 @@ impl VerifyCheck {
 
 /// A format step to run after applying operations but before validation.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-#[non_exhaustive]
 pub struct FormatStep {
     pub cmd: String,
     /// Timeout in seconds (default: 60).
@@ -134,7 +132,6 @@ pub struct FormatStep {
 
 /// A single operation within a plan.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-#[non_exhaustive]
 #[serde(tag = "op")]
 pub enum Operation {
     #[serde(rename = "replace")]
@@ -878,7 +875,6 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
 
 /// A validation step to run after applying operations.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-#[non_exhaustive]
 pub struct ValidationStep {
     pub cmd: String,
     pub required: Option<bool>,
