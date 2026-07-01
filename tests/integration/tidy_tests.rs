@@ -474,6 +474,26 @@ fn test_tidy_fix_dedent_with_line_range() {
 }
 
 #[test]
+fn test_tidy_fix_dedent_with_line_range_dash_separator() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ranged_dash.txt");
+    fs::write(&file, "    line1\n    line2\n    line3\n    line4\n").unwrap();
+
+    // Dash separator must work identically to colon after parse_line_range unification.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "tidy", "fix", ".", "--dedent", "4", "--lines", "2-3", "--apply",
+        ])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "    line1\nline2\nline3\n    line4\n");
+}
+
+#[test]
 fn test_tidy_fix_dedent_and_indent_rejects() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

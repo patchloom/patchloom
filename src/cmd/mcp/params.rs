@@ -42,7 +42,7 @@ pub(crate) struct ReplaceParams {
     /// When combined with new="" this deletes matching lines.
     #[serde(default)]
     pub whole_line: bool,
-    /// Restrict matching to a line range (e.g. "10:50"). Requires whole_line=true.
+    /// Restrict matching to a line range (e.g. "10:50" or "10-50"). Requires whole_line=true.
     pub range: Option<String>,
     /// Match only at word boundaries. Prevents 'SetupFile' from matching
     /// inside 'BenchSetupFile'. Auto-escapes regex metacharacters.
@@ -107,7 +107,7 @@ pub(crate) struct TidyParams {
     /// Indent: add leading whitespace. Values: "tab" or a number (e.g. "4").
     #[serde(default)]
     pub indent: Option<String>,
-    /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50").
+    /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50" or "10-50").
     #[serde(default)]
     pub lines: Option<String>,
     /// Collapse consecutive blank lines into a single blank line.
