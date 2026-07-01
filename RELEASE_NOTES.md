@@ -4,7 +4,7 @@ This release closes parity gaps across all three channels (CLI, MCP, library API
 
 ## Highlights
 
-Fuzzy edit matching, context-anchored replacements, and the prepend operation are now available in every channel. Previously each feature was missing from exactly one surface: fuzzy fallback was only in the tx engine (CLI/MCP/plans), context anchoring was only in MCP and tx plans, and prepend was only in MCP and the library API. This release fills the last gaps. A path traversal bypass in the containment module was also identified and patched, hardening the security boundary for all channels.
+Fuzzy edit matching, context-anchored replacements, and the prepend operation each had one channel missing. This release fills those gaps: fuzzy fallback reaches the library API, context anchoring reaches the CLI, and prepend reaches the CLI. The library API does not yet expose `before_context`/`after_context` on `ReplaceOptions` (#1310); the tx engine supports it, so library consumers can use `execute_plan` as a workaround. A path traversal bypass in the containment module was also identified and patched, hardening the security boundary for all channels.
 
 ## New features
 
