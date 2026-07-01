@@ -1860,5 +1860,69 @@ fn test_doc_json_failure_structured_on_stdout() {
 }
 
 // ---------------------------------------------------------------------------
+// #1288: numeric dot-notation as array index
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_set_numeric_dot_notation_on_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(
+        &file,
+        r#"{"env": [{"name": "A", "value": "old"}, {"name": "B", "value": "keep"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "doc",
+            "set",
+            file.to_str().unwrap(),
+            "env.0.value",
+            "new",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(content["env"][0]["value"], "new");
+    assert_eq!(content["env"][1]["value"], "keep");
+}
+
+#[test]
+fn test_doc_get_numeric_dot_notation_on_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items": ["alpha", "beta", "gamma"]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", file.to_str().unwrap(), "items.1"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("beta"));
+}
+
+#[test]
+fn test_doc_delete_numeric_dot_notation_on_array() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"arr": [1, 2, 3]}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "delete", file.to_str().unwrap(), "arr.0", "--apply"])
+        .assert()
+        .code(0);
+
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(content["arr"], serde_json::json!([2, 3]));
+}
+
+// ---------------------------------------------------------------------------
 // Symlink integration tests (#231 coverage)
 // ---------------------------------------------------------------------------

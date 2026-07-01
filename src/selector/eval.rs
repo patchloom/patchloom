@@ -15,6 +15,12 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 Segment::Key(key) => {
                     if let Some(v) = val.get(key.as_str()) {
                         next.push(v);
+                    } else if val.is_array()
+                        // Numeric dot-notation: `env.0.value` → `env[0].value` (#1288)
+                        && let Ok(idx) = key.parse::<usize>()
+                        && let Some(v) = val.get(idx)
+                    {
+                        next.push(v);
                     }
                 }
                 Segment::Index(idx) => {
@@ -212,5 +218,44 @@ mod tests {
         let sel = parse("config[*].debug").unwrap();
         let results = eval(&data, &sel);
         assert_eq!(results.len(), 2);
+    }
+
+    // ── #1288: numeric dot-notation as array index ─────────────────
+
+    #[test]
+    fn eval_numeric_dot_notation_as_array_index() {
+        let data = json!({"env": [{"name": "A", "value": "1"}, {"name": "B", "value": "2"}]});
+        let sel = parse("env.0.value").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!("1");
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_numeric_dot_notation_second_element() {
+        let data = json!({"items": ["alpha", "beta", "gamma"]});
+        let sel = parse("items.1").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!("beta");
+        assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_numeric_dot_notation_out_of_bounds_returns_empty() {
+        let data = json!({"items": [10, 20]});
+        let sel = parse("items.99").unwrap();
+        let results = eval(&data, &sel);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn eval_numeric_key_on_object_prefers_object_key() {
+        // When an object has a key that is a numeric string, it should
+        // be treated as an object key, not an array index.
+        let data = json!({"data": {"0": "zero-key", "1": "one-key"}});
+        let sel = parse("data.0").unwrap();
+        let results = eval(&data, &sel);
+        let expected = json!("zero-key");
+        assert_eq!(results, vec![&expected]);
     }
 }
