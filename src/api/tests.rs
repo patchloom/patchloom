@@ -2951,3 +2951,49 @@ fn replace_text_unique_fails_on_ambiguity() {
         "expected ambiguous error, got: {msg}"
     );
 }
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_before_context_disambiguates() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "alpha\nTODO: fix\nbeta\ngamma\nTODO: fix\ndelta\n").unwrap();
+
+    // "TODO: fix" appears twice; before_context selects the one after "gamma".
+    let opts = ReplaceOptions {
+        before_context: Some("gamma".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    let content = fs::read_to_string(&file).unwrap();
+    // First occurrence should be untouched, second replaced.
+    assert!(
+        content.contains("TODO: fix"),
+        "first occurrence should remain"
+    );
+    assert!(content.contains("DONE"), "second should be replaced");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_after_context_disambiguates() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "alpha\nTODO: fix\nbeta\ngamma\nTODO: fix\ndelta\n").unwrap();
+
+    // after_context="beta" selects the first "TODO: fix" (the one before "beta").
+    let opts = ReplaceOptions {
+        after_context: Some("beta".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    let content = fs::read_to_string(&file).unwrap();
+    // First occurrence replaced, second should remain.
+    assert!(
+        content.contains("TODO: fix"),
+        "second occurrence should remain"
+    );
+    assert!(content.contains("DONE"), "first should be replaced");
+}

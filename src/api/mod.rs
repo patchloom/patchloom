@@ -222,6 +222,14 @@ pub struct ReplaceOptions {
     /// On fuzzy failure, the error includes "did you mean?" suggestions.
     /// Only applies to literal (non-regex) patterns.
     pub fuzzy: bool,
+    /// Context line(s) before the target for anchor-based fallback matching.
+    /// When the pattern matches multiple times, the match nearest to this
+    /// anchor text is selected.
+    pub before_context: Option<String>,
+    /// Context line(s) after the target for anchor-based fallback matching.
+    /// When the pattern matches multiple times, the match nearest to this
+    /// anchor text is selected.
+    pub after_context: Option<String>,
 }
 
 /// Write policy options for controlling file write transformations.
