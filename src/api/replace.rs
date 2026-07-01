@@ -190,7 +190,8 @@ fn replace_write(
 /// Applies the same replacement logic as [`replace_text`] but operates on an
 /// in-memory string instead of a file path. Supports all [`ReplaceOptions`]
 /// features: regex, word boundary, nth, case insensitive, multiline,
-/// insert_before/after, whole_line, range, and if_exists.
+/// insert_before/after, whole_line, range, if_exists, unique, fuzzy,
+/// before_context, and after_context.
 pub fn replace_in_content(
     content: &str,
     from: &str,
@@ -261,7 +262,12 @@ pub fn replace_in_content(
     // try resolve_with_fallback for anchor/similarity matching.
     if count == 0 && opts.fuzzy && !is_regex {
         use crate::fallback;
-        match fallback::resolve_with_fallback(content, from, None, None) {
+        match fallback::resolve_with_fallback(
+            content,
+            from,
+            opts.before_context.as_deref(),
+            opts.after_context.as_deref(),
+        ) {
             Ok(anchor) => {
                 let to_text = if let Some(ib) = &opts.insert_before {
                     format!("{}{}", ib, anchor.matched_text)
