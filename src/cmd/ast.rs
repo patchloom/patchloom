@@ -82,8 +82,10 @@ pub struct AstArgs {
     pub command: AstCommand,
 }
 
-pub fn display_path(path: &Path, cwd: &Path) -> String {
-    path.strip_prefix(cwd).unwrap_or(path).display().to_string()
+pub(crate) fn display_path(path: &Path, cwd: &Path) -> String {
+    crate::files::relative_display(path, cwd)
+        .display()
+        .to_string()
 }
 
 pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -294,7 +296,7 @@ pub struct RenameArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
-pub fn resolve_target_paths(
+pub(crate) fn resolve_target_paths(
     target: &std::path::Path,
     path_arg: &str,
     global: &GlobalFlags,
@@ -1075,7 +1077,7 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-pub fn get_git_file_content(
+pub(crate) fn get_git_file_content(
     cwd: &std::path::Path,
     file_path: &str,
     git_ref: &str,
@@ -1100,13 +1102,13 @@ pub fn get_git_file_content(
 // Helpers
 // ---------------------------------------------------------------------------
 
-pub fn lang_from_str(s: &str) -> Language {
+pub(crate) fn lang_from_str(s: &str) -> Language {
     Language::from_name_or_ext(s)
 }
 
 pub use symbols::{filter_symbols, parse_kind_filter};
 
-pub fn collect_source_files(
+pub(crate) fn collect_source_files(
     dir: &std::path::Path,
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<std::path::PathBuf>> {
@@ -1167,7 +1169,7 @@ fn print_symbols_json(
     Ok(())
 }
 
-pub fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
+pub(crate) fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
     let children: Vec<serde_json::Value> = sym
         .children
         .iter()
