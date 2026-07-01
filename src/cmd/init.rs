@@ -1,5 +1,7 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::AGENT_RULES_GENERATED_MARKER;
+use crate::cmd::agent_rules::{
+    AGENT_RULES_GENERATED_MARKER, AgentMode, AgentPlatform, AgentRulesArgs, generate_agent_rules,
+};
 use crate::exit;
 use anyhow::Context;
 use clap::Args;
@@ -40,9 +42,9 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // 1. Generate and write agent rules.
-    let rules = super::generate_agent_rules(&super::AgentRulesArgs {
-        mode: super::AgentMode::All,
-        platform: super::AgentPlatform::All,
+    let rules = generate_agent_rules(&AgentRulesArgs {
+        mode: AgentMode::All,
+        platform: AgentPlatform::All,
     });
 
     let target = find_agent_file(&cwd);
