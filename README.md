@@ -232,7 +232,7 @@ Or use a JSON plan with format and validate lifecycle:
 {
   "version": 1,
   "operations": [
-    { "op": "doc.set", "path": "config.json", "key": "version", "value": "2.0" },
+    { "op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0" },
     { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "Rules", "bullet": "- Always test" },
     { "op": "replace", "path": "src/main.rs", "old": "v1", "new": "v2" }
   ],
@@ -255,7 +255,7 @@ After [installing with MCP support](#install), start the server:
 patchloom mcp-server
 ```
 
-MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "key": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
+MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
 See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
 
@@ -428,7 +428,7 @@ flowchart LR
 
 ## Status
 
-2800+ tests across 22 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+2800+ tests across 23 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|

@@ -212,8 +212,8 @@ fn test_schema_operation_fields_have_descriptions() {
 
     // Spot-check key operations that must have field descriptions.
     let checks: &[(&str, &[&str])] = &[
-        ("doc.set", &["path", "key", "value"]),
-        ("doc.delete", &["path", "key"]),
+        ("doc.set", &["path", "selector", "value"]),
+        ("doc.delete", &["path", "selector"]),
         ("replace", &["old", "new"]),
     ];
 

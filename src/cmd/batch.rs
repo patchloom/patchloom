@@ -87,7 +87,7 @@ macro_rules! doc_psv {
         let value = parse_json_value(&$args[2])?;
         op!($Variant {
             path: $args[0].clone(),
-            key: $args[1].clone(),
+            selector: $args[1].clone(),
             value
         })
     }};
@@ -124,7 +124,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 2, line_num)?;
             op!(DocDelete {
                 path: args[0].clone(),
-                key: args[1].clone()
+                selector: args[1].clone()
             })
         }
         "doc.merge" => {
@@ -147,7 +147,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 3, line_num)?;
             op!(DocDeleteWhere {
                 path: args[0].clone(),
-                key: args[1].clone(),
+                selector: args[1].clone(),
                 predicate: args[2].clone()
             })
         }

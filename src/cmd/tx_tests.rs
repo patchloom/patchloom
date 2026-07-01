@@ -130,7 +130,7 @@ mod basic {
                 {
                     "op": "doc.set",
                     "path": json_file.to_str().unwrap(),
-                    "key": "name",
+                    "selector": "name",
                     "value": "new"
                 },
                 {
@@ -651,7 +651,7 @@ mod edge_cases {
             r#"{{
   "version": 1,
   "operations": [
-{{"op": "doc.delete", "path": "{}", "key": "nonexistent"}}
+{{"op": "doc.delete", "path": "{}", "selector": "nonexistent"}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -687,7 +687,7 @@ mod edge_cases {
             r#"{{
   "version": 1,
   "operations": [
-{{"op": "doc.delete_where", "path": "{}", "key": "items", "predicate": "name=nonexistent"}}
+{{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "name=nonexistent"}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1090,7 +1090,7 @@ mod integrity {
                 {
                     "op": "doc.set",
                     "path": nonexistent.to_str().unwrap(),
-                    "key": "name",
+                    "selector": "name",
                     "value": "test"
                 }
             ]
@@ -1192,7 +1192,7 @@ mod integrity {
             r#"{{
   "version": 1,
   "operations": [
-{{"op": "doc.append", "path": "{}", "key": "items", "value": 42}}
+{{"op": "doc.append", "path": "{}", "selector": "items", "value": 42}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1228,7 +1228,7 @@ mod integrity {
             r#"{{
   "version": 1,
   "operations": [
-{{"op": "doc.prepend", "path": "{}", "key": "items", "value": 99}}
+{{"op": "doc.prepend", "path": "{}", "selector": "items", "value": 99}}
   ]
 }}"#,
             portable_path_str(&f)
@@ -1264,7 +1264,7 @@ mod integrity {
             r#"{{
   "version": 1,
   "operations": [
-{{"op": "doc.delete_where", "path": "{}", "key": "items", "predicate": "x=1"}}
+{{"op": "doc.delete_where", "path": "{}", "selector": "items", "predicate": "x=1"}}
   ]
 }}"#,
             portable_path_str(&f)

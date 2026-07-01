@@ -46,11 +46,11 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_set",
         op_name: "doc.set",
-        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"key\": \"version\", \"value\": \"2.0.0\"}",
+        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
         has_strict: true,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -61,7 +61,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
         ],
     },
     McpToolMeta {
@@ -81,7 +81,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -92,7 +92,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -103,7 +103,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },
@@ -114,7 +114,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::ParamSize("predicate"),
         ],
     },
@@ -125,7 +125,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
-            FieldValidation::ParamSize("key"),
+            FieldValidation::ParamSize("selector"),
             FieldValidation::JsonDepth("value"),
         ],
     },

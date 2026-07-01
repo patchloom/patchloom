@@ -1441,19 +1441,19 @@ async fn test_mcp_concurrent_doc_set() {
     // Fire three doc_set calls concurrently to *different* files.
     let params_a = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "a.json", "key": "value", "value": "new_a"}),
+            serde_json::json!({"path": "a.json", "selector": "value", "value": "new_a"}),
         )
         .unwrap(),
     );
     let params_b = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "b.json", "key": "value", "value": "new_b"}),
+            serde_json::json!({"path": "b.json", "selector": "value", "value": "new_b"}),
         )
         .unwrap(),
     );
     let params_c = rmcp::model::CallToolRequestParams::new("doc_set".to_string()).with_arguments(
         serde_json::from_value(
-            serde_json::json!({"path": "c.json", "key": "value", "value": "new_c"}),
+            serde_json::json!({"path": "c.json", "selector": "value", "value": "new_c"}),
         )
         .unwrap(),
     );

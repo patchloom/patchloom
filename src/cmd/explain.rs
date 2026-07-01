@@ -206,36 +206,56 @@ fn describe_operation(op: &Operation) -> String {
                 "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{ml_str}{ie_str}{range_str})"
             )
         }
-        Operation::DocSet { path, key, value } => {
-            format!("Set {key} to {value} in {path}")
+        Operation::DocSet {
+            path,
+            selector,
+            value,
+        } => {
+            format!("Set {selector} to {value} in {path}")
         }
-        Operation::DocDelete { path, key } => {
-            format!("Delete key {key} from {path}")
+        Operation::DocDelete { path, selector } => {
+            format!("Delete {selector} from {path}")
         }
         Operation::DocMerge { path, value } => {
             format!("Merge {value} into {path}")
         }
-        Operation::DocAppend { path, key, value } => {
-            format!("Append {value} to {key} in {path}")
+        Operation::DocAppend {
+            path,
+            selector,
+            value,
+        } => {
+            format!("Append {value} to {selector} in {path}")
         }
-        Operation::DocPrepend { path, key, value } => {
-            format!("Prepend {value} to {key} in {path}")
+        Operation::DocPrepend {
+            path,
+            selector,
+            value,
+        } => {
+            format!("Prepend {value} to {selector} in {path}")
         }
-        Operation::DocUpdate { path, key, value } => {
-            format!("Update {key} to {value} in {path}")
+        Operation::DocUpdate {
+            path,
+            selector,
+            value,
+        } => {
+            format!("Update {selector} to {value} in {path}")
         }
         Operation::DocMove { path, from, to } => {
             format!("Move {from} to {to} in {path}")
         }
-        Operation::DocEnsure { path, key, value } => {
-            format!("Ensure {key} = {value} in {path}")
+        Operation::DocEnsure {
+            path,
+            selector,
+            value,
+        } => {
+            format!("Ensure {selector} = {value} in {path}")
         }
         Operation::DocDeleteWhere {
             path,
-            key,
+            selector,
             predicate,
         } => {
-            format!("Delete from {key} where {predicate} in {path}")
+            format!("Delete from {selector} where {predicate} in {path}")
         }
         Operation::MdReplaceSection { path, heading, .. } => {
             format!("Replace section \"{heading}\" in {path}")
@@ -568,7 +588,7 @@ mod tests {
     fn describe_doc_set() {
         let op = Operation::DocSet {
             path: "package.json".into(),
-            key: "version".into(),
+            selector: "version".into(),
             value: serde_json::json!("2.0.0"),
         };
         assert_eq!(

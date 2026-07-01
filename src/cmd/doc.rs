@@ -275,7 +275,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocSet {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 value: parse_value(value),
             })
         }
@@ -283,7 +283,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             crate::verbose!("doc: delete file={}, selector={:?}", file, selector);
             Ok(Operation::DocDelete {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
             })
         }
         DocAction::DeleteWhere {
@@ -299,7 +299,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocDeleteWhere {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 predicate: predicate.clone(),
             })
         }
@@ -333,7 +333,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocAppend {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 value: parse_value(value),
             })
         }
@@ -350,7 +350,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocPrepend {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 value: parse_value(value),
             })
         }
@@ -367,7 +367,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocUpdate {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 value: parse_value(value),
             })
         }
@@ -392,7 +392,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             );
             Ok(Operation::DocEnsure {
                 path: file.clone(),
-                key: selector.clone(),
+                selector: selector.clone(),
                 value: parse_value(value),
             })
         }

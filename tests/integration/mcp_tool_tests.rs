@@ -16,7 +16,7 @@ async fn test_mcp_doc_set_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
-        serde_json::json!({"path": "config.json", "key": "name", "value": "new"}),
+        serde_json::json!({"path": "config.json", "selector": "name", "value": "new"}),
     )
     .await;
     assert!(!is_error, "doc_set should succeed: {val}");
@@ -97,7 +97,7 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_set",
-        serde_json::json!({"path": "nope.json", "key": "x", "value": 1}),
+        serde_json::json!({"path": "nope.json", "selector": "x", "value": 1}),
     )
     .await;
     assert!(
@@ -266,7 +266,7 @@ async fn test_mcp_doc_has_existing_key() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "has", "path": "data.json", "key": "name"}),
+        serde_json::json!({"action": "has", "path": "data.json", "selector": "name"}),
     )
     .await;
     assert!(!is_error, "doc_query has should succeed: {val}");
@@ -292,7 +292,7 @@ async fn test_mcp_doc_has_missing_key_not_error() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "has", "path": "data.json", "key": "missing_key"}),
+        serde_json::json!({"action": "has", "path": "data.json", "selector": "missing_key"}),
     )
     .await;
     assert!(
@@ -322,7 +322,7 @@ async fn test_mcp_doc_get_reads_value() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_get",
-        serde_json::json!({"path": "config.json", "key": "version"}),
+        serde_json::json!({"path": "config.json", "selector": "version"}),
     )
     .await;
     assert!(!is_error, "doc_get should succeed: {val}");
@@ -951,7 +951,7 @@ async fn test_mcp_doc_delete_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_delete",
-        serde_json::json!({"path": "config.json", "key": "debug"}),
+        serde_json::json!({"path": "config.json", "selector": "debug"}),
     )
     .await;
     assert!(!is_error, "doc_delete should succeed: {val}");
@@ -977,7 +977,7 @@ async fn test_mcp_doc_append_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_append",
-        serde_json::json!({"path": "config.json", "key": "tags", "value": "c"}),
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "c"}),
     )
     .await;
     assert!(!is_error, "doc_append should succeed: {val}");
@@ -1003,7 +1003,7 @@ async fn test_mcp_doc_prepend_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_prepend",
-        serde_json::json!({"path": "config.json", "key": "tags", "value": "z"}),
+        serde_json::json!({"path": "config.json", "selector": "tags", "value": "z"}),
     )
     .await;
     assert!(!is_error, "doc_prepend should succeed: {val}");
@@ -1030,7 +1030,7 @@ async fn test_mcp_doc_ensure_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_ensure",
-        serde_json::json!({"path": "config.json", "key": "debug", "value": false}),
+        serde_json::json!({"path": "config.json", "selector": "debug", "value": false}),
     )
     .await;
     assert!(!is_error, "doc_ensure should succeed: {val}");
@@ -1060,7 +1060,7 @@ async fn test_mcp_doc_update_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_update",
-        serde_json::json!({"path": "config.json", "key": "items[*]", "value": {"active": true}}),
+        serde_json::json!({"path": "config.json", "selector": "items[*]", "value": {"active": true}}),
     )
     .await;
     assert!(!is_error, "doc_update should succeed: {val}");
@@ -1116,7 +1116,7 @@ async fn test_mcp_doc_delete_where_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_delete_where",
-        serde_json::json!({"path": "config.json", "key": "items", "predicate": "name=drop"}),
+        serde_json::json!({"path": "config.json", "selector": "items", "predicate": "name=drop"}),
     )
     .await;
     assert!(!is_error, "doc_delete_where should succeed: {val}");
@@ -1155,7 +1155,7 @@ async fn test_mcp_doc_keys_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "keys", "path": "config.json", "key": "."}),
+        serde_json::json!({"action": "keys", "path": "config.json", "selector": "."}),
     )
     .await;
     assert!(!is_error, "doc_query keys should succeed: {val}");
@@ -1190,7 +1190,7 @@ async fn test_mcp_doc_len_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "len", "path": "config.json", "key": "tags"}),
+        serde_json::json!({"action": "len", "path": "config.json", "selector": "tags"}),
     )
     .await;
     assert!(!is_error, "doc_query len should succeed: {val}");
@@ -1214,7 +1214,7 @@ async fn test_mcp_doc_select_round_trip() {
     let (is_error, val) = call_tool_value(
         &client,
         "doc_query",
-        serde_json::json!({"action": "select", "path": "config.json", "key": "users[role=admin]"}),
+        serde_json::json!({"action": "select", "path": "config.json", "selector": "users[role=admin]"}),
     )
     .await;
     assert!(!is_error, "doc_query select should succeed: {val}");
@@ -1746,7 +1746,7 @@ async fn test_mcp_rejects_unknown_fields() {
     let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
         serde_json::from_value(serde_json::json!({
             "path": "test.json",
-            "key": "a",
+            "selector": "a",
             "value": 2,
             "hallucinated_param": true
         }))
@@ -2124,7 +2124,7 @@ async fn test_mcp_doc_set_yaml_deep_nested_path_creation() {
         "doc_set",
         serde_json::json!({
             "path": "config.yaml",
-            "key": "level1.level2.level3",
+            "selector": "level1.level2.level3",
             "value": "deep_value"
         }),
     )
@@ -2151,7 +2151,7 @@ async fn test_mcp_doc_set_yaml_deep_nested_path_creation() {
         "doc_get",
         serde_json::json!({
             "path": "config.yaml",
-            "key": "level1.level2.level3"
+            "selector": "level1.level2.level3"
         }),
     )
     .await;
@@ -2182,7 +2182,7 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
         "doc_set",
         serde_json::json!({
             "path": "app.yaml",
-            "key": "app.database.host",
+            "selector": "app.database.host",
             "value": "localhost"
         }),
     )
@@ -2195,7 +2195,7 @@ async fn test_mcp_doc_set_yaml_multiple_nested_writes() {
         "doc_set",
         serde_json::json!({
             "path": "app.yaml",
-            "key": "app.database.port",
+            "selector": "app.database.port",
             "value": 5432
         }),
     )

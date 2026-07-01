@@ -157,7 +157,7 @@ Example inline plan (JSON):
   "version": 1,
   "strict": true,
   "operations": [
-    { "op": "doc.set", "path": "package.json", "key": "version", "value": "2.0.0" },
+    { "op": "doc.set", "path": "package.json", "selector": "version", "value": "2.0.0" },
     { "op": "md.replace_section", "path": "AGENTS.md", "heading": "## Commands", "content": "Run make check.\n" },
     { "op": "file.create", "path": "REPORT.md", "content": "# Summary\n" }
   ]
@@ -329,7 +329,7 @@ An MCP-capable agent sends:
     "name": "doc_set",
     "arguments": {
       "path": "config.yaml",
-      "key": "database.port",
+      "selector": "database.port",
       "value": 5432
     }
   }

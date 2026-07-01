@@ -69,8 +69,8 @@ pub(crate) struct ReplaceParams {
 pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
-    /// Key path for the value to read (e.g., "version", "db.pool").
-    pub key: String,
+    /// Dot-notation selector path for the value to read (e.g., "version", "db.pool").
+    pub selector: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -192,8 +192,8 @@ pub(crate) struct DocQueryParams {
     pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Key path to query. Required for has/keys/len/select; ignored for flatten.
-    pub key: Option<String>,
+    /// Dot-notation selector path to query. Required for has/keys/len/select; ignored for flatten.
+    pub selector: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

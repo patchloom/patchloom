@@ -40,11 +40,11 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            validate_param_size("key", &p.key)?;
+            validate_param_size("selector", &p.selector)?;
             let abs = svc.cwd().join(&p.path);
             let action = crate::cmd::doc::DocAction::Get {
                 file: abs.to_string_lossy().into_owned(),
-                selector: p.key,
+                selector: p.selector,
             };
             doc_readonly(&action)
         })
@@ -60,23 +60,23 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
-            if let Some(ref sel) = p.key {
-                validate_param_size("key", sel)?;
+            if let Some(ref sel) = p.selector {
+                validate_param_size("selector", sel)?;
             }
             let abs = svc.cwd().join(&p.path);
             let file = abs.to_string_lossy().into_owned();
             let action = match p.action.as_str() {
                 "has" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
-                            "'has' action requires a key".to_string(),
+                            "'has' action requires a selector".to_string(),
                             None,
                         )
                     })?;
                     crate::cmd::doc::DocAction::Has { file, selector }
                 }
                 "keys" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'keys' action requires a selector".to_string(),
                             None,
@@ -85,7 +85,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Keys { file, selector }
                 }
                 "len" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'len' action requires a selector".to_string(),
                             None,
@@ -94,7 +94,7 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Len { file, selector }
                 }
                 "select" => {
-                    let selector = p.key.ok_or_else(|| {
+                    let selector = p.selector.ok_or_else(|| {
                         McpError::invalid_params(
                             "'select' action requires a selector".to_string(),
                             None,
