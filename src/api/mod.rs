@@ -57,9 +57,9 @@
 //! );
 //! ```
 //!
-//! **Guard semantics (see also #756):** The guard provides *write-time* enforcement and is only checked for `ApplyMode::Apply` writes (via `ensure_contained` + `write_if_apply`). Reads (e.g. for diff computation, `Preview`/`Check` modes, `doc_get`, search) and pre-write loads may still observe or describe paths outside the guard. This is intentional for trusted library embedding (the host/ caller controls visibility). MCP uses a separate strict pre-check layer on all paths. `execute_plan` now accepts a guard (see its docs; #755) and performs upfront validation on declared paths.
+//! **Guard semantics:** The guard provides *write-time* enforcement and is only checked for `ApplyMode::Apply` writes (via `ensure_contained` + `write_if_apply`). Reads (e.g. for diff computation, `Preview`/`Check` modes, `doc_get`, search) and pre-write loads may still observe or describe paths outside the guard. This is intentional for trusted library embedding (the host/caller controls visibility). MCP uses a separate strict pre-check layer on all paths. `execute_plan` also accepts a guard and performs upfront validation on declared paths.
 //!
-//! ## Guard & WritePolicy contract (#801 exhaustive audit)
+//! ## Guard & WritePolicy contract
 //!
 //! - Every public write API and plan `Operation` (file.create/delete/rename/append, doc.set/merge/append/..., md.*, patch, replace, tidy writes, etc.) goes through `ensure_contained` (Apply only) + `BackupSession` + `atomic_*` + `WritePolicy`.
 //! - Upfront declared paths checked for `execute_plan` under guard.
@@ -237,25 +237,16 @@ pub struct WritePolicyOptions {
     pub collapse_blanks: bool,
 }
 
-/// Backward-compatible alias for [`EolMode`](crate::write::EolMode).
-#[deprecated(
-    since = "0.6.0",
-    note = "use crate::write::EolMode instead (Lf, Crlf, Cr, Keep)"
-)]
-pub type EolNormalization = EolMode;
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 /// Convert user-facing `WritePolicyOptions` to the internal `WritePolicy`.
 ///
-/// Note (for #821): only `tidy` currently accepts `&WritePolicyOptions` at the high-level API.
+/// Only `tidy` currently accepts `&WritePolicyOptions` at the high-level API.
 /// Other mutating functions (`file_append`, `replace_text`, `doc_*`, `md_*`, etc.) default to
-/// `WritePolicy::default()` for ergonomics and library backward compat. For full control use a
-/// 1-op plan via `execute_plan` (which supports per-step write_policy) or the lower-level
-/// `write` + `atomic_write` primitives. Differences from MCP (which uses strict pre-checks + defaults)
-/// are intentional.
+/// `WritePolicy::default()`. For full control use a 1-op plan via `execute_plan`
+/// (which supports per-step write_policy) or the lower-level `write` + `atomic_write` primitives.
 pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
     WritePolicy {
         ensure_final_newline: opts.ensure_final_newline,
@@ -340,7 +331,7 @@ fn apply_mutation(
 /// Generalized cross-file mutation helper (for rename and md cross-file moves).
 ///
 /// Handles guard checks and backup for src (and optional dst).
-/// Used to centralize the cross-file logic per code review #839.
+/// Centralizes the cross-file guard and backup logic.
 fn apply_cross_file_mutation(
     src: &Path,
     dst: Option<&Path>,

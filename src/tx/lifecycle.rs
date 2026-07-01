@@ -476,15 +476,10 @@ pub(crate) fn validate_and_prepare_plan(
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
-        return Err(build_error_output("parse_error", "parse_error", &msg, None));
+        return Err(build_error_output("parse_error", &msg, None));
     }
     if let Err(e) = validate_plan_operations(plan) {
-        return Err(build_error_output(
-            "parse_error",
-            "parse_error",
-            &e.to_string(),
-            None,
-        ));
+        return Err(build_error_output("parse_error", &e.to_string(), None));
     }
 
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
@@ -574,18 +569,12 @@ pub fn execute_plan_direct(
     let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
         Ok(r) => r,
         Err(e) => {
-            return Ok(build_error_output(
-                "operation_failed",
-                "operation_failed",
-                &e.to_string(),
-                None,
-            ));
+            return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };
 
     if result.replace_no_matches {
         let output = build_error_output(
-            "no_matches",
             "no_matches",
             result.replace_hint.as_deref().unwrap_or(""),
             None,
@@ -617,12 +606,7 @@ pub fn execute_plan_direct(
         if any_failed {
             let summary = messages.join("\n");
             let msg = format!("verification failed, changes not applied:\n{summary}");
-            return Ok(build_error_output(
-                "verification_failed",
-                "verification_failed",
-                &msg,
-                None,
-            ));
+            return Ok(build_error_output("verification_failed", &msg, None));
         }
     }
 
@@ -638,12 +622,7 @@ pub fn execute_plan_direct(
         } else {
             "rollback_failed"
         };
-        let output = build_error_output(
-            error_kind,
-            error_kind,
-            &err.message,
-            err.backup_session.as_deref(),
-        );
+        let output = build_error_output(error_kind, &err.message, err.backup_session.as_deref());
         return Ok(output);
     }
 
@@ -669,9 +648,9 @@ pub fn execute_plan_direct(
             #[cfg(any(feature = "cli", feature = "files"))]
             restore_collateral_files(&collateral_snapshot);
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
-            return Ok(build_error_output(err.kind, "rollback", &msg, None));
+            return Ok(build_error_output("rollback", &msg, None));
         }
-        return Ok(build_error_output(err.kind, err.kind, &err.message, None));
+        return Ok(build_error_output(err.kind, &err.message, None));
     }
 
     let output = build_full_tx_output("success", &mut result, &effective_cwd);

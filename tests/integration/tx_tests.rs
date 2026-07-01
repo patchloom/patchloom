@@ -4640,7 +4640,7 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "format_failed");
     let error = json["error"].as_str().unwrap();
-    assert!(error.contains("validation_failed"));
+    assert!(error.contains("format_failed"));
     assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
 }
@@ -5842,7 +5842,7 @@ fn test_tx_file_prepend_empty_content_is_noop() {
 }
 
 #[test]
-fn test_tx_file_prepend_alias_parsing() {
+fn test_tx_file_prepend_canonical_name() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("x.txt");
     fs::write(&file, "body\n").unwrap();
@@ -5850,7 +5850,7 @@ fn test_tx_file_prepend_alias_parsing() {
     let plan = serde_json::json!({
         "version": 1,
         "operations": [{
-            "op": "prepend_file",
+            "op": "file.prepend",
             "path": portable_path_str(&file),
             "content": "header\n"
         }]

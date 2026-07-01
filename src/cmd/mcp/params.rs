@@ -12,7 +12,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct ReplaceParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -65,7 +64,6 @@ pub(crate) struct ReplaceParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
@@ -75,7 +73,6 @@ pub(crate) struct DocGetParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct MdLintAgentsParams {
     /// Markdown file path, relative to working directory (typically AGENTS.md).
     pub path: String,
@@ -83,7 +80,6 @@ pub(crate) struct MdLintAgentsParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct MdMoveSectionParams {
     /// Source file path containing the section to move (relative to working directory).
     pub path: String,
@@ -102,7 +98,6 @@ pub(crate) struct MdMoveSectionParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct TidyParams {
     /// File path to normalize (relative to working directory).
     pub path: String,
@@ -122,7 +117,6 @@ pub(crate) struct TidyParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct PatchParams {
     pub diff: String,
     #[serde(default)]
@@ -136,7 +130,6 @@ pub(crate) struct PatchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
@@ -185,7 +178,6 @@ pub(crate) struct SearchParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct DocQueryParams {
     /// Query action: "has" (check existence), "keys" (list keys), "len" (count),
     /// "select" (filter array), or "flatten" (list all paths).
@@ -198,7 +190,6 @@ pub(crate) struct DocQueryParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct DocDiffParams {
     /// First file path (relative to working directory).
     pub file_a: String,
@@ -212,7 +203,6 @@ pub(crate) struct DocDiffParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
     pub files: Vec<String>,
@@ -245,7 +235,6 @@ pub(crate) struct BatchReplaceParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct BatchTidyParams {
     /// File paths to normalize (relative to working directory).
     pub files: Vec<String>,
@@ -261,7 +250,6 @@ pub(crate) struct BatchTidyParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstListParams {
     /// File or directory to list symbols from (relative to working directory).
     pub path: String,
@@ -274,7 +262,6 @@ pub(crate) struct AstListParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstReadParams {
     /// File to read from (relative to working directory).
     pub path: String,
@@ -290,7 +277,6 @@ pub(crate) struct AstReadParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstRenameParams {
     /// The identifier to rename.
     pub old_name: String,
@@ -305,7 +291,6 @@ pub(crate) struct AstRenameParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstValidateParams {
     /// File or directory to validate syntax (relative to working directory).
     pub path: String,
@@ -316,7 +301,6 @@ pub(crate) struct AstValidateParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstSearchParams {
     /// Tree-sitter S-expression query, or a code pattern (with pattern=true).
     pub query: String,
@@ -334,7 +318,6 @@ pub(crate) struct AstSearchParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstRefsParams {
     /// Symbol name to find references for.
     pub symbol: String,
@@ -350,7 +333,6 @@ pub(crate) struct AstRefsParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstDepsParams {
     /// File or directory to analyze (relative to working directory).
     pub path: String,
@@ -364,7 +346,6 @@ pub(crate) struct AstDepsParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstMapParams {
     /// Directory to map (relative to working directory).
     pub path: String,
@@ -387,7 +368,6 @@ fn default_map_max_tokens() -> usize {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstDiffParams {
     /// File to diff (relative to working directory).
     pub path: String,
@@ -408,7 +388,6 @@ fn default_head() -> String {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstImpactParams {
     /// Symbol name to analyze.
     pub symbol: String,
@@ -427,7 +406,6 @@ fn default_impact_depth() -> usize {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstReplaceParams {
     /// File containing the symbol (relative to working directory).
     pub path: String,
@@ -448,7 +426,6 @@ pub(crate) struct AstReplaceParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstInsertParams {
     /// File to insert code into (relative to working directory).
     pub path: String,
@@ -473,7 +450,6 @@ pub(crate) struct AstInsertParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstWrapParams {
     /// File to modify (relative to working directory).
     pub path: String,
@@ -495,7 +471,6 @@ pub(crate) struct AstWrapParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstImportsParams {
     /// File to modify (relative to working directory).
     pub path: String,
@@ -515,7 +490,6 @@ pub(crate) struct AstImportsParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstReorderParams {
     /// File to reorder symbols in (relative to working directory).
     pub path: String,
@@ -531,7 +505,6 @@ pub(crate) struct AstReorderParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstGroupParams {
     /// File to modify (relative to working directory).
     pub path: String,
@@ -552,7 +525,6 @@ pub(crate) struct AstGroupParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstMoveParams {
     /// Source file (relative to working directory).
     pub path: String,
@@ -573,7 +545,6 @@ pub(crate) struct AstMoveParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstExtractToFileParams {
     /// Source file containing the symbol.
     pub source: String,
@@ -600,7 +571,6 @@ pub(crate) struct AstExtractToFileParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct AstSplitParams {
     /// The file to split.
     pub source: String,
@@ -640,14 +610,12 @@ pub(crate) struct AstSplitTargetParam {
 /// `type: "object"` field, which `serde_json::Value` does not provide.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct EmptyParams {}
 
 /// Parameters for executing a full multi-step transaction plan.
 /// This is the MCP equivalent of `patchloom tx`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub(crate) struct ExecutePlanParams {
     /// Full inline plan object (preferred for agents; same schema as CLI tx plans).
     /// Must contain at minimum "version" and "operations".

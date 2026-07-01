@@ -11,7 +11,6 @@ use crate::write::WritePolicyOverride;
 /// Project-level configuration loaded from `.patchloom.toml`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct ProjectConfig {
     pub write_policy: WritePolicyOverride,
     pub exclude: Exclude,
@@ -23,7 +22,6 @@ pub struct ProjectConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct Defaults {
     /// Default to --apply mode. When true, write commands apply changes without needing --apply flag.
     pub apply: Option<bool>,
@@ -34,7 +32,6 @@ pub struct Defaults {
 /// Format configuration: per-extension formatters and auto-format toggle.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct FormatConfig {
     /// When true, run formatters automatically after --apply without needing --format.
     pub auto: Option<bool>,
@@ -48,14 +45,12 @@ pub struct FormatConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct TxConfig {
     pub strict: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct Exclude {
     #[serde(default)]
     pub globs: Vec<String>,
@@ -63,7 +58,6 @@ pub struct Exclude {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[non_exhaustive]
 pub struct Output {
     pub color: Option<String>,
 }

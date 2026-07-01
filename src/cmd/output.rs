@@ -1,8 +1,8 @@
-//! Shared output model for CLI commands (#968).
+//! Shared output model for CLI commands.
 //!
 //! Provides `execute_via_engine`, a generic function that routes CLI write
 //! commands through the tx engine while letting each command provide its own
-//! JSON output struct for backward compatibility.
+//! JSON output struct.
 //!
 //! This replaces per-command boilerplate (backup, write, diff, mode branching)
 //! with a single code path shared across all write commands.
