@@ -261,7 +261,12 @@ pub fn replace_in_content(
     // try resolve_with_fallback for anchor/similarity matching.
     if count == 0 && opts.fuzzy && !is_regex {
         use crate::fallback;
-        match fallback::resolve_with_fallback(content, from, None, None) {
+        match fallback::resolve_with_fallback(
+            content,
+            from,
+            opts.before_context.as_deref(),
+            opts.after_context.as_deref(),
+        ) {
             Ok(anchor) => {
                 let to_text = if let Some(ib) = &opts.insert_before {
                     format!("{}{}", ib, anchor.matched_text)

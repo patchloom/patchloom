@@ -2831,6 +2831,48 @@ fn replace_in_content_fuzzy_with_insert_after() {
 }
 
 #[test]
+fn replace_in_content_fuzzy_uses_before_context() {
+    // Two identical typos; before_context disambiguates via anchor matching
+    let content = "fn alpha() {}\nfn proccess_data() {}\nfn beta() {}\nfn proccess_data() {}\nfn gamma() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        before_context: Some("fn beta()".to_string()),
+        ..Default::default()
+    };
+    let result =
+        replace::replace_in_content(content, "fn proccess_data() {}", "fn fixed() {}", &opts)
+            .unwrap();
+    assert!(result.changed);
+    // The second occurrence (after beta) should be replaced
+    assert!(
+        result.new_content.contains("fn fixed()"),
+        "fuzzy+before_context should replace: {}",
+        result.new_content
+    );
+}
+
+#[test]
+fn replace_in_content_fuzzy_uses_after_context() {
+    // Two identical typos; after_context disambiguates via anchor matching
+    let content = "fn alpha() {}\nfn proccess_data() {}\nfn beta() {}\nfn proccess_data() {}\nfn gamma() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        after_context: Some("fn beta()".to_string()),
+        ..Default::default()
+    };
+    let result =
+        replace::replace_in_content(content, "fn proccess_data() {}", "fn fixed() {}", &opts)
+            .unwrap();
+    assert!(result.changed);
+    // The first occurrence (before beta) should be replaced
+    assert!(
+        result.new_content.contains("fn fixed()"),
+        "fuzzy+after_context should replace: {}",
+        result.new_content
+    );
+}
+
+#[test]
 fn parse_unified_diff_basic() {
     let diff = "\
 --- a/src/main.rs
