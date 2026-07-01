@@ -1,16 +1,16 @@
 # Patchloom 0.9.0
 
-This release adds fuzzy edit matching for library embedders, context-anchored CLI replacements, a new `prepend` command, and fixes a security-relevant path traversal bypass. 3 new features, 6 bug fixes, and 54 new tests across 19 commits.
+This release closes parity gaps across all three channels (CLI, MCP, library API) and fixes a security-relevant path traversal bypass. 3 new features, 6 bug fixes, and 54 new tests across 19 commits.
 
 ## Highlights
 
-Replace operations now support fuzzy fallback at the library API level (`replace_in_content`), so embedders like Bline get automatic Jaro-Winkler similarity matching without writing adapter code. The CLI replace command gains `--before-context` and `--after-context` flags for anchor-based match disambiguation. A path traversal bypass in the containment module was identified and patched, hardening the security boundary for library consumers that use `AllowIfContained` or `AllowAdditionalRoots` policies.
+Fuzzy edit matching, context-anchored replacements, and the prepend operation are now available in every channel. Previously each feature was missing from exactly one surface: fuzzy fallback was only in the tx engine (CLI/MCP/plans), context anchoring was only in MCP and tx plans, and prepend was only in MCP and the library API. This release fills the last gaps. A path traversal bypass in the containment module was also identified and patched, hardening the security boundary for all channels.
 
 ## New features
 
-- **Fuzzy fallback for `replace_in_content`.** The in-memory replace API now accepts `fuzzy: true` in `ReplaceOptions`. When exact match fails, patchloom automatically tries Jaro-Winkler similarity matching, then returns suggestions if fuzzy also fails. This eliminates ~15 lines of manual fallback glue that library embedders previously needed. (#1292)
-- **`--before-context` / `--after-context` on CLI replace.** Anchor text that disambiguates which match to target when a pattern appears multiple times in a file. Supports fuzzy anchor matching as a fallback. (#1290)
-- **`prepend` command.** New CLI command that prepends content to the beginning of an existing file, bringing CLI parity with the MCP `prepend_file` tool. Accepts `--content` or `--stdin` (mutually exclusive). (#1290)
+- **Fuzzy fallback for `replace_in_content` (library API parity).** The in-memory replace API now accepts `fuzzy: true` in `ReplaceOptions`. When exact match fails, patchloom automatically tries Jaro-Winkler similarity matching, then returns suggestions if fuzzy also fails. This eliminates ~15 lines of manual fallback glue that library embedders previously needed. The tx engine (CLI, MCP, and plans) already had this capability. (#1292)
+- **`--before-context` / `--after-context` on CLI replace (CLI parity).** Anchor text that disambiguates which match to target when a pattern appears multiple times in a file. The MCP `replace_text` tool and tx plans already supported these fields; this adds them as CLI flags. Supports fuzzy anchor matching as a fallback. (#1290)
+- **`prepend` command (CLI parity).** New CLI command that prepends content to the beginning of an existing file. The MCP `prepend_file` tool and library `file_prepend` API already existed; this completes the CLI surface. Accepts `--content` or `--stdin` (mutually exclusive). (#1290)
 
 ## Bug fixes
 
