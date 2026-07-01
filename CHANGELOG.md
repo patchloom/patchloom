@@ -29,6 +29,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.9.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.8.0...patchloom-v0.9.0) (2026-07-01)
+
+
+### Features
+
+* add --before-context/--after-context to CLI replace and new prepend command ([#1290](https://github.com/patchloom/patchloom/issues/1290)) ([8a576dd](https://github.com/patchloom/patchloom/commit/8a576dd55d106de02b6dd2bd6152d7f9f38f125b))
+* add fuzzy fallback to replace_in_content ([#1286](https://github.com/patchloom/patchloom/issues/1286)) ([#1292](https://github.com/patchloom/patchloom/issues/1292)) ([a7c009e](https://github.com/patchloom/patchloom/commit/a7c009e4dbbdecabc6ec813269100d3dc86ba2d2))
+* implement Bline issues [#1287](https://github.com/patchloom/patchloom/issues/1287), [#1288](https://github.com/patchloom/patchloom/issues/1288), [#1289](https://github.com/patchloom/patchloom/issues/1289) ([#1291](https://github.com/patchloom/patchloom/issues/1291)) ([d24dd45](https://github.com/patchloom/patchloom/commit/d24dd45b1b6a08667acd998d30628a4171e77bdc))
+
+
+### Bug Fixes
+
+* md replace-section preserves blank line before next heading ([#1307](https://github.com/patchloom/patchloom/issues/1307)) ([2ff0f3b](https://github.com/patchloom/patchloom/commit/2ff0f3b5ae79e6c861de1474c516667eee196266))
+* md replace-section strips duplicate heading from replacement content ([#1306](https://github.com/patchloom/patchloom/issues/1306)) ([ad9c7d2](https://github.com/patchloom/patchloom/commit/ad9c7d260389c8eac745b9e7c8ff7355a1933383))
+* patch check creation, doc move descendant guard, replace exit codes ([#1297](https://github.com/patchloom/patchloom/issues/1297)) ([1760381](https://github.com/patchloom/patchloom/commit/17603818a5dc9e60fd9a4722b801d09555d955d4))
+* path traversal bypass in containment and bare unwrap cleanup ([#1296](https://github.com/patchloom/patchloom/issues/1296)) ([19015f9](https://github.com/patchloom/patchloom/commit/19015f94364b500c1f5623f013910eb8b777ad8c))
+* preserve YAML quote styles on doc set scalar updates ([#1283](https://github.com/patchloom/patchloom/issues/1283)) ([18f7482](https://github.com/patchloom/patchloom/commit/18f7482708ade50097f699d7d788b5b507892080))
+* wire by_extension formatters from .patchloom.toml to run_format_command ([#1285](https://github.com/patchloom/patchloom/issues/1285)) ([b29b78b](https://github.com/patchloom/patchloom/commit/b29b78b0d9a425ce09f2c8486308770173285554))
+
 ## [0.8.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.7.0...patchloom-v0.8.0) (2026-07-01)
 
 
