@@ -20,31 +20,53 @@ pub fn navigate_mut<'a>(
     for seg in segments {
         current = match seg {
             selector::Segment::Key(k) => {
-                if create {
-                    // Convert null or non-object intermediates to an empty
-                    // object so child keys can be created.
-                    if current.is_null() {
-                        *current = serde_json::Value::Object(serde_json::Map::new());
-                    } else if !current.is_object() {
+                // Numeric dot-notation: if the current node is an array and
+                // the key is a valid non-negative integer, treat it as an
+                // array index (e.g. `env.0.value` → `env[0].value`). (#1288)
+                if current.is_array() {
+                    if let Ok(idx) = k.parse::<usize>() {
+                        let len = current.as_array().map_or(0, |a| a.len());
+                        current.get_mut(idx).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "array index {idx} out of bounds (length {len}) at '{k}'"
+                            )
+                        })?
+                    } else {
                         anyhow::bail!(
                             "expected object at key '{k}', found {}",
                             value_type_name(current)
                         );
                     }
-                    let needs_create = match current.as_object() {
-                        Some(obj) => !obj.contains_key(k.as_str()),
-                        None => false,
-                    };
-                    if needs_create {
-                        current
-                            .as_object_mut()
-                            .ok_or_else(|| anyhow::anyhow!("not an object at key '{k}'"))?
-                            .insert(k.clone(), serde_json::Value::Object(serde_json::Map::new()));
+                } else {
+                    if create {
+                        // Convert null or non-object intermediates to an empty
+                        // object so child keys can be created.
+                        if current.is_null() {
+                            *current = serde_json::Value::Object(serde_json::Map::new());
+                        } else if !current.is_object() {
+                            anyhow::bail!(
+                                "expected object at key '{k}', found {}",
+                                value_type_name(current)
+                            );
+                        }
+                        let needs_create = match current.as_object() {
+                            Some(obj) => !obj.contains_key(k.as_str()),
+                            None => false,
+                        };
+                        if needs_create {
+                            current
+                                .as_object_mut()
+                                .ok_or_else(|| anyhow::anyhow!("not an object at key '{k}'"))?
+                                .insert(
+                                    k.clone(),
+                                    serde_json::Value::Object(serde_json::Map::new()),
+                                );
+                        }
                     }
+                    current
+                        .get_mut(k.as_str())
+                        .ok_or_else(|| anyhow::anyhow!("key not found: {k}"))?
                 }
-                current
-                    .get_mut(k.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("key not found: {k}"))?
             }
             selector::Segment::Index(i) => current
                 .get_mut(*i)
@@ -83,6 +105,23 @@ pub fn set_at_path(
 
     match last {
         selector::Segment::Key(k) => {
+            // Numeric dot-notation on arrays (#1288).
+            if parent.is_array()
+                && let Ok(idx) = k.parse::<usize>()
+            {
+                let arr = parent.as_array_mut().unwrap();
+                if idx < arr.len() {
+                    arr[idx] = value;
+                } else {
+                    anyhow::bail!(
+                        "array index {} out of bounds (length {}) at '{}'",
+                        idx,
+                        arr.len(),
+                        k
+                    );
+                }
+                return Ok(());
+            }
             parent
                 .as_object_mut()
                 .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
@@ -119,6 +158,18 @@ pub fn delete_at_selector(
     };
     match last {
         selector::Segment::Key(k) => {
+            // Numeric dot-notation on arrays (#1288).
+            if parent.is_array()
+                && let Ok(idx) = k.parse::<usize>()
+            {
+                if let Some(arr) = parent.as_array_mut()
+                    && idx < arr.len()
+                {
+                    arr.remove(idx);
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
             if let Some(obj) = parent.as_object_mut() {
                 Ok(obj.remove(k.as_str()).is_some())
             } else {
@@ -231,11 +282,29 @@ pub fn move_at_path(
     let cloned = {
         let parent = navigate_mut(root, from_parent, false)?;
         match from_last {
-            selector::Segment::Key(k) => parent
-                .as_object()
-                .and_then(|obj| obj.get(k.as_str()))
-                .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?
-                .clone(),
+            selector::Segment::Key(k) => {
+                // Numeric dot-notation on arrays (#1288).
+                if parent.is_array() {
+                    if let Ok(idx) = k.parse::<usize>() {
+                        let arr = parent
+                            .as_array()
+                            .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                        if idx < arr.len() {
+                            arr[idx].clone()
+                        } else {
+                            anyhow::bail!("source index {idx} out of bounds");
+                        }
+                    } else {
+                        anyhow::bail!("source key '{k}' not found (parent is array)");
+                    }
+                } else {
+                    parent
+                        .as_object()
+                        .and_then(|obj| obj.get(k.as_str()))
+                        .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?
+                        .clone()
+                }
+            }
             selector::Segment::Index(i) => {
                 let arr = parent
                     .as_array()
@@ -255,10 +324,26 @@ pub fn move_at_path(
         let parent = navigate_mut(root, to_parent, true)?;
         match to_last {
             selector::Segment::Key(k) => {
-                parent
-                    .as_object_mut()
-                    .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
-                    .insert(k.clone(), cloned);
+                // Numeric dot-notation on arrays (#1288).
+                if parent.is_array() {
+                    if let Ok(idx) = k.parse::<usize>() {
+                        let arr = parent
+                            .as_array_mut()
+                            .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                        if idx <= arr.len() {
+                            arr.insert(idx, cloned);
+                        } else {
+                            anyhow::bail!("target index {idx} out of bounds");
+                        }
+                    } else {
+                        anyhow::bail!("target key '{k}' not valid (parent is array)");
+                    }
+                } else {
+                    parent
+                        .as_object_mut()
+                        .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
+                        .insert(k.clone(), cloned);
+                }
             }
             selector::Segment::Index(i) => {
                 let arr = parent
@@ -279,9 +364,19 @@ pub fn move_at_path(
         let parent = navigate_mut(root, from_parent, false)?;
         match from_last {
             selector::Segment::Key(k) => {
-                parent
-                    .as_object_mut()
-                    .and_then(|obj| obj.remove(k.as_str()));
+                // Numeric dot-notation on arrays (#1288).
+                if parent.is_array() {
+                    if let Ok(idx) = k.parse::<usize>()
+                        && let Some(arr) = parent.as_array_mut()
+                        && idx < arr.len()
+                    {
+                        arr.remove(idx);
+                    }
+                } else {
+                    parent
+                        .as_object_mut()
+                        .and_then(|obj| obj.remove(k.as_str()));
+                }
             }
             selector::Segment::Index(i) => {
                 let arr = parent
@@ -334,6 +429,14 @@ pub fn update_matching(
         selector::Segment::Key(k) => {
             if let Some(child) = value.get_mut(k.as_str()) {
                 update_matching(child, rest, new_val)
+            } else if value.is_array() {
+                // Numeric dot-notation (#1288).
+                if let Ok(idx) = k.parse::<usize>()
+                    && let Some(child) = value.get_mut(idx)
+                {
+                    return update_matching(child, rest, new_val);
+                }
+                0
             } else {
                 0
             }
@@ -655,6 +758,57 @@ mod tests {
         let mut root = json!({"arr": [10, 20, 30]});
         move_at_path(&mut root, &segs("arr[2]"), &segs("arr[0]")).unwrap();
         assert_eq!(root["arr"], json!([30, 10, 20]));
+    }
+
+    // ── #1288: numeric dot-notation on arrays ──────────────────────
+
+    #[test]
+    fn navigate_mut_numeric_dot_notation_on_array() {
+        let mut root = json!({"env": [{"value": "A"}, {"value": "B"}]});
+        let val = navigate_mut(&mut root, &segs("env.0.value"), false).unwrap();
+        assert_eq!(val, &json!("A"));
+    }
+
+    #[test]
+    fn set_at_path_numeric_dot_notation() {
+        let mut root = json!({"items": [10, 20, 30]});
+        set_at_path(&mut root, &segs("items.1"), json!(99)).unwrap();
+        assert_eq!(root["items"][1], json!(99));
+    }
+
+    #[test]
+    fn set_at_path_numeric_dot_notation_out_of_bounds() {
+        let mut root = json!({"items": [10, 20]});
+        let result = set_at_path(&mut root, &segs("items.99"), json!(0));
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("out of bounds"),
+            "should report out of bounds"
+        );
+    }
+
+    #[test]
+    fn delete_at_selector_numeric_dot_notation() {
+        let mut root = json!({"arr": ["a", "b", "c"]});
+        let removed = delete_at_selector(&mut root, &segs("arr.1")).unwrap();
+        assert!(removed);
+        assert_eq!(root["arr"], json!(["a", "c"]));
+    }
+
+    #[test]
+    fn update_matching_numeric_dot_notation() {
+        let mut root = json!({"env": [{"name": "A"}, {"name": "B"}]});
+        let count = update_matching(&mut root, &segs("env.0.name"), &json!("X"));
+        assert_eq!(count, 1);
+        assert_eq!(root["env"][0]["name"], json!("X"));
+    }
+
+    #[test]
+    fn move_at_path_numeric_dot_notation() {
+        let mut root = json!({"src": ["a", "b"], "dst": {}});
+        move_at_path(&mut root, &segs("src.0"), &segs("dst.moved")).unwrap();
+        assert_eq!(root["dst"]["moved"], json!("a"));
+        assert_eq!(root["src"], json!(["b"]));
     }
 
     /// #1196: Moving a key to itself must be a no-op, not a deletion.

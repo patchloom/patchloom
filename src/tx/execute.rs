@@ -101,6 +101,34 @@ pub(crate) fn mark_write_target(write_targets: &mut HashSet<PathBuf>, path: &Pat
 }
 
 // ---------------------------------------------------------------------------
+// AST directory expansion (#1287)
+// ---------------------------------------------------------------------------
+
+/// Walk a directory and collect files that have a tree-sitter grammar.
+/// Used by ast.rename/ast.replace in execute_plan when the path is a directory.
+#[cfg(feature = "ast")]
+fn collect_ast_source_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_ast_source_files_recursive(dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+#[cfg(feature = "ast")]
+fn collect_ast_source_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_ast_source_files_recursive(&path, out)?;
+        } else if path.is_file() && crate::ast::Language::from_path(&path).has_grammar() {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Operation execution
 // ---------------------------------------------------------------------------
 
@@ -583,6 +611,53 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
     Ok(0)
 }
 
+/// Rename identifiers in a single file using AST-aware renaming with
+/// word-boundary fallback. Used by the AstRename handler (both single-file
+/// and directory expansion paths).
+#[cfg(feature = "ast")]
+fn ast_rename_single_file(
+    tx: &mut TxState<'_>,
+    abs: &Path,
+    old_name: &str,
+    new_name: &str,
+    lang_hint: Option<&str>,
+) -> anyhow::Result<usize> {
+    let content = read_file_content(tx.pending, tx.existed_before, abs)?;
+    let lang_val = lang_hint
+        .map(crate::ast::Language::from_name_or_ext)
+        .unwrap_or_else(|| crate::ast::Language::from_path(abs));
+    let result = crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
+    match result {
+        Some(r) if r.replacements > 0 => {
+            update_file_content(tx.pending, tx.deletions, tx.write_targets, abs, r.content);
+            Ok(r.replacements)
+        }
+        Some(_) => {
+            anyhow::bail!("no matches for '{}' in {}", old_name, abs.display());
+        }
+        None => {
+            // Tree-sitter couldn't parse. Fallback to word-boundary replace.
+            let re =
+                crate::ops::replace::compile_replace_regex(old_name, false, false, false, true)?;
+            if let Some(re) = re {
+                let new_content = re.replace_all(content, new_name).to_string();
+                let count = re.find_iter(content).count();
+                if count > 0 {
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        abs,
+                        new_content,
+                    );
+                    return Ok(count);
+                }
+            }
+            anyhow::bail!("no matches for '{}' in {}", old_name, abs.display());
+        }
+    }
+}
+
 pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     // Guard is enforced upfront in execute_plan_direct (for library plans) and via MCP pre-checks.
     // Single-op api::* uses ensure_contained inside write paths.
@@ -850,54 +925,28 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
-            let result =
-                crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
-            match result {
-                Some(r) if r.replacements > 0 => {
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &abs,
-                        r.content,
-                    );
-                    return Ok(r.replacements);
+
+            // Directory support (#1287): expand to individual files.
+            if abs.is_dir() {
+                let files = collect_ast_source_files(&abs)?;
+                if files.is_empty() {
+                    anyhow::bail!("no source files found in {}", path);
                 }
-                Some(_) => {
-                    // Tree-sitter parsed successfully but found 0 identifier
-                    // matches. Do NOT fall through to regex; tree-sitter
-                    // correctly determined the name only exists in
-                    // strings/comments (#1187).
-                    anyhow::bail!("no matches for '{}' in {}", old_name, path);
-                }
-                None => {
-                    // Tree-sitter couldn't parse (no grammar or parse
-                    // failure). Fallback to word-boundary replace.
-                    let re = crate::ops::replace::compile_replace_regex(
-                        old_name, false, false, false, true,
-                    )?;
-                    if let Some(re) = re {
-                        let new_content = re.replace_all(content, new_name.as_str()).to_string();
-                        let count = re.find_iter(content).count();
-                        if count > 0 {
-                            update_file_content(
-                                tx.pending,
-                                tx.deletions,
-                                tx.write_targets,
-                                &abs,
-                                new_content,
-                            );
-                            return Ok(count);
-                        }
+                let mut total = 0usize;
+                for file_path in &files {
+                    let count =
+                        ast_rename_single_file(tx, file_path, old_name, new_name, lang.as_deref());
+                    if let Ok(n) = count {
+                        total += n;
                     }
+                }
+                if total == 0 {
                     anyhow::bail!("no matches for '{}' in {}", old_name, path);
                 }
+                return Ok(total);
             }
+
+            return ast_rename_single_file(tx, &abs, old_name, new_name, lang.as_deref());
         }
 
         #[cfg(feature = "ast")]

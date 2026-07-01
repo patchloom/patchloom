@@ -195,5 +195,77 @@ fn test_schema_invalid_tier_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// #1289: Operation field descriptions in schema
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_schema_operation_fields_have_descriptions() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json"])
+        .assert()
+        .code(0);
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let ops = parsed["operations"].as_array().unwrap();
+
+    // Spot-check key operations that must have field descriptions.
+    let checks: &[(&str, &[&str])] = &[
+        ("doc.set", &["path", "key", "value"]),
+        ("doc.delete", &["path", "key"]),
+        ("replace", &["old", "new"]),
+    ];
+
+    for (op_name, required_fields) in checks {
+        let op = ops
+            .iter()
+            .find(|o| o["name"].as_str() == Some(op_name))
+            .unwrap_or_else(|| panic!("operation '{op_name}' not found in schema"));
+        let props = op["parameters"]["properties"]
+            .as_object()
+            .unwrap_or_else(|| panic!("no properties for {op_name}"));
+
+        for field in *required_fields {
+            let field_schema = props
+                .get(*field)
+                .unwrap_or_else(|| panic!("field '{field}' missing from {op_name} parameters"));
+            let desc = field_schema.get("description").and_then(|d| d.as_str());
+            assert!(
+                desc.is_some_and(|d| !d.is_empty()),
+                "field '{field}' in operation '{op_name}' must have a non-empty description"
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_schema_ast_rename_path_description_mentions_directory() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--format", "json"])
+        .assert()
+        .code(0);
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let ops = parsed["operations"].as_array().unwrap();
+
+    let ast_rename = ops
+        .iter()
+        .find(|o| o["name"].as_str() == Some("ast.rename"))
+        .expect("ast.rename must be in schema");
+    let path_desc = ast_rename
+        .pointer("/parameters/properties/path/description")
+        .and_then(|d| d.as_str())
+        .expect("ast.rename path field must have a description");
+    assert!(
+        path_desc.to_lowercase().contains("director"),
+        "ast.rename path description should mention directory support: {path_desc}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // md --check produces stdout output (#544)
 // ---------------------------------------------------------------------------
