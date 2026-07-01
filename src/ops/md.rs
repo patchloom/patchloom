@@ -404,6 +404,12 @@ pub fn move_section_in(
 pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
     let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
+
+    // If the replacement starts with the same heading line, strip it so the
+    // caller does not have to know whether the heading is included or not.
+    // The heading is already preserved in content[..body_start].
+    let replacement = strip_leading_heading(replacement, heading);
+
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
     if !replacement.is_empty() {
@@ -414,6 +420,23 @@ pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Op
     }
     out.push_str(&content[body_end..]);
     Some(out)
+}
+
+/// Strip a leading heading line from `text` if it matches `heading`.
+/// Handles optional trailing whitespace and newlines after the heading line.
+fn strip_leading_heading<'a>(text: &'a str, heading: &str) -> &'a str {
+    let (level, query) = normalize_heading_query(heading);
+    let first_line = text.lines().next().unwrap_or("");
+    let (first_level, first_text) = normalize_heading_query(first_line);
+    if first_text == query && (level.is_none() || first_level == level) {
+        let after_line = &text[first_line.len()..];
+        // Skip the newline(s) after the heading line
+        after_line
+            .strip_prefix("\r\n")
+            .unwrap_or_else(|| after_line.strip_prefix('\n').unwrap_or(after_line))
+    } else {
+        text
+    }
 }
 
 pub fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {

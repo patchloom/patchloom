@@ -105,6 +105,32 @@ mod basic {
     }
 
     #[test]
+    fn replace_section_strips_duplicate_heading() {
+        // When replacement starts with the same heading, strip it to avoid duplication.
+        let content = "# Title\nOld body\n# Next\nKeep\n";
+        let result = replace_section_in(content, "# Title", "# Title\n\nNew body").unwrap();
+        assert_eq!(result, "# Title\n\nNew body\n# Next\nKeep\n");
+        // No double heading
+        assert_eq!(result.matches("# Title").count(), 1);
+    }
+
+    #[test]
+    fn replace_section_strips_duplicate_heading_level2() {
+        let content = "# Doc\n\n## Usage\n\nOld usage.\n\n## Contributing\n\nPRs welcome.\n";
+        let result = replace_section_in(content, "## Usage", "## Usage\n\nNew usage.").unwrap();
+        assert_eq!(result.matches("## Usage").count(), 1);
+        assert!(result.contains("New usage."));
+    }
+
+    #[test]
+    fn replace_section_no_strip_when_heading_differs() {
+        // If the replacement heading is different, do NOT strip it.
+        let content = "# Title\nOld body\n# Next\nKeep\n";
+        let result = replace_section_in(content, "# Title", "# Different\nStuff").unwrap();
+        assert!(result.contains("# Title\n# Different"));
+    }
+
+    #[test]
     fn insert_after_heading() {
         let content = "# Title\nExisting\n";
         let result = insert_after_heading_in(content, "Title", "Inserted\n").unwrap();
