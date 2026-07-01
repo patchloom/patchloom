@@ -161,7 +161,9 @@ mod basic {
     #[test]
     fn table_append_for_tx_basic() {
         let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
-        let result = table_append_for_tx(content, "API", "| b | 2 |").unwrap();
+        let result = table_append_for_tx(content, "API", "| b | 2 |")
+            .unwrap()
+            .expect("heading exists");
         assert!(result.contains("| a | 1 |\n| b | 2 |\n"));
     }
 

@@ -245,10 +245,32 @@ pub(super) fn handle_ast_search(
     struct SearchFileResult {
         entries: Vec<serde_json::Value>,
     }
+    // Pre-validate pattern query compilation before entering the parallel loop.
+    // Without this, compile_pattern_query errors are silently swallowed via .ok()?,
+    // causing "No matches found" instead of a useful error message.
+    let precompiled_query = if p.pattern {
+        let validation_lang = lang_hint.unwrap_or_else(|| {
+            paths
+                .first()
+                .map(|p| crate::ast::Language::from_path(p))
+                .unwrap_or(crate::ast::Language::Rust)
+        });
+        Some(
+            crate::ast::search::compile_pattern_query(&p.query, validation_lang).map_err(|e| {
+                McpError::invalid_params(format!("invalid pattern query: {e}"), None)
+            })?,
+        )
+    } else {
+        None
+    };
+
     let par_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         let query_str = if p.pattern {
-            crate::ast::search::compile_pattern_query(&p.query, lang).ok()?
+            // Re-compile per language (different languages may have different grammars),
+            // but compilation errors are now caught by pre-validation above.
+            crate::ast::search::compile_pattern_query(&p.query, lang)
+                .unwrap_or_else(|_| precompiled_query.clone().unwrap_or_default())
         } else {
             p.query.clone()
         };
