@@ -396,9 +396,40 @@ fn validate_relative_depth(path: &str, p: &Path) -> Result<(), ContainmentError>
     Ok(())
 }
 
+/// Lexically resolve `.` and `..` components without touching the filesystem.
+///
+/// This must run before the ancestor walk in [`canonicalize_or_ancestor`]
+/// because [`Path::file_name`] returns `None` for `..` components, which
+/// would silently drop them during reconstruction.
+fn normalize_lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut parts: Vec<Component<'_>> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::ParentDir => {
+                if matches!(parts.last(), Some(Component::Normal(_))) {
+                    parts.pop();
+                } else {
+                    // At root or beyond; keep the `..` so canonicalize()
+                    // can produce a proper I/O error if needed.
+                    parts.push(c);
+                }
+            }
+            Component::CurDir => { /* skip */ }
+            _ => parts.push(c),
+        }
+    }
+    parts.iter().collect()
+}
+
 /// Canonicalize a path, or if it doesn't exist, canonicalize the nearest
 /// existing ancestor and append the remaining components.
 fn canonicalize_or_ancestor(path: &Path) -> std::io::Result<PathBuf> {
+    // Normalize `..` and `.` lexically first so the ancestor walk never
+    // encounters components that `file_name()` would silently skip.
+    let normalized = normalize_lexical(path);
+    let path = normalized.as_path();
+
     if path.exists() {
         return path.canonicalize();
     }
@@ -834,6 +865,74 @@ mod tests {
             matches!(err, ContainmentError::Escaped { .. }),
             "expected Escaped for escape from /tmp root via .., got {:?}",
             err
+        );
+    }
+
+    /// Regression: `..` components in non-existent absolute paths must not be
+    /// silently dropped during ancestor canonicalization. `Path::file_name()`
+    /// returns `None` for `..`, so the old code skipped those components,
+    /// making a path like `workspace/nonexistent/../../outside/secret.txt`
+    /// appear to be `workspace/nonexistent/outside/secret.txt` (inside).
+    #[test]
+    fn dotdot_in_nonexistent_absolute_path_rejected() {
+        let base = tempfile::TempDir::new().unwrap();
+        let workspace = base.path().join("workspace");
+        let outside = base.path().join("outside");
+        fs::create_dir(&workspace).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("secret.txt"), "sensitive").unwrap();
+
+        let guard =
+            PathGuard::new(workspace.clone(), AbsolutePathPolicy::AllowIfContained).unwrap();
+
+        // workspace/nonexistent/../../outside/secret.txt
+        // resolves lexically to: base/outside/secret.txt (outside workspace)
+        let escape = workspace
+            .join("nonexistent")
+            .join("..")
+            .join("..")
+            .join("outside")
+            .join("secret.txt");
+
+        let result = guard.check_path(escape.to_str().unwrap());
+        assert!(
+            matches!(result, Err(ContainmentError::Escaped { .. })),
+            "path with .. through non-existent dir should be rejected, got: {:?}",
+            result,
+        );
+    }
+
+    /// Same bypass with AllowAdditionalRoots policy.
+    #[test]
+    fn dotdot_in_nonexistent_path_rejected_with_additional_roots() {
+        let base = tempfile::TempDir::new().unwrap();
+        let workspace = base.path().join("workspace");
+        let extra_root = base.path().join("extra");
+        let outside = base.path().join("outside");
+        fs::create_dir(&workspace).unwrap();
+        fs::create_dir(&extra_root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("data.txt"), "sensitive").unwrap();
+
+        let guard = PathGuard::new(
+            workspace.clone(),
+            AbsolutePathPolicy::AllowAdditionalRoots(vec![extra_root]),
+        )
+        .unwrap();
+
+        // extra uses nonexistent to escape via ..
+        let escape = workspace
+            .join("nonexistent")
+            .join("..")
+            .join("..")
+            .join("outside")
+            .join("data.txt");
+
+        let result = guard.check_path(escape.to_str().unwrap());
+        assert!(
+            matches!(result, Err(ContainmentError::Escaped { .. })),
+            "dotdot escape via additional-roots should be rejected, got: {:?}",
+            result,
         );
     }
 }

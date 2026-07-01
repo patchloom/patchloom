@@ -109,7 +109,7 @@ pub fn set_at_path(
             if parent.is_array()
                 && let Ok(idx) = k.parse::<usize>()
             {
-                let arr = parent.as_array_mut().unwrap();
+                let arr = parent.as_array_mut().expect("guarded by is_array()");
                 if idx < arr.len() {
                     arr[idx] = value;
                 } else {
