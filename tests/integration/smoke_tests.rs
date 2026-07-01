@@ -445,7 +445,7 @@ fn test_smoke_quickstart_command_flow() {
         .arg("new_function")
         .arg("src/")
         .assert()
-        .success()
+        .code(2) // CHANGES_DETECTED: preview mode, not applied
         .stdout(predicate::str::contains("new_function"));
     assert!(
         fs::read_to_string(&lib_path)

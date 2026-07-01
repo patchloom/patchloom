@@ -857,7 +857,7 @@ fn test_verbose_replace_emits_trace() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success()
+        .code(2) // CHANGES_DETECTED: preview mode
         .stderr(predicate::str::contains("[patchloom] replace:"));
 }
 

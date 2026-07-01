@@ -442,9 +442,10 @@ fn replace_output(
         if global.show_status() {
             eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
         }
+        return Ok(exit::SUCCESS);
     }
 
-    Ok(exit::SUCCESS)
+    Ok(exit::CHANGES_DETECTED)
 }
 
 /// Context-based replace: routes through the tx engine where
@@ -539,9 +540,10 @@ fn run_context_replace(
     if global.should_apply() {
         result.commit()?;
         crate::write::run_format_command(global, cwd)?;
+        return Ok(exit::SUCCESS);
     }
 
-    Ok(exit::SUCCESS)
+    Ok(exit::CHANGES_DETECTED)
 }
 
 #[path = "replace_tests.rs"]
