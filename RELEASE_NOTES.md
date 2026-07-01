@@ -4,12 +4,12 @@ This release closes parity gaps across all three channels (CLI, MCP, library API
 
 ## Highlights
 
-Fuzzy edit matching, context-anchored replacements, and the prepend operation each had one channel missing. This release fills those gaps: fuzzy fallback reaches the library API, context anchoring reaches the CLI, and prepend reaches the CLI. The library API does not yet expose `before_context`/`after_context` on `ReplaceOptions` (#1310); the tx engine supports it, so library consumers can use `execute_plan` as a workaround. A path traversal bypass in the containment module was also identified and patched, hardening the security boundary for all channels.
+Fuzzy edit matching, context-anchored replacements, and the prepend operation each had one channel missing. This release fills all the gaps: fuzzy fallback reaches the library API, context anchoring reaches both the CLI and library API, and prepend reaches the CLI. Every replacement feature is now available in all three channels. A path traversal bypass in the containment module was also identified and patched, hardening the security boundary for all channels.
 
 ## New features
 
 - **Fuzzy fallback for `replace_in_content` (library API parity).** The in-memory replace API now accepts `fuzzy: true` in `ReplaceOptions`. When exact match fails, patchloom automatically tries Jaro-Winkler similarity matching, then returns suggestions if fuzzy also fails. This eliminates ~15 lines of manual fallback glue that library embedders previously needed. The tx engine (CLI, MCP, and plans) already had this capability. (#1292)
-- **`--before-context` / `--after-context` on CLI replace (CLI parity).** Anchor text that disambiguates which match to target when a pattern appears multiple times in a file. The MCP `replace_text` tool and tx plans already supported these fields; this adds them as CLI flags. Supports fuzzy anchor matching as a fallback. (#1290)
+- **`before_context` / `after_context` for replace (CLI and library API parity).** Anchor text that disambiguates which match to target when a pattern appears multiple times in a file. The MCP `replace_text` tool and tx plans already supported these fields; this release adds CLI flags (`--before-context`, `--after-context`) and exposes them in the library API's `ReplaceOptions`. Supports fuzzy anchor matching as a fallback. (#1290, #1310)
 - **`prepend` command (CLI parity).** New CLI command that prepends content to the beginning of an existing file. The MCP `prepend_file` tool and library `file_prepend` API already existed; this completes the CLI surface. Accepts `--content` or `--stdin` (mutually exclusive). (#1290)
 
 ## Bug fixes
