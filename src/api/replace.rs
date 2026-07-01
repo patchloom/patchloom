@@ -70,7 +70,7 @@ fn replace_write(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-    super::execute_as_edit_result(op, mode, cwd, guard, "replace")
+    super::execute_as_edit_result(op, mode, cwd, guard, "replace", None)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

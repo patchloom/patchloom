@@ -424,28 +424,11 @@ fn build_edit_result(
 /// `EditResult`) and the tx engine (which uses `GlobalFlags` and returns
 /// `ExecutionResult`). All API write functions can delegate to this adapter
 /// instead of reimplementing read-transform-write-backup independently.
+///
+/// For cross-file operations (rename, move) pass `dest_path` to report the
+/// destination; single-file operations pass `None`.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn execute_as_edit_result(
-    op: crate::plan::Operation,
-    mode: ApplyMode,
-    cwd: &Path,
-    guard: Option<&PathGuard>,
-    action: &'static str,
-) -> anyhow::Result<EditResult> {
-    let global = mode_to_global_flags(mode);
-    let options = crate::tx::engine::ExecuteOptions {
-        cwd,
-        global: &global,
-        guard,
-    };
-    let result = crate::tx::engine::execute_single(op, options)?;
-    execution_result_to_edit_result(result, mode, cwd, action, None)
-}
-
-/// Like `execute_as_edit_result` but for cross-file operations (rename, move)
-/// where the destination path differs from the source.
-#[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn execute_cross_file_as_edit_result(
     op: crate::plan::Operation,
     mode: ApplyMode,
     cwd: &Path,

@@ -2137,7 +2137,8 @@ fn adapter_preview_does_not_write() {
     };
 
     let result =
-        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "doc.set").unwrap();
+        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "doc.set", None)
+            .unwrap();
 
     assert!(result.changed, "content should differ");
     assert!(!result.applied, "preview should not write");
@@ -2160,7 +2161,8 @@ fn adapter_apply_writes_to_disk() {
     };
 
     let result =
-        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), None, "doc.set").unwrap();
+        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), None, "doc.set", None)
+            .unwrap();
 
     assert!(result.changed);
     assert!(result.applied);
@@ -2182,7 +2184,8 @@ fn adapter_check_does_not_write() {
     };
 
     let result =
-        super::execute_as_edit_result(op, ApplyMode::Check, dir.path(), None, "doc.set").unwrap();
+        super::execute_as_edit_result(op, ApplyMode::Check, dir.path(), None, "doc.set", None)
+            .unwrap();
 
     assert!(result.changed);
     assert!(!result.applied, "check should not write");
@@ -2210,9 +2213,15 @@ fn adapter_respects_guard() {
         value: serde_json::json!("new"),
     };
 
-    let result =
-        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), Some(&guard), "doc.set")
-            .unwrap();
+    let result = super::execute_as_edit_result(
+        op,
+        ApplyMode::Apply,
+        dir.path(),
+        Some(&guard),
+        "doc.set",
+        None,
+    )
+    .unwrap();
 
     assert!(result.applied);
     assert!(result.changed);
@@ -2236,8 +2245,14 @@ fn adapter_guard_rejects_outside_path() {
         value: serde_json::json!("new"),
     };
 
-    let err =
-        super::execute_as_edit_result(op, ApplyMode::Apply, dir.path(), Some(&guard), "doc.set");
+    let err = super::execute_as_edit_result(
+        op,
+        ApplyMode::Apply,
+        dir.path(),
+        Some(&guard),
+        "doc.set",
+        None,
+    );
 
     assert!(err.is_err(), "guard should reject path outside workspace");
 }
@@ -2272,7 +2287,8 @@ fn adapter_unchanged_returns_no_diff() {
     };
 
     let result =
-        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "replace").unwrap();
+        super::execute_as_edit_result(op, ApplyMode::Preview, dir.path(), None, "replace", None)
+            .unwrap();
 
     assert!(
         !result.changed,
