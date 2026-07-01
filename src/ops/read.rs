@@ -1,4 +1,3 @@
-#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) type LineRange = (usize, Option<usize>);
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -23,7 +22,6 @@ impl SelectedLines {
 }
 
 /// Parse a line range spec like "10", "10:20", "10-20".
-#[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
     // Accept both ':' and '-' as range separators so `--lines 1:10` and
     // `--lines 1-10` both work (the help examples show the dash form).

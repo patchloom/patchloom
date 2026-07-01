@@ -128,7 +128,7 @@ fn tidy_write(
         // Apply dedent/indent after policy normalization.
         let line_range = lines
             .as_deref()
-            .map(crate::write::parse_line_range)
+            .map(crate::ops::read::parse_line_range)
             .transpose()?;
         if let Some(ref spec) = dedent {
             new_content = crate::write::dedent_content(&new_content, spec, line_range);

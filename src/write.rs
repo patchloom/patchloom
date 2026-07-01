@@ -451,45 +451,6 @@ fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> St
     result.join("\n")
 }
 
-/// Parse a line range specification like `"10:50"` into `(start, Option<end>)`.
-///
-/// Both start and end are 1-based inclusive. Examples:
-/// - `"10:50"` → `(10, Some(50))`
-/// - `"5:"` → `(5, None)` (open-ended)
-/// - `"3"` → `(3, Some(3))` (single line)
-pub fn parse_line_range(spec: &str) -> anyhow::Result<(usize, Option<usize>)> {
-    if let Some((left, right)) = spec.split_once(':') {
-        let start: usize = left
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid line range start: '{left}'"))?;
-        if start == 0 {
-            anyhow::bail!("line numbers are 1-based, got start=0");
-        }
-        if right.is_empty() {
-            Ok((start, None))
-        } else {
-            let end: usize = right
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid line range end: '{right}'"))?;
-            if end == 0 {
-                anyhow::bail!("line numbers are 1-based, got end=0");
-            }
-            if end < start {
-                anyhow::bail!("inverted line range: start ({start}) > end ({end})");
-            }
-            Ok((start, Some(end)))
-        }
-    } else {
-        let line: usize = spec
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid line number: '{spec}'"))?;
-        if line == 0 {
-            anyhow::bail!("line numbers are 1-based, got 0");
-        }
-        Ok((line, Some(line)))
-    }
-}
-
 /// Indent content by adding leading whitespace.
 ///
 /// `spec` accepts:
