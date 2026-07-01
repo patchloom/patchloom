@@ -29,6 +29,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.8.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.7.0...patchloom-v0.8.0) (2026-07-01)
+
+
+### Features
+
+* **api:** add text_diff API and unique mode + match_count for replace ([#1269](https://github.com/patchloom/patchloom/issues/1269)) ([519f674](https://github.com/patchloom/patchloom/commit/519f6745619ba3c2fda7d4e168b911a2c45886af)), closes [#1264](https://github.com/patchloom/patchloom/issues/1264) [#1265](https://github.com/patchloom/patchloom/issues/1265)
+* **ast:** multi-language rewrite_function_signature ([#1271](https://github.com/patchloom/patchloom/issues/1271)) ([9c179de](https://github.com/patchloom/patchloom/commit/9c179de3a0e9828f3132df1606cfd6210aecdfd5))
+* **mcp:** add tool category guide to server instructions ([#1275](https://github.com/patchloom/patchloom/issues/1275)) ([46a8f7e](https://github.com/patchloom/patchloom/commit/46a8f7e62530dd69f21a93d4c857ad9494b52fab)), closes [#1273](https://github.com/patchloom/patchloom/issues/1273)
+* **mcp:** improve path descriptions, add server_info, parse_unified_diff API, and fix no-match error signaling ([#1272](https://github.com/patchloom/patchloom/issues/1272)) ([6d77785](https://github.com/patchloom/patchloom/commit/6d77785cd9bd0d191de55e38ec7ffadc5cd287d7))
+
+
+### Bug Fixes
+
+* address 3 real AI code quality findings ([#1278](https://github.com/patchloom/patchloom/issues/1278)) ([9cb81cf](https://github.com/patchloom/patchloom/commit/9cb81cf41e30cd3f09c53657d5e8ee2aa22597cf))
+* skip permission-based tests when running as root ([#1277](https://github.com/patchloom/patchloom/issues/1277)) ([d45671e](https://github.com/patchloom/patchloom/commit/d45671e85801ea6d7f7a5b9e3b78b1101c2420f1))
+* update stale counts and add missing MCP integration tests ([#1262](https://github.com/patchloom/patchloom/issues/1262)) ([6cd9e22](https://github.com/patchloom/patchloom/commit/6cd9e229f26c9d682214a9f4229c1c415b310a8b))
+
 ## [0.7.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.6.0...patchloom-v0.7.0) (2026-06-30)
 
 
