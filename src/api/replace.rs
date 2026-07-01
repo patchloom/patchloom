@@ -257,6 +257,57 @@ pub fn replace_in_content(
         );
     }
 
+    // Fuzzy fallback (#1286): when exact match fails and fuzzy is enabled,
+    // try resolve_with_fallback for anchor/similarity matching.
+    if count == 0 && opts.fuzzy && !is_regex {
+        use crate::fallback;
+        match fallback::resolve_with_fallback(content, from, None, None) {
+            Ok(anchor) => {
+                let to_text = if let Some(ib) = &opts.insert_before {
+                    format!("{}{}", ib, anchor.matched_text)
+                } else if let Some(ia) = &opts.insert_after {
+                    format!("{}{}", anchor.matched_text, ia)
+                } else {
+                    to.to_string()
+                };
+                let fuzzy_content = format!(
+                    "{}{}{}",
+                    &content[..anchor.start_offset],
+                    to_text,
+                    &content[anchor.start_offset + anchor.matched_text.len()..]
+                );
+                let diff = super::make_diff("<content>", content, &fuzzy_content);
+                return Ok(ContentEditResult {
+                    original: content.to_string(),
+                    new_content: fuzzy_content,
+                    diff,
+                    changed: true,
+                    match_count: 1,
+                });
+            }
+            Err(edit_error) => {
+                if opts.if_exists {
+                    return Ok(ContentEditResult {
+                        original: content.to_string(),
+                        new_content: content.to_string(),
+                        diff: String::new(),
+                        changed: false,
+                        match_count: 0,
+                    });
+                }
+                let similar = fallback::find_similar_targets(content, from, 3);
+                let mut msg = format!("no matches for {:?}", from);
+                if let Some(suggestion) = &edit_error.suggestion {
+                    msg.push_str(&format!(" (suggestion: {})", suggestion));
+                }
+                if !similar.is_empty() {
+                    msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
+                }
+                bail!("{msg}");
+            }
+        }
+    }
+
     if count == 0 && opts.if_exists {
         return Ok(ContentEditResult {
             original: content.to_string(),

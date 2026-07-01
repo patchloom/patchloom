@@ -2623,6 +2623,197 @@ fn replace_in_content_unique_with_word_boundary() {
     assert_eq!(result.match_count, 1);
 }
 
+// ── replace_in_content fuzzy fallback (#1286) ────────────────
+
+#[test]
+fn replace_in_content_fuzzy_resolves_typo() {
+    // "proccess_data" is a typo for "process_data"; fuzzy should match
+    // via Jaro-Winkler similarity (> 0.85).
+    let content = "fn setup() {}\nfn process_data(x: i32) {}\nfn cleanup() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn proccess_data(x: i32) {}",
+        "fn handle_data(x: i32) {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed, "fuzzy should find a match for the typo");
+    assert_eq!(result.match_count, 1);
+    assert!(
+        result.new_content.contains("handle_data"),
+        "replacement should be applied: {}",
+        result.new_content
+    );
+    assert!(
+        !result.new_content.contains("process_data"),
+        "original should be replaced: {}",
+        result.new_content
+    );
+}
+
+#[test]
+fn replace_in_content_fuzzy_exact_match_preferred() {
+    // When the exact match succeeds, fuzzy should not change behavior.
+    let content = "fn hello() {}\nfn world() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        ..Default::default()
+    };
+    let result =
+        replace::replace_in_content(content, "fn hello() {}", "fn greet() {}", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 1);
+    assert!(result.new_content.contains("fn greet()"));
+}
+
+#[test]
+fn replace_in_content_fuzzy_no_match_returns_error_with_hints() {
+    // When fuzzy also fails, the error should include suggestions.
+    let content = "fn alpha() {}\nfn beta() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        ..Default::default()
+    };
+    let err = replace::replace_in_content(
+        content,
+        "fn completely_unrelated_name_xyz() {}",
+        "fn replaced() {}",
+        &opts,
+    )
+    .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no matches"),
+        "error should say no matches: {msg}"
+    );
+}
+
+#[test]
+fn replace_in_content_fuzzy_with_if_exists_suppresses_error() {
+    // fuzzy + if_exists: when fuzzy also fails, no error.
+    let content = "fn alpha() {}\nfn beta() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn completely_unrelated_name_xyz() {}",
+        "fn replaced() {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(!result.changed);
+    assert_eq!(result.match_count, 0);
+}
+
+#[test]
+fn replace_in_content_fuzzy_disabled_by_default() {
+    // Default ReplaceOptions has fuzzy: false, so a near-miss should fail.
+    let content = "fn process_data() {}\n";
+    let result = replace::replace_in_content(
+        content,
+        "fn proccess_data() {}",
+        "fn handle() {}",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    // Without fuzzy, the typo doesn't match and count == 0.
+    assert!(!result.changed);
+    assert_eq!(result.match_count, 0);
+}
+
+#[test]
+fn replace_in_content_fuzzy_not_applied_in_regex_mode() {
+    // fuzzy should be ignored when regex mode is enabled.
+    let content = "fn process_data() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        regex: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn proccess_data\\(\\) \\{\\}",
+        "fn handle() {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(!result.changed, "regex mode should bypass fuzzy");
+}
+
+#[test]
+fn replace_in_content_fuzzy_with_unique() {
+    // fuzzy + unique: fuzzy finds exactly one match, so unique is satisfied.
+    let content = "fn setup() {}\nfn process_data(x: i32) {}\nfn cleanup() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        unique: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn proccess_data(x: i32) {}",
+        "fn handle_data(x: i32) {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_fuzzy_with_insert_before() {
+    // fuzzy + insert_before: the matched text should be preserved after
+    // the inserted text.
+    let content = "fn process_data() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        insert_before: Some("// TODO: refactor\n".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn proccess_data() {}",
+        "", // ignored when insert_before is set
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(
+        result.new_content.contains("// TODO: refactor\n"),
+        "insert_before text should appear: {}",
+        result.new_content
+    );
+    assert!(
+        result.new_content.contains("fn process_data() {}"),
+        "original matched text should be preserved: {}",
+        result.new_content
+    );
+}
+
+#[test]
+fn replace_in_content_fuzzy_with_insert_after() {
+    let content = "fn process_data() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        insert_after: Some("\n// end".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "fn proccess_data() {}", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(
+        result.new_content.contains("fn process_data() {}\n// end"),
+        "insert_after text should appear after matched text: {}",
+        result.new_content
+    );
+}
+
 #[test]
 fn parse_unified_diff_basic() {
     let diff = "\

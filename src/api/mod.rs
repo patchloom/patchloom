@@ -216,6 +216,12 @@ pub struct ReplaceOptions {
     /// Useful for AI coding agents that need to ensure each edit targets a
     /// unique location in the file.
     pub unique: bool,
+    /// When true and the exact match fails (0 matches), attempt fuzzy
+    /// resolution via `resolve_with_fallback` (anchor + similarity matching).
+    /// On fuzzy success, the matched text is used for the replacement.
+    /// On fuzzy failure, the error includes "did you mean?" suggestions.
+    /// Only applies to literal (non-regex) patterns.
+    pub fuzzy: bool,
 }
 
 /// Write policy options for controlling file write transformations.
