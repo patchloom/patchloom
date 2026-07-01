@@ -18,6 +18,9 @@ fn make_args(old: &str, new: &str, paths: Vec<String>) -> ReplaceArgs {
         word_boundary: false,
         whole_line: false,
         range: None,
+        before_context: None,
+        after_context: None,
+        unique: false,
         write: Default::default(),
     }
 }
@@ -64,6 +67,9 @@ mod basic {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -94,6 +100,9 @@ mod basic {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -194,6 +203,9 @@ mod basic {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -249,6 +261,9 @@ mod basic {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -305,6 +320,9 @@ mod basic {
             word_boundary: false,
             whole_line: true,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -342,6 +360,9 @@ mod basic {
             word_boundary: false,
             whole_line: true,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -372,6 +393,9 @@ mod basic {
             word_boundary: false,
             whole_line: true,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -401,6 +425,9 @@ mod basic {
             word_boundary: false,
             whole_line: true,
             range: Some("1:3".to_string()),
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -432,6 +459,9 @@ mod basic {
             word_boundary: false,
             whole_line: true,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -467,6 +497,9 @@ mod basic {
             word_boundary: true,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -505,6 +538,9 @@ mod edge_cases {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -534,6 +570,9 @@ mod edge_cases {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let global = GlobalFlags {
@@ -588,6 +627,9 @@ mod edge_cases {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -660,6 +702,9 @@ mod edge_cases {
             word_boundary: true,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -699,6 +744,9 @@ mod edge_cases {
             word_boundary: true,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -752,6 +800,9 @@ mod error_handling {
             word_boundary: false,
             whole_line: false,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -779,6 +830,9 @@ mod error_handling {
             word_boundary: false,
             whole_line: false,
             range: Some("1:5".to_string()),
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -809,6 +863,9 @@ mod error_handling {
             word_boundary: false,
             whole_line: true,
             range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -817,5 +874,282 @@ mod error_handling {
                 .contains("whole_line and multiline cannot be combined"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn unique_rejects_multi_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\nhello again\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: true,
+            write: Default::default(),
+        };
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(
+            code,
+            exit::AMBIGUOUS,
+            "--unique must return AMBIGUOUS when pattern matches more than once"
+        );
+
+        // File must not be modified.
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hello world\nhello again\n");
+    }
+
+    #[test]
+    fn unique_allows_single_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\ngoodbye world\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: true,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::SUCCESS,
+            "--unique must succeed when pattern matches exactly once"
+        );
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert_eq!(content, "hi world\ngoodbye world\n");
+    }
+
+    #[test]
+    fn unique_multi_file_rejects_ambiguous_file() {
+        let dir = TempDir::new().unwrap();
+        // a.txt: single match (ok)
+        fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
+        // b.txt: two matches (ambiguous)
+        fs::write(dir.path().join("b.txt"), "hello hello\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "hello".to_string(),
+            new: Some("hi".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![dir.path().to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: true,
+            write: Default::default(),
+        };
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(
+            code,
+            exit::AMBIGUOUS,
+            "--unique must fail when any file has multiple matches"
+        );
+    }
+}
+
+mod context_replace {
+    use super::*;
+
+    #[test]
+    fn after_context_disambiguates() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        fs::write(
+            &file,
+            "[server]\nhost = localhost\nport = 8080\n\n[database]\nhost = localhost\nport = 5432\n",
+        )
+        .unwrap();
+
+        // Replace "host = localhost" but only the one followed by "port = 5432".
+        let args = ReplaceArgs {
+            old: "host = localhost".to_string(),
+            new: Some("host = db.example.com".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: None,
+            after_context: Some("port = 5432".to_string()),
+            unique: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        // Only the database host should be changed.
+        assert!(
+            content.contains("[server]\nhost = localhost"),
+            "server host should be unchanged"
+        );
+        assert!(
+            content.contains("host = db.example.com\nport = 5432"),
+            "database host should be changed"
+        );
+    }
+
+    #[test]
+    fn before_context_disambiguates() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        fs::write(
+            &file,
+            "[server]\nhost = localhost\nport = 8080\n\n[database]\nhost = localhost\nport = 5432\n",
+        )
+        .unwrap();
+
+        // Replace "host = localhost" but only the one under [database].
+        let args = ReplaceArgs {
+            old: "host = localhost".to_string(),
+            new: Some("host = db.example.com".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("[database]".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert!(
+            content.contains("[server]\nhost = localhost"),
+            "server host should be unchanged"
+        );
+        assert!(
+            content.contains("[database]\nhost = db.example.com"),
+            "database host should be changed"
+        );
+    }
+
+    #[test]
+    fn context_no_match_returns_exit_3() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "zzz_no_match".to_string(),
+            new: Some("replacement".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("nonexistent".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn context_if_exists_returns_success_on_no_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "zzz_no_match".to_string(),
+            new: Some("replacement".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: true,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("nonexistent".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
     }
 }
