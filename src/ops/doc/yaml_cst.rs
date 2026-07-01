@@ -67,7 +67,25 @@ pub(crate) fn apply_yaml_mapping_diff(
                 }
                 // Type changed or scalar change.
                 _ => {
-                    mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+                    // Preserve quote style when updating a scalar string.
+                    if let Some(new_str) = new_val.as_str()
+                        && let Some(existing) = mapping.get(key.as_str())
+                        && let Some(scalar) = existing.as_scalar()
+                        && scalar.is_quoted()
+                    {
+                        let raw = scalar.value();
+                        let quote_char = raw.chars().next().unwrap_or('"');
+                        let quoted = if quote_char == '\'' {
+                            // Single-quoted: escape internal single quotes as ''
+                            format!("'{}'", new_str.replace('\'', "''"))
+                        } else {
+                            // Double-quoted: escape internal backslashes and double quotes
+                            format!("\"{}\"", new_str.replace('\\', "\\\\").replace('"', "\\\""))
+                        };
+                        scalar.set_value(&quoted);
+                    } else {
+                        mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+                    }
                 }
             }
         } else {
@@ -503,5 +521,45 @@ mod tests {
         // wrong; fixed by fix_yaml_block_indentation in the caller).
         assert!(result.contains("\"my-app\""));
         assert!(result.contains("\"8080\""));
+    }
+
+    #[test]
+    fn scalar_set_preserves_double_quote_style() {
+        let yaml = "name: \"John Doe\"\nage: 30\n";
+        let old = json!({"name": "John Doe", "age": 30});
+        let new = json!({"name": "Jane Doe", "age": 30});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(
+            result.contains("\"Jane Doe\""),
+            "double quotes not preserved: {result}"
+        );
+    }
+
+    #[test]
+    fn scalar_set_preserves_single_quote_style() {
+        let yaml = "path: '/usr/local'\nname: plain\n";
+        let old = json!({"path": "/usr/local", "name": "plain"});
+        let new = json!({"path": "/opt/bin", "name": "plain"});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(
+            result.contains("'/opt/bin'"),
+            "single quotes not preserved: {result}"
+        );
+    }
+
+    #[test]
+    fn scalar_set_preserves_plain_style() {
+        let yaml = "name: Alice\nage: 30\n";
+        let old = json!({"name": "Alice", "age": 30});
+        let new = json!({"name": "Bob", "age": 30});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(
+            result.contains("name: Bob"),
+            "plain style should not add quotes: {result}"
+        );
+        assert!(
+            !result.contains("\"Bob\"") && !result.contains("'Bob'"),
+            "plain value should not get quoted: {result}"
+        );
     }
 }
