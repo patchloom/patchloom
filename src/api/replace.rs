@@ -54,8 +54,8 @@ pub fn replace_text(
         whole_line: opts.whole_line,
         range: range_str,
         word_boundary: opts.word_boundary,
-        before_context: None,
-        after_context: None,
+        before_context: opts.before_context.clone(),
+        after_context: opts.after_context.clone(),
         unique: opts.unique,
     };
     replace_write(op, path, mode, guard)
