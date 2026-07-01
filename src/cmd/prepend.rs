@@ -1,10 +1,6 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
-use crate::cmd::output::execute_via_engine;
-use crate::plan::Operation;
-use anyhow::bail;
+use crate::cmd::append::{ContentPosition, run_content_inject};
 use clap::Args;
-use serde::Serialize;
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -24,61 +20,13 @@ pub struct PrependArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
-#[derive(Debug, Serialize)]
-struct PrependOutput {
-    ok: bool,
-    path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diff: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    applied: Option<bool>,
-}
-
 pub fn run(args: PrependArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    crate::verbose!("prepend: file={}", args.file);
-    if args.content.is_some() && args.stdin {
-        bail!("--content and --stdin cannot be combined");
-    }
-
-    let prepend_content = if let Some(ref c) = args.content {
-        c.clone()
-    } else if args.stdin {
-        std::io::read_to_string(std::io::stdin())?
-    } else {
-        bail!("either --content or --stdin must be provided");
-    };
-
-    let cwd = global.resolve_cwd()?;
-    let path = cwd.join(&args.file);
-    if !path.exists() {
-        bail!("file does not exist: {}", args.file);
-    }
-    if !path.is_file() {
-        bail!("target is not a file: {}", args.file);
-    }
-
-    let op = Operation::FilePrepend {
-        path: args.file.clone(),
-        content: prepend_content,
-    };
-
-    let check_msg = format!("would prepend to {}", args.file);
-    let apply_msg = format!("prepended to {}", args.file);
-
-    execute_via_engine(
-        op,
+    run_content_inject(
+        &args.file,
+        args.content.as_deref(),
+        args.stdin,
+        ContentPosition::Prepend,
         global,
-        |phase, diff| PrependOutput {
-            ok: true,
-            path: args.file.clone(),
-            diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
-        },
-        &check_msg,
-        &apply_msg,
     )
 }
 

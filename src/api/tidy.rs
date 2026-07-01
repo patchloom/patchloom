@@ -80,7 +80,7 @@ fn tidy_write(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-    super::execute_as_edit_result(op, mode, cwd, guard, "tidy")
+    super::execute_as_edit_result(op, mode, cwd, guard, "tidy", None)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
