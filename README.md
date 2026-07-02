@@ -330,6 +330,7 @@ All API types are `Send + Sync`. Beyond the `api` module, utility modules are al
 | `search` | Fast literal or regex search across text files (supports --glob/--exclude/--ignore-file for .blineignore-style layered filtering, --max-results, -C context, etc.) |
 | `replace` | Mechanical string replacement across text files with diff preview |
 | `append` | Append content to an existing file |
+| `prepend` | Prepend content to an existing file |
 | `create` | Create a new file with content |
 | `delete` | Delete a file |
 | `rename` | Move (rename) a file |

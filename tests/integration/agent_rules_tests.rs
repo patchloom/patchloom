@@ -101,6 +101,25 @@ fn test_agent_rules_mode_and_platform_compose() {
         .stdout(predicates::str::contains("## Exit codes").not());
 }
 
+#[test]
+fn test_agent_rules_json_output() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["agent-rules", "--json"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["format"], "markdown");
+    let content = v["content"].as_str().unwrap();
+    assert!(
+        content.contains("# Patchloom"),
+        "content should be agent rules markdown"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // init command
 // ---------------------------------------------------------------------------
