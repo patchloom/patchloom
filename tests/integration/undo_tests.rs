@@ -342,6 +342,69 @@ fn test_undo_list_json_empty_emits_array() {
     assert_eq!(parsed.as_array().unwrap().len(), 0);
 }
 
+// ---------------------------------------------------------------------------
+// Non-TTY error output (#1341)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_undo_list_no_sessions_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+
+    // Integration tests run with piped stderr (non-TTY). Before the fix,
+    // show_status() suppressed the error message in non-TTY contexts.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no backup sessions found"),
+        "text mode should emit error to stderr in non-TTY, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_undo_no_sessions_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no backup sessions found"),
+        "text mode should emit error to stderr in non-TTY, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_undo_list_no_sessions_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        output.stderr.is_empty(),
+        "--quiet should suppress stderr, got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn test_undo_invalid_session_apply_exits_1() {
     let dir = TempDir::new().unwrap();

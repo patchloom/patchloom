@@ -52,7 +52,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
             let empty: Vec<()> = vec![];
-            if !global.emit_json(&empty)? && global.show_status() {
+            if !global.emit_json(&empty)? && !global.quiet {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
@@ -86,7 +86,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if !global.emit_json(&serde_json::json!({
                 "ok": false,
                 "error": "no backup sessions found",
-            }))? && global.show_status()
+            }))? && !global.quiet
             {
                 eprintln!("no backup sessions found");
             }

@@ -851,7 +851,7 @@ mod format_no_match_tests {
 
     #[test]
     fn json_mode_returns_structured_error() {
-        let (output, code) = format_no_match("selector missed", OutputMode::Json).unwrap();
+        let (output, code) = format_no_match("selector missed", OutputMode::Json, false).unwrap();
         assert_eq!(code, crate::exit::NO_MATCHES);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert_eq!(parsed["ok"], false);
@@ -860,7 +860,7 @@ mod format_no_match_tests {
 
     #[test]
     fn jsonl_mode_returns_compact_error() {
-        let (output, code) = format_no_match("selector missed", OutputMode::Jsonl).unwrap();
+        let (output, code) = format_no_match("selector missed", OutputMode::Jsonl, false).unwrap();
         assert_eq!(code, crate::exit::NO_MATCHES);
         // JSONL output should be a single compact line (no internal newlines).
         assert!(!output.contains('\n'));
@@ -869,8 +869,18 @@ mod format_no_match_tests {
     }
 
     #[test]
-    fn text_mode_returns_empty_string() {
-        let (output, code) = format_no_match("selector missed", OutputMode::Text).unwrap();
+    fn text_mode_returns_empty_string_and_emits_stderr() {
+        // In text mode, format_no_match emits to stderr and returns empty
+        // stdout. We can't capture stderr in a unit test, but we verify
+        // the return value is correct.
+        let (output, code) = format_no_match("selector missed", OutputMode::Text, false).unwrap();
+        assert_eq!(code, crate::exit::NO_MATCHES);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn text_mode_quiet_suppresses_stderr() {
+        let (output, code) = format_no_match("selector missed", OutputMode::Text, true).unwrap();
         assert_eq!(code, crate::exit::NO_MATCHES);
         assert!(output.is_empty());
     }
