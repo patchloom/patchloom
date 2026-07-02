@@ -633,7 +633,10 @@ pub(crate) fn execute_with_mode(
             }
             match output_mode {
                 OutputMode::Json => Ok((
-                    serde_json::to_string_pretty(&entries)?,
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "identical": false,
+                        "differences": entries,
+                    }))?,
                     exit::CHANGES_DETECTED,
                 )),
                 OutputMode::Jsonl => Ok((
