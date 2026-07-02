@@ -115,6 +115,23 @@ fn patch_file_result(path: &str, applied: &ApplyHunksResult) -> PatchFileResult 
     }
 }
 
+/// Build `PatchFileResult` list from diffs, filtering for changed files.
+fn build_file_results(
+    diffs: &[crate::diff::FileDiff],
+    status: &'static str,
+) -> Vec<PatchFileResult> {
+    diffs
+        .iter()
+        .filter(|d| d.has_changes)
+        .map(|d| PatchFileResult {
+            path: d.path.clone(),
+            status,
+            error: None,
+            conflicts: None,
+        })
+        .collect()
+}
+
 fn apply_patch_file(
     original: &str,
     hunks: &[crate::ops::patch::Hunk],
@@ -398,16 +415,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --check mode: report what would happen, no mutation.
     if global.check {
         let diffs = result.build_diffs();
-        let files: Vec<PatchFileResult> = diffs
-            .iter()
-            .filter(|d| d.has_changes)
-            .map(|d| PatchFileResult {
-                path: d.path.clone(),
-                status: "changed",
-                error: None,
-                conflicts: None,
-            })
-            .collect();
+        let files = build_file_results(&diffs, "changed");
         let changed = files.len();
         if changed > 0 {
             emit_patch_files_output(global, true, &files)?;
@@ -422,16 +430,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --apply mode: commit, then show output.
     if global.apply || global.should_apply() {
         let diffs = result.build_diffs();
-        let files: Vec<PatchFileResult> = diffs
-            .iter()
-            .filter(|d| d.has_changes)
-            .map(|d| PatchFileResult {
-                path: d.path.clone(),
-                status: "applied",
-                error: None,
-                conflicts: None,
-            })
-            .collect();
+        let files = build_file_results(&diffs, "applied");
         result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
         emit_patch_files_output(global, true, &files)?;
@@ -441,16 +440,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Default / --diff mode: show diff preview.
     let diffs = result.build_diffs();
     if global.json || global.jsonl {
-        let files: Vec<PatchFileResult> = diffs
-            .iter()
-            .filter(|d| d.has_changes)
-            .map(|d| PatchFileResult {
-                path: d.path.clone(),
-                status: "changed",
-                error: None,
-                conflicts: None,
-            })
-            .collect();
+        let files = build_file_results(&diffs, "changed");
         emit_patch_files_output(global, true, &files)?;
     } else {
         print!(
