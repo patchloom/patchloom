@@ -376,7 +376,18 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global,
         guard: None,
     };
-    let result = crate::tx::engine::execute_operations(operations, options)?;
+    let result = match crate::tx::engine::execute_operations(operations, options) {
+        Ok(r) => r,
+        Err(e) if exit::is_no_match(&e) => {
+            let msg = e.to_string();
+            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? && !global.quiet
+            {
+                eprintln!("{msg}");
+            }
+            return Ok(exit::NO_MATCHES);
+        }
+        Err(e) => return Err(e),
+    };
 
     if global.check {
         global.emit_json(&serde_json::json!({
