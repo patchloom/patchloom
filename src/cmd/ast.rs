@@ -151,9 +151,7 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            if global.json || global.jsonl {
-                global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?;
-            } else {
+            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? {
                 eprintln!("{msg}");
             }
             return Ok(exit::NO_MATCHES);
@@ -213,12 +211,10 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if any_output {
         Ok(exit::SUCCESS)
     } else {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no symbols found in {}", args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no symbols found in {}", args.path),
+        }))?;
         Ok(exit::NO_MATCHES)
     }
 }
@@ -262,19 +258,16 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .saturating_sub(args.context.saturating_add(1));
     let end = sym.end_line.saturating_add(args.context).min(lines.len());
 
-    if global.json || global.jsonl {
-        let content: String = lines[start..end].iter().map(|l| format!("{l}\n")).collect();
-        let obj = serde_json::json!({
-            "file": args.path,
-            "symbol": sym.name,
-            "kind": sym.kind.to_string(),
-            "start_line": sym.start_line,
-            "end_line": sym.end_line,
-            "signature": sym.signature,
-            "content": content,
-        });
-        global.emit_json(&obj)?;
-    } else {
+    let content: String = lines[start..end].iter().map(|l| format!("{l}\n")).collect();
+    if !global.emit_json(&serde_json::json!({
+        "file": args.path,
+        "symbol": sym.name,
+        "kind": sym.kind.to_string(),
+        "start_line": sym.start_line,
+        "end_line": sym.end_line,
+        "signature": sym.signature,
+        "content": content,
+    }))? {
         for (i, line) in lines[start..end].iter().enumerate() {
             let line_num = start + i + 1;
             println!("{line_num:>4} | {line}");
@@ -370,12 +363,10 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if operations.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("symbol '{}' not found in {}", args.old_name, args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("symbol '{}' not found in {}", args.old_name, args.path),
+        }))?;
         return Ok(exit::NO_MATCHES);
     }
 
@@ -388,13 +379,10 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let result = crate::tx::engine::execute_operations(operations, options)?;
 
     if global.check {
-        if global.json || global.jsonl {
-            let obj = serde_json::json!({
-                "ok": true,
-                "files_changed": files_changed,
-            });
-            global.emit_json(&obj)?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": true,
+            "files_changed": files_changed,
+        }))?;
         return Ok(exit::CHANGES_DETECTED);
     }
 
@@ -403,13 +391,11 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
 
-        if global.json || global.jsonl {
-            let obj = serde_json::json!({
-                "ok": true,
-                "files_changed": diffs.len(),
-            });
-            global.emit_json(&obj)?;
-        } else if !global.quiet {
+        if !global.emit_json(&serde_json::json!({
+            "ok": true,
+            "files_changed": diffs.len(),
+        }))? && !global.quiet
+        {
             for d in &diffs {
                 eprintln!("{}: renamed", d.path);
             }
@@ -477,21 +463,20 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         if !vr.result.valid {
             all_valid = false;
         }
-        if global.json || global.jsonl {
-            let obj = serde_json::json!({
-                "file": vr.display,
-                "valid": vr.result.valid,
-                "language": vr.result.language,
-                "errors": vr.result.errors,
-            });
-            global.emit_json(&obj)?;
-        } else if !vr.result.valid {
-            eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
-            for err in &vr.result.errors {
-                eprintln!("  line {}:{}: {}", err.line, err.column, err.text.trim());
+        if !global.emit_json(&serde_json::json!({
+            "file": vr.display,
+            "valid": vr.result.valid,
+            "language": vr.result.language,
+            "errors": vr.result.errors,
+        }))? {
+            if !vr.result.valid {
+                eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
+                for err in &vr.result.errors {
+                    eprintln!("  line {}:{}: {}", err.line, err.column, err.text.trim());
+                }
+            } else if !global.quiet {
+                eprintln!("{}: OK ({})", vr.display, vr.result.language);
             }
-        } else if !global.quiet {
-            eprintln!("{}: OK ({})", vr.display, vr.result.language);
         }
     }
 
@@ -577,16 +562,13 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     'outer: for result in &file_results {
         for m in &result.matches {
             total_matches += 1;
-            if global.json || global.jsonl {
-                let obj = serde_json::json!({
-                    "file": result.display,
-                    "line": m.line,
-                    "column": m.column,
-                    "text": m.text,
-                    "captures": m.captures,
-                });
-                global.emit_json(&obj)?;
-            } else {
+            if !global.emit_json(&serde_json::json!({
+                "file": result.display,
+                "line": m.line,
+                "column": m.column,
+                "text": m.text,
+                "captures": m.captures,
+            }))? {
                 println!(
                     "{}:{}:{}: {}",
                     result.display,
@@ -607,12 +589,10 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if total_matches == 0 {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no matches for pattern in {}", args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no matches for pattern in {}", args.path),
+        }))?;
         Ok(exit::NO_MATCHES)
     } else {
         Ok(exit::SUCCESS)
@@ -663,23 +643,18 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if all_refs.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no references found for '{}' in {}", args.symbol, args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no references found for '{}' in {}", args.symbol, args.path),
+        }))?;
         return Ok(exit::NO_MATCHES);
     }
 
-    if global.json || global.jsonl {
-        let obj = serde_json::json!({
-            "symbol": args.symbol,
-            "references": all_refs,
-            "count": all_refs.len(),
-        });
-        global.emit_json(&obj)?;
-    } else {
+    if !global.emit_json(&serde_json::json!({
+        "symbol": args.symbol,
+        "references": all_refs,
+        "count": all_refs.len(),
+    }))? {
         for r in &all_refs {
             let kind_label = match r.kind {
                 crate::ast::refs::RefKind::Definition => "def",
@@ -755,13 +730,12 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
             if global.json || global.jsonl {
                 for imp in &matching {
-                    let obj = serde_json::json!({
+                    global.emit_json(&serde_json::json!({
                         "file": display,
                         "imports": imp.path,
                         "line": imp.line,
                         "raw": imp.raw,
-                    });
-                    global.emit_json(&obj)?;
+                    }))?;
                 }
             } else {
                 for imp in &matching {
@@ -789,13 +763,10 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         for result in &results {
             any_output = true;
-            if global.json || global.jsonl {
-                let obj = serde_json::json!({
-                    "file": result.display,
-                    "imports": result.imports,
-                });
-                global.emit_json(&obj)?;
-            } else {
+            if !global.emit_json(&serde_json::json!({
+                "file": result.display,
+                "imports": result.imports,
+            }))? {
                 println!("{}", result.display);
                 println!("  imports:");
                 for imp in &result.imports {
@@ -809,12 +780,10 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if any_output {
         Ok(exit::SUCCESS)
     } else {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no imports found in {}", args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no imports found in {}", args.path),
+        }))?;
         Ok(exit::NO_MATCHES)
     }
 }
@@ -873,22 +842,14 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let entries = crate::ast::map::generate_map(&file_pairs, &opts);
 
     if entries.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no symbols found in {}", args.path),
-            }))?;
-        }
+        global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no symbols found in {}", args.path),
+        }))?;
         return Ok(exit::NO_MATCHES);
     }
 
-    if global.jsonl {
-        for entry in &entries {
-            global.emit_json(entry)?;
-        }
-    } else if global.json {
-        global.emit_json(&entries)?;
-    } else {
+    if !global.emit_json_items(&entries)? {
         print!("{}", crate::ast::map::render_tree(&entries));
     }
 
@@ -980,9 +941,9 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("not found") || msg.contains("no matches") {
-                if global.json || global.jsonl {
-                    global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?;
-                } else if !global.quiet {
+                if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?
+                    && !global.quiet
+                {
                     eprintln!("{msg}");
                 }
                 Ok(exit::NO_MATCHES)
@@ -1030,26 +991,22 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
 
     if nodes.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": format!("no references found for '{}'", args.symbol),
-            }))?;
-        } else if !global.quiet {
+        if !global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": format!("no references found for '{}'", args.symbol),
+        }))? && !global.quiet
+        {
             eprintln!("no references found for '{}'", args.symbol);
         }
         return Ok(exit::NO_MATCHES);
     }
 
-    if global.json || global.jsonl {
-        let obj = serde_json::json!({
-            "symbol": args.symbol,
-            "depth": args.depth,
-            "impact": nodes,
-            "direct_count": nodes.len(),
-        });
-        global.emit_json(&obj)?;
-    } else {
+    if !global.emit_json(&serde_json::json!({
+        "symbol": args.symbol,
+        "depth": args.depth,
+        "impact": nodes,
+        "direct_count": nodes.len(),
+    }))? {
         print!(
             "{}",
             crate::ast::impact::render_impact_tree(&args.symbol, &nodes, 0)
@@ -1104,26 +1061,22 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
 
     if changes.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": "no structural changes",
-            }))?;
-        } else if !global.quiet {
+        if !global.emit_json(&serde_json::json!({
+            "ok": false,
+            "error": "no structural changes",
+        }))? && !global.quiet
+        {
             eprintln!("no structural changes");
         }
         return Ok(exit::NO_MATCHES);
     }
 
-    if global.json || global.jsonl {
-        let obj = serde_json::json!({
-            "file": args.path,
-            "from": args.from,
-            "to": args.to.as_deref().unwrap_or("working tree"),
-            "changes": changes,
-        });
-        global.emit_json(&obj)?;
-    } else {
+    if !global.emit_json(&serde_json::json!({
+        "file": args.path,
+        "from": args.from,
+        "to": args.to.as_deref().unwrap_or("working tree"),
+        "changes": changes,
+    }))? {
         print!("{}", crate::ast::diff::render_changes(&args.path, &changes));
     }
 
