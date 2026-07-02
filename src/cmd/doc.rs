@@ -462,7 +462,16 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_get(&root, selector)? {
                 crate::ops::doc::query::QueryResult::NoMatch => {
-                    Ok((String::new(), exit::NO_MATCHES))
+                    let output = match output_mode {
+                        OutputMode::Json => serde_json::to_string_pretty(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Jsonl => serde_json::to_string(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Text => String::new(),
+                    };
+                    Ok((output, exit::NO_MATCHES))
                 }
                 crate::ops::doc::query::QueryResult::Values(vals) => {
                     let refs: Vec<&serde_json::Value> = vals.iter().collect();
@@ -495,7 +504,16 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_keys(&root, selector)? {
                 crate::ops::doc::query::QueryKeysResult::NoMatch => {
-                    Ok((String::new(), exit::NO_MATCHES))
+                    let output = match output_mode {
+                        OutputMode::Json => serde_json::to_string_pretty(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Jsonl => serde_json::to_string(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Text => String::new(),
+                    };
+                    Ok((output, exit::NO_MATCHES))
                 }
                 crate::ops::doc::query::QueryKeysResult::NotAnObject => Ok((
                     format!("doc keys: target at '{selector}' is not an object"),
@@ -521,7 +539,16 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_len(&root, selector)? {
                 crate::ops::doc::query::QueryLenResult::NoMatch => {
-                    Ok((String::new(), exit::NO_MATCHES))
+                    let output = match output_mode {
+                        OutputMode::Json => serde_json::to_string_pretty(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Jsonl => serde_json::to_string(
+                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
+                        )?,
+                        OutputMode::Text => String::new(),
+                    };
+                    Ok((output, exit::NO_MATCHES))
                 }
                 crate::ops::doc::query::QueryLenResult::NotArrayOrObject => Ok((
                     format!("doc len: target at '{selector}' is not an array or object"),
@@ -545,7 +572,16 @@ pub(crate) fn execute_with_mode(
             let mut path_buf = String::new();
             flatten_value(&root, &mut path_buf, &mut entries);
             if entries.is_empty() {
-                return Ok((String::new(), exit::NO_MATCHES));
+                let output = match output_mode {
+                    OutputMode::Json => serde_json::to_string_pretty(
+                        &serde_json::json!({"ok": false, "error": "document has no leaf values to flatten"}),
+                    )?,
+                    OutputMode::Jsonl => serde_json::to_string(
+                        &serde_json::json!({"ok": false, "error": "document has no leaf values to flatten"}),
+                    )?,
+                    OutputMode::Text => String::new(),
+                };
+                return Ok((output, exit::NO_MATCHES));
             }
             match output_mode {
                 OutputMode::Json => {

@@ -158,6 +158,12 @@ fn execute_md_op(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("heading") && msg.contains("not found") {
+                if global.json || global.jsonl {
+                    global.emit_json(&serde_json::json!({
+                        "ok": false,
+                        "error": &msg,
+                    }))?;
+                }
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
@@ -377,7 +383,15 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let content =
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             match find_section(&content, &heading) {
-                None => Ok(exit::NO_MATCHES),
+                None => {
+                    if global.json || global.jsonl {
+                        global.emit_json(&serde_json::json!({
+                            "ok": false,
+                            "error": format!("heading {:?} not found in {file}", heading),
+                        }))?;
+                    }
+                    Ok(exit::NO_MATCHES)
+                }
                 Some((body_start, body_end)) => {
                     // Verify the table exists and the row is valid.
                     if let Err(e) =

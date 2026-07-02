@@ -670,6 +670,51 @@ mod error_handling {
         assert!(output.is_empty());
     }
 
+    #[test]
+    fn get_missing_selector_json_emits_error_object() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Get {
+            file: path,
+            selector: "nonexistent".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("no match"));
+    }
+
+    #[test]
+    fn keys_missing_selector_json_emits_error_object() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Keys {
+            file: path,
+            selector: "nonexistent".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("no match"));
+    }
+
+    #[test]
+    fn len_missing_selector_json_emits_error_object() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let action = DocAction::Len {
+            file: path,
+            selector: "nonexistent".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert!(v["error"].as_str().unwrap().contains("no match"));
+    }
+
     // -- error path tests ---------------------------------------------------
 
     #[test]
