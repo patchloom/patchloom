@@ -714,21 +714,11 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             Ok(code) => return Ok(code),
             Err(e) => {
                 if exit::is_no_match(&e) {
-                    let msg = e.to_string();
-                    if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?
-                        && !global.quiet
-                    {
-                        eprintln!("{msg}");
-                    }
+                    global.emit_error_json(&e.to_string())?;
                     return Ok(exit::NO_MATCHES);
                 }
                 // TypeError or other engine error → FAILURE
-                let msg = e.to_string();
-                if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))?
-                    && !global.quiet
-                {
-                    eprintln!("{msg}");
-                }
+                global.emit_error_json(&e.to_string())?;
                 return Ok(exit::FAILURE);
             }
         }
