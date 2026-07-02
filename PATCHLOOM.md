@@ -166,7 +166,7 @@ patchloom patch merge changes.patch --apply --allow-conflicts
 ```bash
 # Same via transaction plan (JSON):
 patchloom tx - --apply <<'EOF'
-{"version": "1", "operations": [
+{"version": 1, "operations": [
 {"op": "patch.apply", "diff": "...", "on_stale": "merge", "allow_conflicts": true}
 ]}
 EOF
