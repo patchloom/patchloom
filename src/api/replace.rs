@@ -58,7 +58,7 @@ pub fn replace_text(
         after_context: opts.after_context.clone(),
         unique: opts.unique,
     };
-    replace_write(op, path, mode, guard)
+    replace_write(op, path, mode, guard, opts.fuzzy)
 }
 
 /// Unified write path for replace operations.
@@ -68,6 +68,7 @@ fn replace_write(
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    _fuzzy: bool,
 ) -> anyhow::Result<EditResult> {
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
     super::execute_as_edit_result(op, mode, cwd, guard, "replace", None)
@@ -75,10 +76,11 @@ fn replace_write(
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
 fn replace_write(
-    _op: Operation,
+    op: Operation,
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    fuzzy: bool,
 ) -> anyhow::Result<EditResult> {
     use crate::ops;
     use anyhow::{Context, bail};
@@ -98,8 +100,10 @@ fn replace_write(
         word_boundary,
         nth,
         unique,
+        before_context,
+        after_context,
         ..
-    } = _op
+    } = op
     {
         let path_str = path.to_string_lossy();
         let original = std::fs::read_to_string(path)
@@ -153,14 +157,113 @@ fn replace_write(
         } else {
             ops::replace::replace_content(&original, &old, &replacement, compiled_re.as_ref(), nth)
         };
+
+        // Context disambiguation: when multiple exact matches and context is
+        // provided, select the match nearest to the context instead of
+        // replacing all (mirrors tx engine logic in replace_op.rs).
+        if count > 1
+            && nth.is_none()
+            && !whole_line
+            && !is_regex
+            && (before_context.is_some() || after_context.is_some())
+        {
+            if let Some(target_offset) = ops::replace::context_filtered_offset(
+                &original,
+                &old,
+                before_context.as_deref(),
+                after_context.as_deref(),
+            ) {
+                let ctx_content = format!(
+                    "{}{}{}",
+                    &original[..target_offset],
+                    &replacement,
+                    &original[target_offset + old.len()..],
+                );
+                let policy = crate::write::WritePolicy::default();
+                let applied = super::write_if_apply(path, &ctx_content, mode, &policy, guard)?;
+                let mut result = super::build_edit_result(
+                    &path_str,
+                    original,
+                    ctx_content,
+                    applied,
+                    "replace",
+                    None,
+                );
+                result.match_count = 1;
+                return Ok(result);
+            }
+        }
+
         let new_content = new_content.into_owned();
 
+        // Note: context disambiguation runs BEFORE unique, so context can
+        // resolve ambiguity even with unique=true. This diverges from the tx
+        // engine (which bails on unique before context), but is intentional:
+        // context-resolved results are unambiguous by definition.
         if unique && count > 1 {
             bail!(
                 "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
                 old,
                 count
             );
+        }
+
+        // Fuzzy/context fallback: when exact match fails and fuzzy or context
+        // is enabled, try resolve_with_fallback for anchor/similarity matching
+        // (mirrors tx engine fallback in replace_op.rs).
+        if count == 0 && !is_regex && (fuzzy || before_context.is_some() || after_context.is_some())
+        {
+            use crate::fallback;
+            match fallback::resolve_with_fallback(
+                &original,
+                &old,
+                before_context.as_deref(),
+                after_context.as_deref(),
+            ) {
+                Ok(anchor) => {
+                    let to_text = if let Some(ib) = &insert_before {
+                        format!("{}{}", ib, anchor.matched_text)
+                    } else if let Some(ia) = &insert_after {
+                        format!("{}{}", anchor.matched_text, ia)
+                    } else {
+                        new_text.as_deref().unwrap_or("").to_string()
+                    };
+                    let fb_content = format!(
+                        "{}{}{}",
+                        &original[..anchor.start_offset],
+                        to_text,
+                        &original[anchor.start_offset + anchor.matched_text.len()..],
+                    );
+                    let policy = crate::write::WritePolicy::default();
+                    let applied = super::write_if_apply(path, &fb_content, mode, &policy, guard)?;
+                    let mut result = super::build_edit_result(
+                        &path_str, original, fb_content, applied, "replace", None,
+                    );
+                    result.match_count = 1;
+                    return Ok(result);
+                }
+                Err(edit_error) => {
+                    if if_exists {
+                        return Ok(super::build_edit_result(
+                            &path_str,
+                            original.clone(),
+                            original,
+                            false,
+                            "replace",
+                            None,
+                        ));
+                    }
+                    let similar = fallback::find_similar_targets(&original, &old, 3);
+                    let mut msg = format!("no matches for {:?}", old);
+                    if let Some(suggestion) = &edit_error.suggestion {
+                        msg.push_str(&format!(" (suggestion: {})", suggestion));
+                    }
+                    if !similar.is_empty() {
+                        msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
+                    }
+                    bail!("{msg}");
+                }
+            }
         }
 
         if count == 0 && if_exists {
@@ -248,6 +351,38 @@ pub fn replace_in_content(
     } else {
         ops::replace::replace_content(content, from, &replacement, compiled_re.as_ref(), opts.nth)
     };
+
+    // Context disambiguation (#1315): when multiple exact matches and context
+    // is provided, select the match nearest to the context instead of
+    // replacing all (mirrors replace_write and tx engine logic).
+    if count > 1
+        && opts.nth.is_none()
+        && !opts.whole_line
+        && !is_regex
+        && (opts.before_context.is_some() || opts.after_context.is_some())
+        && let Some(target_offset) = ops::replace::context_filtered_offset(
+            content,
+            from,
+            opts.before_context.as_deref(),
+            opts.after_context.as_deref(),
+        )
+    {
+        let ctx_content = format!(
+            "{}{}{}",
+            &content[..target_offset],
+            &replacement,
+            &content[target_offset + from.len()..],
+        );
+        let diff = super::make_diff("<content>", content, &ctx_content);
+        return Ok(ContentEditResult {
+            original: content.to_string(),
+            new_content: ctx_content,
+            diff,
+            changed: true,
+            match_count: 1,
+        });
+    }
+
     let new_content = new_content.into_owned();
 
     if opts.unique && count > 1 {
@@ -258,9 +393,13 @@ pub fn replace_in_content(
         );
     }
 
-    // Fuzzy fallback (#1286): when exact match fails and fuzzy is enabled,
-    // try resolve_with_fallback for anchor/similarity matching.
-    if count == 0 && opts.fuzzy && !is_regex {
+    // Fuzzy/context fallback (#1286, #1315): when exact match fails and fuzzy
+    // or context is enabled, try resolve_with_fallback for anchor/similarity
+    // matching (matches replace_write and tx engine behavior).
+    if count == 0
+        && !is_regex
+        && (opts.fuzzy || opts.before_context.is_some() || opts.after_context.is_some())
+    {
         use crate::fallback;
         match fallback::resolve_with_fallback(
             content,

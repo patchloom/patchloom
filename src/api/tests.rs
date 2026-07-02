@@ -3039,3 +3039,398 @@ fn replace_text_after_context_disambiguates() {
     );
     assert!(content.contains("DONE"), "first should be replaced");
 }
+
+// ── #1314: Unicode/multibyte text tests for replace_in_content ──
+
+#[test]
+fn replace_in_content_unicode_cjk_literal() {
+    let content = "fn greet() { println!(\"こんにちは世界\"); }\n";
+    let result = replace::replace_in_content(
+        content,
+        "こんにちは世界",
+        "你好世界",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("你好世界"));
+    assert!(!result.new_content.contains("こんにちは世界"));
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_unicode_emoji() {
+    let content = "status: 🔴 failing\nother: 🟢 passing\n";
+    let result = replace::replace_in_content(
+        content,
+        "🔴 failing",
+        "🟢 passing",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert_eq!(
+        result.new_content, "status: 🟢 passing\nother: 🟢 passing\n",
+        "emoji replacement should preserve byte boundaries"
+    );
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_unicode_combining_marks() {
+    // e\u{0301} is "e" + combining acute accent = "é" (2 code points)
+    let content = "caf\u{0065}\u{0301} au lait\n";
+    let result = replace::replace_in_content(
+        content,
+        "caf\u{0065}\u{0301}",
+        "coffee",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("coffee au lait"));
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_unicode_mixed_scripts() {
+    let content = "name: Привет мир\ntag: hello\n";
+    let result = replace::replace_in_content(
+        content,
+        "Привет мир",
+        "Здравствуй мир",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("Здравствуй мир"));
+    assert_eq!(result.match_count, 1);
+}
+
+#[test]
+fn replace_in_content_unicode_regex() {
+    let content = "price: ¥1000\nprice: ¥2000\n";
+    let opts = ReplaceOptions {
+        regex: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, r"¥\d+", "€999", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 2);
+    assert_eq!(result.new_content, "price: €999\nprice: €999\n");
+}
+
+#[test]
+fn replace_in_content_unicode_case_insensitive() {
+    // Turkish dotless i: İ (U+0130) lowercases to i in Unicode-aware mode
+    let content = "ÜBER cool\n";
+    let opts = ReplaceOptions {
+        case_insensitive: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "über", "super", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("super cool"));
+}
+
+#[test]
+fn replace_in_content_unicode_word_boundary() {
+    // Word boundary with CJK: CJK chars don't have \b boundaries like Latin,
+    // but the pattern should still work for Latin words in mixed content.
+    let content = "日本語 hello 中文\n";
+    let opts = ReplaceOptions {
+        word_boundary: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "hello", "world", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "日本語 world 中文\n");
+}
+
+#[test]
+fn replace_in_content_unicode_whole_line() {
+    let content = "普通の行\n削除する行\nもう一つの行\n";
+    let opts = ReplaceOptions {
+        whole_line: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "削除する", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(!result.new_content.contains("削除する行"));
+    assert!(result.new_content.contains("普通の行"));
+    assert!(result.new_content.contains("もう一つの行"));
+}
+
+#[test]
+fn replace_in_content_unicode_nth() {
+    let content = "café café café\n";
+    let opts = ReplaceOptions {
+        nth: Some(2),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "café", "tea", &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.new_content, "café tea café\n");
+}
+
+#[test]
+fn replace_in_content_unicode_insert_after() {
+    let content = "use 标准库;\n";
+    let opts = ReplaceOptions {
+        insert_after: Some("\nuse 扩展库;".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "use 标准库;", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("use 标准库;\nuse 扩展库;"));
+}
+
+#[test]
+fn replace_in_content_unicode_multiline_regex() {
+    let content = "struct 数据 {\n    名前: String,\n}\n";
+    let opts = ReplaceOptions {
+        regex: true,
+        multiline: true,
+        ..Default::default()
+    };
+    let result =
+        replace::replace_in_content(content, r"struct 数据 \{[^}]+\}", "struct Data {}", &opts)
+            .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("struct Data {}"));
+}
+
+#[test]
+fn replace_in_content_unicode_unique() {
+    let content = "α β α γ\n";
+    let opts = ReplaceOptions {
+        unique: true,
+        ..Default::default()
+    };
+    let err = replace::replace_in_content(content, "α", "x", &opts).unwrap_err();
+    assert!(err.to_string().contains("ambiguous"));
+}
+
+#[test]
+fn replace_in_content_unicode_fuzzy() {
+    // Fuzzy match with Unicode: "процесс" vs "процесс" (typo: extra с)
+    let content = "fn процесс_данных() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn процесс_данныхх() {}",
+        "fn обработка() {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("обработка"));
+}
+
+// ── #1315: replace_in_content context disambiguation and fallback ──
+
+#[test]
+fn replace_in_content_context_disambiguates_multi_match() {
+    let content =
+        "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n";
+    let opts = ReplaceOptions {
+        before_context: Some("[database]".to_string()),
+        ..Default::default()
+    };
+    let result =
+        replace::replace_in_content(content, "host = localhost", "host = db.primary", &opts)
+            .unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_count, 1);
+    assert!(result.new_content.contains("host = db.primary"));
+    assert!(
+        result.new_content.matches("host = localhost").count() == 1,
+        "only one occurrence should be replaced"
+    );
+}
+
+#[test]
+fn replace_in_content_context_fallback_on_zero_match() {
+    // context alone (without fuzzy) should trigger fallback on zero match.
+    let content = "fn header() {}\nfn process(x: Vec<u8>) {}\nfn footer() {}\n";
+    let opts = ReplaceOptions {
+        before_context: Some("fn header()".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(
+        content,
+        "fn process(x: Vec<i32>) {}",
+        "fn process(x: Vec<u8>, flag: bool) {}",
+        &opts,
+    )
+    .unwrap();
+    assert!(result.changed, "context fallback should find a match");
+    assert_eq!(result.match_count, 1);
+    assert!(result.new_content.contains("flag: bool"));
+}
+
+// ── #1315: replace_text fallback path tests (context + fuzzy) ──
+// These tests exercise replace_text (file-based) with context and fuzzy
+// options. Under --all-features they go through the tx engine; under
+// --no-default-features they exercise the fixed fallback path.
+
+#[test]
+fn replace_text_before_context_disambiguates_any_path() {
+    // Tests both full and fallback paths depending on features.
+    // Full path: tx engine handles context via context_filtered_offset.
+    // Fallback path: our fix in replace_write handles it directly.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.ini");
+    fs::write(
+        &file,
+        "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+    )
+    .unwrap();
+
+    let opts = ReplaceOptions {
+        before_context: Some("[database]".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "host = localhost",
+        "host = db.primary",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(
+        result.new_content.contains("host = db.primary"),
+        "database host should be replaced"
+    );
+    assert!(
+        result.new_content.matches("host = localhost").count() == 1,
+        "cache host should remain unchanged"
+    );
+}
+
+#[test]
+fn replace_text_after_context_disambiguates_any_path() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.ini");
+    fs::write(
+        &file,
+        "[database]\nhost = localhost\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+    )
+    .unwrap();
+
+    let opts = ReplaceOptions {
+        after_context: Some("port = 5432".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "host = localhost",
+        "host = db.primary",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.new_content.contains("[database]\nhost = db.primary"));
+    assert!(result.new_content.contains("[cache]\nhost = localhost"));
+}
+
+#[test]
+fn replace_text_context_fallback_on_no_match_any_path() {
+    // When exact match fails but context is provided, resolve_with_fallback
+    // should find an anchor match. Both full and fallback paths support this.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(
+        &file,
+        "fn header() {\n}\nfn process(input: Vec<u8>) {\n}\nfn footer() {\n}\n",
+    )
+    .unwrap();
+
+    let opts = ReplaceOptions {
+        before_context: Some("fn process".to_string()),
+        ..Default::default()
+    };
+    // Stale pattern (Vec<i32> instead of Vec<u8>): exact match fails,
+    // context fallback should find the similar line.
+    let result = replace_text(
+        &file,
+        "fn process(input: Vec<i32>) {",
+        "fn process(input: Vec<u8>, flag: bool) {",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed, "context fallback should find a match");
+    assert!(
+        result.new_content.contains("flag: bool"),
+        "replacement should be applied"
+    );
+}
+
+#[test]
+fn replace_text_fuzzy_with_context_any_path() {
+    // fuzzy + context: when exact match fails, both paths use
+    // resolve_with_fallback to find the anchor match.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(
+        &file,
+        "fn setup() {}\nfn process_data(x: i32) {}\nfn cleanup() {}\n",
+    )
+    .unwrap();
+
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        before_context: Some("fn setup()".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "fn proccess_data(x: i32) {}",
+        "fn handle_data(x: i32) {}",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed, "fuzzy+context should resolve the typo");
+    assert!(
+        result.new_content.contains("handle_data"),
+        "replacement should be applied: {}",
+        result.new_content
+    );
+}
+
+#[test]
+fn replace_text_fuzzy_with_if_exists_any_path() {
+    // fuzzy + if_exists + context: when all fail, no error.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn alpha() {}\nfn beta() {}\n").unwrap();
+
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        if_exists: true,
+        before_context: Some("fn alpha()".to_string()),
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "fn completely_unrelated_xyz() {}",
+        "fn replaced() {}",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(!result.changed);
+}
