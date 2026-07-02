@@ -158,10 +158,13 @@ fn execute_md_op(
         Err(e) => {
             if exit::is_no_match(&e) {
                 let msg = e.to_string();
-                global.emit_json(&serde_json::json!({
+                if !global.emit_json(&serde_json::json!({
                     "ok": false,
                     "error": &msg,
-                }))?;
+                }))? && !global.quiet
+                {
+                    eprintln!("{msg}");
+                }
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
