@@ -12,10 +12,25 @@ pub(crate) fn apply_value_diff(
             // Try to get a mutable table reference from the item.
             let table = if let Some(t) = item.as_table_mut() {
                 t
-            } else if item.as_inline_table_mut().is_some() {
-                // Inline table: fall back to wholesale replacement since
-                // inline tables don't carry per-key comments.
-                *item = json_to_toml_item(new);
+            } else if let Some(inline) = item.as_inline_table_mut() {
+                // Edit inline table in-place to preserve inline formatting.
+                let removed: Vec<String> = old_map
+                    .keys()
+                    .filter(|k| !new_map.contains_key(k.as_str()))
+                    .cloned()
+                    .collect();
+                for k in &removed {
+                    inline.remove(k);
+                }
+                for (key, new_val) in new_map {
+                    if let Some(old_val) = old_map.get(key) {
+                        if old_val != new_val {
+                            inline.insert(key, json_to_toml_value(new_val));
+                        }
+                    } else {
+                        inline.insert(key, json_to_toml_value(new_val));
+                    }
+                }
                 return;
             } else {
                 *item = json_to_toml_item(new);
@@ -237,6 +252,51 @@ mod tests {
         assert!(
             result.contains("1, 2, 3"),
             "extended array [1, 2, 3] should appear: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_preserves_inline_table_format() {
+        let original = "options = { debug = true, verbose = false }\n";
+        let mut doc = parse_toml(original);
+        let old = json(r#"{"options": {"debug": true, "verbose": false}}"#);
+        let new = json(r#"{"options": {"debug": false, "verbose": false}}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        // Must stay as inline table, not expand to [options] section
+        assert!(
+            !result.contains("[options]"),
+            "inline table must not expand to section: {result}"
+        );
+        assert!(
+            result.contains("debug = false"),
+            "debug should be updated: {result}"
+        );
+        assert!(
+            result.contains("verbose = false"),
+            "verbose should be preserved: {result}"
+        );
+    }
+
+    #[test]
+    fn apply_value_diff_inline_table_add_and_remove_keys() {
+        let original = "opts = { a = 1, b = 2 }\n";
+        let mut doc = parse_toml(original);
+        let old = json(r#"{"opts": {"a": 1, "b": 2}}"#);
+        let new = json(r#"{"opts": {"a": 1, "c": 3}}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            !result.contains("[opts]"),
+            "inline table must not expand: {result}"
+        );
+        assert!(
+            !result.contains("b ="),
+            "removed key 'b' should be gone: {result}"
+        );
+        assert!(
+            result.contains("c = 3"),
+            "new key 'c' should appear: {result}"
         );
     }
 
