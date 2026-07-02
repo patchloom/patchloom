@@ -496,7 +496,27 @@ fn run_context_replace(
 
     if !result.has_changes {
         if args.if_exists {
+            if global.json || global.jsonl {
+                let output = ReplaceOutput {
+                    ok: true,
+                    match_count: 0,
+                    file_count: 0,
+                    files: vec![],
+                    diff: None,
+                };
+                global.emit_json(&output)?;
+            }
             return Ok(exit::SUCCESS);
+        }
+        if global.json || global.jsonl {
+            let output = ReplaceOutput {
+                ok: true,
+                match_count: 0,
+                file_count: 0,
+                files: vec![],
+                diff: None,
+            };
+            global.emit_json(&output)?;
         }
         if global.show_status() {
             eprintln!("no matches for '{}' in context-based replace", args.old);
@@ -504,11 +524,32 @@ fn run_context_replace(
         return Ok(exit::NO_MATCHES);
     }
 
-    let total_matches = result.exec_result.changes.len();
+    let files: Vec<ReplaceFileResult> = result
+        .exec_result
+        .changes
+        .iter()
+        .map(|(p, _, _)| ReplaceFileResult {
+            path: crate::files::relative_display(p, cwd)
+                .to_string_lossy()
+                .into_owned(),
+            match_count: 1,
+        })
+        .collect();
+    let total_matches = files.len();
+    let file_count = total_matches;
 
     // --check mode.
     if global.check {
-        if !global.quiet {
+        if global.json {
+            let output = ReplaceOutput {
+                ok: true,
+                match_count: total_matches,
+                file_count,
+                files,
+                diff: None,
+            };
+            global.emit_json(&output)?;
+        } else if !global.emit_json_items(&files)? && !global.quiet {
             println!("{total_matches} file(s) changed");
         }
         return Ok(exit::CHANGES_DETECTED);
@@ -520,17 +561,48 @@ fn run_context_replace(
         result.commit()?;
         crate::write::run_format_command(global, cwd)?;
 
-        if global.diff {
-            print!("{}", render_diffs_colored(&diffs, global.should_color()));
-        } else if !global.quiet {
-            println!("replaced in {total_matches} file(s) (context-based)");
+        let diff_text = if global.diff {
+            Some(render_diffs_plain(&diffs))
+        } else {
+            None
+        };
+        if global.json {
+            let output = ReplaceOutput {
+                ok: true,
+                match_count: total_matches,
+                file_count,
+                files,
+                diff: diff_text,
+            };
+            global.emit_json(&output)?;
+        } else if !global.emit_json_items(&files)? {
+            if global.diff {
+                print!("{}", render_diffs_colored(&diffs, global.should_color()));
+            } else if !global.quiet {
+                println!("replaced in {total_matches} file(s) (context-based)");
+            }
         }
         return Ok(exit::SUCCESS);
     }
 
     // Default / --diff: preview.
     let diffs = result.build_diffs();
-    if !diffs.is_empty() {
+    let diff_text = if !diffs.is_empty() {
+        Some(render_diffs_plain(&diffs))
+    } else {
+        None
+    };
+
+    if global.json {
+        let output = ReplaceOutput {
+            ok: true,
+            match_count: total_matches,
+            file_count,
+            files,
+            diff: diff_text,
+        };
+        global.emit_json(&output)?;
+    } else if !global.emit_json_items(&files)? && !diffs.is_empty() {
         print!("{}", render_diffs_colored(&diffs, global.should_color()));
     }
     if global.show_status() {

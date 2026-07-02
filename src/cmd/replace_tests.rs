@@ -1152,4 +1152,122 @@ mod context_replace {
         let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::SUCCESS);
     }
+
+    #[test]
+    fn context_replace_json_output_on_apply() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("config.ini");
+        fs::write(
+            &file,
+            "[server]\nhost = localhost\nport = 8080\n\n[database]\nhost = localhost\nport = 5432\n",
+        )
+        .unwrap();
+
+        let args = ReplaceArgs {
+            old: "host = localhost".to_string(),
+            new: Some("host = db.example.com".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("[database]".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = fs::read_to_string(&file).unwrap();
+        assert!(
+            content.contains("[database]\nhost = db.example.com"),
+            "database host should be changed"
+        );
+    }
+
+    #[test]
+    fn context_replace_json_output_on_check() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "aaa\nfoo\nbbb\nccc\nfoo\nddd\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "foo".to_string(),
+            new: Some("bar".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("aaa".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.check = true;
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+
+        // File should not be modified in check mode.
+        let content = fs::read_to_string(&file).unwrap();
+        assert!(
+            content.contains("foo"),
+            "file should be unchanged in check mode"
+        );
+    }
+
+    #[test]
+    fn context_replace_json_output_on_no_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "hello world\n").unwrap();
+
+        let args = ReplaceArgs {
+            old: "nonexistent".to_string(),
+            new: Some("replacement".to_string()),
+            insert_before: None,
+            insert_after: None,
+            paths: vec![file.to_string_lossy().into_owned()],
+            literal: true,
+            regex: false,
+            if_exists: false,
+            multiline: false,
+            nth: None,
+            case_insensitive: false,
+            word_boundary: false,
+            whole_line: false,
+            range: None,
+            before_context: Some("hello".to_string()),
+            after_context: None,
+            unique: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
 }
