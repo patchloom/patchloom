@@ -398,9 +398,20 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --check mode: report what would happen, no mutation.
     if global.check {
         let diffs = result.build_diffs();
-        let changed = diffs.iter().filter(|d| d.has_changes).count();
+        let files: Vec<PatchFileResult> = diffs
+            .iter()
+            .filter(|d| d.has_changes)
+            .map(|d| PatchFileResult {
+                path: d.path.clone(),
+                status: "changed",
+                error: None,
+                conflicts: None,
+            })
+            .collect();
+        let changed = files.len();
         if changed > 0 {
-            if !global.quiet {
+            emit_patch_files_output(global, true, &files)?;
+            if !(global.json || global.jsonl || global.quiet) {
                 println!("{changed} file(s) would change");
             }
             return Ok(exit::CHANGES_DETECTED);
@@ -410,17 +421,43 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // --apply mode: commit, then show output.
     if global.apply || global.should_apply() {
+        let diffs = result.build_diffs();
+        let files: Vec<PatchFileResult> = diffs
+            .iter()
+            .filter(|d| d.has_changes)
+            .map(|d| PatchFileResult {
+                path: d.path.clone(),
+                status: "applied",
+                error: None,
+                conflicts: None,
+            })
+            .collect();
         result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
+        emit_patch_files_output(global, true, &files)?;
         return Ok(exit::SUCCESS);
     }
 
     // Default / --diff mode: show diff preview.
     let diffs = result.build_diffs();
-    print!(
-        "{}",
-        format_diff_result_colored(&DiffResult { diffs }, global.should_color())
-    );
+    if global.json || global.jsonl {
+        let files: Vec<PatchFileResult> = diffs
+            .iter()
+            .filter(|d| d.has_changes)
+            .map(|d| PatchFileResult {
+                path: d.path.clone(),
+                status: "changed",
+                error: None,
+                conflicts: None,
+            })
+            .collect();
+        emit_patch_files_output(global, true, &files)?;
+    } else {
+        print!(
+            "{}",
+            format_diff_result_colored(&DiffResult { diffs }, global.should_color())
+        );
+    }
     Ok(exit::SUCCESS)
 }
 
@@ -578,5 +615,38 @@ mod tests {
         let msg = "some other error";
         let result = inject_stale_label(msg, "STALE");
         assert_eq!(result, "some other error (STALE)");
+    }
+
+    #[test]
+    fn patch_apply_json_output_on_success() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("test.txt");
+        std::fs::write(&file, "line one\nline two\nline three\n").unwrap();
+        let diff_path = tmp.path().join("fix.patch");
+        std::fs::write(
+            &diff_path,
+            "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line one\n-line two\n+line TWO\n line three\n",
+        )
+        .unwrap();
+        let mut global = GlobalFlags::test_with_cwd(tmp.path());
+        global.apply = true;
+        global.json = true;
+
+        let code = run(
+            PatchArgs {
+                action: PatchAction::Apply {
+                    file: Some(diff_path.to_string_lossy().into_owned()),
+                    stdin: false,
+                    on_stale: OnStaleCli::Fail,
+                },
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let content = std::fs::read_to_string(&file).unwrap();
+        assert!(content.contains("line TWO"), "patch should be applied");
     }
 }
