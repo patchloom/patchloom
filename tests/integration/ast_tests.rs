@@ -458,6 +458,78 @@ fn test_ast_map_no_symbols_exits_3() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_rename_apply_exits_0() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("rename.rs");
+    fs::write(&f, "fn old_name() {}\nfn caller() { old_name(); }\n").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "rename",
+            "old_name",
+            "new_name",
+            "rename.rs",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+    let content = fs::read_to_string(&f).unwrap();
+    assert!(
+        content.contains("new_name"),
+        "ast rename --apply should rename symbol: {content}"
+    );
+    assert!(
+        !content.contains("old_name"),
+        "old symbol name should be replaced: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rename_nonexistent_symbol_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("rename.rs");
+    fs::write(&f, "fn real() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "rename",
+            "nonexistent",
+            "new_name",
+            "rename.rs",
+            "--apply",
+        ])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rename_check_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("rename.rs");
+    fs::write(&f, "fn old_name() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "rename",
+            "old_name",
+            "new_name",
+            "rename.rs",
+            "--check",
+        ])
+        .assert()
+        .code(2);
+    // File should be unchanged in check mode.
+    let content = fs::read_to_string(&f).unwrap();
+    assert!(
+        content.contains("old_name"),
+        "check mode should not modify file: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_replace_missing_symbol_exits_3() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("test.rs");
