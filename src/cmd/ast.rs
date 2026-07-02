@@ -607,6 +607,12 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if total_matches == 0 {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": format!("no matches for pattern in {}", args.path),
+            }))?;
+        }
         Ok(exit::NO_MATCHES)
     } else {
         Ok(exit::SUCCESS)
@@ -657,6 +663,12 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if all_refs.is_empty() {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": format!("no references found for '{}' in {}", args.symbol, args.path),
+            }))?;
+        }
         return Ok(exit::NO_MATCHES);
     }
 
@@ -861,6 +873,12 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let entries = crate::ast::map::generate_map(&file_pairs, &opts);
 
     if entries.is_empty() {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": format!("no symbols found in {}", args.path),
+            }))?;
+        }
         return Ok(exit::NO_MATCHES);
     }
 
@@ -962,7 +980,9 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("not found") || msg.contains("no matches") {
-                if !global.quiet {
+                if global.json || global.jsonl {
+                    global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?;
+                } else if !global.quiet {
                     eprintln!("{msg}");
                 }
                 Ok(exit::NO_MATCHES)
@@ -1010,7 +1030,12 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
 
     if nodes.is_empty() {
-        if !global.quiet {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": format!("no references found for '{}'", args.symbol),
+            }))?;
+        } else if !global.quiet {
             eprintln!("no references found for '{}'", args.symbol);
         }
         return Ok(exit::NO_MATCHES);
@@ -1079,7 +1104,12 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
 
     if changes.is_empty() {
-        if !global.quiet {
+        if global.json || global.jsonl {
+            global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": "no structural changes",
+            }))?;
+        } else if !global.quiet {
             eprintln!("no structural changes");
         }
         return Ok(exit::NO_MATCHES);

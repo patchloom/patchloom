@@ -2687,7 +2687,7 @@ fn test_tx_replace_check_no_match_exits_3() {
 }
 
 #[test]
-fn test_tx_json_check_replace_no_match_exits_3_without_success_payload() {
+fn test_tx_json_check_replace_no_match_exits_3_with_no_matches_payload() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "foo bar\n").unwrap();
@@ -2714,7 +2714,10 @@ fn test_tx_json_check_replace_no_match_exits_3_without_success_payload() {
         .unwrap();
 
     assert_eq!(output.status.code(), Some(3));
-    assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("tx --json should emit JSON on no-match");
+    assert_eq!(v["status"], "no_matches", "status should be no_matches");
 }
 
 #[test]
