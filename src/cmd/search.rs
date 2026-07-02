@@ -68,8 +68,17 @@ pub struct SearchArgs {
 struct SearchOutput {
     ok: bool,
     matches: Vec<SearchMatch>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    files: Vec<SearchFileEntry>,
     match_count: usize,
     file_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchFileEntry {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -142,11 +151,33 @@ pub(crate) fn format_results(
     let mut out = String::new();
 
     if global.json {
+        let files: Vec<SearchFileEntry> = if args.files_with_matches {
+            results
+                .file_match_counts
+                .keys()
+                .map(|p| SearchFileEntry {
+                    path: p.to_string(),
+                    count: None,
+                })
+                .collect()
+        } else if args.count {
+            results
+                .file_match_counts
+                .iter()
+                .map(|(p, c)| SearchFileEntry {
+                    path: p.to_string(),
+                    count: Some(*c),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let payload = SearchOutput {
             ok: true,
             match_count: results.file_match_counts.values().sum(),
             file_count: results.file_match_counts.len(),
             matches: results.matches,
+            files,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -331,6 +362,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             match_count: 0,
             file_count: 0,
             matches: vec![],
+            files: vec![],
         };
         global.emit_json(&payload)?;
         if global.show_status() {
@@ -740,6 +772,44 @@ mod tests {
             1,
             "second match column"
         );
+    }
+
+    #[test]
+    fn json_files_with_matches_lists_file_paths() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_with_matches = true;
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        let results = collect_matches(&args, &global).unwrap();
+        let output = format_results(results, &args, &global).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+        assert_eq!(v["ok"], serde_json::json!(true));
+        assert_eq!(v["file_count"], serde_json::json!(1));
+        // matches is empty in files-with-matches mode (by design).
+        assert_eq!(v["matches"].as_array().unwrap().len(), 0);
+        // files array must contain the matching file paths.
+        let files = v["files"].as_array().expect("files array must be present");
+        assert_eq!(files.len(), 1);
+        assert!(files[0]["path"].as_str().unwrap().ends_with("hello.txt"));
+    }
+
+    #[test]
+    fn json_count_lists_file_counts() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.count = true;
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        let results = collect_matches(&args, &global).unwrap();
+        let output = format_results(results, &args, &global).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+        assert_eq!(v["ok"], serde_json::json!(true));
+        // files array must contain the per-file counts.
+        let files = v["files"].as_array().expect("files array must be present");
+        assert_eq!(files.len(), 1);
+        assert!(files[0]["path"].as_str().unwrap().ends_with("hello.txt"));
+        assert_eq!(files[0]["count"], serde_json::json!(2));
     }
 
     #[test]
