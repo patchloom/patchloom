@@ -316,8 +316,8 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
         // JSON error object is emitted via global.emit_json which writes to
-        // stdout. We verify the exit code; emit_json correctness is covered
-        // by its own unit tests.
+        // stdout. We verify the exit code; emit_json return-value correctness
+        // is covered by unit tests in cli/global.rs.
     }
 
     #[test]

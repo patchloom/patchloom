@@ -470,6 +470,57 @@ mod tests {
     use super::*;
 
     #[test]
+    fn emit_json_returns_false_when_neither_flag() {
+        let g = GlobalFlags::test_default();
+        assert!(!g.emit_json(&serde_json::json!({"a":1})).unwrap());
+    }
+
+    #[test]
+    fn emit_json_returns_true_for_json_flag() {
+        let g = GlobalFlags {
+            json: true,
+            ..GlobalFlags::test_default()
+        };
+        assert!(g.emit_json(&serde_json::json!({"a":1})).unwrap());
+    }
+
+    #[test]
+    fn emit_json_returns_true_for_jsonl_flag() {
+        let g = GlobalFlags {
+            jsonl: true,
+            ..GlobalFlags::test_default()
+        };
+        assert!(g.emit_json(&serde_json::json!({"a":1})).unwrap());
+    }
+
+    #[test]
+    fn emit_json_items_returns_false_when_neither_flag() {
+        let g = GlobalFlags::test_default();
+        let items: Vec<serde_json::Value> = vec![];
+        assert!(!g.emit_json_items(&items).unwrap());
+    }
+
+    #[test]
+    fn emit_json_items_returns_true_for_json_flag() {
+        let g = GlobalFlags {
+            json: true,
+            ..GlobalFlags::test_default()
+        };
+        let items = vec![serde_json::json!(1), serde_json::json!(2)];
+        assert!(g.emit_json_items(&items).unwrap());
+    }
+
+    #[test]
+    fn emit_json_items_returns_true_for_jsonl_flag() {
+        let g = GlobalFlags {
+            jsonl: true,
+            ..GlobalFlags::test_default()
+        };
+        let items = vec![serde_json::json!(1), serde_json::json!(2)];
+        assert!(g.emit_json_items(&items).unwrap());
+    }
+
+    #[test]
     fn should_apply_returns_true_when_apply_set() {
         let g = GlobalFlags::test_apply();
         assert!(g.should_apply());
