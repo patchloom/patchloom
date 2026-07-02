@@ -114,7 +114,10 @@ fn test_agent_rules_json_output() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["format"], "markdown");
     let content = v["content"].as_str().unwrap();
-    assert!(content.contains("# Patchloom"), "content should be agent rules markdown");
+    assert!(
+        content.contains("# Patchloom"),
+        "content should be agent rules markdown"
+    );
 }
 
 // ---------------------------------------------------------------------------
