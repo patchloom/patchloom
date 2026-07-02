@@ -351,8 +351,5 @@ fn test_undo_invalid_session_apply_exits_1() {
         .arg(dir.path())
         .assert()
         .code(1)
-        .stderr(
-            predicates::str::contains("not in session list")
-                .or(predicates::str::contains("No such file")),
-        );
+        .stderr(predicates::str::contains("no backup session found"));
 }
