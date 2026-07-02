@@ -191,7 +191,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             mcp::run_mcp_server(&global, log)
         }
         Command::Schema(args) => schema::run(args, &global),
-        Command::AgentRules(args) => agent_rules::run(args),
+        Command::AgentRules(args) => agent_rules::run(args, &global),
         Command::Init(args) => init::run(args, &global),
         Command::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();

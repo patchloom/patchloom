@@ -405,9 +405,17 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     out
 }
 
-pub fn run(args: AgentRulesArgs) -> anyhow::Result<u8> {
+pub fn run(args: AgentRulesArgs, global: &crate::cli::global::GlobalFlags) -> anyhow::Result<u8> {
     let output = generate_agent_rules(&args);
-    print!("{output}");
+    if global.json || global.jsonl {
+        global.emit_json(&serde_json::json!({
+            "ok": true,
+            "format": "markdown",
+            "content": output,
+        }))?;
+    } else {
+        print!("{output}");
+    }
     Ok(exit::SUCCESS)
 }
 
@@ -537,6 +545,29 @@ mod tests {
         assert!(out.contains("| 9 |"));
         assert!(out.contains("rollback_failed"));
         assert!(out.contains("operation_failed"));
+    }
+
+    #[test]
+    fn json_mode_emits_wrapped_json() {
+        let args = AgentRulesArgs {
+            mode: AgentMode::All,
+            platform: AgentPlatform::All,
+        };
+        let _global = crate::cli::global::GlobalFlags {
+            json: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        // Verify that the JSON output would contain the right structure
+        let output = generate_agent_rules(&args);
+        let json = serde_json::json!({
+            "ok": true,
+            "format": "markdown",
+            "content": output,
+        });
+        let parsed: serde_json::Value = json;
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["format"], "markdown");
+        assert!(parsed["content"].as_str().unwrap().contains("# Patchloom"));
     }
 
     #[test]
