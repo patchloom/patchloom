@@ -379,6 +379,132 @@ fn test_replace_no_match_without_if_exists_exits_3() {
 }
 
 #[test]
+fn test_replace_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "some content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("nonexistent_xyz")
+        .arg("--new")
+        .arg("new")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no matches"),
+        "stderr should contain 'no matches' but was: {stderr}"
+    );
+}
+
+#[test]
+fn test_replace_no_match_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "some content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("replace")
+        .arg("nonexistent_xyz")
+        .arg("--new")
+        .arg("new")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("no matches"),
+        "stderr should be suppressed with --quiet but was: {stderr}"
+    );
+}
+
+#[test]
+fn test_replace_ambiguous_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa bbb aaa\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("aaa")
+        .arg("--new")
+        .arg("ccc")
+        .arg("--unique")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5)); // AMBIGUOUS
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ambiguous match"),
+        "stderr should contain 'ambiguous match' but was: {stderr}"
+    );
+}
+
+#[test]
+fn test_replace_ambiguous_match_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa bbb aaa\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("replace")
+        .arg("aaa")
+        .arg("--new")
+        .arg("ccc")
+        .arg("--unique")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5)); // AMBIGUOUS
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("ambiguous match"),
+        "stderr should be suppressed with --quiet but was: {stderr}"
+    );
+}
+
+#[test]
+fn test_replace_context_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line one\nline two\nline three\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("nonexistent_xyz")
+        .arg("--new")
+        .arg("replaced")
+        .arg("--before-context")
+        .arg("line one")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no matches"),
+        "stderr should contain 'no matches' but was: {stderr}"
+    );
+}
+
+#[test]
 fn test_replace_normalize_eol_lf() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("crlf.txt");
