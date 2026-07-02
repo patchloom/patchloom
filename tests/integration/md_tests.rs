@@ -904,6 +904,33 @@ fn test_md_check_json_produces_structured_output() {
 // table-append column count validation (#1172)
 // ---------------------------------------------------------------------------
 
+/// Table append with nonexistent heading returns exit 3 (#1331 follow-up).
+#[test]
+fn test_md_table_append_nonexistent_heading_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.md");
+    fs::write(
+        &file,
+        "# API\n| Name | Value |\n|------|-------|\n| a | 1 |\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "md",
+            "table-append",
+            file.to_str().unwrap(),
+            "--heading",
+            "Nonexistent",
+            "--row",
+            "| b | 2 |",
+            "--apply",
+        ])
+        .assert()
+        .code(3);
+}
+
 /// Table append with wrong column count should fail (#1172).
 #[test]
 fn test_md_table_append_wrong_column_count_fails() {
