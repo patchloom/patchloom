@@ -452,7 +452,7 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
 ///
 /// Used by read-only doc subcommands (get, keys, len, flatten) to produce
 /// consistent no-match output without repeating the Json/Jsonl/Text match.
-fn format_no_match(error_msg: &str, mode: OutputMode) -> anyhow::Result<(String, u8)> {
+fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Result<(String, u8)> {
     let output = match mode {
         OutputMode::Json => {
             serde_json::to_string_pretty(&serde_json::json!({"ok": false, "error": error_msg}))?
@@ -460,7 +460,12 @@ fn format_no_match(error_msg: &str, mode: OutputMode) -> anyhow::Result<(String,
         OutputMode::Jsonl => {
             serde_json::to_string(&serde_json::json!({"ok": false, "error": error_msg}))?
         }
-        OutputMode::Text => String::new(),
+        OutputMode::Text => {
+            if !quiet {
+                eprintln!("{error_msg}");
+            }
+            String::new()
+        }
     };
     Ok((output, exit::NO_MATCHES))
 }
@@ -473,14 +478,24 @@ pub(crate) fn execute_with_mode(
     action: &DocAction,
     output_mode: OutputMode,
 ) -> anyhow::Result<(String, u8)> {
+    execute_with_mode_inner(action, output_mode, false)
+}
+
+fn execute_with_mode_inner(
+    action: &DocAction,
+    output_mode: OutputMode,
+    quiet: bool,
+) -> anyhow::Result<(String, u8)> {
     match action {
         DocAction::Get { file, selector } | DocAction::Select { file, selector } => {
             crate::verbose!("doc: get/select file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_get(&root, selector)? {
-                crate::ops::doc::query::QueryResult::NoMatch => {
-                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
-                }
+                crate::ops::doc::query::QueryResult::NoMatch => format_no_match(
+                    &format!("no match for selector: {selector}"),
+                    output_mode,
+                    quiet,
+                ),
                 crate::ops::doc::query::QueryResult::Values(vals) => {
                     let refs: Vec<&serde_json::Value> = vals.iter().collect();
                     Ok((format_values(&refs, output_mode)?, exit::SUCCESS))
@@ -511,9 +526,11 @@ pub(crate) fn execute_with_mode(
             crate::verbose!("doc: keys file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_keys(&root, selector)? {
-                crate::ops::doc::query::QueryKeysResult::NoMatch => {
-                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
-                }
+                crate::ops::doc::query::QueryKeysResult::NoMatch => format_no_match(
+                    &format!("no match for selector: {selector}"),
+                    output_mode,
+                    quiet,
+                ),
                 crate::ops::doc::query::QueryKeysResult::NotAnObject => Ok((
                     format!("doc keys: target at '{selector}' is not an object"),
                     exit::FAILURE,
@@ -537,9 +554,11 @@ pub(crate) fn execute_with_mode(
             crate::verbose!("doc: len file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_len(&root, selector)? {
-                crate::ops::doc::query::QueryLenResult::NoMatch => {
-                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
-                }
+                crate::ops::doc::query::QueryLenResult::NoMatch => format_no_match(
+                    &format!("no match for selector: {selector}"),
+                    output_mode,
+                    quiet,
+                ),
                 crate::ops::doc::query::QueryLenResult::NotArrayOrObject => Ok((
                     format!("doc len: target at '{selector}' is not an array or object"),
                     exit::FAILURE,
@@ -562,7 +581,11 @@ pub(crate) fn execute_with_mode(
             let mut path_buf = String::new();
             flatten_value(&root, &mut path_buf, &mut entries);
             if entries.is_empty() {
-                return format_no_match("document has no leaf values to flatten", output_mode);
+                return format_no_match(
+                    "document has no leaf values to flatten",
+                    output_mode,
+                    quiet,
+                );
             }
             match output_mode {
                 OutputMode::Json => {
@@ -736,7 +759,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         OutputMode::Text
     };
 
-    let (output, code) = execute_with_mode(&args.action, output_mode)?;
+    let (output, code) = execute_with_mode_inner(&args.action, output_mode, global.quiet)?;
     if !output.is_empty() && (global.json || global.jsonl || !global.quiet) {
         println!("{output}");
     }

@@ -1975,5 +1975,102 @@ fn test_doc_update_apply_no_match_emits_stderr_in_text_mode() {
 }
 
 // ---------------------------------------------------------------------------
+// Text-mode no-match stderr output (#1340)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no match"),
+        "text mode should emit error to stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_doc_keys_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no match"),
+        "text mode should emit error to stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_doc_len_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no match"),
+        "text mode should emit error to stderr, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_doc_get_no_match_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        output.stderr.is_empty(),
+        "--quiet should suppress stderr, got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Symlink integration tests (#231 coverage)
 // ---------------------------------------------------------------------------
