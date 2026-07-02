@@ -59,10 +59,7 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         .unwrap_or(None);
     let strict = crate::plan::effective_strict(plan.strict, config_strict, false);
 
-    if global.json || global.jsonl {
-        let summary = build_json_summary(&plan, strict);
-        global.emit_json(&summary)?;
-    } else if !global.quiet {
+    if !global.emit_json(&build_json_summary(&plan, strict))? && !global.quiet {
         print_human_summary(&plan, strict);
     }
 

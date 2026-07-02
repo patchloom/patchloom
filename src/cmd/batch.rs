@@ -405,16 +405,15 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     crate::verbose!("batch: parsed {} operations from input", operations.len());
     if operations.is_empty() {
-        if global.json || global.jsonl {
-            global.emit_json(&serde_json::json!({
-                "ok": true,
-                "status": "success",
-                "files_changed": 0,
-                "files_created": 0,
-                "files_deleted": 0,
-                "changes": []
-            }))?;
-        } else if !global.quiet {
+        if !global.emit_json(&serde_json::json!({
+            "ok": true,
+            "status": "success",
+            "files_changed": 0,
+            "files_created": 0,
+            "files_deleted": 0,
+            "changes": []
+        }))? && !global.quiet
+        {
             eprintln!("batch: no operations found in input");
         }
         return Ok(exit::SUCCESS);

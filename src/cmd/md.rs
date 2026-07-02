@@ -158,12 +158,10 @@ fn execute_md_op(
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("heading") && msg.contains("not found") {
-                if global.json || global.jsonl {
-                    global.emit_json(&serde_json::json!({
-                        "ok": false,
-                        "error": &msg,
-                    }))?;
-                }
+                global.emit_json(&serde_json::json!({
+                    "ok": false,
+                    "error": &msg,
+                }))?;
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
@@ -284,13 +282,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let (_new, removed) = dedupe_headings_in(&original);
 
             // Emit removed headings as side-channel output.
-            if !removed.is_empty() {
-                if global.json || global.jsonl {
-                    global.emit_json_items(&removed)?;
-                } else if !global.quiet {
-                    for h in &removed {
-                        eprintln!("md: removed duplicate: {h}");
-                    }
+            if !removed.is_empty() && !global.emit_json_items(&removed)? && !global.quiet {
+                for h in &removed {
+                    eprintln!("md: removed duplicate: {h}");
                 }
             }
 
@@ -348,9 +342,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             let issues = lint_agents_content(&content);
 
-            if global.json || global.jsonl {
-                global.emit_json_items(&issues)?;
-            } else if !global.quiet {
+            if !global.emit_json_items(&issues)? && !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
@@ -384,12 +376,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             match find_section(&content, &heading) {
                 None => {
-                    if global.json || global.jsonl {
-                        global.emit_json(&serde_json::json!({
-                            "ok": false,
-                            "error": format!("heading {:?} not found in {file}", heading),
-                        }))?;
-                    }
+                    global.emit_json(&serde_json::json!({
+                        "ok": false,
+                        "error": format!("heading {:?} not found in {file}", heading),
+                    }))?;
                     Ok(exit::NO_MATCHES)
                 }
                 Some((body_start, body_end)) => {

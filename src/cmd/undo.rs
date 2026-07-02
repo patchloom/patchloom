@@ -51,18 +51,14 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.list {
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if global.json || global.jsonl {
-                let empty: Vec<()> = vec![];
-                global.emit_json(&empty)?;
-            } else if global.show_status() {
+            let empty: Vec<()> = vec![];
+            if !global.emit_json(&empty)? && global.show_status() {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
         }
 
-        if global.json || global.jsonl {
-            global.emit_json_items(&sessions)?;
-        } else if !global.quiet {
+        if !global.emit_json_items(&sessions)? && !global.quiet {
             for s in &sessions {
                 let file_count = s.entries.len();
                 let actions: Vec<String> = s
@@ -87,12 +83,11 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Use the most recent session.
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if global.json || global.jsonl {
-                global.emit_json(&serde_json::json!({
-                    "ok": false,
-                    "error": "no backup sessions found",
-                }))?;
-            } else if global.show_status() {
+            if !global.emit_json(&serde_json::json!({
+                "ok": false,
+                "error": "no backup sessions found",
+            }))? && global.show_status()
+            {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
@@ -122,22 +117,20 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             })
             .collect();
 
-        if global.json || global.jsonl {
-            let output = UndoPreviewOutput {
-                ok: true,
-                status: "changes_detected",
-                session: timestamp.clone(),
-                file_count: entries.len(),
-                entries,
-            };
-            global.emit_json(&output)?;
-        } else if !global.quiet {
+        let output = UndoPreviewOutput {
+            ok: true,
+            status: "changes_detected",
+            session: timestamp.clone(),
+            file_count: entries.len(),
+            entries,
+        };
+        if !global.emit_json(&output)? && !global.quiet {
             println!(
                 "Would restore session {} ({} file(s)):",
                 timestamp,
                 session.entries.len()
             );
-            for entry in &entries {
+            for entry in &output.entries {
                 println!("  {} -> {}", entry.path, entry.action);
             }
         }
@@ -154,14 +147,13 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // the next-oldest session instead of replaying the same one.
     backup::remove_session(&cwd, &timestamp)?;
     crate::verbose!("undo: restored {} file(s)", restored);
-    if global.json || global.jsonl {
-        global.emit_json(&serde_json::json!({
-            "ok": true,
-            "status": "restored",
-            "session": timestamp,
-            "file_count": restored,
-        }))?;
-    } else if global.show_status() {
+    if !global.emit_json(&serde_json::json!({
+        "ok": true,
+        "status": "restored",
+        "session": timestamp,
+        "file_count": restored,
+    }))? && global.show_status()
+    {
         eprintln!("restored {restored} file(s) from session {timestamp}");
     }
 

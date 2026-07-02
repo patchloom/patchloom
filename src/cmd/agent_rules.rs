@@ -407,13 +407,11 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
 
 pub fn run(args: AgentRulesArgs, global: &crate::cli::global::GlobalFlags) -> anyhow::Result<u8> {
     let output = generate_agent_rules(&args);
-    if global.json || global.jsonl {
-        global.emit_json(&serde_json::json!({
-            "ok": true,
-            "format": "markdown",
-            "content": output,
-        }))?;
-    } else {
+    if !global.emit_json(&serde_json::json!({
+        "ok": true,
+        "format": "markdown",
+        "content": output,
+    }))? {
         print!("{output}");
     }
     Ok(exit::SUCCESS)

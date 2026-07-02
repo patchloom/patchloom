@@ -253,19 +253,17 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.unique {
         for r in &replacements {
             if r.match_count > 1 {
-                if global.json || global.jsonl {
-                    let output = ReplaceOutput {
-                        ok: false,
+                let output = ReplaceOutput {
+                    ok: false,
+                    match_count: r.match_count,
+                    file_count: 1,
+                    files: vec![ReplaceFileResult {
+                        path: r.display_path.clone(),
                         match_count: r.match_count,
-                        file_count: 1,
-                        files: vec![ReplaceFileResult {
-                            path: r.display_path.clone(),
-                            match_count: r.match_count,
-                        }],
-                        diff: None,
-                    };
-                    global.emit_json(&output)?;
-                }
+                    }],
+                    diff: None,
+                };
+                global.emit_json(&output)?;
                 if global.show_status() {
                     eprintln!(
                         "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
@@ -281,19 +279,6 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if replacements.is_empty() {
         if args.if_exists {
-            if global.json || global.jsonl {
-                let output = ReplaceOutput {
-                    ok: true,
-                    match_count: 0,
-                    file_count: 0,
-                    files: vec![],
-                    diff: None,
-                };
-                global.emit_json(&output)?;
-            }
-            return Ok(exit::SUCCESS);
-        }
-        if global.json || global.jsonl {
             let output = ReplaceOutput {
                 ok: true,
                 match_count: 0,
@@ -302,7 +287,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
             };
             global.emit_json(&output)?;
+            return Ok(exit::SUCCESS);
         }
+        let output = ReplaceOutput {
+            ok: true,
+            match_count: 0,
+            file_count: 0,
+            files: vec![],
+            diff: None,
+        };
+        global.emit_json(&output)?;
         if global.show_status() {
             let path_desc = if args.paths.is_empty() {
                 ".".to_string()
@@ -496,19 +490,6 @@ fn run_context_replace(
 
     if !result.has_changes {
         if args.if_exists {
-            if global.json || global.jsonl {
-                let output = ReplaceOutput {
-                    ok: true,
-                    match_count: 0,
-                    file_count: 0,
-                    files: vec![],
-                    diff: None,
-                };
-                global.emit_json(&output)?;
-            }
-            return Ok(exit::SUCCESS);
-        }
-        if global.json || global.jsonl {
             let output = ReplaceOutput {
                 ok: true,
                 match_count: 0,
@@ -517,7 +498,16 @@ fn run_context_replace(
                 diff: None,
             };
             global.emit_json(&output)?;
+            return Ok(exit::SUCCESS);
         }
+        let output = ReplaceOutput {
+            ok: true,
+            match_count: 0,
+            file_count: 0,
+            files: vec![],
+            diff: None,
+        };
+        global.emit_json(&output)?;
         if global.show_status() {
             eprintln!("no matches for '{}' in context-based replace", args.old);
         }
