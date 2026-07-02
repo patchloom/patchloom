@@ -98,10 +98,27 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
     paths.into_iter().collect()
 }
 
+/// Flatten a symbol tree into a single list, recursing into children.
+///
+/// Verify checks need to count symbols at all nesting levels (e.g. `#[test]`
+/// functions inside `mod tests {}`). The AST extractor returns a tree where
+/// nested symbols are children; `filter_symbols` only searches top-level.
+#[cfg(feature = "ast")]
+fn flatten_symbols(symbols: &[symbols::SymbolDef]) -> Vec<&symbols::SymbolDef> {
+    let mut out = Vec::new();
+    for sym in symbols {
+        out.push(sym);
+        if !sym.children.is_empty() {
+            out.extend(flatten_symbols(&sym.children));
+        }
+    }
+    out
+}
+
 /// Take a symbol snapshot of the given files for a specific verify check.
 #[cfg(feature = "ast")]
 pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> SymbolSnapshot {
-    use symbols::{filter_symbols, parse_kind_filter};
+    use symbols::parse_kind_filter;
 
     let mut result = SymbolSnapshot {
         files: HashMap::new(),
@@ -125,7 +142,14 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
             continue;
         }
         let all_symbols = symbols::extract_symbols_from_file(path, Some(lang));
-        let filtered = filter_symbols(&all_symbols, &kind_filter);
+        let flat = flatten_symbols(&all_symbols);
+        let filtered: Vec<&symbols::SymbolDef> = if kind_filter.is_empty() {
+            flat
+        } else {
+            flat.into_iter()
+                .filter(|s| kind_filter.contains(&s.kind))
+                .collect()
+        };
 
         // If attr filter is set, further filter by checking the source for the attribute
         let matched: Vec<SnappedSymbol> = if let Some(ref attr) = attr_filter {
@@ -164,7 +188,7 @@ pub(crate) fn snapshot_symbols_from_pending(
     pending: &HashMap<PathBuf, (String, String)>,
     check: &VerifyCheck,
 ) -> SymbolSnapshot {
-    use symbols::{filter_symbols, parse_kind_filter};
+    use symbols::parse_kind_filter;
 
     let mut result = SymbolSnapshot {
         files: HashMap::new(),
@@ -197,7 +221,14 @@ pub(crate) fn snapshot_symbols_from_pending(
         };
 
         let all_symbols = symbols::extract_symbols(&source, lang);
-        let filtered = filter_symbols(&all_symbols, &kind_filter);
+        let flat = flatten_symbols(&all_symbols);
+        let filtered: Vec<&symbols::SymbolDef> = if kind_filter.is_empty() {
+            flat
+        } else {
+            flat.into_iter()
+                .filter(|s| kind_filter.contains(&s.kind))
+                .collect()
+        };
 
         let matched: Vec<SnappedSymbol> = if let Some(ref attr) = attr_filter {
             filtered
