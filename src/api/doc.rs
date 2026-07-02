@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 
 use crate::containment::PathGuard;
 use crate::ops;
@@ -69,7 +69,7 @@ fn doc_write(
 
     let result = ops::doc::apply_doc_mutation(&mut new_value, mutation)?;
     if let MutationResult::TypeError(msg) = result {
-        bail!("{msg}");
+        anyhow::bail!("{msg}");
     }
 
     let new_content = ops::doc::serialize_value_preserving(&original, &value, &new_value, &format)?;
@@ -139,7 +139,10 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
     let value = load_doc_value(path)?;
 
     match query_get(&value, selector)? {
-        QueryResult::NoMatch => bail!("selector '{}' matched nothing", selector),
+        QueryResult::NoMatch => Err(crate::exit::NoMatchError {
+            msg: format!("selector '{}' matched nothing", selector),
+        }
+        .into()),
         QueryResult::Values(vals) if vals.len() == 1 => Ok(vals
             .into_iter()
             .next()

@@ -180,8 +180,10 @@ pub(crate) fn apply_md_heading_op(
 ) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-    let new_content = op(file_content, heading, extra)
-        .ok_or_else(|| anyhow::anyhow!("{err_label} not found: {heading}"))?;
+    let new_content =
+        op(file_content, heading, extra).ok_or_else(|| crate::exit::NoMatchError {
+            msg: format!("{err_label} not found: {heading}"),
+        })?;
     update_file_content(
         tx.pending,
         tx.deletions,
@@ -388,7 +390,9 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         MutationResult::Applied | MutationResult::AlreadyExists => Ok(()),
         MutationResult::NoMatch if strict_no_match => {
             let label = op_label(op);
-            anyhow::bail!("{path}: {label} matched nothing");
+            Err(crate::exit::NoMatchError {
+                msg: format!("{path}: {label} matched nothing"),
+            })?
         }
         MutationResult::NoMatch => Ok(()),
         MutationResult::TypeError(msg) => {
@@ -632,9 +636,10 @@ fn ast_rename_single_file(
             update_file_content(tx.pending, tx.deletions, tx.write_targets, abs, r.content);
             Ok(r.replacements)
         }
-        Some(_) => {
-            anyhow::bail!("no matches for '{}' in {}", old_name, abs.display());
+        Some(_) => Err(crate::exit::NoMatchError {
+            msg: format!("no matches for '{}' in {}", old_name, abs.display()),
         }
+        .into()),
         None => {
             // Tree-sitter couldn't parse. Fallback to word-boundary replace.
             let re =
@@ -653,7 +658,10 @@ fn ast_rename_single_file(
                     return Ok(count);
                 }
             }
-            anyhow::bail!("no matches for '{}' in {}", old_name, abs.display());
+            Err(crate::exit::NoMatchError {
+                msg: format!("no matches for '{}' in {}", old_name, abs.display()),
+            }
+            .into())
         }
     }
 }
@@ -729,7 +737,9 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             let file_path = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (body_start, body_end) = crate::ops::md::find_section(file_content, heading)
-                .ok_or_else(|| anyhow::anyhow!("heading not found: {heading}"))?;
+                .ok_or_else(|| crate::exit::NoMatchError {
+                    msg: format!("heading not found: {heading}"),
+                })?;
             let new_content =
                 crate::ops::md::table_append_in(file_content, body_start, body_end, row)
                     .map_err(|e| anyhow::anyhow!("{e} under heading {heading:?}"))?;
@@ -772,8 +782,8 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
             };
             let (new_source, new_dest) =
                 move_section_in(&source_content, heading, &dest_content, position, same_file)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("md.move_section: heading or target not found")
+                    .ok_or_else(|| crate::exit::NoMatchError {
+                        msg: "md.move_section: heading or target not found".to_string(),
                     })?;
             update_file_content(
                 tx.pending,
@@ -941,7 +951,10 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     }
                 }
                 if total == 0 {
-                    anyhow::bail!("no matches for '{}' in {}", old_name, path);
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!("no matches for '{}' in {}", old_name, path),
+                    }
+                    .into());
                 }
                 return Ok(total);
             }
@@ -978,13 +991,21 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
                     );
                     return Ok(r.replacements);
                 }
-                Some(_) => anyhow::bail!(
-                    "no matches for '{}' in symbol '{}' in {}",
-                    old,
-                    symbol,
-                    path
-                ),
-                None => anyhow::bail!("symbol '{}' not found in {}", symbol, path),
+                Some(_) => {
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!(
+                            "no matches for '{}' in symbol '{}' in {}",
+                            old, symbol, path
+                        ),
+                    }
+                    .into());
+                }
+                None => {
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!("symbol '{}' not found in {}", symbol, path),
+                    }
+                    .into());
+                }
             }
         }
 
@@ -1454,6 +1475,13 @@ pub(crate) fn execute_and_collect(
             }
             Err(e) => {
                 crate::verbose!("tx: operation {} failed: {e}", i + 1);
+                if e.downcast_ref::<crate::exit::NoMatchError>().is_some() {
+                    return Err(e.context(format!(
+                        "operation {} ({}) failed",
+                        i + 1,
+                        op_label(op)
+                    )));
+                }
                 anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
             }
         }

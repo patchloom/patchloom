@@ -843,3 +843,35 @@ mod security {
         );
     }
 }
+
+// -- format_no_match helper tests ------------------------------------------
+
+mod format_no_match_tests {
+    use super::*;
+
+    #[test]
+    fn json_mode_returns_structured_error() {
+        let (output, code) = format_no_match("selector missed", OutputMode::Json).unwrap();
+        assert_eq!(code, crate::exit::NO_MATCHES);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["ok"], false);
+        assert_eq!(parsed["error"], "selector missed");
+    }
+
+    #[test]
+    fn jsonl_mode_returns_compact_error() {
+        let (output, code) = format_no_match("selector missed", OutputMode::Jsonl).unwrap();
+        assert_eq!(code, crate::exit::NO_MATCHES);
+        // JSONL output should be a single compact line (no internal newlines).
+        assert!(!output.contains('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["ok"], false);
+    }
+
+    #[test]
+    fn text_mode_returns_empty_string() {
+        let (output, code) = format_no_match("selector missed", OutputMode::Text).unwrap();
+        assert_eq!(code, crate::exit::NO_MATCHES);
+        assert!(output.is_empty());
+    }
+}

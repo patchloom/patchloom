@@ -156,8 +156,8 @@ fn execute_md_op(
     ) {
         Ok(code) => Ok(code),
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("heading") && msg.contains("not found") {
+            if exit::is_no_match(&e) {
+                let msg = e.to_string();
                 global.emit_json(&serde_json::json!({
                     "ok": false,
                     "error": &msg,

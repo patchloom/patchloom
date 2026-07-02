@@ -1346,8 +1346,8 @@ fn doc_get_zero_match_error() {
 
     let err = doc_get(&file, "nonexistent").unwrap_err();
     assert!(
-        err.to_string().contains("matched nothing"),
-        "expected zero-match error, got: {err}"
+        err.downcast_ref::<crate::exit::NoMatchError>().is_some(),
+        "expected NoMatchError, got: {err}"
     );
 }
 
