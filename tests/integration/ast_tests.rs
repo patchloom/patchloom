@@ -401,6 +401,123 @@ fn test_ast_list_unsupported_file_reports_language() {
         .stderr(predicates::str::contains("Rust"));
 }
 
+// --- NO_MATCHES (exit 3) tests for AST subcommands ---
+// These verify the exit code contract agents rely on for control flow.
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_no_match_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    // Query for class_declaration which does not exist in Rust
+    patchloom_in(dir.path())
+        .args(["ast", "search", "(class_declaration) @cls", "lib.rs"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_refs_no_references_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("r.rs");
+    // `lonely` is defined but never called, so refs should find nothing.
+    fs::write(&f, "fn lonely() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "refs", "lonely", "r.rs"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_deps_no_imports_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("d.rs");
+    // No use/import statements
+    fs::write(&f, "fn no_deps() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "deps", "d.rs"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_map_no_symbols_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("empty.rs");
+    // A file with only a comment has no symbols
+    fs::write(&f, "// just a comment\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "map", "."])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_replace_missing_symbol_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("test.rs");
+    fs::write(&f, "fn real() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "replace",
+            "test.rs",
+            "nonexistent",
+            "--old",
+            "x",
+            "--new",
+            "y",
+            "--apply",
+        ])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_impact_no_refs_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("i.rs");
+    // `isolated` is defined but never referenced
+    fs::write(&f, "fn isolated() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "impact", "isolated", "i.rs"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_diff_no_changes_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("same.rs");
+    fs::write(&f, "fn stable() {}\n").unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_AUTHOR_NAME", "CI")
+            .env("GIT_AUTHOR_EMAIL", "ci@example.com")
+            .env("GIT_COMMITTER_NAME", "CI")
+            .env("GIT_COMMITTER_EMAIL", "ci@example.com")
+            .status()
+            .expect("git command failed to spawn")
+    };
+    assert!(git(&["init", "-q"]).success());
+    assert!(git(&["add", "-A"]).success());
+    assert!(git(&["commit", "-q", "-m", "init"]).success());
+    // File unchanged after commit, so diff should find no structural changes.
+    patchloom_in(dir.path())
+        .args(["ast", "diff", "same.rs", "--from", "HEAD"])
+        .assert()
+        .code(3);
+}
+
 /// `--glob` flag should filter files in AST directory scanning (#1171).
 #[test]
 fn test_ast_list_respects_glob_flag() {
