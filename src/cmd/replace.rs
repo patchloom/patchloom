@@ -264,7 +264,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     diff: None,
                 };
                 global.emit_json(&output)?;
-                if global.show_status() {
+                if !global.quiet {
                     eprintln!(
                         "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
                         crate::fallback::truncate_str(&args.old, 60),
@@ -297,7 +297,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             diff: None,
         };
         global.emit_json(&output)?;
-        if global.show_status() {
+        if !global.quiet {
             let path_desc = if args.paths.is_empty() {
                 ".".to_string()
             } else {
@@ -489,7 +489,7 @@ fn run_context_replace(
         if args.if_exists {
             return Ok(exit::SUCCESS);
         }
-        if global.show_status() {
+        if !global.quiet {
             eprintln!("no matches for '{}' in context-based replace", args.old);
         }
         return Ok(exit::NO_MATCHES);

@@ -30,6 +30,47 @@ fn test_search_no_matches_exit_3() {
 }
 
 #[test]
+fn test_search_no_match_text_mode_emits_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "some content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("nonexistent_xyz")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no matches"),
+        "stderr should contain 'no matches' but was: {stderr}"
+    );
+}
+
+#[test]
+fn test_search_no_match_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "some content\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--quiet")
+        .arg("search")
+        .arg("nonexistent_xyz")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("no matches"),
+        "stderr should be suppressed with --quiet but was: {stderr}"
+    );
+}
+
+#[test]
 fn test_search_jsonl_output_has_path_field() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
