@@ -151,7 +151,8 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? {
+            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? && !global.quiet
+            {
                 eprintln!("{msg}");
             }
             return Ok(exit::NO_MATCHES);
