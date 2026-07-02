@@ -939,8 +939,8 @@ fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     ) {
         Ok(code) => Ok(code),
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("not found") || msg.contains("no matches") {
+            if exit::is_no_match(&e) {
+                let msg = e.to_string();
                 if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?
                     && !global.quiet
                 {

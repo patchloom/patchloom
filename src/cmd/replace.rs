@@ -352,17 +352,19 @@ fn replace_output(
     file_count: usize,
     cwd: &std::path::Path,
 ) -> anyhow::Result<u8> {
+    // Build the base output struct once; mode-specific fields are set below.
+    let build_output = |diff: Option<String>| ReplaceOutput {
+        ok: true,
+        match_count: total_matches,
+        file_count,
+        files: files.to_vec(),
+        diff,
+    };
+
     // --check mode: report summary, exit 2 if changes needed.
     if global.check {
         if global.json {
-            let output = ReplaceOutput {
-                ok: true,
-                match_count: total_matches,
-                file_count,
-                files: files.to_vec(),
-                diff: None,
-            };
-            global.emit_json(&output)?;
+            global.emit_json(&build_output(None))?;
         } else if !global.emit_json_items(files)? && !global.quiet {
             println!("{total_matches} match(es) in {file_count} file(s)");
             for f in files {
@@ -372,9 +374,11 @@ fn replace_output(
         return Ok(exit::CHANGES_DETECTED);
     }
 
+    // Build diffs (needed for apply+diff and for default/preview mode).
+    let diffs = result.build_diffs();
+
     // --apply mode: commit, then report.
     if global.apply {
-        let diffs = result.build_diffs();
         result.commit()?;
         crate::write::run_format_command(global, cwd)?;
 
@@ -384,14 +388,7 @@ fn replace_output(
             None
         };
         if global.json {
-            let output = ReplaceOutput {
-                ok: true,
-                match_count: total_matches,
-                file_count,
-                files: files.to_vec(),
-                diff: diff_text,
-            };
-            global.emit_json(&output)?;
+            global.emit_json(&build_output(diff_text))?;
         } else if !global.emit_json_items(files)? {
             if global.diff {
                 print!("{}", render_diffs_colored(&diffs, global.should_color()));
@@ -406,7 +403,6 @@ fn replace_output(
     }
 
     // Default / --diff mode: preview diffs.
-    let diffs = result.build_diffs();
     let diff_text = if !diffs.is_empty() {
         Some(render_diffs_plain(&diffs))
     } else {
@@ -414,14 +410,7 @@ fn replace_output(
     };
 
     if global.json {
-        let output = ReplaceOutput {
-            ok: true,
-            match_count: total_matches,
-            file_count,
-            files: files.to_vec(),
-            diff: diff_text,
-        };
-        global.emit_json(&output)?;
+        global.emit_json(&build_output(diff_text))?;
     } else if !global.emit_json_items(files)? && !diffs.is_empty() {
         print!("{}", render_diffs_colored(&diffs, global.should_color()));
     }

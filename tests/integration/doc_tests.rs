@@ -1928,8 +1928,8 @@ fn test_doc_delete_numeric_dot_notation_on_array() {
 // ---------------------------------------------------------------------------
 
 /// Write operations that select a non-existent key should exit 3 (NO_MATCHES),
-/// not exit 1 (FAILURE). This guards the `msg.contains("matched nothing")`
-/// classification at doc.rs:736.
+/// not exit 1 (FAILURE). Classification uses `NoMatchError` downcast (#1331),
+/// not string matching.
 #[test]
 fn test_doc_update_nonexistent_selector_exits_3() {
     let dir = TempDir::new().unwrap();

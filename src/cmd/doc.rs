@@ -448,6 +448,23 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
     }
 }
 
+/// Format a no-match result for the given output mode.
+///
+/// Used by read-only doc subcommands (get, keys, len, flatten) to produce
+/// consistent no-match output without repeating the Json/Jsonl/Text match.
+fn format_no_match(error_msg: &str, mode: OutputMode) -> anyhow::Result<(String, u8)> {
+    let output = match mode {
+        OutputMode::Json => {
+            serde_json::to_string_pretty(&serde_json::json!({"ok": false, "error": error_msg}))?
+        }
+        OutputMode::Jsonl => {
+            serde_json::to_string(&serde_json::json!({"ok": false, "error": error_msg}))?
+        }
+        OutputMode::Text => String::new(),
+    };
+    Ok((output, exit::NO_MATCHES))
+}
+
 // ---------------------------------------------------------------------------
 // Core execution (returns output text + exit code for testability)
 // ---------------------------------------------------------------------------
@@ -462,16 +479,7 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_get(&root, selector)? {
                 crate::ops::doc::query::QueryResult::NoMatch => {
-                    let output = match output_mode {
-                        OutputMode::Json => serde_json::to_string_pretty(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Jsonl => serde_json::to_string(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Text => String::new(),
-                    };
-                    Ok((output, exit::NO_MATCHES))
+                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
                 }
                 crate::ops::doc::query::QueryResult::Values(vals) => {
                     let refs: Vec<&serde_json::Value> = vals.iter().collect();
@@ -504,16 +512,7 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_keys(&root, selector)? {
                 crate::ops::doc::query::QueryKeysResult::NoMatch => {
-                    let output = match output_mode {
-                        OutputMode::Json => serde_json::to_string_pretty(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Jsonl => serde_json::to_string(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Text => String::new(),
-                    };
-                    Ok((output, exit::NO_MATCHES))
+                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
                 }
                 crate::ops::doc::query::QueryKeysResult::NotAnObject => Ok((
                     format!("doc keys: target at '{selector}' is not an object"),
@@ -539,16 +538,7 @@ pub(crate) fn execute_with_mode(
             let root = load_file(file)?;
             match crate::ops::doc::query::query_len(&root, selector)? {
                 crate::ops::doc::query::QueryLenResult::NoMatch => {
-                    let output = match output_mode {
-                        OutputMode::Json => serde_json::to_string_pretty(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Jsonl => serde_json::to_string(
-                            &serde_json::json!({"ok": false, "error": format!("no match for selector: {selector}")}),
-                        )?,
-                        OutputMode::Text => String::new(),
-                    };
-                    Ok((output, exit::NO_MATCHES))
+                    format_no_match(&format!("no match for selector: {selector}"), output_mode)
                 }
                 crate::ops::doc::query::QueryLenResult::NotArrayOrObject => Ok((
                     format!("doc len: target at '{selector}' is not an array or object"),
@@ -572,16 +562,7 @@ pub(crate) fn execute_with_mode(
             let mut path_buf = String::new();
             flatten_value(&root, &mut path_buf, &mut entries);
             if entries.is_empty() {
-                let output = match output_mode {
-                    OutputMode::Json => serde_json::to_string_pretty(
-                        &serde_json::json!({"ok": false, "error": "document has no leaf values to flatten"}),
-                    )?,
-                    OutputMode::Jsonl => serde_json::to_string(
-                        &serde_json::json!({"ok": false, "error": "document has no leaf values to flatten"}),
-                    )?,
-                    OutputMode::Text => String::new(),
-                };
-                return Ok((output, exit::NO_MATCHES));
+                return format_no_match("document has no leaf values to flatten", output_mode);
             }
             match output_mode {
                 OutputMode::Json => {
@@ -732,12 +713,13 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         ) {
             Ok(code) => return Ok(code),
             Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("matched nothing") {
+                if exit::is_no_match(&e) {
+                    let msg = e.to_string();
                     global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?;
                     return Ok(exit::NO_MATCHES);
                 }
                 // TypeError or other engine error → FAILURE
+                let msg = e.to_string();
                 if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))?
                     && !global.quiet
                 {
