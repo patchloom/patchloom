@@ -994,5 +994,31 @@ fn test_md_upsert_bullet_does_not_dedup_against_paragraphs() {
 }
 
 // ---------------------------------------------------------------------------
+// No-match text-mode stderr tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_replace_section_no_match_emits_stderr_in_text_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    fs::write(&file, "# Intro\nHello\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "md",
+            "replace-section",
+            file.to_str().unwrap(),
+            "--heading",
+            "## Nonexistent",
+            "--content",
+            "new content",
+            "--apply",
+        ])
+        .assert()
+        .code(3)
+        .stderr(predicates::str::contains("md.replace_section"));
+}
+
+// ---------------------------------------------------------------------------
 // doc --check produces stdout output (#544)
 // ---------------------------------------------------------------------------

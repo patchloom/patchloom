@@ -158,10 +158,13 @@ fn execute_md_op(
         Err(e) => {
             if exit::is_no_match(&e) {
                 let msg = e.to_string();
-                global.emit_json(&serde_json::json!({
+                if !global.emit_json(&serde_json::json!({
                     "ok": false,
                     "error": &msg,
-                }))?;
+                }))? && !global.quiet
+                {
+                    eprintln!("{msg}");
+                }
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
@@ -376,10 +379,12 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             match find_section(&content, &heading) {
                 None => {
-                    global.emit_json(&serde_json::json!({
-                        "ok": false,
-                        "error": format!("heading {:?} not found in {file}", heading),
-                    }))?;
+                    let msg = format!("heading {:?} not found in {file}", heading);
+                    if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))?
+                        && !global.quiet
+                    {
+                        eprintln!("{msg}");
+                    }
                     Ok(exit::NO_MATCHES)
                 }
                 Some((body_start, body_end)) => {

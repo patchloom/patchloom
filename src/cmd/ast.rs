@@ -151,7 +151,8 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? {
+            if !global.emit_json(&serde_json::json!({"ok": false, "error": msg}))? && !global.quiet
+            {
                 eprintln!("{msg}");
             }
             return Ok(exit::NO_MATCHES);
@@ -211,10 +212,10 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if any_output {
         Ok(exit::SUCCESS)
     } else {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("no symbols found in {}", args.path),
-        }))?;
+        let msg = format!("no symbols found in {}", args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         Ok(exit::NO_MATCHES)
     }
 }
@@ -363,10 +364,10 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if operations.is_empty() {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("symbol '{}' not found in {}", args.old_name, args.path),
-        }))?;
+        let msg = format!("symbol '{}' not found in {}", args.old_name, args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         return Ok(exit::NO_MATCHES);
     }
 
@@ -600,10 +601,10 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if total_matches == 0 {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("no matches for pattern in {}", args.path),
-        }))?;
+        let msg = format!("no matches for pattern in {}", args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         Ok(exit::NO_MATCHES)
     } else {
         Ok(exit::SUCCESS)
@@ -654,10 +655,10 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if all_refs.is_empty() {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("no references found for '{}' in {}", args.symbol, args.path),
-        }))?;
+        let msg = format!("no references found for '{}' in {}", args.symbol, args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         return Ok(exit::NO_MATCHES);
     }
 
@@ -791,10 +792,10 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if any_output {
         Ok(exit::SUCCESS)
     } else {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("no imports found in {}", args.path),
-        }))?;
+        let msg = format!("no imports found in {}", args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         Ok(exit::NO_MATCHES)
     }
 }
@@ -853,10 +854,10 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let entries = crate::ast::map::generate_map(&file_pairs, &opts);
 
     if entries.is_empty() {
-        global.emit_json(&serde_json::json!({
-            "ok": false,
-            "error": format!("no symbols found in {}", args.path),
-        }))?;
+        let msg = format!("no symbols found in {}", args.path);
+        if !global.emit_json(&serde_json::json!({"ok": false, "error": &msg}))? && !global.quiet {
+            eprintln!("{msg}");
+        }
         return Ok(exit::NO_MATCHES);
     }
 

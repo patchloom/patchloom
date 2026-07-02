@@ -174,6 +174,7 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Use `anyhow::Result` for propagating errors.
 - Return exit codes directly using constants from `src/exit.rs` (e.g. `exit::NO_MATCHES`, `exit::CHANGES_DETECTED`).
 - Return `Ok(exit::SUCCESS)` for success, `Ok(exit::NO_MATCHES)` for no-match, etc.
+- When returning `NO_MATCHES` with an error message, always use the standard pattern: `if !global.emit_json(&json!({"ok": false, "error": &msg}))? && !global.quiet { eprintln!("{msg}"); }`. Both conditions are required: `emit_json` returns true when JSON was emitted (skip text), and `!global.quiet` suppresses stderr in quiet mode. Omitting `!global.quiet` is a recurring bug.
 
 ### Testing
 

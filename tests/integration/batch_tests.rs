@@ -486,3 +486,18 @@ fn test_batch_multi_op_rollback_on_second_failure() {
         "data.json should be rolled back after second op fails: {content}"
     );
 }
+
+#[test]
+fn test_batch_unterminated_quote_fails() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("bad_quote.txt");
+    fs::write(&ops, "doc.set file.json key \"unclosed value\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("unterminated"));
+}

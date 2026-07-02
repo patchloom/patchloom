@@ -401,6 +401,27 @@ fn test_ast_list_unsupported_file_reports_language() {
         .stderr(predicates::str::contains("Rust"));
 }
 
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_unsupported_quiet_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.csv");
+    fs::write(&file, "a,b,c\n1,2,3\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "--cwd"])
+        .arg(dir.path())
+        .args(["ast", "list", "data.csv"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "quiet should suppress stderr, got: {stderr}"
+    );
+}
+
 // --- NO_MATCHES (exit 3) tests for AST subcommands ---
 // These verify the exit code contract agents rely on for control flow.
 
