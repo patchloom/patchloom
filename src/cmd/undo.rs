@@ -87,7 +87,12 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Use the most recent session.
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if global.show_status() {
+            if global.json || global.jsonl {
+                global.emit_json(&serde_json::json!({
+                    "ok": false,
+                    "error": "no backup sessions found",
+                }))?;
+            } else if global.show_status() {
                 eprintln!("no backup sessions found");
             }
             return Ok(exit::NO_MATCHES);
@@ -149,7 +154,14 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // the next-oldest session instead of replaying the same one.
     backup::remove_session(&cwd, &timestamp)?;
     crate::verbose!("undo: restored {} file(s)", restored);
-    if global.show_status() {
+    if global.json || global.jsonl {
+        global.emit_json(&serde_json::json!({
+            "ok": true,
+            "status": "restored",
+            "session": timestamp,
+            "file_count": restored,
+        }))?;
+    } else if global.show_status() {
         eprintln!("restored {restored} file(s) from session {timestamp}");
     }
 
@@ -296,6 +308,45 @@ mod tests {
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn no_sessions_json_emits_error_object() {
+        let dir = TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: None,
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        // JSON error object is emitted via global.emit_json which writes to
+        // stdout. We verify the exit code; emit_json correctness is covered
+        // by its own unit tests.
+    }
+
+    #[test]
+    fn apply_json_emits_restored_object() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("f.txt");
+        let ts = create_backup(dir.path(), "f.txt", "original");
+        std::fs::write(&file, "modified").unwrap();
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts),
+            apply: true,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+        // JSON restored object is emitted via global.emit_json. We verify
+        // the exit code and that the file was actually restored.
     }
 
     #[test]
