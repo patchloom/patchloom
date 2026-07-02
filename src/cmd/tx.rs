@@ -181,6 +181,10 @@ fn commit_and_finalize(
     }
 
     if result.replace_no_matches {
+        if ctx.structured {
+            let output = build_full_tx_output("no_matches", result, ctx.cwd);
+            emit_output_json(&output, ctx.compact);
+        }
         return Ok(exit::NO_MATCHES);
     }
     if ctx.structured {
@@ -406,6 +410,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if global.check {
         if result.no_effective_changes {
             if result.replace_no_matches {
+                if structured {
+                    let output = build_full_tx_output("no_matches", &mut result, &cwd);
+                    emit_output_json(&output, compact);
+                }
                 return Ok(exit::NO_MATCHES);
             }
             if structured {
@@ -440,6 +448,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if result.replace_no_matches {
+        if structured {
+            let output = build_full_tx_output("no_matches", &mut result, &cwd);
+            emit_output_json(&output, compact);
+        }
         return Ok(exit::NO_MATCHES);
     }
 

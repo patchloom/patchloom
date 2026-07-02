@@ -1288,7 +1288,10 @@ async fn test_mcp_doc_diff_round_trip() {
     )
     .await;
     assert!(!is_error, "doc_diff should succeed: {val}");
-    let diffs = val.as_array().expect("doc_diff should return a JSON array");
+    assert_eq!(val["identical"], false, "should not be identical: {val}");
+    let diffs = val["differences"]
+        .as_array()
+        .expect("doc_diff should have a differences array");
     assert_eq!(diffs.len(), 1, "should have exactly one difference: {val}");
     assert_eq!(
         diffs[0]["path"], "name",

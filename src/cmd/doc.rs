@@ -633,7 +633,10 @@ pub(crate) fn execute_with_mode(
             }
             match output_mode {
                 OutputMode::Json => Ok((
-                    serde_json::to_string_pretty(&entries)?,
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "identical": false,
+                        "differences": entries,
+                    }))?,
                     exit::CHANGES_DETECTED,
                 )),
                 OutputMode::Jsonl => Ok((
@@ -731,6 +734,9 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("matched nothing") {
+                    if global.json || global.jsonl {
+                        global.emit_json(&serde_json::json!({"ok": false, "error": msg}))?;
+                    }
                     return Ok(exit::NO_MATCHES);
                 }
                 // TypeError or other engine error → FAILURE

@@ -614,6 +614,23 @@ mod edge_cases {
     }
 
     #[test]
+    fn diff_json_wraps_differences_in_object() {
+        let dir = TempDir::new().unwrap();
+        let a = write_file(&dir, "a.json", r#"{"name":"old","version":1}"#);
+        let b = write_file(&dir, "b.json", r#"{"name":"new","version":1}"#);
+        let action = DocAction::Diff {
+            file_a: a,
+            file_b: b,
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["identical"], false);
+        assert!(v["differences"].is_array());
+        assert!(!v["differences"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
     fn flatten_includes_empty_arrays() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"tags":[],"name":"foo","items":[1]}"#);
