@@ -291,7 +291,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                 "```bash\n\
                  # Same via transaction plan (JSON):\n\
                  patchloom tx - --apply <<'EOF'\n\
-                 {\"version\": \"1\", \"operations\": [\n\
+                 {\"version\": 1, \"operations\": [\n\
                    {\"op\": \"patch.apply\", \"diff\": \"...\", \"on_stale\": \"merge\", \"allow_conflicts\": true}\n\
                  ]}\n\
                  EOF\n\
