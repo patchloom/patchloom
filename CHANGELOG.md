@@ -29,6 +29,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.9.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.9.0...patchloom-v0.9.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* fallback replace path ignores context/fuzzy + Unicode tests ([#1316](https://github.com/patchloom/patchloom/issues/1316)) ([f757ed2](https://github.com/patchloom/patchloom/commit/f757ed227b5e3aaa75ffdff5f72aaf1f62d99fb4))
+* wire context anchoring through replace_in_content fuzzy fallback ([#1312](https://github.com/patchloom/patchloom/issues/1312)) ([5a9a7e5](https://github.com/patchloom/patchloom/commit/5a9a7e5c664a843f368c5b66fe0f28138eb490f5))
+
 ## [0.9.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.8.0...patchloom-v0.9.0) (2026-07-01)
 
 
