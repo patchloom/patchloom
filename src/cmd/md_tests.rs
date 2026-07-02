@@ -508,6 +508,50 @@ mod error_handling {
     }
 
     #[test]
+    fn replace_section_missing_heading_json_emits_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\ncontent\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::ReplaceSection {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                stdin: false,
+                content: Some("new".into()),
+            },
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_apply();
+        global.json = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        // The JSON error is emitted via global.emit_json which writes to
+        // stdout. We verify the exit code; the unit tests in output.rs
+        // verify that emit_json produces valid JSON.
+    }
+
+    #[test]
+    fn table_append_missing_heading_json_emits_error() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.md");
+        fs::write(&file, "# Title\n| H1 |\n|---|\n| A |\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::TableAppend {
+                file: file.to_str().unwrap().to_string(),
+                heading: "Missing".into(),
+                row: "| X |".into(),
+            },
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_apply();
+        global.json = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
     fn table_append_no_table_returns_error() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.md");
