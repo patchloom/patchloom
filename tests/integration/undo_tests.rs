@@ -341,3 +341,18 @@ fn test_undo_list_json_empty_emits_array() {
     assert!(parsed.is_array(), "empty undo --list --json should emit []");
     assert_eq!(parsed.as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn test_undo_invalid_session_apply_exits_1() {
+    let dir = TempDir::new().unwrap();
+
+    patchloom_in(dir.path())
+        .args(["undo", "--session", "BOGUS_TIMESTAMP", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .code(1)
+        .stderr(
+            predicates::str::contains("not in session list")
+                .or(predicates::str::contains("No such file")),
+        );
+}

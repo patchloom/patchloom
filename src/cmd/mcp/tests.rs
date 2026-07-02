@@ -965,3 +965,31 @@ mod no_results_tests {
         assert_eq!(text, "No matches found.");
     }
 }
+
+mod deserialization_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn mcp_type_mismatch_returns_error() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("data.json"), r#"{"key": "val"}"#).unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        // Send path as a number instead of a string to trigger deserialization error.
+        let params = rmcp::model::CallToolRequestParams::new("doc_set").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": 123,
+                "selector": "key",
+                "value": "newval"
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(
+            result.is_err(),
+            "type mismatch should return an MCP error, got: {result:?}"
+        );
+
+        client.cancel().await.unwrap();
+    }
+}
