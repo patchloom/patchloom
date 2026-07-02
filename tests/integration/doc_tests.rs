@@ -1951,5 +1951,29 @@ fn test_doc_update_nonexistent_selector_exits_3() {
 }
 
 // ---------------------------------------------------------------------------
+// No-match text-mode stderr tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_update_apply_no_match_emits_stderr_in_text_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "doc",
+            "update",
+            file.to_str().unwrap(),
+            "nonexistent",
+            "99",
+            "--apply",
+        ])
+        .assert()
+        .code(3)
+        .stderr(predicates::str::contains("doc.update"));
+}
+
+// ---------------------------------------------------------------------------
 // Symlink integration tests (#231 coverage)
 // ---------------------------------------------------------------------------
