@@ -478,25 +478,17 @@ fn run_context_replace(
     let result = execute_operations(ops, options)?;
 
     if !result.has_changes {
-        if args.if_exists {
-            let output = ReplaceOutput {
-                ok: true,
-                match_count: 0,
-                file_count: 0,
-                files: vec![],
-                diff: None,
-            };
-            global.emit_json(&output)?;
-            return Ok(exit::SUCCESS);
-        }
-        let output = ReplaceOutput {
+        let empty = ReplaceOutput {
             ok: true,
             match_count: 0,
             file_count: 0,
             files: vec![],
             diff: None,
         };
-        global.emit_json(&output)?;
+        global.emit_json(&empty)?;
+        if args.if_exists {
+            return Ok(exit::SUCCESS);
+        }
         if global.show_status() {
             eprintln!("no matches for '{}' in context-based replace", args.old);
         }
@@ -517,17 +509,18 @@ fn run_context_replace(
     let total_matches = files.len();
     let file_count = total_matches;
 
+    let build_output = |diff: Option<String>| ReplaceOutput {
+        ok: true,
+        match_count: total_matches,
+        file_count,
+        files: files.clone(),
+        diff,
+    };
+
     // --check mode.
     if global.check {
         if global.json {
-            let output = ReplaceOutput {
-                ok: true,
-                match_count: total_matches,
-                file_count,
-                files,
-                diff: None,
-            };
-            global.emit_json(&output)?;
+            global.emit_json(&build_output(None))?;
         } else if !global.emit_json_items(&files)? && !global.quiet {
             println!("{total_matches} file(s) changed");
         }
@@ -546,14 +539,7 @@ fn run_context_replace(
             None
         };
         if global.json {
-            let output = ReplaceOutput {
-                ok: true,
-                match_count: total_matches,
-                file_count,
-                files,
-                diff: diff_text,
-            };
-            global.emit_json(&output)?;
+            global.emit_json(&build_output(diff_text))?;
         } else if !global.emit_json_items(&files)? {
             if global.diff {
                 print!("{}", render_diffs_colored(&diffs, global.should_color()));
@@ -573,14 +559,7 @@ fn run_context_replace(
     };
 
     if global.json {
-        let output = ReplaceOutput {
-            ok: true,
-            match_count: total_matches,
-            file_count,
-            files,
-            diff: diff_text,
-        };
-        global.emit_json(&output)?;
+        global.emit_json(&build_output(diff_text))?;
     } else if !global.emit_json_items(&files)? && !diffs.is_empty() {
         print!("{}", render_diffs_colored(&diffs, global.should_color()));
     }
