@@ -125,6 +125,7 @@ impl VerifyCheck {
 /// A format step to run after applying operations but before validation.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct FormatStep {
+    #[serde(alias = "command")]
     pub cmd: String,
     /// Timeout in seconds (default: 60).
     pub timeout: Option<u64>,
@@ -876,6 +877,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
 /// A validation step to run after applying operations.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ValidationStep {
+    #[serde(alias = "command")]
     pub cmd: String,
     pub required: Option<bool>,
     /// Timeout in seconds (default: 60).
@@ -1488,6 +1490,30 @@ mod tests {
         let fmt = plan.format.unwrap();
         assert_eq!(fmt.len(), 1);
         assert_eq!(fmt[0].cmd, "cargo fmt");
+    }
+
+    #[test]
+    fn format_step_accepts_command_alias() {
+        let json = r#"{
+            "version": 1,
+            "operations": [],
+            "format": [{"command": "cargo fmt"}],
+            "validate": [{"command": "make check", "required": true}]
+        }"#;
+        let plan = parse_plan(json).unwrap();
+        let fmt = plan.format.unwrap();
+        assert_eq!(fmt[0].cmd, "cargo fmt");
+        let val = plan.validate.unwrap();
+        assert_eq!(val[0].cmd, "make check");
+        assert_eq!(val[0].required, Some(true));
+    }
+
+    #[test]
+    fn format_step_command_alias_yaml() {
+        let yaml = "version: 1\noperations: []\nformat:\n  - command: cargo fmt\nvalidate:\n  - command: make check\n";
+        let plan = parse_plan_yaml(yaml).unwrap();
+        assert_eq!(plan.format.unwrap()[0].cmd, "cargo fmt");
+        assert_eq!(plan.validate.unwrap()[0].cmd, "make check");
     }
 
     // ── YAML / TOML / auto-detect ─────────────────────────────────
