@@ -36,7 +36,7 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
 check-fast: fmt-check clippy test test-no-default test-ast-only test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
 
