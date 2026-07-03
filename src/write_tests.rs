@@ -1169,4 +1169,42 @@ mod format_preservation {
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o644, "expected 0o644, got 0o{mode:o}");
     }
+
+    /// WritePolicyOverride (plan serialization type) must accept unknown fields
+    /// for forward compatibility. Plans from newer patchloom versions may include
+    /// fields that older versions don't recognize. (#1353)
+    #[test]
+    fn write_policy_override_accepts_unknown_fields() {
+        let json = r#"{
+            "ensure_final_newline": true,
+            "future_field_from_v2": "some_value",
+            "another_future_bool": true
+        }"#;
+        let result: Result<WritePolicyOverride, _> = serde_json::from_str(json);
+        assert!(
+            result.is_ok(),
+            "WritePolicyOverride should accept unknown fields for forward compat: {:?}",
+            result.err()
+        );
+        let ov = result.unwrap();
+        assert_eq!(ov.ensure_final_newline, Some(true));
+    }
+
+    /// WritePolicyOverride in a plan context must ignore unknown fields,
+    /// allowing plans from newer patchloom versions to be parsed by older ones.
+    #[test]
+    fn plan_write_policy_forward_compat() {
+        let json = r#"{
+            "version": 1,
+            "write_policy": {
+                "ensure_final_newline": true,
+                "some_future_feature": "value"
+            },
+            "operations": []
+        }"#;
+        let plan: crate::plan::Plan = serde_json::from_str(json)
+            .expect("plan with unknown write_policy fields should parse successfully");
+        let wp = plan.write_policy.unwrap();
+        assert_eq!(wp.ensure_final_newline, Some(true));
+    }
 }
