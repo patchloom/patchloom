@@ -422,6 +422,11 @@ jobs:
           - fuzz_batch_tokenize
           - fuzz_selector_eval
           - fuzz_doc_parse
+          - fuzz_containment_check
+          - fuzz_fallback_resolve
+          - fuzz_ast_parse
+          - fuzz_md_heading
+          - fuzz_replace_regex
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4

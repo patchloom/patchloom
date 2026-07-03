@@ -20,6 +20,13 @@ mod search_op;
 mod validate;
 pub(crate) mod verify;
 
+// Operation handler modules extracted from execute.rs (#1359).
+#[cfg(feature = "ast")]
+mod ast_op;
+mod md_op;
+mod patch_op;
+mod tidy_op;
+
 // Re-export all pub and pub(crate) items so `crate::tx::*` paths continue to work.
 
 // output.rs
