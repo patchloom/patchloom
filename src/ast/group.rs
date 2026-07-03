@@ -16,6 +16,20 @@ pub enum GroupPosition {
     After(String),
 }
 
+/// Parse a plan/CLI position string into [`GroupPosition`].
+///
+/// Shared by library AST ops and the tx engine so `after:` parsing cannot
+/// diverge (#1376).
+pub fn parse_group_position(s: Option<&str>) -> GroupPosition {
+    match s {
+        Some("end") => GroupPosition::End,
+        Some(raw) if let Some(name) = raw.strip_prefix("after:") => {
+            GroupPosition::After(name.to_string())
+        }
+        _ => GroupPosition::FirstSymbol,
+    }
+}
+
 /// Specification for a group operation.
 #[derive(Debug)]
 pub struct GroupSpec {

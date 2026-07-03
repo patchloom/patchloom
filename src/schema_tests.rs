@@ -62,6 +62,69 @@ mod basic {
         assert_eq!(names.len(), original_len, "duplicate operation names found");
     }
 
+    /// Every `plan::Operation` serde tag must appear in the static registry
+    /// (and vice versa). Prevents schema export / agent-rules / MCP meta drift.
+    #[test]
+    fn registry_covers_every_operation_variant() {
+        let full = operation_variant_schema("__probe_missing__");
+        // Probe always fails; use the full schema via a known op instead.
+        let _ = full;
+        let generator = schemars::generate::SchemaSettings::default().into_generator();
+        let root = generator.into_root_schema_for::<crate::plan::Operation>();
+        let schema = serde_json::to_value(root).unwrap();
+        let one_of = schema
+            .get("oneOf")
+            .and_then(|v| v.as_array())
+            .expect("Operation schema oneOf");
+        let mut variant_names: Vec<String> = one_of
+            .iter()
+            .filter_map(|v| {
+                v.pointer("/properties/op/const")
+                    .and_then(|c| c.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        variant_names.sort();
+        variant_names.dedup();
+
+        let mut registered: Vec<String> = registered_operation_names()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        registered.sort();
+        registered.dedup();
+
+        let missing_from_registry: Vec<_> = variant_names
+            .iter()
+            .filter(|n| !registered.contains(n))
+            .collect();
+        let extra_in_registry: Vec<_> = registered
+            .iter()
+            .filter(|n| !variant_names.contains(n))
+            .collect();
+
+        assert!(
+            missing_from_registry.is_empty(),
+            "Operation variants missing from OPERATION_REGISTRY: {missing_from_registry:?}"
+        );
+        assert!(
+            extra_in_registry.is_empty(),
+            "Registry entries with no Operation variant: {extra_in_registry:?}"
+        );
+    }
+
+    #[test]
+    fn agent_operations_catalogue_lists_registered_ops() {
+        let catalogue = agent_operations_catalogue();
+        assert!(catalogue.contains("## Operations (from schema registry)"));
+        for name in registered_operation_names() {
+            assert!(
+                catalogue.contains(&format!("`{name}`")),
+                "catalogue missing op {name}"
+            );
+        }
+    }
+
     #[test]
     fn weak_tier_returns_subset() {
         let all = operation_schemas().unwrap();

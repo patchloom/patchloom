@@ -654,3 +654,53 @@ pub fn system_prompt_for_tier(tier: Tier) -> anyhow::Result<String> {
 #[path = "schema_tests.rs"]
 #[cfg(test)]
 mod tests;
+
+/// All registered plan operation names (non-AST + AST when the `ast` feature is on).
+pub fn registered_operation_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = OPERATION_REGISTRY.iter().map(|o| o.name).collect();
+    #[cfg(feature = "ast")]
+    {
+        names.extend(AST_OPERATION_REGISTRY.iter().map(|o| o.name));
+    }
+    names
+}
+
+/// Look up the human description for a plan `op` name (e.g. `"doc.set"`).
+pub fn operation_description(op_name: &str) -> Option<&'static str> {
+    OPERATION_REGISTRY
+        .iter()
+        .chain(ast_registry_iter())
+        .find(|o| o.name == op_name)
+        .map(|o| o.description)
+}
+
+/// First example JSON string for an operation, if any.
+pub fn operation_example_json(op_name: &str) -> Option<&'static str> {
+    OPERATION_REGISTRY
+        .iter()
+        .chain(ast_registry_iter())
+        .find(|o| o.name == op_name)
+        .and_then(|o| o.examples.first().map(|(_, json)| *json))
+}
+
+fn ast_registry_iter() -> impl Iterator<Item = &'static OpMeta> {
+    #[cfg(feature = "ast")]
+    {
+        AST_OPERATION_REGISTRY.iter()
+    }
+    #[cfg(not(feature = "ast"))]
+    {
+        std::iter::empty()
+    }
+}
+
+/// Build a compact agent-facing operations catalogue from the registry.
+///
+/// Used by `agent-rules` so the op list cannot drift from schema export.
+pub fn agent_operations_catalogue() -> String {
+    let mut out = String::from("## Operations (from schema registry)\n\n");
+    for meta in OPERATION_REGISTRY.iter().chain(ast_registry_iter()) {
+        out.push_str(&format!("- `{}`: {}\n", meta.name, meta.description));
+    }
+    out
+}

@@ -11,6 +11,7 @@
 // feature set.
 #![cfg_attr(not(feature = "cli"), allow(dead_code, unused_imports))]
 
+pub mod context;
 pub mod engine;
 mod execute;
 mod lifecycle;
