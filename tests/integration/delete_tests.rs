@@ -216,7 +216,7 @@ fn test_delete_default_dry_run_does_not_remove() {
         .arg("delete")
         .arg(file.to_str().unwrap())
         .assert()
-        .success()
+        .code(2)
         .stdout(predicate::str::contains("would delete"));
 
     assert!(file.exists(), "dry-run should not delete the file");
@@ -234,7 +234,7 @@ fn test_delete_quiet_dry_run_suppresses_output() {
         .arg("delete")
         .arg(file.to_str().unwrap())
         .assert()
-        .success()
+        .code(2)
         .stdout(predicate::str::is_empty());
 
     assert!(file.exists(), "quiet dry-run should not delete the file");
@@ -319,4 +319,21 @@ fn test_delete_binary_file_succeeds() {
         .code(0);
 
     assert!(!file.exists(), "binary file should be deleted");
+}
+
+// Regression: default (preview) mode must return exit 2 (CHANGES_DETECTED), not 0.
+#[test]
+fn test_delete_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("target.txt");
+    fs::write(&file, "keep me\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["delete"])
+        .arg(file.to_str().unwrap())
+        .assert()
+        .code(2);
+
+    assert!(file.exists(), "file should not be deleted in default mode");
 }

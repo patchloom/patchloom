@@ -187,7 +187,11 @@ fn test_doc_set_confirm_eof_does_not_modify_file() {
         "\u{4}",
     );
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "declined confirm should exit 2 (CHANGES_DETECTED)"
+    );
     let content = fs::read_to_string(&file).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(v["version"], serde_json::json!("1.0"));
@@ -2069,6 +2073,53 @@ fn test_doc_get_no_match_quiet_suppresses_stderr() {
         "--quiet should suppress stderr, got: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+// ---------------------------------------------------------------------------
+// Regression: default (preview) mode exit code (#1345)
+// ---------------------------------------------------------------------------
+
+// doc set in default mode must return exit 2 (CHANGES_DETECTED), not 0.
+#[test]
+fn test_doc_set_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("version")
+        .arg("\"2.0\"")
+        .assert()
+        .code(2);
+
+    // File should not be modified
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, r#"{"version":"1.0"}"#);
+}
+
+// doc delete in default mode must return exit 2 (CHANGES_DETECTED), not 0.
+#[test]
+fn test_doc_delete_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a":1,"b":2}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("a")
+        .assert()
+        .code(2);
+
+    // File should not be modified
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("\"a\""));
 }
 
 // ---------------------------------------------------------------------------

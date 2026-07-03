@@ -65,7 +65,11 @@ fn test_md_default_mode_shows_diff() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "default mode with changes should exit 2 (CHANGES_DETECTED)"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("--- a/"),

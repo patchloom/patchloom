@@ -610,7 +610,7 @@ fn test_rename_default_diff_preview() {
         .arg(&src)
         .arg(&dst)
         .assert()
-        .success()
+        .code(2)
         .stdout(predicate::str::contains("-hello"))
         .stdout(predicate::str::contains("+hello"));
 

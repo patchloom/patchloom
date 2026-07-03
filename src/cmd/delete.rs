@@ -76,7 +76,7 @@ mod tests {
         std::fs::write(&file, "content").unwrap();
 
         let code = run(make_args(&file.to_string_lossy()), &GlobalFlags::default()).unwrap();
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(file.exists(), "dry-run should not delete the file");
     }
 
