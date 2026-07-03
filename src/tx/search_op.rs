@@ -1,7 +1,7 @@
 use super::execute::{TxState, read_and_probe, read_file_content};
 use super::output::{TxSearchMatch, TxSearchResult};
 use crate::plan::Operation;
-use regex::RegexBuilder;
+
 use std::path::PathBuf;
 
 /// Execute a search operation within a transaction.
@@ -67,7 +67,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         pattern.clone()
     };
     let re = {
-        let mut builder = RegexBuilder::new(&pat);
+        let mut builder = crate::bounded_regex_builder(&pat);
         builder.case_insensitive(*case_insensitive);
         builder.multi_line(true);
         builder.dot_matches_new_line(*multiline);

@@ -121,13 +121,13 @@ pub fn build_matcher(
         pattern.to_string()
     };
     let re = if multiline || case_insensitive {
-        regex::RegexBuilder::new(&escaped)
+        crate::bounded_regex_builder(&escaped)
             .multi_line(true)
             .dot_matches_new_line(multiline)
             .case_insensitive(case_insensitive)
             .build()?
     } else {
-        regex::RegexBuilder::new(&escaped)
+        crate::bounded_regex_builder(&escaped)
             .multi_line(true)
             .build()?
     };

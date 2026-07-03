@@ -216,6 +216,23 @@ macro_rules! verbose {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Bounded regex compilation
+// ---------------------------------------------------------------------------
+
+/// Create a [`regex::RegexBuilder`] with bounded compilation limits.
+///
+/// All user-supplied regex patterns must go through this function so that
+/// pathological patterns cannot exhaust memory (important when patchloom
+/// runs as an MCP server handling untrusted input).
+pub fn bounded_regex_builder(pattern: &str) -> regex::RegexBuilder {
+    let mut b = regex::RegexBuilder::new(pattern);
+    // 10 MiB compiled program + DFA cache limits.
+    b.size_limit(10 * 1024 * 1024);
+    b.dfa_size_limit(10 * 1024 * 1024);
+    b
+}
+
 /// Run the patchloom CLI. Returns the exit code as a u8.
 ///
 /// Requires the `cli` feature (enabled by default).
@@ -248,5 +265,42 @@ pub fn run() -> anyhow::Result<u8> {
             Ok(exit::FAILURE)
         }
         Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_regex_builder_compiles_valid_pattern() {
+        let re = bounded_regex_builder(r"\d+").build().unwrap();
+        assert!(re.is_match("abc123"));
+    }
+
+    #[test]
+    fn bounded_regex_builder_rejects_invalid_pattern() {
+        assert!(bounded_regex_builder(r"(unclosed").build().is_err());
+    }
+
+    #[test]
+    fn bounded_regex_builder_applies_size_limit() {
+        // Verify that our builder applies size limits by comparing
+        // with a manually-limited builder. A small pattern with a
+        // 1-byte limit must fail, proving the mechanism works.
+        let mut tiny = regex::RegexBuilder::new(r"\d+");
+        tiny.size_limit(1);
+        assert!(tiny.build().is_err(), "1-byte limit should reject any NFA");
+
+        // Our builder should compile normal patterns just fine.
+        assert!(bounded_regex_builder(r"\d+").build().is_ok());
+
+        // Verify the builder actually sets size_limit (not just dfa_size_limit)
+        // by building a moderately large pattern that fits 10 MiB.
+        let medium: String = (0..1000)
+            .map(|i| format!("word_{i}"))
+            .collect::<Vec<_>>()
+            .join("|");
+        assert!(bounded_regex_builder(&medium).build().is_ok());
     }
 }

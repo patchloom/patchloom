@@ -476,13 +476,14 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
             "valid": vr.result.valid,
             "language": vr.result.language,
             "errors": vr.result.errors,
-        }))? {
+        }))? && !global.quiet
+        {
             if !vr.result.valid {
                 eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
                 for err in &vr.result.errors {
                     eprintln!("  line {}:{}: {}", err.line, err.column, err.text.trim());
                 }
-            } else if !global.quiet {
+            } else {
                 eprintln!("{}: OK ({})", vr.display, vr.result.language);
             }
         }
@@ -547,10 +548,12 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 match crate::ast::search::compile_pattern_query(&args.query, lang) {
                     Ok(q) => q,
                     Err(e) => {
-                        eprintln!(
-                            "patchloom: pattern compile error for {}: {e}",
-                            path.display()
-                        );
+                        if !global.quiet {
+                            eprintln!(
+                                "patchloom: pattern compile error for {}: {e}",
+                                path.display()
+                            );
+                        }
                         return None;
                     }
                 }

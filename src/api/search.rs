@@ -295,7 +295,7 @@ pub fn search_one_file(
         pattern.to_string()
     };
     let re = if opts.regex || opts.case_insensitive || opts.multiline {
-        match regex::RegexBuilder::new(&pat)
+        match crate::bounded_regex_builder(&pat)
             .case_insensitive(opts.case_insensitive)
             .multi_line(true)
             .dot_matches_new_line(opts.multiline)

@@ -17,7 +17,7 @@ pub fn compile_replace_regex(
         let escaped = regex::escape(pattern);
         let wb_pattern = format!("\\b{escaped}\\b");
         return Ok(Some(
-            regex::RegexBuilder::new(&wb_pattern)
+            crate::bounded_regex_builder(&wb_pattern)
                 .case_insensitive(case_insensitive)
                 .multi_line(true)
                 .dot_matches_new_line(multiline)
@@ -31,7 +31,7 @@ pub fn compile_replace_regex(
             pattern.to_string()
         };
         Ok(Some(
-            regex::RegexBuilder::new(&effective)
+            crate::bounded_regex_builder(&effective)
                 .case_insensitive(case_insensitive)
                 .multi_line(true)
                 .dot_matches_new_line(multiline)
@@ -39,7 +39,7 @@ pub fn compile_replace_regex(
         ))
     } else if case_insensitive {
         Ok(Some(
-            regex::RegexBuilder::new(&regex::escape(pattern))
+            crate::bounded_regex_builder(&regex::escape(pattern))
                 .case_insensitive(true)
                 .multi_line(true)
                 .build()?,
