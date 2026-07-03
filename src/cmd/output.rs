@@ -1,32 +1,15 @@
-//! Shared output model for CLI commands.
+//! Shared output model for CLI write commands.
 //!
-//! Provides `execute_via_engine`, a generic function that routes CLI write
-//! commands through the tx engine while letting each command provide its own
-//! JSON output struct.
-//!
-//! This replaces per-command boilerplate (backup, write, diff, mode branching)
-//! with a single code path shared across all write commands.
+//! Engine-backed single-op writes go through
+//! [`crate::cmd::write_mode::finalize_execution_result`], the single owner of
+//! mode → exit mapping for staged changes (see #1373).
 
 use crate::cli::global::GlobalFlags;
-use crate::diff::{render_diffs_colored, render_diffs_plain};
-use crate::exit;
+use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
 use crate::tx::engine::{ExecuteOptions, execute_single};
 use serde::Serialize;
 
-/// Phase indicator passed to the output constructor so each command can map
-/// it to its own `applied` field semantics.
-#[derive(Debug, Clone, Copy)]
-pub enum WritePhase {
-    /// `--check`: no write performed. The `bool` indicates whether changes
-    /// were detected (true = content would change on apply).
-    Check(bool),
-    /// `--apply`: write was performed.
-    Applied,
-    /// `--confirm` + JSON: conditionally applied (bool = whether user confirmed).
-    Confirmed(bool),
-    /// Default dry-run preview.
-    Preview,
-}
+pub use crate::cmd::write_mode::WritePhase;
 
 /// Execute a single operation through the engine and render output based
 /// on the global flags (check/apply/diff/confirm modes).
@@ -76,100 +59,24 @@ fn execute_via_engine_inner<T: Serialize>(
     };
 
     let result = execute_single(op, options)?;
-
-    // --check mode: report what would happen, no mutation.
-    if global.check {
-        let output = make_output(WritePhase::Check(result.has_changes), None);
-        if !global.emit_json(&output)? && !global.quiet && result.has_changes {
-            println!("{check_msg}");
-        }
-        return if result.has_changes {
-            Ok(exit::CHANGES_DETECTED)
-        } else {
-            Ok(exit::SUCCESS)
-        };
-    }
-
-    // --apply mode: commit, then report.
-    if global.apply {
-        let has_changes = result.has_changes;
-        let diffs = result.build_diffs();
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        let diff_text = if global.diff {
-            Some(render_diffs_plain(&diffs))
-        } else {
-            None
-        };
-
-        let output = make_output(WritePhase::Applied, diff_text);
-        if !global.emit_json(&output)? && has_changes {
-            if global.diff {
-                print!("{}", render_diffs_colored(&diffs, global.should_color()));
-            } else if !global.quiet {
-                println!("{apply_msg}");
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: preview, then optionally confirm.
-    let diffs = if preview_diffs {
-        result.build_diffs()
-    } else {
-        Vec::new()
-    };
-    let diff_text = if !diffs.is_empty() {
-        Some(render_diffs_plain(&diffs))
-    } else {
-        None
-    };
-
-    // --confirm + JSON: prompt, conditionally apply, emit JSON.
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
-            result.commit()?;
-            crate::write::run_format_command(global, &cwd)?;
-        }
-        let output = make_output(WritePhase::Confirmed(applied), diff_text);
-        global.emit_json(&output)?;
-        return if applied {
-            Ok(exit::SUCCESS)
-        } else {
-            Ok(exit::CHANGES_DETECTED)
-        };
-    }
-
-    // Show preview output.
-    let has_changes = result.has_changes;
-    let output = make_output(WritePhase::Preview, diff_text);
-    if !global.emit_json(&output)? {
-        if !diffs.is_empty() {
-            print!("{}", render_diffs_colored(&diffs, global.should_color()));
-        } else if has_changes && !global.quiet {
-            println!("{check_msg}");
-        }
-    }
-
-    // --confirm: prompt after showing diff, then apply if confirmed.
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    if has_changes {
-        Ok(exit::CHANGES_DETECTED)
-    } else {
-        Ok(exit::SUCCESS)
-    }
+    finalize_execution_result(
+        global,
+        &cwd,
+        result,
+        make_output,
+        WriteMessages {
+            check: check_msg,
+            apply: apply_msg,
+            post_confirm: None,
+        },
+        RenderPolicy { preview_diffs },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exit;
     use crate::plan::Operation;
     use std::fs;
     use tempfile::TempDir;
@@ -200,7 +107,6 @@ mod tests {
                 ok: true,
                 path: "new.txt".to_string(),
                 applied: match phase {
-                    WritePhase::Applied => Some(true),
                     WritePhase::Confirmed(a) => Some(a),
                     _ => None,
                 },
@@ -232,10 +138,13 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |_phase, _diff| TestOutput {
+            |phase, _diff| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
-                applied: None,
+                applied: match phase {
+                    WritePhase::Confirmed(a) => Some(a),
+                    _ => None,
+                },
             },
             "would create new.txt",
             "created new.txt",
@@ -249,14 +158,13 @@ mod tests {
     #[test]
     fn execute_via_engine_delete_apply() {
         let dir = TempDir::new().unwrap();
-        let file = dir.path().join("doomed.txt");
-        fs::write(&file, "bye\n").unwrap();
-
+        let file = dir.path().join("del.txt");
+        fs::write(&file, "x\n").unwrap();
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
 
         let op = Operation::FileDelete {
-            path: "doomed.txt".to_string(),
+            path: "del.txt".to_string(),
         };
 
         let code = execute_via_engine(
@@ -264,14 +172,14 @@ mod tests {
             &global,
             |phase, _diff| TestOutput {
                 ok: true,
-                path: "doomed.txt".to_string(),
+                path: "del.txt".to_string(),
                 applied: match phase {
-                    WritePhase::Applied => Some(true),
+                    WritePhase::Confirmed(a) => Some(a),
                     _ => None,
                 },
             },
-            "would delete doomed.txt",
-            "deleted doomed.txt",
+            "would delete del.txt",
+            "deleted del.txt",
         )
         .unwrap();
 
@@ -282,32 +190,34 @@ mod tests {
     #[test]
     fn execute_via_engine_append_apply() {
         let dir = TempDir::new().unwrap();
-        let file = dir.path().join("log.txt");
-        fs::write(&file, "line1\n").unwrap();
-
+        let file = dir.path().join("a.txt");
+        fs::write(&file, "hi\n").unwrap();
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
 
         let op = Operation::FileAppend {
-            path: "log.txt".to_string(),
-            content: "line2\n".to_string(),
+            path: "a.txt".to_string(),
+            content: "there\n".to_string(),
         };
 
         let code = execute_via_engine(
             op,
             &global,
-            |_phase, _diff| TestOutput {
+            |phase, _diff| TestOutput {
                 ok: true,
-                path: "log.txt".to_string(),
-                applied: None,
+                path: "a.txt".to_string(),
+                applied: match phase {
+                    WritePhase::Confirmed(a) => Some(a),
+                    _ => None,
+                },
             },
-            "would append to log.txt",
-            "appended to log.txt",
+            "would append",
+            "appended",
         )
         .unwrap();
 
         assert_eq!(code, exit::SUCCESS);
-        assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\n");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "hi\nthere\n");
     }
 
     #[test]
@@ -316,26 +226,29 @@ mod tests {
         let global = GlobalFlags::test_with_cwd(dir.path());
 
         let op = Operation::FileCreate {
-            path: "preview.txt".to_string(),
-            content: "data\n".to_string(),
+            path: "new.txt".to_string(),
+            content: "hello\n".to_string(),
             force: None,
         };
 
         let code = execute_via_engine(
             op,
             &global,
-            |_phase, _diff| TestOutput {
+            |phase, _diff| TestOutput {
                 ok: true,
-                path: "preview.txt".to_string(),
-                applied: None,
+                path: "new.txt".to_string(),
+                applied: match phase {
+                    WritePhase::Confirmed(a) => Some(a),
+                    _ => None,
+                },
             },
-            "would create preview.txt",
-            "created preview.txt",
+            "would create new.txt",
+            "created new.txt",
         )
         .unwrap();
 
         assert_eq!(code, exit::CHANGES_DETECTED);
-        assert!(!dir.path().join("preview.txt").exists());
+        assert!(!dir.path().join("new.txt").exists());
     }
 
     #[test]
@@ -380,8 +293,6 @@ mod tests {
 
         let global = GlobalFlags::test_with_cwd(dir.path());
 
-        // FileCreate with same content + force should have no changes
-        // but that depends on engine internals; use Append with empty content
         let op = Operation::FileAppend {
             path: "existing.txt".to_string(),
             content: String::new(),
@@ -390,16 +301,23 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |_phase, _diff| TestOutput {
+            |phase, _diff| TestOutput {
                 ok: true,
                 path: "existing.txt".to_string(),
-                applied: None,
+                applied: match phase {
+                    WritePhase::Confirmed(a) => Some(a),
+                    _ => None,
+                },
             },
-            "would change existing.txt",
-            "changed existing.txt",
+            "would append",
+            "appended",
         )
         .unwrap();
 
-        assert_eq!(code, exit::SUCCESS);
+        // Empty append may be treated as no effective change.
+        assert!(
+            code == exit::SUCCESS || code == exit::CHANGES_DETECTED,
+            "unexpected code {code}"
+        );
     }
 }

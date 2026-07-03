@@ -1,6 +1,8 @@
 # Write pipeline inventory (Phase 1 of #1373 / epic #1372)
 
-**Status:** inventory + contract matrix (PR 1.1). No behavior change yet.
+**Status:** PR 1.1 inventory+contract (merged #1377). PR 1.2–1.4: `src/cmd/write_mode.rs`
+owns `classify_write_mode` / `write_exit_code` / `finalize_execution_result` /
+`finalize_callback_write`. All CLI write paths route exit codes through it.
 
 **Goal of Phase 1:** one write pipeline owns mode → exit code, backup, and
 diff policy. Strategies become *inputs*, not five sibling mode matrices.

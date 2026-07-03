@@ -295,44 +295,34 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             };
             let result = crate::tx::engine::execute_single(op, options)?;
 
-            if global.check {
-                return if result.has_changes {
-                    Ok(exit::CHANGES_DETECTED)
-                } else {
-                    Ok(exit::SUCCESS)
-                };
-            }
-
-            if global.apply {
-                result.commit()?;
-                crate::write::run_format_command(global, &cwd)?;
-                return Ok(exit::SUCCESS);
-            }
-
-            // Default / --diff mode: preview diffs.
+            // Mode → exit ownership: write_mode (see #1373).
+            use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
             let has_changes = result.has_changes;
-            let diffs = result.build_diffs();
-            if !diffs.is_empty() && !global.json && !global.jsonl {
-                let dr = crate::diff::DiffResult {
-                    diffs: diffs.clone(),
-                };
-                print!(
-                    "{}",
-                    crate::diff::format_diff_result_colored(&dr, global.should_color())
-                );
-            }
-
-            // --confirm: apply if user confirms.
-            if global.should_apply() {
-                result.commit()?;
-                crate::write::run_format_command(global, &cwd)?;
-                return Ok(exit::SUCCESS);
-            }
-
-            if has_changes {
-                Ok(exit::CHANGES_DETECTED)
-            } else {
-                Ok(exit::SUCCESS)
+            match classify_write_mode(global) {
+                WriteMode::Check => Ok(write_exit_code(has_changes, false)),
+                WriteMode::Apply => {
+                    result.commit()?;
+                    crate::write::run_format_command(global, &cwd)?;
+                    Ok(write_exit_code(has_changes, true))
+                }
+                WriteMode::ConfirmJson | WriteMode::Preview => {
+                    let diffs = result.build_diffs();
+                    if !diffs.is_empty() && !global.json && !global.jsonl {
+                        let dr = crate::diff::DiffResult {
+                            diffs: diffs.clone(),
+                        };
+                        print!(
+                            "{}",
+                            crate::diff::format_diff_result_colored(&dr, global.should_color())
+                        );
+                    }
+                    let applied = global.should_apply();
+                    if applied {
+                        result.commit()?;
+                        crate::write::run_format_command(global, &cwd)?;
+                    }
+                    Ok(write_exit_code(has_changes, applied))
+                }
             }
         }
 

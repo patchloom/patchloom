@@ -385,69 +385,67 @@ fn eol_mode_to_str(mode: crate::cli::global::EolMode) -> &'static str {
 }
 
 /// Handle output rendering and commit/check/preview for tidy fix via the engine.
+///
+/// Exit codes are owned by [`crate::cmd::write_mode::write_exit_code`].
 fn tidy_fix_output(
     global: &GlobalFlags,
     result: ExecutionResult,
     dirty_rel_paths: &[String],
     cwd: &Path,
 ) -> anyhow::Result<u8> {
+    use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
+
     let fix_files: Vec<TidyFixFileResult> = dirty_rel_paths
         .iter()
         .map(|p| TidyFixFileResult { path: p.clone() })
         .collect();
+    // Fix path only stages when dirty files exist.
+    let has_changes = result.has_changes;
 
-    // --check mode: report what would happen, no mutation.
-    if global.check {
-        emit_tidy_fix_output(global, &fix_files, None)?;
-        if !global.quiet && !global.json && !global.jsonl {
-            for p in dirty_rel_paths {
-                println!("{p}");
+    match classify_write_mode(global) {
+        WriteMode::Check => {
+            emit_tidy_fix_output(global, &fix_files, None)?;
+            if !global.quiet && !global.json && !global.jsonl {
+                for p in dirty_rel_paths {
+                    println!("{p}");
+                }
             }
+            Ok(write_exit_code(has_changes, false))
         }
-        return Ok(exit::CHANGES_DETECTED);
+        WriteMode::Apply => {
+            let diffs = result.build_diffs();
+            result.commit()?;
+            crate::write::run_format_command(global, cwd)?;
+            let diff_text = if global.diff {
+                Some(render_diffs_plain(&diffs))
+            } else {
+                None
+            };
+            emit_tidy_fix_output(global, &fix_files, diff_text)?;
+            Ok(write_exit_code(has_changes, true))
+        }
+        WriteMode::ConfirmJson | WriteMode::Preview => {
+            let diffs = result.build_diffs();
+            let diff_text = if !diffs.is_empty() {
+                Some(render_diffs_plain(&diffs))
+            } else {
+                None
+            };
+            emit_tidy_fix_output(global, &fix_files, diff_text)?;
+            if !global.json && !global.jsonl && !global.quiet && !diffs.is_empty() {
+                print!("{}", render_diffs_colored(&diffs, global.should_color()));
+            }
+            if global.show_status() {
+                eprintln!("{} file(s) changed", dirty_rel_paths.len());
+            }
+            let applied = global.should_apply();
+            if applied {
+                result.commit()?;
+                crate::write::run_format_command(global, cwd)?;
+            }
+            Ok(write_exit_code(has_changes, applied))
+        }
     }
-
-    // --apply mode: commit, then report.
-    if global.apply {
-        let diffs = result.build_diffs();
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-
-        let diff_text = if global.diff {
-            Some(render_diffs_plain(&diffs))
-        } else {
-            None
-        };
-        emit_tidy_fix_output(global, &fix_files, diff_text)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: preview diffs.
-    let diffs = result.build_diffs();
-    let diff_text = if !diffs.is_empty() {
-        Some(render_diffs_plain(&diffs))
-    } else {
-        None
-    };
-
-    emit_tidy_fix_output(global, &fix_files, diff_text)?;
-
-    if !global.json && !global.jsonl && !global.quiet && !diffs.is_empty() {
-        print!("{}", render_diffs_colored(&diffs, global.should_color()));
-    }
-
-    if global.show_status() {
-        eprintln!("{} file(s) changed", dirty_rel_paths.len());
-    }
-
-    // --confirm: prompt after showing diffs, then apply if confirmed.
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    Ok(exit::CHANGES_DETECTED)
 }
 
 /// Emit structured JSON/JSONL output for tidy fix.

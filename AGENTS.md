@@ -176,7 +176,7 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Return `Ok(exit::SUCCESS)` for success, `Ok(exit::NO_MATCHES)` for no-match, etc.
 - When returning `NO_MATCHES` with an error message, use `global.emit_error_json(&msg)?` (added in PR #1339). This helper encapsulates the standard pattern: emit `{"ok": false, "error": msg}` in JSON/JSONL mode, fall back to `eprintln!` in text mode (respecting `--quiet`). Before this helper, the inline pattern was `if !global.emit_json(&json!({"ok": false, "error": &msg}))? && !global.quiet { eprintln!("{msg}"); }`.
 - **Never use `global.show_status()` on error diagnostic paths.** `show_status()` requires a TTY (returns `false` when stderr is piped), which silently suppresses error messages in scripts and pipelines. Use `!global.quiet` instead. Reserve `show_status()` for optional progress hints and status messages that are genuinely TTY-only (e.g., "hint: use --apply", file count summaries). See #1340 and #1341 for bugs caused by this confusion.
-- **Preview mode must return `CHANGES_DETECTED` (exit 2), not `SUCCESS` (exit 0).** When a write command runs in default mode (no `--apply`, `--check`, or `--diff`) and the operation would produce changes, the exit code must be `exit::CHANGES_DETECTED`. Returning `exit::SUCCESS` in preview mode is a bug: it makes scripts think no changes exist. Each of the five write paths (`execute_via_engine`, `execute_operations`, `execute_precomputed`, `execute_write`, `execute_single`) has its own mode branching, and the exit code must be verified independently in each path. See PRs #1345-#1348 where this bug was found and fixed in all five paths.
+- **Preview mode must return `CHANGES_DETECTED` (exit 2), not `SUCCESS` (exit 0).** When a write command runs in default mode (no `--apply`, `--check`, or `--diff`) and the operation would produce changes, the exit code must be `exit::CHANGES_DETECTED`. Returning `exit::SUCCESS` in preview mode is a bug: it makes scripts think no changes exist. **Exit codes are owned by `src/cmd/write_mode.rs`** (`classify_write_mode`, `write_exit_code`, `finalize_execution_result`, `finalize_callback_write`). Staging entry points still differ (`execute_via_engine` / `execute_operations` / `execute_precomputed` / `execute_write` / `execute_single`), but they must not invent their own exit matrix. Contract lock: `tests/integration/write_path_contract_tests.rs` and `docs/plans/write-pipeline.md`. Historical multi-path bugs: #1345-#1348; singularity work: #1373.
 
 ### Testing
 
@@ -267,17 +267,17 @@ Command::<Name>(args) => {
 }
 ```
 
-5. **Choose the correct write path for commands that mutate files:**
+5. **Choose the correct staging entry for commands that mutate files** (exit codes always via `write_mode`):
 
 | Pattern | When to use | Example commands |
 |---------|-------------|------------------|
-| `execute_via_engine()` | Single-operation writes (most commands) | doc, md, create, delete, append, ast replace |
-| `execute_operations()` | Multi-file writes with pre-filtering | ast rename (scans, filters, batches) |
-| `execute_precomputed()` | Parallel scan + batch commit (optimization) | replace (multi-file regex scan) |
-| `execute_write()` | Binary/case-only file operations via `write_dispatch.rs` | rename (binary files, case-only renames) |
-| `execute_single()` | One-off writes with custom pre/post logic | md dedupe-headings, patch apply |
+| `execute_via_engine()` | Single-operation writes (most commands); uses `finalize_execution_result` | doc, md, create, delete, append, ast replace |
+| `execute_operations()` | Multi-file writes with pre-filtering; caller uses `write_exit_code` / classify | ast rename, tidy fix |
+| `execute_precomputed()` | Parallel scan + batch commit (optimization); caller uses classify + exit | replace (multi-file regex scan) |
+| `execute_write()` | Binary/case-only via `finalize_callback_write` | rename (binary files, case-only renames) |
+| `execute_single()` | One-off staging; caller must use `write_mode` for mode/exit | md dedupe-headings, patch apply |
 
-All five go through the tx engine and get backup, rollback, format/validate lifecycle. Each has its own mode branching for preview vs apply, so exit code correctness must be verified independently per path. Do not use `atomic_write()` directly in command implementations.
+Staging differs; **mode → exit is shared** (`src/cmd/write_mode.rs`). Do not use `atomic_write()` directly in command implementations.
 
 6. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
 
@@ -396,12 +396,7 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 
 - When changing how results are populated or filtered (e.g., adding an optimization that skips building result objects), add an integration test that verifies the exit code is still correct for the affected mode. Exit code regressions are invisible to unit tests that only check output format.
 
-- **Exit code audit methodology.** When a bug is found in one write path's exit code handling, audit ALL write paths systematically. The same structural bug (e.g., preview mode returning exit 0 instead of exit 2) was independently present in all five write paths (PRs #1345-#1348). The audit procedure:
-  1. Grep for `Ok(exit::SUCCESS)` in all `src/cmd/*.rs` files to find every exit-0 return site.
-  2. For each hit in a write command, verify it is inside a `should_apply()` or equivalent guard (not unconditional).
-  3. Grep for `execute_single` call sites (3 in the codebase) since this path bypasses shared write infrastructure and has its own mode branching.
-  4. Check `src/cmd/write_dispatch.rs` (`execute_write`) which handles binary/case-only renames with its own separate mode logic.
-  5. Verify that every write path's default mode (no flags) returns `CHANGES_DETECTED` when changes exist.
+- **Exit code audit methodology.** Prefer fixing `write_mode` once. If a command still open-codes exits, migrate it to `write_exit_code` / `finalize_*`. Regression lock: `write_path_contract` integration tests (one representative per staging entry). Historical note: #1345-#1348 fixed the same preview-exit bug independently per path before the shared owner existed.
 
 - Internal refactors and performance optimizations (no user-visible behavior change) still require a targeted unit or integration test on the changed helper or code path. Existing higher-level tests may provide coverage, but a focused test prevents silent regression of the optimization or guard in future refactors.
 

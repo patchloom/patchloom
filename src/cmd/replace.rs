@@ -344,6 +344,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 }
 
 /// Handle output rendering and commit/check/preview for replace via the engine.
+///
+/// Exit codes are owned by [`crate::cmd::write_mode::write_exit_code`].
 fn replace_output(
     global: &GlobalFlags,
     result: crate::tx::engine::ExecutionResult,
@@ -352,7 +354,8 @@ fn replace_output(
     file_count: usize,
     cwd: &std::path::Path,
 ) -> anyhow::Result<u8> {
-    // Build the base output struct once; mode-specific fields are set below.
+    use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
+
     let build_output = |diff: Option<String>| ReplaceOutput {
         ok: true,
         match_count: total_matches,
@@ -360,75 +363,70 @@ fn replace_output(
         files: files.to_vec(),
         diff,
     };
+    // Precomputed path only reaches here when matches exist.
+    let has_changes = result.has_changes;
 
-    // --check mode: report summary, exit 2 if changes needed.
-    if global.check {
-        if global.json {
-            global.emit_json(&build_output(None))?;
-        } else if !global.emit_json_items(files)? && !global.quiet {
-            println!("{total_matches} match(es) in {file_count} file(s)");
-            for f in files {
-                println!("  {}: {} match(es)", f.path, f.match_count);
-            }
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    // Build diffs (needed for apply+diff and for default/preview mode).
-    let diffs = result.build_diffs();
-
-    // --apply mode: commit, then report.
-    if global.apply {
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-
-        let diff_text = if global.diff {
-            Some(render_diffs_plain(&diffs))
-        } else {
-            None
-        };
-        if global.json {
-            global.emit_json(&build_output(diff_text))?;
-        } else if !global.emit_json_items(files)? {
-            if global.diff {
-                print!("{}", render_diffs_colored(&diffs, global.should_color()));
-            } else if !global.quiet {
-                println!("replaced {total_matches} match(es) in {file_count} file(s)");
+    match classify_write_mode(global) {
+        WriteMode::Check => {
+            if global.json {
+                global.emit_json(&build_output(None))?;
+            } else if !global.emit_json_items(files)? && !global.quiet {
+                println!("{total_matches} match(es) in {file_count} file(s)");
                 for f in files {
                     println!("  {}: {} match(es)", f.path, f.match_count);
                 }
             }
+            Ok(write_exit_code(has_changes, false))
         }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: preview diffs.
-    let diff_text = if !diffs.is_empty() {
-        Some(render_diffs_plain(&diffs))
-    } else {
-        None
-    };
-
-    if global.json {
-        global.emit_json(&build_output(diff_text))?;
-    } else if !global.emit_json_items(files)? && !diffs.is_empty() {
-        print!("{}", render_diffs_colored(&diffs, global.should_color()));
-    }
-    if global.show_status() {
-        eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
-    }
-
-    // --confirm: prompt after showing diff, then apply if confirmed.
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-        if global.show_status() {
-            eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
+        WriteMode::Apply => {
+            let diffs = result.build_diffs();
+            result.commit()?;
+            crate::write::run_format_command(global, cwd)?;
+            let diff_text = if global.diff {
+                Some(render_diffs_plain(&diffs))
+            } else {
+                None
+            };
+            if global.json {
+                global.emit_json(&build_output(diff_text))?;
+            } else if !global.emit_json_items(files)? {
+                if global.diff {
+                    print!("{}", render_diffs_colored(&diffs, global.should_color()));
+                } else if !global.quiet {
+                    println!("replaced {total_matches} match(es) in {file_count} file(s)");
+                    for f in files {
+                        println!("  {}: {} match(es)", f.path, f.match_count);
+                    }
+                }
+            }
+            Ok(write_exit_code(has_changes, true))
         }
-        return Ok(exit::SUCCESS);
+        WriteMode::ConfirmJson | WriteMode::Preview => {
+            let diffs = result.build_diffs();
+            let diff_text = if !diffs.is_empty() {
+                Some(render_diffs_plain(&diffs))
+            } else {
+                None
+            };
+            if global.json {
+                global.emit_json(&build_output(diff_text))?;
+            } else if !global.emit_json_items(files)? && !diffs.is_empty() {
+                print!("{}", render_diffs_colored(&diffs, global.should_color()));
+            }
+            if global.show_status() {
+                eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
+            }
+            let applied = global.should_apply();
+            if applied {
+                result.commit()?;
+                crate::write::run_format_command(global, cwd)?;
+                if global.show_status() {
+                    eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
+                }
+            }
+            Ok(write_exit_code(has_changes, applied))
+        }
     }
-
-    Ok(exit::CHANGES_DETECTED)
 }
 
 /// Context-based replace: routes through the tx engine where
