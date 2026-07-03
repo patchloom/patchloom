@@ -453,6 +453,20 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
 /// Used by read-only doc subcommands (get, keys, len, flatten) to produce
 /// consistent no-match output without repeating the Json/Jsonl/Text match.
 fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Result<(String, u8)> {
+    format_error(error_msg, mode, quiet, exit::NO_MATCHES)
+}
+
+/// Format an error result for the given output mode and exit code.
+///
+/// In Json/Jsonl mode, wraps the message in a `{"ok": false, "error": ...}`
+/// envelope. In Text mode, prints to stderr (unless quiet). Returns the
+/// supplied exit code.
+fn format_error(
+    error_msg: &str,
+    mode: OutputMode,
+    quiet: bool,
+    code: u8,
+) -> anyhow::Result<(String, u8)> {
     let output = match mode {
         OutputMode::Json => {
             serde_json::to_string_pretty(&serde_json::json!({"ok": false, "error": error_msg}))?
@@ -467,7 +481,7 @@ fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Re
             String::new()
         }
     };
-    Ok((output, exit::NO_MATCHES))
+    Ok((output, code))
 }
 
 // ---------------------------------------------------------------------------
@@ -531,10 +545,12 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                 ),
-                crate::ops::doc::query::QueryKeysResult::NotAnObject => Ok((
-                    format!("doc keys: target at '{selector}' is not an object"),
+                crate::ops::doc::query::QueryKeysResult::NotAnObject => format_error(
+                    &format!("doc keys: target at '{selector}' is not an object"),
+                    output_mode,
+                    quiet,
                     exit::FAILURE,
-                )),
+                ),
                 crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
                         OutputMode::Text => keys.join("\n"),
@@ -559,10 +575,12 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                 ),
-                crate::ops::doc::query::QueryLenResult::NotArrayOrObject => Ok((
-                    format!("doc len: target at '{selector}' is not an array or object"),
+                crate::ops::doc::query::QueryLenResult::NotArrayOrObject => format_error(
+                    &format!("doc len: target at '{selector}' is not an array or object"),
+                    output_mode,
+                    quiet,
                     exit::FAILURE,
-                )),
+                ),
                 crate::ops::doc::query::QueryLenResult::Len(len) => {
                     let output = match output_mode {
                         OutputMode::Text => len.to_string(),

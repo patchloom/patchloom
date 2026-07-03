@@ -338,7 +338,7 @@ fn test_patch_merge_check_exits_8_on_conflict() {
 }
 
 #[test]
-fn test_patch_merge_check_allow_conflicts_exits_0() {
+fn test_patch_merge_check_allow_conflicts_exits_2() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
@@ -348,8 +348,8 @@ fn test_patch_merge_check_allow_conflicts_exits_0() {
         "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
     )
     .unwrap();
-    // With --allow-conflicts, --check should predict that apply would succeed
-    // (conflicts are acceptable), so exit 0 instead of 8.
+    // With --allow-conflicts, --check should report that changes would be
+    // applied (CHANGES_DETECTED = exit 2), not CONFLICTS (exit 8).
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
@@ -360,7 +360,7 @@ fn test_patch_merge_check_allow_conflicts_exits_0() {
         .arg("--check")
         .arg("--allow-conflicts")
         .assert()
-        .code(0);
+        .code(2); // CHANGES_DETECTED
 }
 
 #[test]
