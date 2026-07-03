@@ -156,11 +156,7 @@ fn inject_stale_label(msg: &str, label: &str) -> String {
 }
 
 fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
-    if global.emit_json(&serde_json::json!({"ok": false, "error": error}))? {
-        return Ok(());
-    }
-    eprintln!("{error}");
-    Ok(())
+    global.emit_error_json(error)
 }
 
 fn emit_patch_files_output(

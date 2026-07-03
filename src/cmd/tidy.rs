@@ -147,45 +147,33 @@ fn check_file(
     issues
 }
 
-/// Resolve the `end_of_line` property from `.editorconfig` for `path`.
-///
-/// Returns `Some(EolMode)` when an `.editorconfig` declares an explicit
-/// `end_of_line` for this file, `None` otherwise.
+/// Resolve both EOL and trailing-whitespace properties from `.editorconfig`
+/// in a single parse pass.
 #[cfg(feature = "cli")]
-fn editorconfig_eol(path: &Path) -> Option<crate::write::EolMode> {
-    let props = ec4rs::properties_of(path).ok()?;
-    let val = props.get::<ec4rs::property::EndOfLine>().ok()?;
-    Some(match val {
-        ec4rs::property::EndOfLine::Lf => crate::write::EolMode::Lf,
-        ec4rs::property::EndOfLine::CrLf => crate::write::EolMode::Crlf,
-        ec4rs::property::EndOfLine::Cr => crate::write::EolMode::Cr,
-    })
+fn editorconfig_check_props(path: &Path) -> (Option<crate::write::EolMode>, bool) {
+    let props = match ec4rs::properties_of(path) {
+        Ok(p) => p,
+        Err(_) => return (None, true),
+    };
+    let eol = props
+        .get::<ec4rs::property::EndOfLine>()
+        .ok()
+        .map(|val| match val {
+            ec4rs::property::EndOfLine::Lf => crate::write::EolMode::Lf,
+            ec4rs::property::EndOfLine::CrLf => crate::write::EolMode::Crlf,
+            ec4rs::property::EndOfLine::Cr => crate::write::EolMode::Cr,
+        });
+    let trim = match props.get::<ec4rs::property::TrimTrailingWs>() {
+        Ok(ec4rs::property::TrimTrailingWs::Value(v)) => v,
+        _ => true,
+    };
+    (eol, trim)
 }
 
-/// Stub for non-CLI builds where EditorConfig support is unavailable.
+/// Stub for non-CLI builds.
 #[cfg(not(feature = "cli"))]
-fn editorconfig_eol(_path: &Path) -> Option<crate::write::EolMode> {
-    None
-}
-
-/// Resolve the `trim_trailing_whitespace` property from `.editorconfig`.
-///
-/// Returns `Some(false)` when editorconfig explicitly sets
-/// `trim_trailing_whitespace = false` for this file, `Some(true)` when it
-/// explicitly sets it to `true`, and `None` when unset.
-#[cfg(feature = "cli")]
-fn editorconfig_trim_ws(path: &Path) -> Option<bool> {
-    let props = ec4rs::properties_of(path).ok()?;
-    match props.get::<ec4rs::property::TrimTrailingWs>() {
-        Ok(ec4rs::property::TrimTrailingWs::Value(v)) => Some(v),
-        _ => None,
-    }
-}
-
-/// Stub for non-CLI builds where EditorConfig support is unavailable.
-#[cfg(not(feature = "cli"))]
-fn editorconfig_trim_ws(_path: &Path) -> Option<bool> {
-    None
+fn editorconfig_check_props(_path: &Path) -> (Option<crate::write::EolMode>, bool) {
+    (None, true)
 }
 
 /// Collect all issues from the given paths, honouring .gitignore and optional
@@ -205,21 +193,13 @@ fn collect_issues(paths: &[String], global: &GlobalFlags) -> anyhow::Result<Vec<
             // Resolve per-file EOL target: explicit --normalize-eol takes
             // precedence; otherwise consult .editorconfig when
             // --respect-editorconfig is set.
-            let file_eol_target =
-                eol_target.or_else(|| respect_ec.then(|| editorconfig_eol(path)).flatten());
-
-            // Resolve per-file trailing-whitespace check: when
-            // --respect-editorconfig is set and editorconfig declares
-            // trim_trailing_whitespace = false for this file type,
-            // suppress trailing-whitespace diagnostics.
-            let check_trailing_ws = if respect_ec {
-                match editorconfig_trim_ws(path) {
-                    Some(false) => false,
-                    Some(true) => true,
-                    None => true, // default: check trailing ws
-                }
+            // Resolve editorconfig properties once per file (avoid
+            // double-parsing .editorconfig when both EOL and trailing-WS
+            // settings are needed).
+            let (file_eol_target, check_trailing_ws) = if respect_ec && eol_target.is_none() {
+                editorconfig_check_props(path)
             } else {
-                true
+                (eol_target, true)
             };
 
             let issues = check_file(path, quiet, file_eol_target, check_trailing_ws);

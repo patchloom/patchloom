@@ -98,6 +98,14 @@ impl BackupSession {
         std::fs::create_dir_all(&session_dir)
             .with_context(|| format!("failed to create backup dir {}", session_dir.display()))?;
 
+        // Restrict backup directory to owner-only access so that backed-up
+        // files with sensitive content are not world-readable.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&session_dir, std::fs::Permissions::from_mode(0o700));
+        }
+
         // Best-effort prune of old backups; ignore errors.
         let _ = prune_old_backups(project_root);
 

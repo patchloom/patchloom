@@ -365,7 +365,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files: vec![],
         };
         global.emit_json(&payload)?;
-        if !global.quiet {
+        if !global.quiet && !global.json && !global.jsonl {
             let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
             let path_desc = if paths.is_empty() {
                 ".".to_string()
