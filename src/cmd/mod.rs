@@ -24,6 +24,7 @@ pub mod tidy;
 pub mod tx;
 pub mod undo;
 pub mod write_dispatch;
+pub mod write_mode;
 
 use crate::cli::Cli;
 use clap::Subcommand;

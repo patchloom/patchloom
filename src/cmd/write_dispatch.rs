@@ -1,121 +1,29 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
-use crate::exit;
+use crate::cmd::write_mode::finalize_callback_write;
 use serde::Serialize;
 use std::path::Path;
 
-/// Human-readable messages for the write state machine.
-pub struct WriteMessages<'a> {
-    /// Message for `--check` and dry-run when no diff is available.
-    pub check: &'a str,
-    /// Message for `--apply` when `--diff` is not set.
-    pub apply: &'a str,
-    /// Optional message printed via `show_status()` after interactive
-    /// confirm-and-apply in default mode.
-    pub post_confirm: Option<&'a str>,
-}
+pub use crate::cmd::write_mode::{WriteMessages, WritePhase};
 
-/// Shared state machine for single-file write commands.
-///
-/// Handles the check / apply / confirm+json / default(diff) branching that
-/// `append`, `create`, `delete`, and `rename` all share.
-///
-/// # Parameters
-///
-/// * `make_output` - builds the command-specific output struct from a phase
-///   and an optional diff string (uncolored, for JSON).
-/// * `diff_fn` - produces a diff string; `None` for commands without diffs
-///   (e.g. `delete`). The `bool` argument is whether to emit ANSI color.
-/// * `apply_fn` - performs the actual mutation (backup + write). Called at
-///   most once.
-/// * `msgs` - human-readable messages for check, apply, and post-confirm.
+/// Shared state machine for callback-based single-file writes (binary /
+/// case-only rename). Mode → exit ownership lives in
+/// [`crate::cmd::write_mode`].
 pub fn execute_write<T: Serialize>(
     global: &GlobalFlags,
     cwd: &Path,
     make_output: impl Fn(WritePhase, Option<String>) -> T,
     diff_fn: Option<&dyn Fn(bool) -> String>,
-    mut apply_fn: impl FnMut() -> anyhow::Result<()>,
+    apply_fn: impl FnMut() -> anyhow::Result<()>,
     msgs: WriteMessages<'_>,
 ) -> anyhow::Result<u8> {
-    // --check mode: report what would happen, no mutation.
-    if global.check {
-        let output = make_output(WritePhase::Check(true), None);
-        if !global.emit_json(&output)? && !global.quiet {
-            println!("{}", msgs.check);
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    // --apply mode: mutate, then report.
-    if global.apply {
-        apply_fn()?;
-        crate::write::run_format_command(global, cwd)?;
-
-        let diff_text = if global.diff {
-            diff_fn.map(|f| f(false))
-        } else {
-            None
-        };
-        let output = make_output(WritePhase::Applied, diff_text);
-        if !global.emit_json(&output)? {
-            if global.diff {
-                if let Some(f) = diff_fn {
-                    print!("{}", f(global.should_color()));
-                }
-            } else if !global.quiet {
-                println!("{}", msgs.apply);
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff mode: preview, then optionally confirm.
-    let diff_text = diff_fn.map(|f| f(false));
-
-    // --confirm + JSON: prompt, conditionally apply, emit JSON.
-    if global.confirm && (global.json || global.jsonl) {
-        let applied = global.should_apply();
-        if applied {
-            apply_fn()?;
-            crate::write::run_format_command(global, cwd)?;
-        }
-        let output = make_output(WritePhase::Confirmed(applied), diff_text);
-        global.emit_json(&output)?;
-        return if applied {
-            Ok(exit::SUCCESS)
-        } else {
-            Ok(exit::CHANGES_DETECTED)
-        };
-    }
-
-    // Show preview output.
-    let output = make_output(WritePhase::Preview, diff_text);
-    if !global.emit_json(&output)? {
-        if let Some(f) = diff_fn {
-            print!("{}", f(global.should_color()));
-        } else if !global.quiet {
-            println!("{}", msgs.check);
-        }
-    }
-
-    // --confirm: prompt after showing diff, then apply if confirmed.
-    if global.should_apply() {
-        apply_fn()?;
-        crate::write::run_format_command(global, cwd)?;
-        if let Some(msg) = msgs.post_confirm
-            && global.show_status()
-        {
-            eprintln!("{msg}");
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    Ok(exit::CHANGES_DETECTED)
+    // Callback paths are only entered when a change is known to be needed.
+    finalize_callback_write(global, cwd, true, make_output, diff_fn, apply_fn, msgs)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exit;
     use serde::Serialize;
 
     #[derive(Debug, Serialize, PartialEq)]
