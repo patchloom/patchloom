@@ -103,9 +103,10 @@ pub fn execute_write<T: Serialize>(
         {
             eprintln!("{msg}");
         }
+        return Ok(exit::SUCCESS);
     }
 
-    Ok(exit::SUCCESS)
+    Ok(exit::CHANGES_DETECTED)
 }
 
 #[cfg(test)]
@@ -191,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn default_mode_returns_success_without_apply() {
+    fn default_mode_returns_changes_detected_without_apply() {
         let dir = tempfile::TempDir::new().unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
 
@@ -209,7 +210,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(!applied, "default mode must not apply");
     }
 
@@ -232,7 +233,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
     #[test]
