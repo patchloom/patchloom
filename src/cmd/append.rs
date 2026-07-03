@@ -224,6 +224,27 @@ mod tests {
     }
 
     #[test]
+    fn append_requires_content_or_stdin() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "existing\n").unwrap();
+
+        let args = AppendArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: None,
+            stdin: false,
+            write: Default::default(),
+        };
+
+        let err = run(args, &GlobalFlags::default()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("either --content or --stdin must be provided"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn append_rejects_directory_target() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("folder");

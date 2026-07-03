@@ -913,3 +913,43 @@ mod format_no_match_tests {
         assert!(output.is_empty());
     }
 }
+
+// -- error path coverage --------------------------------------------------
+
+mod error_paths {
+    use super::*;
+
+    #[test]
+    fn merge_requires_stdin_or_value() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
+        let action = DocAction::Merge {
+            file: path,
+            stdin: false,
+            value: None,
+        };
+        let err = run_doc(action, &GlobalFlags::test_default()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("merge requires --stdin or --value"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn merge_rejects_stdin_and_value_together() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
+        let action = DocAction::Merge {
+            file: path,
+            stdin: true,
+            value: Some(r#"{"b": 2}"#.to_string()),
+        };
+        let err = run_doc(action, &GlobalFlags::test_default()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("--stdin and --value are mutually exclusive"),
+            "unexpected error: {err}"
+        );
+    }
+}
