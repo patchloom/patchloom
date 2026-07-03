@@ -258,6 +258,46 @@ dependencies[name=react].version # predicate filter
 | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |
 | 9 | Tx operation staging failure (`operation_failed`) |
 
+## Operations (from schema registry)
+
+- `replace`: Replace text in a file using literal string matching.
+- `file.append`: Append content to an existing file.
+- `file.prepend`: Prepend content to an existing file.
+- `file.create`: Create a new file with specified content.
+- `file.delete`: Delete a file.
+- `file.rename`: Rename (move) a file.
+- `tidy.fix`: Normalize whitespace, line endings, and final newline in a file.
+- `doc.set`: Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.
+- `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file.
+- `doc.merge`: Deep-merge a JSON object into the root of a document.
+- `doc.append`: Append a value to an array at a selector path.
+- `doc.move`: Move a value from one selector path to another within the same file.
+- `doc.ensure`: Set a value only if the selector path does not already exist.
+- `md.replace_section`: Replace the body of a markdown section identified by heading.
+- `md.upsert_bullet`: Insert or update a bullet point under a markdown heading.
+- `md.table_append`: Append a row to a markdown table under a heading.
+- `md.insert_after_heading`: Insert content immediately after a markdown heading.
+- `md.insert_before_heading`: Insert content immediately before a markdown heading.
+- `md.move_section`: Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.
+- `patch.apply`: Apply a unified diff patch to one or more files. Supports three-way merge on stale context.
+- `doc.prepend`: Prepend a value to the beginning of an array at a selector path.
+- `doc.update`: Update all array elements matching a predicate with new values.
+- `doc.delete_where`: Delete array elements matching a predicate.
+- `search`: Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.
+- `read`: Read file contents with optional line range.
+- `md.dedupe_headings`: Remove duplicate markdown headings in a file.
+- `md.lint_agents`: Lint an AGENTS.md file for common issues.
+- `ast.rename`: AST-aware rename: rename identifiers skipping strings and comments.
+- `ast.replace`: Replace text within a specific symbol's body (AST-scoped).
+- `ast.insert`: Insert code at a structurally-aware position: inside a container, or after/before a named symbol.
+- `ast.wrap`: Wrap existing code in a structural block (module, impl, cfg, etc.).
+- `ast.imports`: Manage import/use statements: add (idempotent), remove, deduplicate.
+- `ast.reorder`: Reorder symbols within a file or scope by name, kind, or custom order.
+- `ast.group`: Group symbols into a named module within a file.
+- `ast.move`: Move symbols between files with optional target creation.
+- `ast.extract_to_file`: Extract a symbol to a separate file with optional module unwrapping.
+- `ast.split`: Split a file into multiple target files by distributing symbols.
+
 ## Troubleshooting
 
 If a command produces unexpected results, enable verbose logging to see what patchloom is doing internally:

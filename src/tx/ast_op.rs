@@ -313,13 +313,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .as_deref()
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
-            let pos = match position.as_deref() {
-                Some("end") => crate::ast::group::GroupPosition::End,
-                Some(s) if let Some(name) = s.strip_prefix("after:") => {
-                    crate::ast::group::GroupPosition::After(name.to_string())
-                }
-                _ => crate::ast::group::GroupPosition::FirstSymbol,
-            };
+            let pos = crate::ast::group::parse_group_position(position.as_deref());
             let spec = crate::ast::group::GroupSpec {
                 module: module.clone(),
                 symbols: sym_names.clone(),

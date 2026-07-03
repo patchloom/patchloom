@@ -993,3 +993,23 @@ mod deserialization_tests {
         client.cancel().await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod registry_schema_sync {
+    use crate::cmd::mcp::registry::MCP_TOOL_REGISTRY;
+    use crate::schema::registered_operation_names;
+
+    #[test]
+    fn mcp_simple_tools_op_names_are_in_schema_registry() {
+        let registered: std::collections::HashSet<&str> =
+            registered_operation_names().into_iter().collect();
+        for tool in MCP_TOOL_REGISTRY {
+            assert!(
+                registered.contains(tool.op_name),
+                "MCP tool {} op_name {} missing from schema registry",
+                tool.tool_name,
+                tool.op_name,
+            );
+        }
+    }
+}

@@ -141,10 +141,18 @@ pub fn execute_precomputed(
     options: ExecuteOptions<'_>,
 ) -> ExecutionResult {
     crate::verbose!("engine: execute_precomputed changes={}", changes.len());
-    use crate::write::{apply_policy, policy_from_flags};
+    use crate::tx::context::EngineContext;
+    use crate::write::apply_policy;
     use std::collections::{HashMap, HashSet};
 
     let cwd = options.cwd.to_path_buf();
+    // Library-first context (#1375): policy derives from EngineContext, not
+    // clap types directly (GlobalFlags still feeds the adapter at the edge).
+    let ctx = EngineContext::from_global(options.global, cwd.clone());
+    crate::verbose!(
+        "engine: precomputed via EngineContext cwd={}",
+        ctx.cwd().display()
+    );
     let mut result_changes: Vec<(std::path::PathBuf, String, String)> = Vec::new();
     let mut existed_before: HashSet<std::path::PathBuf> = HashSet::new();
     let mut pending: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
@@ -152,7 +160,7 @@ pub fn execute_precomputed(
     for (rel_path, original, new_content) in changes {
         let abs_path = cwd.join(&rel_path);
         existed_before.insert(abs_path.clone());
-        let policy = policy_from_flags(options.global, Some(&abs_path));
+        let policy = ctx.write_policy(Some(&abs_path));
         let final_content = apply_policy(&new_content, &policy).into_owned();
         if final_content != original {
             pending.insert(abs_path.clone(), (original.clone(), final_content.clone()));

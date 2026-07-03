@@ -389,6 +389,11 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
+    // Operations catalogue generated from schema::OPERATION_REGISTRY so it
+    // cannot drift from `patchloom schema` / tier export (#1374).
+    out.push_str(&crate::schema::agent_operations_catalogue());
+    out.push('\n');
+
     // Troubleshooting (always shown)
     out.push_str(
         "## Troubleshooting\n\n\
