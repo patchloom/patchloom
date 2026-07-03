@@ -352,8 +352,9 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("tx: cwd={}, strict={}", cwd.display(), strict);
 
     // 4. Execute all operations, collecting changes in memory (no writes).
+    let engine_ctx = crate::tx::context::EngineContext::from_global(global, cwd.clone());
     let mut result =
-        match crate::tx::execute_and_collect(&plan, &cwd, global, global.quiet, structured, None) {
+        match crate::tx::execute_and_collect(&plan, &engine_ctx, global.quiet, structured, None) {
             Ok(r) => r,
             Err(e) => {
                 let msg = e.to_string();

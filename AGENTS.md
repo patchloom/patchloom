@@ -93,7 +93,8 @@ src/
   cmd/patch.rs         Preview or apply unified diffs
   cmd/md.rs            Markdown section-aware operations (replace section, insert before/after heading,
                        upsert bullet, table append, dedupe headings, lint)
-  cmd/ast.rs           AST-aware operations (list, read, rename, validate) using tree-sitter
+  cmd/ast/             AST-aware operations (list, read, rename, validate, …) using tree-sitter
+                         mod.rs dispatch; common helpers; query (read-only); mutate (rename/replace)
   cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (get, has, keys, len, set,
                        delete, merge, append, prepend, update, move, ensure, delete-where,
                        select, flatten, diff)

@@ -21,7 +21,7 @@ mod search_op;
 mod validate;
 pub(crate) mod verify;
 
-// Operation handler modules extracted from execute.rs (#1359).
+// Operation handler modules (extracted from the former monofile execute module).
 #[cfg(feature = "ast")]
 mod ast_op;
 mod md_op;
@@ -43,7 +43,7 @@ pub(crate) use output::{
 #[cfg(test)]
 pub(crate) use validate::validate_operation;
 
-// execute.rs
+// execute/ (dispatcher + file_ops + policy)
 pub(crate) use execute::execute_and_collect;
 // Test-only re-exports for src/cmd/tx.rs tests
 #[cfg(test)]
