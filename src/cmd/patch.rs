@@ -6,7 +6,7 @@ use crate::ops::patch::{
     apply_hunks_with_options, parse_patch,
 };
 use crate::plan::Operation;
-use crate::tx::engine::{ExecuteOptions, execute_single};
+use crate::tx::engine::WriteSource;
 use clap::Args;
 use serde::Serialize;
 
@@ -383,27 +383,27 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         allow_conflicts: apply_options.allow_conflicts,
     };
 
-    let options = ExecuteOptions::from_global(&cwd, global, None);
-    let result = match execute_single(op, options) {
-        Ok(r) => r,
-        Err(e) => {
-            let msg = e.to_string();
-            // Map engine errors to specific exit codes with CLI-style messages.
-            // The engine error from apply_patch_with_loader already includes
-            // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
-            // FAILED label to match the original CLI format.
-            let exit_code = if msg.contains("conflict(s)") {
-                exit::CONFLICTS
-            } else {
-                exit::AMBIGUOUS
-            };
-            // Inject the STALE/MERGE FAILED label between path and error detail.
-            let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
-            let err = inject_stale_label(&msg, label);
-            emit_error(global, &err)?;
-            return Ok(exit_code);
-        }
-    };
+    let (cwd, result) =
+        match crate::cmd::output::stage_for_write(WriteSource::Operations(vec![op]), global) {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = e.to_string();
+                // Map engine errors to specific exit codes with CLI-style messages.
+                // The engine error from apply_patch_with_loader already includes
+                // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
+                // FAILED label to match the original CLI format.
+                let exit_code = if msg.contains("conflict(s)") {
+                    exit::CONFLICTS
+                } else {
+                    exit::AMBIGUOUS
+                };
+                // Inject the STALE/MERGE FAILED label between path and error detail.
+                let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
+                let err = inject_stale_label(&msg, label);
+                emit_error(global, &err)?;
+                return Ok(exit_code);
+            }
+        };
 
     // Mode → exit ownership: write_mode (see #1373).
     use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};

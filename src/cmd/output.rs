@@ -1,24 +1,105 @@
 //! Shared output model for CLI write commands.
 //!
-//! Engine-backed single-op writes go through
-//! [`crate::cmd::write_mode::finalize_execution_result`], the single owner of
-//! mode → exit mapping for staged changes (see #1373).
+//! **Canonical engine-backed write path (rewrite singularity):**
+//!
+//! 1. Build a [`crate::tx::engine::WriteRequest`] (`Operations` or `Precomputed`)
+//! 2. Call [`run_write`] (or [`stage`](crate::tx::engine::stage) +
+//!    [`finalize_execution_result`](crate::cmd::write_mode::finalize_execution_result)
+//!    when a command needs a custom JSON schema)
+//!
+//! Mode → exit ownership always lives in [`crate::cmd::write_mode`].
+//! Binary/case-only renames use [`crate::cmd::write_dispatch::execute_write`]
+//! (callback path; same exit matrix via `finalize_callback_write`).
 
 use crate::cli::global::GlobalFlags;
 use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
-use crate::tx::engine::{ExecuteOptions, execute_single};
+use crate::tx::engine::{ExecuteOptions, WriteRequest, WriteSource, stage};
 use serde::Serialize;
 
 pub use crate::cmd::write_mode::WritePhase;
 
+/// Stage a write and finalize under global flags (canonical single-op path).
+///
+/// Prefer this over constructing engine options and calling `stage` yourself
+/// when the command uses the standard phase-based JSON schema.
+pub fn run_write<T: Serialize>(
+    source: WriteSource,
+    global: &GlobalFlags,
+    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    msgs: WriteMessages<'_>,
+    render: RenderPolicy,
+) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    let options = ExecuteOptions::from_global(&cwd, global, None);
+    let result = stage(WriteRequest { source, options })?;
+    finalize_execution_result(global, &cwd, result, make_output, msgs, render)
+}
+
+/// Stage one `Operation` and finalize (most CLI write commands).
+pub fn run_write_op<T: Serialize>(
+    op: crate::plan::Operation,
+    global: &GlobalFlags,
+    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    check_msg: &str,
+    apply_msg: &str,
+) -> anyhow::Result<u8> {
+    run_write(
+        WriteSource::Operations(vec![op]),
+        global,
+        make_output,
+        WriteMessages {
+            check: check_msg,
+            apply: apply_msg,
+            post_confirm: None,
+        },
+        RenderPolicy::default(),
+    )
+}
+
+/// Like [`run_write_op`] but without unified diffs in preview (e.g. `delete`).
+pub fn run_write_op_no_preview_diffs<T: Serialize>(
+    op: crate::plan::Operation,
+    global: &GlobalFlags,
+    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    check_msg: &str,
+    apply_msg: &str,
+) -> anyhow::Result<u8> {
+    run_write(
+        WriteSource::Operations(vec![op]),
+        global,
+        make_output,
+        WriteMessages {
+            check: check_msg,
+            apply: apply_msg,
+            post_confirm: None,
+        },
+        RenderPolicy {
+            preview_diffs: false,
+        },
+    )
+}
+
+/// Stage multi-op or precomputed changes and return the report for a custom
+/// renderer. Callers must use [`finalize_execution_result`] (or the same
+/// `classify_write_mode` / `write_exit_code` contract) for mode/exit.
+pub fn stage_for_write(
+    source: WriteSource,
+    global: &GlobalFlags,
+) -> anyhow::Result<(std::path::PathBuf, crate::tx::engine::WriteReport)> {
+    let cwd = global.resolve_cwd()?;
+    let options = ExecuteOptions::from_global(&cwd, global, None);
+    let report = stage(WriteRequest { source, options })?;
+    Ok((cwd, report))
+}
+
+// ---------------------------------------------------------------------------
+// Compatibility aliases (same behavior; prefer run_write* for new code)
+// ---------------------------------------------------------------------------
+
 /// Execute a single operation through the engine and render output based
 /// on the global flags (check/apply/diff/confirm modes).
 ///
-/// `make_output` builds the command-specific JSON output struct from
-/// a phase indicator and an optional diff string, preserving the exact
-/// JSON schema that each command's integration tests expect.
-///
-/// `check_msg` and `apply_msg` are human-readable messages for text output.
+/// Prefer [`run_write_op`].
 pub fn execute_via_engine<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
@@ -26,13 +107,12 @@ pub fn execute_via_engine<T: Serialize>(
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
-    execute_via_engine_inner(op, global, make_output, check_msg, apply_msg, true)
+    run_write_op(op, global, make_output, check_msg, apply_msg)
 }
 
 /// Like `execute_via_engine` but without showing diffs in preview mode.
 ///
-/// Used by commands like `delete` where the old behavior was to show a
-/// human-readable message instead of a diff preview.
+/// Prefer [`run_write_op_no_preview_diffs`].
 pub fn execute_via_engine_no_preview_diffs<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
@@ -40,33 +120,7 @@ pub fn execute_via_engine_no_preview_diffs<T: Serialize>(
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
-    execute_via_engine_inner(op, global, make_output, check_msg, apply_msg, false)
-}
-
-fn execute_via_engine_inner<T: Serialize>(
-    op: crate::plan::Operation,
-    global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
-    check_msg: &str,
-    apply_msg: &str,
-    preview_diffs: bool,
-) -> anyhow::Result<u8> {
-    let cwd = global.resolve_cwd()?;
-    let options = ExecuteOptions::from_global(&cwd, global, None);
-
-    let result = execute_single(op, options)?;
-    finalize_execution_result(
-        global,
-        &cwd,
-        result,
-        make_output,
-        WriteMessages {
-            check: check_msg,
-            apply: apply_msg,
-            post_confirm: None,
-        },
-        RenderPolicy { preview_diffs },
-    )
+    run_write_op_no_preview_diffs(op, global, make_output, check_msg, apply_msg)
 }
 
 #[cfg(test)]

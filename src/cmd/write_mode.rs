@@ -4,9 +4,10 @@
 //! [`classify_write_mode`] and [`write_exit_code`] so preview/check/apply/confirm
 //! cannot diverge by path (see #1345–#1348 and #1373).
 //!
-//! Engine-backed commands should prefer [`finalize_execution_result`] for the
-//! full check/apply/confirm/preview lifecycle. Callback-based paths (binary
-//! rename) use [`finalize_callback_write`].
+//! Engine-backed commands: stage with [`crate::tx::engine::stage`] (or CLI
+//! [`crate::cmd::output::run_write`] / [`crate::cmd::output::stage_for_write`]),
+//! then finalize here. Callback-based paths (binary rename) use
+//! [`finalize_callback_write`].
 
 use crate::cli::global::GlobalFlags;
 use crate::diff::{FileDiff, render_diffs_colored, render_diffs_plain};

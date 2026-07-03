@@ -3,7 +3,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{render_diffs_colored, render_diffs_plain};
 use crate::exit;
 use crate::plan::Operation;
-use crate::tx::engine::{ExecuteOptions, ExecutionResult, execute_operations};
+use crate::tx::engine::{ExecutionResult, WriteSource};
 use crate::write::{apply_policy, policy_from_flags};
 use clap::Args;
 use serde::Serialize;
@@ -363,8 +363,8 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 })
                 .collect();
 
-            let options = ExecuteOptions::from_global(&cwd, global, None);
-            let result = execute_operations(ops, options)?;
+            let (cwd, result) =
+                crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
             tidy_fix_output(global, result, &dirty_rel_paths, &cwd)
         }

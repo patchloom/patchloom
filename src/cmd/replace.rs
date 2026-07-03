@@ -4,7 +4,7 @@ use crate::exit;
 use crate::ops::replace::{
     compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
 };
-use crate::tx::engine::{ExecuteOptions, execute_precomputed};
+use crate::tx::engine::WriteSource;
 use clap::Args;
 use serde::Serialize;
 
@@ -332,10 +332,11 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         })
         .collect();
 
-    let options = ExecuteOptions::from_global(&cwd, global, None);
-    let result = execute_precomputed(precomputed, options);
+    let (cwd, result) =
+        crate::cmd::output::stage_for_write(WriteSource::Precomputed(precomputed), global)?;
 
     // Phase 3: Render output based on mode (check/apply/diff/confirm).
+    // Custom JSON schema (match counts); mode/exit via write_mode helpers.
     replace_output(global, result, &files, total_matches, file_count, &cwd)
 }
 
@@ -430,10 +431,9 @@ fn replace_output(
 fn run_context_replace(
     args: ReplaceArgs,
     global: &GlobalFlags,
-    cwd: &std::path::Path,
+    _cwd: &std::path::Path,
 ) -> anyhow::Result<u8> {
     use crate::plan::Operation;
-    use crate::tx::engine::{ExecuteOptions, execute_operations};
 
     // Context-based replace requires explicit file paths (not directory scan).
     if args.paths.is_empty() {
@@ -464,8 +464,7 @@ fn run_context_replace(
         })
         .collect();
 
-    let options = ExecuteOptions::from_global(cwd, global, None);
-    let result = execute_operations(ops, options)?;
+    let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
     if !result.has_changes {
         let empty = ReplaceOutput {
@@ -490,7 +489,7 @@ fn run_context_replace(
         .changes
         .iter()
         .map(|(p, _, _)| ReplaceFileResult {
-            path: crate::files::relative_display(p, cwd)
+            path: crate::files::relative_display(p, &cwd)
                 .to_string_lossy()
                 .into_owned(),
             match_count: 1,
@@ -498,72 +497,8 @@ fn run_context_replace(
         .collect();
     let total_matches = files.len();
     let file_count = total_matches;
-
-    let build_output = |diff: Option<String>| ReplaceOutput {
-        ok: true,
-        match_count: total_matches,
-        file_count,
-        files: files.clone(),
-        diff,
-    };
-
-    // --check mode.
-    if global.check {
-        if global.json {
-            global.emit_json(&build_output(None))?;
-        } else if !global.emit_json_items(&files)? && !global.quiet {
-            println!("{total_matches} file(s) changed");
-        }
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    // --apply mode.
-    if global.apply {
-        let diffs = result.build_diffs();
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-
-        let diff_text = if global.diff {
-            Some(render_diffs_plain(&diffs))
-        } else {
-            None
-        };
-        if global.json {
-            global.emit_json(&build_output(diff_text))?;
-        } else if !global.emit_json_items(&files)? {
-            if global.diff {
-                print!("{}", render_diffs_colored(&diffs, global.should_color()));
-            } else if !global.quiet {
-                println!("replaced in {total_matches} file(s) (context-based)");
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default / --diff: preview.
-    let diffs = result.build_diffs();
-    let diff_text = if !diffs.is_empty() {
-        Some(render_diffs_plain(&diffs))
-    } else {
-        None
-    };
-
-    if global.json {
-        global.emit_json(&build_output(diff_text))?;
-    } else if !global.emit_json_items(&files)? && !diffs.is_empty() {
-        print!("{}", render_diffs_colored(&diffs, global.should_color()));
-    }
-    if global.show_status() {
-        eprintln!("{total_matches} file(s) changed");
-    }
-
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, cwd)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    Ok(exit::CHANGES_DETECTED)
+    // Same mode/exit owner as default replace path (no hand-rolled matrix).
+    replace_output(global, result, &files, total_matches, file_count, &cwd)
 }
 
 #[path = "replace_tests.rs"]

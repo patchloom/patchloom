@@ -63,12 +63,19 @@ pub struct WriteRequest<'a> {
 /// Unified staging report (alias of [`ExecutionResult`] for the write model).
 pub type WriteReport = ExecutionResult;
 
-/// Stage changes in memory without committing. Prefer this over calling
-/// `execute_single` / `execute_operations` / `execute_precomputed` separately.
+/// Stage changes in memory without committing.
+///
+/// **Canonical engine entry** for all surfaces (CLI, MCP, library). Source
+/// variants cover multi-op plans and precomputed scan results; mode/exit is
+/// owned by the caller (typically `cmd::write_mode::finalize_execution_result`).
 pub fn stage(request: WriteRequest<'_>) -> anyhow::Result<WriteReport> {
     match request.source {
-        WriteSource::Operations(ops) => execute_plan_inner(ops, request.options),
-        WriteSource::Precomputed(changes) => Ok(stage_precomputed(changes, request.options)),
+        WriteSource::Operations(mut ops) if ops.len() == 1 => {
+            let op = ops.pop().expect("len checked");
+            execute_single(op, request.options)
+        }
+        WriteSource::Operations(ops) => execute_operations(ops, request.options),
+        WriteSource::Precomputed(changes) => Ok(execute_precomputed(changes, request.options)),
     }
 }
 
@@ -139,68 +146,27 @@ impl ExecutionResult {
     }
 }
 
-/// Execute a single `Operation` through the unified engine.
-///
-/// This is the primary entry point for CLI commands that want to delegate
-/// their orchestration to the tx engine. It handles:
-/// - File resolution via cwd
-/// - Write policy application
-/// - Change collection in memory (no disk writes)
-///
-/// The caller decides whether to commit (via `ExecutionResult::commit()`)
-/// based on the apply/check/diff mode.
+/// Stage a single operation (source constructor used by [`stage`]).
 pub fn execute_single(
     op: Operation,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
-    stage(WriteRequest {
-        source: WriteSource::Operations(vec![op]),
-        options,
-    })
+    execute_operations(vec![op], options)
 }
 
-/// Execute multiple operations through the unified engine.
-///
-/// Similar to `execute_single` but for multi-operation batches that need
-/// atomicity (all succeed or none are committed).
-///
-/// Used by CLI commands (`tidy`, `ast rename`) for multi-file batches.
+/// Stage one or more operations (implementation used by [`stage`]).
 pub fn execute_operations(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
-    stage(WriteRequest {
-        source: WriteSource::Operations(operations),
-        options,
-    })
+    execute_plan_inner(operations, options)
 }
 
 /// A pre-computed file change: `(relative_path, original_content, new_content)`.
-///
-/// Used by commands that perform their own parallel scan/compute phase and
-/// want to hand off the results to the engine for commit/diff/backup without
-/// re-reading or re-computing.
 pub type PrecomputedChange = (String, String, String);
 
-/// Wrap pre-computed file changes into an `ExecutionResult`.
-///
-/// This bypasses operation execution entirely: the caller has already read
-/// files and computed new content (e.g. via a parallel scan phase). The
-/// engine provides only the commit/diff/backup lifecycle.
-///
-/// Prefer [`stage`] with [`WriteSource::Precomputed`] for new code.
+/// Stage pre-computed changes (implementation used by [`stage`]).
 pub fn execute_precomputed(
-    changes: Vec<PrecomputedChange>,
-    options: ExecuteOptions<'_>,
-) -> ExecutionResult {
-    stage(WriteRequest {
-        source: WriteSource::Precomputed(changes),
-        options,
-    })
-    .expect("precomputed staging is infallible")
-}
-
-fn stage_precomputed(
     changes: Vec<PrecomputedChange>,
     options: ExecuteOptions<'_>,
 ) -> ExecutionResult {
