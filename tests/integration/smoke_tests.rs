@@ -230,13 +230,13 @@ fn test_smoke_example_07_yaml_plan() {
     )
     .unwrap();
 
-    // --diff mode: plan should parse successfully.
+    // --diff mode: plan should parse successfully and exit 2 (changes detected).
     patchloom_in(dir.path())
         .arg("tx")
         .arg(example_plan_path("07-yaml-plan.yaml"))
         .arg("--diff")
         .assert()
-        .code(0);
+        .code(2);
 
     // --apply: skip format/validate (prettier/yamllint may not exist).
     // Instead verify the plan parses and operations apply.
@@ -295,7 +295,7 @@ fn test_smoke_example_09_patch_apply() {
         .arg(example_plan_path("09-patch-apply.json"))
         .arg("--diff")
         .assert()
-        .code(0);
+        .code(2);
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn test_smoke_example_10_inspect_and_edit() {
         .arg(example_plan_path("10-inspect-and-edit.json"))
         .arg("--diff")
         .assert()
-        .code(0);
+        .code(2);
 
     // --apply: verify writes landed.
     patchloom_in(dir.path())
@@ -504,7 +504,11 @@ fn test_smoke_quickstart_command_flow() {
         )
         .output()
         .unwrap();
-    assert!(batch_preview.status.success());
+    assert_eq!(
+        batch_preview.status.code(),
+        Some(2),
+        "batch preview should exit 2"
+    );
     let batch_preview_stdout = String::from_utf8_lossy(&batch_preview.stdout);
     assert!(batch_preview_stdout.contains("package.json"));
     assert!(batch_preview_stdout.contains("README.md"));
@@ -592,7 +596,7 @@ fn test_smoke_quickstart_transaction_snippet() {
         .arg(&plan_file)
         .output()
         .unwrap();
-    assert!(diff_output.status.success());
+    assert_eq!(diff_output.status.code(), Some(2), "tx diff should exit 2");
     let diff_stdout = String::from_utf8_lossy(&diff_output.stdout);
     assert!(diff_stdout.contains("package.json"));
     assert!(diff_stdout.contains("README.md"));
