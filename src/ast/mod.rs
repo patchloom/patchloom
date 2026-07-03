@@ -6,7 +6,12 @@
 
 pub mod deps;
 pub mod diff;
-pub mod extract;
+pub mod extract_to_file;
+/// Deprecated module path for extract-to-file ops. Prefer [`extract_to_file`].
+#[deprecated(note = "use ast::extract_to_file instead; removal tracked in #1376")]
+pub mod extract {
+    pub use super::extract_to_file::*;
+}
 pub mod group;
 pub mod impact;
 pub mod imports;

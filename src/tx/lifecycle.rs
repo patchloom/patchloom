@@ -1,3 +1,4 @@
+// size-waiver: domain bulk, see #1376. Commit/rollback/plan-prepare lifecycle co-located for atomicity reviewability.
 use super::execute::execute_and_collect;
 use super::output::{
     TxOutput, build_error_output, build_full_tx_output, describe_exit_status,

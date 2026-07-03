@@ -285,6 +285,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_group_position_variants() {
+        assert!(matches!(
+            parse_group_position(None),
+            GroupPosition::FirstSymbol
+        ));
+        assert!(matches!(
+            parse_group_position(Some("end")),
+            GroupPosition::End
+        ));
+        assert!(matches!(
+            parse_group_position(Some("after:Foo")),
+            GroupPosition::After(ref name) if name == "Foo"
+        ));
+        assert!(matches!(
+            parse_group_position(Some("unknown")),
+            GroupPosition::FirstSymbol
+        ));
+    }
+
+    #[test]
     fn group_basic() {
         let source = "fn foo() {}\n\nfn bar() {}\n\nfn baz() {}\n";
         let spec = GroupSpec {

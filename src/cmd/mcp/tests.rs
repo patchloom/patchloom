@@ -1,3 +1,4 @@
+// size-waiver: domain bulk, see #1376. MCP integration unit tests co-located with server module.
 use super::*;
 use rmcp::ServiceExt;
 

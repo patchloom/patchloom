@@ -1,4 +1,7 @@
-//! AST-aware symbol extraction: extract a symbol to a separate file.
+//! Extract a named symbol **into a separate source file** (`ast.extract_to_file`).
+//!
+//! Not to be confused with [`crate::ast::symbol_extract`] (tree-sitter visitors
+//! that build the in-memory symbol list).
 
 use super::Language;
 use super::symbols::{

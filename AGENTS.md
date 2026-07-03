@@ -127,7 +127,7 @@ src/
                        md (heading parse, section replace, bullet upsert, table append),
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
-  plan/                Transaction plan format: Plan, Operation, FormatStep, ValidationStep, VerifyCheck;
+  plan/                Transaction plan format (`mod.rs`, `operation.rs`, `tests.rs`): Plan, Operation, …
                        25 operation types including all doc/md/replace/tidy/file/patch/read/search ops.
                        VerifyCheck defines pre/post symbol verification specs (must live here, not in
                        feature-gated modules, because Plan is always compiled)
@@ -382,6 +382,15 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 ```
 
 6. Run `make sync-patchloom-md && make update-readme && make check`.
+
+## AST module naming (#1376)
+
+- `ast::extract_to_file` — move a named symbol into another source file (plan op `ast.extract_to_file`).
+- `ast::symbol_extract` — per-language tree-sitter visitors that build `SymbolDef` lists.
+- `ast::rewrite` — function signature rewrite helpers (prefer this over deprecated `ast::symbols::rewrite_*` re-exports).
+- Shared position parsers: `ast::group::parse_group_position`, `ast::move_symbols::parse_position` (tx must call these, not re-parse `after:`).
+
+Production files over 1000 lines must carry `size-waiver: … #1376` (enforced by `module_hygiene_tests`).
 
 ## Coding conventions
 

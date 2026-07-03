@@ -72,7 +72,7 @@
 //! ```
 //!
 //! For AST signature edits (replacing line-scan heuristics):
-//! Use `ast::symbols::rewrite_function_signature` with `FunctionSigEdit` and a `Language`
+//! Use `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit` and a `Language`
 //! for structured changes to visibility, parameters, return type across all supported languages.
 //! See `ast::symbols` docs and #1266.
 //!

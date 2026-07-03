@@ -4,6 +4,8 @@
 //! [`replace_function_signature`] for simple Rust-only replacement, and
 //! [`rewrite_function_signature`] with [`FunctionSigEdit`] for structured
 //! multi-language edits (visibility, parameters, return type).
+//!
+//! size-waiver: domain bulk, see #1376. Multi-language function signature rewrite domain; tests co-located in module.
 
 use super::symbol_extract::innermost_qualified_name;
 use super::{Language, child_text_by_kind, child_text_by_kinds, parse_source};

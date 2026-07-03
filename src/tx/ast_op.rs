@@ -406,7 +406,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
             let do_unwrap = unwrap.unwrap_or(true);
-            let result = crate::ast::extract::extract_to_file(
+            let result = crate::ast::extract_to_file::extract_to_file(
                 source_content,
                 symbol,
                 replacement.as_deref(),
