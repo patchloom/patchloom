@@ -567,7 +567,8 @@ pub fn execute_plan_direct(
     };
 
     // Execute operations and collect changes in memory.
-    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true, guard) {
+    let engine_ctx = crate::tx::context::EngineContext::from_global(&global, effective_cwd.clone());
+    let mut result = match execute_and_collect(&plan, &engine_ctx, true, true, guard) {
         Ok(r) => r,
         Err(e) => {
             return Ok(build_error_output("operation_failed", &e.to_string(), None));

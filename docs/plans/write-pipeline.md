@@ -45,7 +45,7 @@ Integration lock: `tests/integration/write_path_contract_tests.rs`.
 | `rename` (text, non-case-only) | `src/cmd/rename.rs` | |
 | `doc` writes | `src/cmd/doc.rs` | |
 | `md` most writes | `src/cmd/md.rs` | some subcommands use `execute_single` directly |
-| `ast` some writes | `src/cmd/ast.rs` | also `execute_operations` for multi-file |
+| `ast` some writes | `src/cmd/ast/` (mutate) | also `execute_operations` / `stage` for multi-file |
 
 **Variant:** `execute_via_engine_no_preview_diffs` — same function with
 `preview_diffs: false` (e.g. `delete`). Not a sixth path; same mode/exit owner.
@@ -64,7 +64,7 @@ Integration lock: `tests/integration/write_path_contract_tests.rs`.
 |---------|------|-------|
 | `tidy fix` multi-file | `src/cmd/tidy.rs` → `tidy_fix_output` | representative in contract matrix (`tidy fix …`) |
 | `replace` with context anchors | `src/cmd/replace.rs` → `run_context_replace` | secondary |
-| `ast` multi-file rename/etc. | `src/cmd/ast.rs` | |
+| `ast` multi-file rename/etc. | `src/cmd/ast/mutate.rs` | unified via `stage(WriteRequest)` |
 
 ### 3. `execute_precomputed`
 

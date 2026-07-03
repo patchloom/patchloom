@@ -140,7 +140,7 @@ pub use operation::SplitTargetSpec;
 ///
 /// Returns `None` for non-doc operations. This is the single source of truth
 /// for mapping `Operation::Doc*` variants to `DocMutation`, used by both the
-/// tx engine (`tx/execute.rs`) and any future callers.
+/// tx engine (`tx/execute/`) and any future callers.
 pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::doc::DocMutation)> {
     use crate::ops::doc::DocMutation;
     match op {

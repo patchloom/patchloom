@@ -1,114 +1,15 @@
-//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
-//!
-//! size-waiver: domain bulk, see #1376. AST CLI subcommands share clap wiring; further split deferred after API stability.
+//! Read-only `patchloom ast` subcommands (list, read, validate, search, refs, deps, map, impact, diff).
 
-use crate::ast::Language;
+use super::common::{
+    collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
+    parse_kind_filter, print_symbols_compact, print_symbols_human, print_symbols_json,
+    resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file,
+};
 use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
-use crate::cmd::output::execute_via_engine;
 use crate::exit;
-use crate::plan::Operation;
-use crate::tx::engine::ExecuteOptions;
 use anyhow::Context;
-use clap::{Args, Subcommand};
-use serde::Serialize;
-use std::path::{Path, PathBuf};
-
-// ---------------------------------------------------------------------------
-// Shared helpers for AST subcommands
-// ---------------------------------------------------------------------------
-
-/// Resolve `--lang` hint to a `Language`, falling back to extension detection.
-fn resolve_lang(lang_arg: Option<&str>, path: &Path) -> Language {
-    lang_arg
-        .map(lang_from_str)
-        .unwrap_or_else(|| Language::from_path(path))
-}
-
-/// Common preamble for single-file AST commands: resolve cwd, join path, detect
-/// language, read source. Returns `(cwd, target, lang, source)`.
-fn setup_single_file(
-    path_arg: &str,
-    lang_arg: Option<&str>,
-    global: &GlobalFlags,
-) -> anyhow::Result<(PathBuf, PathBuf, Language, String)> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(path_arg);
-    let lang = resolve_lang(lang_arg, &target);
-    let source = std::fs::read_to_string(&target).with_context(|| format!("reading {path_arg}"))?;
-    Ok((cwd, target, lang, source))
-}
-
-/// Common preamble for multi-file AST commands: resolve cwd, join path, resolve
-/// target paths. Returns `(cwd, paths)`.
-fn setup_multi_file(
-    path_arg: &str,
-    global: &GlobalFlags,
-) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
-    let cwd = global.resolve_cwd()?;
-    let target = cwd.join(path_arg);
-    let paths = resolve_target_paths(&target, path_arg, global)?;
-    Ok((cwd, paths))
-}
-
-#[derive(Debug, Subcommand)]
-pub enum AstCommand {
-    /// List symbol definitions in a file or directory.
-    List(ListArgs),
-    /// Read a specific symbol by name.
-    Read(ReadArgs),
-    /// Rename identifiers in source code (AST-aware, skips strings/comments).
-    Rename(RenameArgs),
-    /// Validate syntax of source files.
-    Validate(ValidateArgs),
-    /// Structural search using AST queries.
-    Search(SearchArgs),
-    /// Find all references to a symbol across files.
-    Refs(RefsArgs),
-    /// Extract import/dependency statements from files.
-    Deps(DepsArgs),
-    /// Generate a ranked repository map (PageRank).
-    Map(MapArgs),
-    /// Replace text only within a specific symbol's body.
-    Replace(ReplaceArgs),
-    /// Transitive impact analysis of changing a symbol.
-    Impact(ImpactArgs),
-    /// Structural diff between two versions of a file.
-    Diff(DiffArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct AstArgs {
-    #[command(subcommand)]
-    pub command: AstCommand,
-}
-
-pub(crate) fn display_path(path: &Path, cwd: &Path) -> String {
-    crate::files::relative_display(path, cwd)
-        .display()
-        .to_string()
-}
-
-pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    match args.command {
-        AstCommand::List(a) => run_list(a, global),
-        AstCommand::Read(a) => run_read(a, global),
-        AstCommand::Rename(a) => run_rename(a, global),
-        AstCommand::Validate(a) => run_validate(a, global),
-        AstCommand::Search(a) => run_search(a, global),
-        AstCommand::Refs(a) => run_refs(a, global),
-        AstCommand::Deps(a) => run_deps(a, global),
-        AstCommand::Map(a) => run_map(a, global),
-        AstCommand::Replace(a) => run_replace(a, global),
-        AstCommand::Impact(a) => run_impact(a, global),
-        AstCommand::Diff(a) => run_diff(a, global),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ast list
-// ---------------------------------------------------------------------------
+use clap::Args;
 
 #[derive(Debug, Args)]
 pub struct ListArgs {
@@ -128,7 +29,7 @@ pub struct ListArgs {
     pub lang: Option<String>,
 }
 
-fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
 
@@ -217,10 +118,6 @@ fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ast read
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct ReadArgs {
     /// File to read from.
@@ -238,7 +135,7 @@ pub struct ReadArgs {
     pub lang: Option<String>,
 }
 
-fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (_cwd, _target, lang, source) =
         setup_single_file(&args.path, args.lang.as_deref(), global)?;
     crate::verbose!(
@@ -281,154 +178,6 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-// ---------------------------------------------------------------------------
-// ast rename
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Args)]
-pub struct RenameArgs {
-    /// The identifier to rename.
-    pub old_name: String,
-
-    /// The new identifier name.
-    pub new_name: String,
-
-    /// File or directory to rename in.
-    pub path: String,
-
-    /// Language hint.
-    #[arg(long)]
-    pub lang: Option<String>,
-
-    #[command(flatten)]
-    pub write: crate::cli::global::WriteFlags,
-}
-
-pub(crate) fn resolve_target_paths(
-    target: &std::path::Path,
-    path_arg: &str,
-    global: &GlobalFlags,
-) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    if target.is_file() {
-        Ok(vec![target.to_path_buf()])
-    } else if target.is_dir() {
-        collect_source_files(target, global)
-    } else {
-        anyhow::bail!("path not found: {}", path_arg)
-    }
-}
-
-fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    crate::verbose!(
-        "ast rename: '{}' -> '{}' in {}",
-        args.old_name,
-        args.new_name,
-        args.path
-    );
-    crate::verbose!("ast rename: scanning {} files", paths.len());
-
-    // Pre-filter to files that have matches, then execute as a batch through
-    // the tx engine. This gives us backup, rollback, and format lifecycle.
-    let mut operations = Vec::new();
-    let lang_hint = args.lang.as_deref();
-    for path in &paths {
-        let lang = resolve_lang(lang_hint, path);
-        let source =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-
-        // Check if this file has any matches (AST or word-boundary fallback).
-        let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, &args.old_name, &args.new_name, lang)
-                .is_some_and(|r| r.replacements > 0)
-        } else {
-            false
-        } || {
-            // Word-boundary fallback
-            crate::ops::replace::compile_replace_regex(&args.old_name, false, false, false, true)
-                .ok()
-                .flatten()
-                .is_some_and(|re| re.is_match(&source))
-        };
-
-        if has_match {
-            let rel = path
-                .strip_prefix(&cwd)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .into_owned();
-            operations.push(Operation::AstRename {
-                path: rel,
-                old_name: args.old_name.clone(),
-                new_name: args.new_name.clone(),
-                lang: args.lang.clone(),
-            });
-        }
-    }
-
-    if operations.is_empty() {
-        let msg = format!("symbol '{}' not found in {}", args.old_name, args.path);
-        global.emit_error_json(&msg)?;
-        return Ok(exit::NO_MATCHES);
-    }
-
-    let files_changed = operations.len();
-    let options = ExecuteOptions::from_global(&cwd, global, None);
-    let result = match crate::tx::engine::execute_operations(operations, options) {
-        Ok(r) => r,
-        Err(e) if exit::is_no_match(&e) => {
-            let msg = e.to_string();
-            global.emit_error_json(&msg)?;
-            return Ok(exit::NO_MATCHES);
-        }
-        Err(e) => return Err(e),
-    };
-
-    if global.check {
-        global.emit_json(&serde_json::json!({
-            "ok": true,
-            "files_changed": files_changed,
-        }))?;
-        return Ok(exit::CHANGES_DETECTED);
-    }
-
-    if global.apply {
-        let diffs = result.build_diffs();
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        if !global.emit_json(&serde_json::json!({
-            "ok": true,
-            "files_changed": diffs.len(),
-        }))? && !global.quiet
-        {
-            for d in &diffs {
-                eprintln!("{}: renamed", d.path);
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default preview mode
-    let diffs = result.build_diffs();
-    if !diffs.is_empty() {
-        let colored = crate::diff::render_diffs_colored(&diffs, global.should_color());
-        print!("{colored}");
-    }
-
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    Ok(exit::CHANGES_DETECTED)
-}
-
-// ---------------------------------------------------------------------------
-// ast validate
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct ValidateArgs {
     /// File or directory to validate.
@@ -439,7 +188,7 @@ pub struct ValidateArgs {
     pub lang: Option<String>,
 }
 
-fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     let lang_hint = args.lang.as_deref();
     crate::verbose!("ast validate: target={}", args.path);
@@ -494,10 +243,6 @@ fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
     }
 }
 
-// ---------------------------------------------------------------------------
-// ast search
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct SearchArgs {
     /// Tree-sitter S-expression query, or a code pattern (with --pattern).
@@ -519,7 +264,7 @@ pub struct SearchArgs {
     pub max_results: Option<usize>,
 }
 
-fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     let lang_hint = args.lang.as_deref();
     crate::verbose!(
@@ -606,10 +351,6 @@ fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ast refs
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct RefsArgs {
     /// Symbol name to find references for.
@@ -627,7 +368,7 @@ pub struct RefsArgs {
     pub lang: Option<String>,
 }
 
-fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     let lang_hint = args.lang.as_deref();
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
@@ -672,10 +413,6 @@ fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-// ---------------------------------------------------------------------------
-// ast deps
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct DepsArgs {
     /// File or directory to analyze.
@@ -690,7 +427,7 @@ pub struct DepsArgs {
     pub lang: Option<String>,
 }
 
-fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
@@ -791,10 +528,6 @@ fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ast map
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct MapArgs {
     /// Directory to map.
@@ -813,7 +546,7 @@ pub struct MapArgs {
     pub boost: Vec<String>,
 }
 
-fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     crate::verbose!(
@@ -857,103 +590,6 @@ fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-// ---------------------------------------------------------------------------
-// ast replace
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Args)]
-pub struct ReplaceArgs {
-    /// File containing the symbol.
-    pub path: String,
-
-    /// Symbol name to scope the replacement to.
-    pub symbol: String,
-
-    /// Text or regex pattern to find.
-    #[arg(long)]
-    pub old: String,
-
-    /// Replacement text.
-    #[arg(long = "new")]
-    pub new_text: String,
-
-    /// Treat --old as a regex pattern.
-    #[arg(long)]
-    pub regex: bool,
-
-    /// Language hint.
-    #[arg(long)]
-    pub lang: Option<String>,
-
-    #[command(flatten)]
-    pub write: crate::cli::global::WriteFlags,
-}
-
-#[derive(Debug, Serialize)]
-struct AstReplaceOutput {
-    ok: bool,
-    symbol: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    replacements: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diff: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    applied: Option<bool>,
-}
-
-fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    crate::verbose!(
-        "ast replace: symbol={}, from={}, regex={}",
-        args.symbol,
-        args.old,
-        args.regex
-    );
-
-    let op = Operation::AstReplace {
-        path: args.path.clone(),
-        symbol: args.symbol.clone(),
-        old: args.old.clone(),
-        new_text: args.new_text.clone(),
-        regex: args.regex,
-        lang: args.lang.clone(),
-    };
-
-    let symbol = args.symbol.clone();
-    let check_msg = format!("would replace in symbol '{symbol}' in {}", args.path);
-    let apply_msg = format!("replaced in symbol '{symbol}' in {}", args.path);
-
-    match execute_via_engine(
-        op,
-        global,
-        |phase, diff| AstReplaceOutput {
-            ok: true,
-            symbol: symbol.clone(),
-            replacements: None, // tx engine doesn't expose count
-            diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
-        },
-        &check_msg,
-        &apply_msg,
-    ) {
-        Ok(code) => Ok(code),
-        Err(e) => {
-            if exit::is_no_match(&e) {
-                global.emit_error_json(&e.to_string())?;
-                Ok(exit::NO_MATCHES)
-            } else {
-                Err(e)
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ast impact
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct ImpactArgs {
     /// Symbol name to analyze.
@@ -971,7 +607,7 @@ pub struct ImpactArgs {
     pub lang: Option<String>,
 }
 
-fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
     crate::verbose!("ast impact: scanning {} files", paths.len());
@@ -1006,10 +642,6 @@ fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-// ---------------------------------------------------------------------------
-// ast diff
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Args)]
 pub struct DiffArgs {
     /// File to diff.
@@ -1028,7 +660,7 @@ pub struct DiffArgs {
     pub lang: Option<String>,
 }
 
-fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let target = cwd.join(&args.path);
     let lang = resolve_lang(args.lang.as_deref(), &target);
@@ -1065,217 +697,4 @@ fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     Ok(exit::SUCCESS)
-}
-
-pub(crate) fn get_git_file_content(
-    cwd: &std::path::Path,
-    file_path: &str,
-    git_ref: &str,
-) -> anyhow::Result<String> {
-    if git_ref.starts_with('-') {
-        anyhow::bail!("invalid git ref: must not start with '-'");
-    }
-    let output = std::process::Command::new("git")
-        .args(["show", &format!("{git_ref}:{file_path}")])
-        .current_dir(cwd)
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git show {git_ref}:{file_path} failed: {}", stderr.trim());
-    }
-
-    Ok(String::from_utf8(output.stdout)?)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-pub(crate) fn lang_from_str(s: &str) -> Language {
-    Language::from_name_or_ext(s)
-}
-
-pub use symbols::{filter_symbols, parse_kind_filter};
-
-pub(crate) fn collect_source_files(
-    dir: &std::path::Path,
-    global: &GlobalFlags,
-) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    let dir_str = dir.to_string_lossy().into_owned();
-    let mut all_paths = crate::collect_file_paths_opts(&[dir_str], global, true, None)?;
-    // Filter to files with a tree-sitter grammar.
-    all_paths.retain(|p| Language::from_path(p).has_grammar());
-    all_paths.sort();
-    Ok(all_paths)
-}
-
-fn print_symbols_human(path: &str, symbols: &[&SymbolDef]) {
-    println!("{path}");
-    for sym in symbols {
-        print_symbol_human(sym, 1);
-    }
-    println!();
-}
-
-fn print_symbol_human(sym: &SymbolDef, indent: usize) {
-    let pad = "  ".repeat(indent);
-    println!(
-        "{pad}{} {} [{}:{}]",
-        sym.kind, sym.name, sym.start_line, sym.end_line
-    );
-    for child in &sym.children {
-        print_symbol_human(child, indent + 1);
-    }
-}
-
-fn print_symbols_compact(path: &str, symbols: &[&SymbolDef]) {
-    println!("{path}");
-    println!("|----");
-    for sym in symbols {
-        print_symbol_compact(sym, 0);
-    }
-    println!("|----");
-    println!();
-}
-
-fn print_symbol_compact(sym: &SymbolDef, indent: usize) {
-    let pad = "  ".repeat(indent);
-    println!("|{pad}{} {}", sym.kind, sym.name);
-    for child in &sym.children {
-        print_symbol_compact(child, indent + 1);
-    }
-}
-
-fn print_symbols_json(
-    path: &str,
-    symbols: &[&SymbolDef],
-    global: &GlobalFlags,
-) -> anyhow::Result<()> {
-    for sym in symbols {
-        let obj = symbol_to_json(sym, path);
-        global.emit_json(&obj)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn symbol_to_json(sym: &SymbolDef, path: &str) -> serde_json::Value {
-    let children: Vec<serde_json::Value> = sym
-        .children
-        .iter()
-        .map(|c| symbol_to_json(c, path))
-        .collect();
-    serde_json::json!({
-        "file": path,
-        "name": sym.name,
-        "kind": sym.kind.to_string(),
-        "start_line": sym.start_line,
-        "end_line": sym.end_line,
-        "signature": sym.signature,
-        "children": children,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::symbols::SymbolKind;
-
-    #[test]
-    fn parse_kind_filter_works() {
-        let filter = parse_kind_filter(&Some("function,struct".to_string()));
-        assert_eq!(filter.len(), 2);
-        assert!(filter.contains(&SymbolKind::Function));
-        assert!(filter.contains(&SymbolKind::Struct));
-    }
-
-    #[test]
-    fn parse_kind_filter_empty() {
-        let filter = parse_kind_filter(&None);
-        assert!(filter.is_empty());
-    }
-
-    #[test]
-    fn lang_from_str_works() {
-        assert_eq!(lang_from_str("rs"), Language::Rust);
-        assert_eq!(lang_from_str("py"), Language::Python);
-        assert_eq!(lang_from_str("go"), Language::Go);
-    }
-
-    /// Language names (not just extensions) should be accepted (#1165).
-    #[test]
-    fn lang_from_str_language_names() {
-        assert_eq!(lang_from_str("rust"), Language::Rust);
-        assert_eq!(lang_from_str("python"), Language::Python);
-        assert_eq!(lang_from_str("typescript"), Language::TypeScript);
-        assert_eq!(lang_from_str("javascript"), Language::JavaScript);
-        assert_eq!(lang_from_str("golang"), Language::Go);
-        assert_eq!(lang_from_str("csharp"), Language::CSharp);
-        assert_eq!(lang_from_str("ruby"), Language::Ruby);
-        assert_eq!(lang_from_str("kotlin"), Language::Kotlin);
-        assert_eq!(lang_from_str("terraform"), Language::Hcl);
-        assert_eq!(lang_from_str("markdown"), Language::Markdown);
-        assert_eq!(lang_from_str("Rust"), Language::Rust); // case-insensitive
-    }
-
-    // -----------------------------------------------------------------------
-    // resolve_target_paths
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn resolve_target_paths_file() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("hello.rs");
-        std::fs::write(&f, "fn main() {}\n").unwrap();
-        let global = GlobalFlags::default();
-        let result = resolve_target_paths(&f, "hello.rs", &global).unwrap();
-        assert_eq!(result, vec![f]);
-    }
-
-    #[test]
-    fn resolve_target_paths_directory() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let f = dir.path().join("lib.rs");
-        std::fs::write(&f, "fn foo() {}\n").unwrap();
-        // Also create a non-source file that should be skipped.
-        std::fs::write(dir.path().join("notes.txt"), "not source").unwrap();
-        let global = GlobalFlags::default();
-        let result = resolve_target_paths(dir.path(), ".", &global).unwrap();
-        assert_eq!(result.len(), 1);
-        assert!(result[0].ends_with("lib.rs"));
-    }
-
-    #[test]
-    fn resolve_target_paths_nonexistent() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let missing = dir.path().join("no_such_file.rs");
-        let global = GlobalFlags::default();
-        let err = resolve_target_paths(&missing, "no_such_file.rs", &global).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("path not found") && msg.contains("no_such_file.rs"),
-            "error should mention path not found and the argument: {msg}"
-        );
-    }
-
-    #[test]
-    fn context_line_calculation_no_overflow() {
-        // Regression: 1 + args.context and sym.end_line + args.context
-        // used to overflow with large context values. Verify saturating
-        // arithmetic prevents panic.
-        let start_line: usize = 5;
-        let end_line: usize = 10;
-        let context: usize = usize::MAX;
-        let total_lines: usize = 100;
-
-        let start = start_line.saturating_sub(context.saturating_add(1));
-        let end = end_line.saturating_add(context).min(total_lines);
-        assert_eq!(start, 0);
-        assert_eq!(end, total_lines);
-    }
-
-    // Note: apply_or_preview tests removed when AST write commands were
-    // migrated to use the tx engine (execute_via_engine / execute_operations).
-    // The tx engine has its own comprehensive tests in src/cmd/output.rs
-    // and tests/integration.rs.
 }

@@ -10,39 +10,65 @@
 
 use crate::cli::global::GlobalFlags;
 use crate::plan::{Operation, Plan, SCHEMA_VERSION};
+use crate::tx::context::EngineContext;
 use crate::tx::output::TxExecResult;
 
 use std::path::Path;
 
-/// Options for single-operation execution.
+/// Options for staged engine execution (library-first; no clap types).
 #[derive(Debug)]
 pub struct ExecuteOptions<'a> {
-    /// Working directory for file resolution.
-    pub cwd: &'a Path,
-    /// Library-first execution context (mode, write policy inputs, format).
-    ///
-    /// Built at the CLI/API/MCP boundary via [`crate::tx::context::EngineContext::from_global`].
-    pub context: crate::tx::context::EngineContext,
-    /// Global flags for transitional callers that still need clap-shaped output
-    /// helpers. Prefer `context` for engine semantics (#1384).
-    pub global: &'a GlobalFlags,
+    /// Library-first execution context (cwd, mode, write policy inputs, format).
+    pub context: EngineContext,
     /// Optional path guard for containment validation.
     pub guard: Option<&'a crate::containment::PathGuard>,
 }
 
 impl<'a> ExecuteOptions<'a> {
-    /// Construct options from CLI/library global flags (builds [`EngineContext`]).
+    /// Construct options from an owned [`EngineContext`].
+    pub fn new(context: EngineContext, guard: Option<&'a crate::containment::PathGuard>) -> Self {
+        Self { context, guard }
+    }
+
+    /// Construct options from CLI/library global flags (boundary adapter only).
     pub fn from_global(
-        cwd: &'a Path,
-        global: &'a GlobalFlags,
+        cwd: &Path,
+        global: &GlobalFlags,
         guard: Option<&'a crate::containment::PathGuard>,
     ) -> Self {
-        Self {
-            cwd,
-            context: crate::tx::context::EngineContext::from_global(global, cwd.to_path_buf()),
-            global,
-            guard,
-        }
+        Self::new(EngineContext::from_global(global, cwd.to_path_buf()), guard)
+    }
+
+    pub fn cwd(&self) -> &Path {
+        self.context.cwd()
+    }
+}
+
+/// How changes are staged into an [`ExecutionResult`].
+#[derive(Debug)]
+pub enum WriteSource {
+    /// One or more plan operations (single-op or multi-op batch).
+    Operations(Vec<Operation>),
+    /// Pre-computed `(rel_path, original, new)` triples from a parallel scan.
+    Precomputed(Vec<PrecomputedChange>),
+}
+
+/// Unified staging request: one entry shape for engine-backed writes.
+#[derive(Debug)]
+pub struct WriteRequest<'a> {
+    pub source: WriteSource,
+    pub options: ExecuteOptions<'a>,
+}
+
+/// Unified staging report (alias of [`ExecutionResult`] for the write model).
+pub type WriteReport = ExecutionResult;
+
+/// Stage changes in memory without committing. Prefer this over calling
+/// `execute_single` / `execute_operations` / `execute_precomputed` separately.
+pub fn stage(request: WriteRequest<'_>) -> anyhow::Result<WriteReport> {
+    match request.source {
+        WriteSource::Operations(ops) => execute_plan_inner(ops, request.options),
+        WriteSource::Precomputed(changes) => Ok(stage_precomputed(changes, request.options)),
     }
 }
 
@@ -127,7 +153,10 @@ pub fn execute_single(
     op: Operation,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
-    execute_plan_inner(vec![op], options)
+    stage(WriteRequest {
+        source: WriteSource::Operations(vec![op]),
+        options,
+    })
 }
 
 /// Execute multiple operations through the unified engine.
@@ -140,7 +169,10 @@ pub fn execute_operations(
     operations: Vec<Operation>,
     options: ExecuteOptions<'_>,
 ) -> anyhow::Result<ExecutionResult> {
-    execute_plan_inner(operations, options)
+    stage(WriteRequest {
+        source: WriteSource::Operations(operations),
+        options,
+    })
 }
 
 /// A pre-computed file change: `(relative_path, original_content, new_content)`.
@@ -156,8 +188,19 @@ pub type PrecomputedChange = (String, String, String);
 /// files and computed new content (e.g. via a parallel scan phase). The
 /// engine provides only the commit/diff/backup lifecycle.
 ///
-/// Write policy is applied to each change if enabled in `global`.
+/// Prefer [`stage`] with [`WriteSource::Precomputed`] for new code.
 pub fn execute_precomputed(
+    changes: Vec<PrecomputedChange>,
+    options: ExecuteOptions<'_>,
+) -> ExecutionResult {
+    stage(WriteRequest {
+        source: WriteSource::Precomputed(changes),
+        options,
+    })
+    .expect("precomputed staging is infallible")
+}
+
+fn stage_precomputed(
     changes: Vec<PrecomputedChange>,
     options: ExecuteOptions<'_>,
 ) -> ExecutionResult {
@@ -165,9 +208,7 @@ pub fn execute_precomputed(
     use crate::write::apply_policy;
     use std::collections::{HashMap, HashSet};
 
-    let cwd = options.cwd.to_path_buf();
-    // Library-first context (#1375): policy derives from EngineContext, not
-    // clap types directly (GlobalFlags still feeds the adapter at the edge).
+    let cwd = options.cwd().to_path_buf();
     let ctx = &options.context;
     crate::verbose!(
         "engine: precomputed via EngineContext cwd={}",
@@ -255,9 +296,15 @@ fn execute_plan_inner(
         for_each: None,
     };
 
-    let cwd = options.cwd.to_path_buf();
-    let result =
-        super::execute_and_collect(&plan, &cwd, options.global, true, true, options.guard)?;
+    let cwd = options.cwd().to_path_buf();
+    let structured = options.context.json || options.context.jsonl;
+    let result = super::execute_and_collect(
+        &plan,
+        &options.context,
+        true, // quiet for in-engine collection (CLI prints its own output)
+        structured,
+        options.guard,
+    )?;
 
     let has_changes = !result.no_effective_changes;
 
@@ -386,6 +433,63 @@ mod tests {
             dir.path().join("empty.txt").exists(),
             "empty file should exist after commit"
         );
+    }
+
+    #[test]
+    fn stage_operations_matches_execute_single() {
+        let dir = TempDir::new().unwrap();
+        let global = GlobalFlags::test_default();
+        let op = Operation::FileCreate {
+            path: "via_stage.txt".to_string(),
+            content: "staged\n".to_string(),
+            force: None,
+        };
+        let report = stage(WriteRequest {
+            source: WriteSource::Operations(vec![op]),
+            options: test_options(dir.path(), &global),
+        })
+        .unwrap();
+        assert!(report.has_changes);
+        report.commit().unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("via_stage.txt")).unwrap(),
+            "staged\n"
+        );
+    }
+
+    #[test]
+    fn stage_precomputed_writes_on_commit() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("pre.txt");
+        fs::write(&path, "old\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let report = stage(WriteRequest {
+            source: WriteSource::Precomputed(vec![(
+                "pre.txt".to_string(),
+                "old\n".to_string(),
+                "new\n".to_string(),
+            )]),
+            options: test_options(dir.path(), &global),
+        })
+        .unwrap();
+        assert!(report.has_changes);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
+        report.commit().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn execute_options_is_context_only() {
+        // Boundary: ExecuteOptions holds EngineContext + guard, not GlobalFlags.
+        let dir = TempDir::new().unwrap();
+        let global = GlobalFlags::test_default();
+        let opts = ExecuteOptions::from_global(dir.path(), &global, None);
+        assert_eq!(opts.cwd(), dir.path());
+        assert!(opts.guard.is_none());
+        // Construct without GlobalFlags (library-first path).
+        let ctx = EngineContext::from_global(&global, dir.path().to_path_buf());
+        let opts2 = ExecuteOptions::new(ctx, None);
+        assert_eq!(opts2.cwd(), dir.path());
     }
 
     #[test]
