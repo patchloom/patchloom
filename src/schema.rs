@@ -698,6 +698,28 @@ fn ast_registry_iter() -> impl Iterator<Item = &'static OpMeta> {
     }
 }
 
+/// Build an MCP tool description from the schema registry for a plan op name.
+///
+/// Format: `<OpMeta.description>[ extra][ Example: <first example JSON>]`
+/// MCP-only guidance (concurrency, etc.) belongs in `extra`, not a full
+/// duplicate of the registry prose (#1383).
+pub fn mcp_tool_description(op_name: &str, extra: Option<&str>) -> String {
+    let base = operation_description(op_name).unwrap_or("Patchloom operation.");
+    let mut out = base.to_string();
+    if let Some(extra) = extra.filter(|s| !s.is_empty()) {
+        if !out.ends_with('.') && !out.ends_with(' ') {
+            out.push('.');
+        }
+        out.push(' ');
+        out.push_str(extra.trim());
+    }
+    if let Some(example) = operation_example_json(op_name) {
+        out.push_str(" Example: ");
+        out.push_str(example);
+    }
+    out
+}
+
 /// Build a compact agent-facing operations catalogue from the registry.
 ///
 /// Used by `agent-rules` so the op list cannot drift from schema export.

@@ -373,11 +373,7 @@ fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let files_changed = operations.len();
-    let options = ExecuteOptions {
-        cwd: &cwd,
-        global,
-        guard: None,
-    };
+    let options = ExecuteOptions::from_global(&cwd, global, None);
     let result = match crate::tx::engine::execute_operations(operations, options) {
         Ok(r) => r,
         Err(e) if exit::is_no_match(&e) => {

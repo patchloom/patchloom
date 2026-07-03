@@ -332,11 +332,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         })
         .collect();
 
-    let options = ExecuteOptions {
-        cwd: &cwd,
-        global,
-        guard: None,
-    };
+    let options = ExecuteOptions::from_global(&cwd, global, None);
     let result = execute_precomputed(precomputed, options);
 
     // Phase 3: Render output based on mode (check/apply/diff/confirm).
@@ -468,11 +464,7 @@ fn run_context_replace(
         })
         .collect();
 
-    let options = ExecuteOptions {
-        cwd,
-        global,
-        guard: None,
-    };
+    let options = ExecuteOptions::from_global(cwd, global, None);
     let result = execute_operations(ops, options)?;
 
     if !result.has_changes {

@@ -27,12 +27,21 @@ pub(super) struct McpToolMeta {
     pub(super) tool_name: &'static str,
     /// `Operation` variant's serde tag value (e.g., `"doc.set"`).
     pub(super) op_name: &'static str,
-    /// Tool description shown to MCP clients.
-    pub(super) description: &'static str,
+    /// Optional MCP-only guidance appended after the schema registry description
+    /// (concurrency warnings, predicate syntax hints, etc.). Base prose and
+    /// examples come from `schema::mcp_tool_description` (#1383).
+    pub(super) extra: Option<&'static str>,
     /// Whether the tool accepts a `strict` parameter (plan-level, not on Operation).
     pub(super) has_strict: bool,
     /// Field-level validation rules applied before deserialization.
     pub(super) validations: &'static [FieldValidation],
+}
+
+impl McpToolMeta {
+    /// Resolved tool description for MCP clients (schema base + optional extra + example).
+    pub(super) fn description(&self) -> String {
+        crate::schema::mcp_tool_description(self.op_name, self.extra)
+    }
 }
 
 /// Registry of simple MCP tools that map 1:1 to `Operation` variants.
@@ -46,7 +55,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_set",
         op_name: "doc.set",
-        description: "Set a value in a JSON, YAML, or TOML file. Parser-backed, preserves comments. Use dot notation for nested paths. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"package.json\", \"selector\": \"version\", \"value\": \"2.0.0\"}",
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: true,
         validations: &[
             FieldValidation::Path("path"),
@@ -57,7 +68,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_delete",
         op_name: "doc.delete",
-        description: "Delete a value from a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"scripts.test\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -67,7 +78,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_merge",
         op_name: "doc.merge",
-        description: "Deep-merge an object into a JSON, YAML, or TOML document. Example: {\"path\": \"config.yaml\", \"value\": {\"server\": {\"port\": 8080}} }",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -77,7 +88,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_append",
         op_name: "doc.append",
-        description: "Append a value to an array in a JSON, YAML, or TOML file. Example: {\"path\": \"package.json\", \"selector\": \"dependencies\", \"value\": \"new-pkg\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -88,7 +99,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_prepend",
         op_name: "doc.prepend",
-        description: "Prepend a value to an array in a JSON, YAML, or TOML file. Inserts at position 0.",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -99,7 +110,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_ensure",
         op_name: "doc.ensure",
-        description: "Set a value in JSON/YAML/TOML only if it does not already exist. Idempotent: no-op if present. Example: {\"path\": \"config.json\", \"selector\": \"debug\", \"value\": false}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -110,7 +121,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_delete_where",
         op_name: "doc.delete_where",
-        description: "Remove array items matching a predicate from JSON/YAML/TOML. For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'. Example: {\"path\": \"config.yaml\", \"selector\": \"users\", \"predicate\": \"role=admin\"}",
+        extra: Some(
+            "For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -121,7 +134,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_update",
         op_name: "doc.update",
-        description: "Update all items matching a wildcard selector in a JSON, YAML, or TOML file. Example: {\"path\": \"config.yaml\", \"selector\": \"servers[*].port\", \"value\": 8080}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -132,7 +145,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_move",
         op_name: "doc.move",
-        description: "Move/rename a selector path in a JSON, YAML, or TOML file. Example: {\"path\": \"config.json\", \"from\": \"old_name\", \"to\": \"new_name\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -143,14 +156,14 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "read_file",
         op_name: "read",
-        description: "Read file contents with optional line range. Example: {\"path\": \"src/main.rs\", \"lines\": \"1:50\"}",
+        extra: Some("Optional lines range uses start:end (1-based)."),
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
     McpToolMeta {
         tool_name: "md_upsert_bullet",
         op_name: "md.upsert_bullet",
-        description: "Add a bullet under a markdown heading. Idempotent: skipped if already present. Example: {\"path\": \"CHANGELOG.md\", \"heading\": \"## Changes\", \"bullet\": \"- Added new feature\"}",
+        extra: Some("Idempotent: skipped if the bullet is already present."),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -160,7 +173,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_table_append",
         op_name: "md.table_append",
-        description: "Append a row to a markdown table under a heading. Example: {\"path\": \"docs/api.md\", \"heading\": \"## Endpoints\", \"row\": \"| GET | /health | 200 |\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -170,7 +183,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_replace_section",
         op_name: "md.replace_section",
-        description: "Replace the content of a markdown section (from heading to next same-level heading). Example: {\"path\": \"README.md\", \"heading\": \"## Installation\", \"content\": \"Run `cargo install patchloom`.\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -180,7 +193,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_insert_after_heading",
         op_name: "md.insert_after_heading",
-        description: "Insert content immediately after a markdown heading (before existing section body). Example: {\"path\": \"AGENTS.md\", \"heading\": \"## Rules\", \"content\": \"Always run tests.\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -190,7 +203,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_insert_before_heading",
         op_name: "md.insert_before_heading",
-        description: "Insert content before a markdown heading. Example: {\"path\": \"AGENTS.md\", \"heading\": \"## Rules\", \"content\": \"## Preamble\\nRead this first.\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -200,21 +213,21 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_dedupe_headings",
         op_name: "md.dedupe_headings",
-        description: "Remove duplicate markdown headings in a file. Keeps the first occurrence of each heading. Example: {\"path\": \"README.md\"}",
+        extra: None,
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
     McpToolMeta {
         tool_name: "move_file",
         op_name: "file.rename",
-        description: "Move or rename a file. Use force=true to overwrite existing. Example: {\"from\": \"old.txt\", \"to\": \"new.txt\"}",
+        extra: Some("Use force=true to overwrite an existing destination."),
         has_strict: false,
         validations: &[FieldValidation::Path("from"), FieldValidation::Path("to")],
     },
     McpToolMeta {
         tool_name: "append_file",
         op_name: "file.append",
-        description: "Append content to the end of an existing file. Example: {\"path\": \"log.txt\", \"content\": \"new entry\\n\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -224,7 +237,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "prepend_file",
         op_name: "file.prepend",
-        description: "Prepend content to the beginning of an existing file. Example: {\"path\": \"src/main.rs\", \"content\": \"// Copyright 2026\\n\"}",
+        extra: None,
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -234,7 +247,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "create_file",
         op_name: "file.create",
-        description: "Create a new file with content. Fails if file exists unless force=true. Example: {\"path\": \"src/new.rs\", \"content\": \"fn main() {}\"}",
+        extra: Some("Fails if the file exists unless force=true."),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -244,7 +257,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "delete_file",
         op_name: "file.delete",
-        description: "Delete a file. Example: {\"path\": \"obsolete.txt\"}",
+        extra: None,
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },

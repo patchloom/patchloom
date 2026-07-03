@@ -314,27 +314,28 @@ MCP tools live in `src/cmd/mcp/mod.rs` behind the `mcp` feature gate. There are 
 
 If the new tool directly maps to a single `plan::Operation` variant with no custom logic:
 
-1. **Add an entry to `MCP_TOOL_REGISTRY`** in `src/cmd/mcp/mod.rs`:
+1. **Ensure the op is in the schema `OpMeta` registry** (`src/schema.rs`) with description + example.
+2. **Add an entry to `MCP_TOOL_REGISTRY`** in `src/cmd/mcp/registry.rs`:
 
 ```rust
 McpToolMeta {
     tool_name: "new_tool",
     op_name: "new_op",  // must match the Operation variant's serde name
-    description: "Short description. Example: {\"path\": \"file.txt\", ...}",
+    extra: None, // or Some("MCP-only guidance…") — base prose/example come from schema (#1383)
     has_strict: true,   // true if the tool should accept a `strict` parameter
     validations: &[FieldValidation::Path("path")],  // field validations
 },
 ```
 
-The input schema is auto-derived from the `Operation` variant via `operation_variant_schema()`. The handler is `handle_simple_op()`, which injects the `op` discriminator, validates fields, and deserializes into `Operation`.
+The tool description is built by `schema::mcp_tool_description(op_name, extra)` (registry base + optional extra + example). The input schema is auto-derived from the `Operation` variant via `operation_variant_schema()`. The handler is `handle_simple_op()`, which injects the `op` discriminator, validates fields, and deserializes into `Operation`.
 
-2. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
+3. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
 
-3. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
+4. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
 
-4. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
+5. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
 
-5. Run `make sync-patchloom-md && make update-readme && make check`.
+6. Run `make sync-patchloom-md && make update-readme && make check`.
 
 ### Path B: Custom hand-written tool (complex logic)
 
@@ -387,7 +388,7 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 
 - `ast::extract_to_file` — move a named symbol into another source file (plan op `ast.extract_to_file`).
 - `ast::symbol_extract` — per-language tree-sitter visitors that build `SymbolDef` lists.
-- `ast::rewrite` — function signature rewrite helpers (prefer this over deprecated `ast::symbols::rewrite_*` re-exports).
+- `ast::rewrite` — function signature rewrite helpers (use this path only; `ast::symbols` no longer re-exports them, #1386).
 - Shared position parsers: `ast::group::parse_group_position`, `ast::move_symbols::parse_position` (tx must call these, not re-parse `after:`).
 
 Production files over 1000 lines must carry `size-waiver: … #1376` (enforced by `module_hygiene_tests`).

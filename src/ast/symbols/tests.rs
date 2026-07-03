@@ -1,4 +1,5 @@
 use super::*;
+use crate::ast::rewrite::replace_function_signature;
 
 #[test]
 fn check_no_overlapping_spans_ok() {

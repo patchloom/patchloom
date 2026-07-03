@@ -19,10 +19,31 @@ use std::path::Path;
 pub struct ExecuteOptions<'a> {
     /// Working directory for file resolution.
     pub cwd: &'a Path,
-    /// Global flags (apply mode, write policy, etc.).
+    /// Library-first execution context (mode, write policy inputs, format).
+    ///
+    /// Built at the CLI/API/MCP boundary via [`crate::tx::context::EngineContext::from_global`].
+    pub context: crate::tx::context::EngineContext,
+    /// Global flags for transitional callers that still need clap-shaped output
+    /// helpers. Prefer `context` for engine semantics (#1384).
     pub global: &'a GlobalFlags,
     /// Optional path guard for containment validation.
     pub guard: Option<&'a crate::containment::PathGuard>,
+}
+
+impl<'a> ExecuteOptions<'a> {
+    /// Construct options from CLI/library global flags (builds [`EngineContext`]).
+    pub fn from_global(
+        cwd: &'a Path,
+        global: &'a GlobalFlags,
+        guard: Option<&'a crate::containment::PathGuard>,
+    ) -> Self {
+        Self {
+            cwd,
+            context: crate::tx::context::EngineContext::from_global(global, cwd.to_path_buf()),
+            global,
+            guard,
+        }
+    }
 }
 
 /// Result of a single-operation execution.
@@ -141,14 +162,13 @@ pub fn execute_precomputed(
     options: ExecuteOptions<'_>,
 ) -> ExecutionResult {
     crate::verbose!("engine: execute_precomputed changes={}", changes.len());
-    use crate::tx::context::EngineContext;
     use crate::write::apply_policy;
     use std::collections::{HashMap, HashSet};
 
     let cwd = options.cwd.to_path_buf();
     // Library-first context (#1375): policy derives from EngineContext, not
     // clap types directly (GlobalFlags still feeds the adapter at the edge).
-    let ctx = EngineContext::from_global(options.global, cwd.clone());
+    let ctx = &options.context;
     crate::verbose!(
         "engine: precomputed via EngineContext cwd={}",
         ctx.cwd().display()
@@ -255,11 +275,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_options<'a>(cwd: &'a Path, global: &'a GlobalFlags) -> ExecuteOptions<'a> {
-        ExecuteOptions {
-            cwd,
-            global,
-            guard: None,
-        }
+        ExecuteOptions::from_global(cwd, global, None)
     }
 
     #[test]

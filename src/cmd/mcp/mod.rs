@@ -142,7 +142,7 @@ impl PatchloomService {
             })?;
 
             tool_router.add_route(ToolRoute::new_dyn(
-                Tool::new(meta.tool_name, meta.description, Arc::new(input_schema)),
+                Tool::new(meta.tool_name, meta.description(), Arc::new(input_schema)),
                 move |ctx: ToolCallContext<'_, PatchloomService>| {
                     let fields = Arc::clone(&allowed_fields);
                     let svc = ctx.service.clone();
