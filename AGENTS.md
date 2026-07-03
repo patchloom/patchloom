@@ -18,7 +18,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make pty-test` | Run PTY-based interactive terminal tests (`cargo test --test pty --all-features -- --test-threads=1`) |
 | `make test-library-hygiene` | Enforce Bline library set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
-| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme |
+| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme |
 | `make check-fast` | Fast check: fmt-check, clippy, test, test-no-default, test-ast-only, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene (skips doc verification; enforces library hygiene) |
 | `make update-readme` | Update README.md rounded test count (only changes when hundreds digit changes) |
 | `make check-readme` | Verify README.md rounded test count is accurate (part of `check`) |
