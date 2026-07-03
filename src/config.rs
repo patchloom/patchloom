@@ -6,13 +6,45 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-use crate::write::WritePolicyOverride;
+// Note: crate::write::WritePolicyOverride is used for plan serialization (forward-compatible).
+// WritePolicyConfig (below) is used for .patchloom.toml parsing (typo-catching).
+
+/// Config-specific write policy with strict field validation.
+///
+/// This type is used exclusively by `.patchloom.toml` parsing. It has
+/// `deny_unknown_fields` to catch typos like `ensur_final_newline`.
+///
+/// For plan serialization (tx plans, MCP), use [`WritePolicyOverride`] which
+/// omits `deny_unknown_fields` for forward compatibility.
+///
+/// [`WritePolicyOverride`]: crate::write::WritePolicyOverride
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WritePolicyConfig {
+    pub ensure_final_newline: Option<bool>,
+    pub normalize_eol: Option<String>,
+    pub trim_trailing_whitespace: Option<bool>,
+    pub collapse_blanks: Option<bool>,
+    pub respect_editorconfig: Option<bool>,
+}
+
+impl From<WritePolicyConfig> for crate::write::WritePolicyOverride {
+    fn from(c: WritePolicyConfig) -> Self {
+        Self {
+            ensure_final_newline: c.ensure_final_newline,
+            normalize_eol: c.normalize_eol,
+            trim_trailing_whitespace: c.trim_trailing_whitespace,
+            collapse_blanks: c.collapse_blanks,
+            respect_editorconfig: c.respect_editorconfig,
+        }
+    }
+}
 
 /// Project-level configuration loaded from `.patchloom.toml`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProjectConfig {
-    pub write_policy: WritePolicyOverride,
+    pub write_policy: WritePolicyConfig,
     pub exclude: Exclude,
     pub output: Output,
     pub tx: TxConfig,
@@ -341,7 +373,7 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_sets_defaults() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 ensure_final_newline: Some(true),
                 normalize_eol: Some("lf".into()),
                 trim_trailing_whitespace: Some(true),
@@ -384,9 +416,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_cli_flags_win() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 ensure_final_newline: Some(true),
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             exclude: Exclude {
                 globs: vec!["config_glob".into()],
@@ -441,9 +473,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_unknown_eol_value_ignored() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 normalize_eol: Some("CRLF".into()), // uppercase: not recognized
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             ..ProjectConfig::default()
         };
@@ -462,9 +494,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_crlf_eol() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 normalize_eol: Some("crlf".into()),
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             ..ProjectConfig::default()
         };
@@ -545,9 +577,9 @@ color = "always"
     #[cfg(feature = "cli")]
     fn apply_config_respect_editorconfig_from_config() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 respect_editorconfig: Some(true),
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             ..ProjectConfig::default()
         };
@@ -773,9 +805,9 @@ rs = "rustfmt"
     #[cfg(feature = "cli")]
     fn apply_config_keep_eol_is_noop() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 normalize_eol: Some("keep".into()),
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             ..ProjectConfig::default()
         };
@@ -793,9 +825,9 @@ rs = "rustfmt"
     #[cfg(feature = "cli")]
     fn apply_config_cr_eol() {
         let config = ProjectConfig {
-            write_policy: WritePolicyOverride {
+            write_policy: WritePolicyConfig {
                 normalize_eol: Some("cr".into()),
-                ..WritePolicyOverride::default()
+                ..WritePolicyConfig::default()
             },
             ..ProjectConfig::default()
         };
@@ -827,5 +859,35 @@ rs = "rustfmt"
         apply_config(&mut global, &config);
         // defaults.format takes priority over format.command
         assert_eq!(global.format.as_deref(), Some("cargo fmt --all"));
+    }
+
+    /// WritePolicyConfig (config type) must reject unknown fields to catch typos.
+    /// This is the counterpart to the forward-compat test in write_tests.rs.
+    #[test]
+    fn write_policy_config_rejects_unknown_fields() {
+        let toml = r#"ensur_final_newline = true"#; // typo: missing 'e'
+        let result = toml_edit::de::from_str::<WritePolicyConfig>(toml);
+        assert!(
+            result.is_err(),
+            "WritePolicyConfig should reject unknown fields to catch typos"
+        );
+    }
+
+    /// WritePolicyConfig converts to WritePolicyOverride via From.
+    #[test]
+    fn write_policy_config_converts_to_override() {
+        let config = WritePolicyConfig {
+            ensure_final_newline: Some(true),
+            normalize_eol: Some("lf".into()),
+            trim_trailing_whitespace: Some(true),
+            collapse_blanks: None,
+            respect_editorconfig: Some(false),
+        };
+        let ov: crate::write::WritePolicyOverride = config.into();
+        assert_eq!(ov.ensure_final_newline, Some(true));
+        assert_eq!(ov.normalize_eol.as_deref(), Some("lf"));
+        assert_eq!(ov.trim_trailing_whitespace, Some(true));
+        assert!(ov.collapse_blanks.is_none());
+        assert_eq!(ov.respect_editorconfig, Some(false));
     }
 }

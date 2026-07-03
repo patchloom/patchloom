@@ -101,7 +101,7 @@ impl Default for WritePolicy {
 /// Used by `.patchloom.toml` config, tx plan `write_policy`, and any context
 /// that needs to partially override write transformations.
 #[derive(Debug, Default, Clone, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct WritePolicyOverride {
     pub ensure_final_newline: Option<bool>,
     pub normalize_eol: Option<String>,
