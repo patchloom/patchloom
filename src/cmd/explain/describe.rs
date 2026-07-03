@@ -1,155 +1,29 @@
-// size-waiver: domain bulk, see #1376. Humanization of every Operation variant; shrinks only with more schema-driven templates.
-use crate::cli::global::GlobalFlags;
-use crate::exit;
-use crate::plan::{Operation, Plan};
-use clap::Args;
+//! Rich human descriptions for plan [`Operation`]s.
+//!
+//! Field-level detail lives in the match arms below. The schema registry
+//! ([`crate::schema::operation_description`]) supplies the stable op label
+//! (what agents see in `patchloom schema` / MCP tool prose) so explain and
+//! schema stay aligned on naming.
 
-#[derive(Debug, Args)]
-#[command(after_help = "\
-EXAMPLES:
-  patchloom explain plan.json
-  cat plan.json | patchloom explain --stdin
-  patchloom explain plan.yaml --json")]
-pub struct ExplainArgs {
-    /// Path to a tx plan file (JSON, YAML, or TOML).
-    #[arg(required_unless_present = "stdin")]
-    pub path: Option<String>,
+use crate::plan::Operation;
+use crate::schema;
 
-    /// Read plan from stdin instead of a file.
-    #[arg(long)]
-    pub stdin: bool,
-
-    /// Format hint: json, yaml, or toml (auto-detected from extension).
-    #[arg(long)]
-    pub format: Option<String>,
-}
-
-pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    crate::verbose!(
-        "explain: path={:?}, stdin={}, format={:?}",
-        args.path,
-        args.stdin,
-        args.format
-    );
-    let (input, path) = if args.stdin {
-        let mut buf = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
-        (buf, None)
-    } else {
-        let p = args
-            .path
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("path is required when --stdin is not set"))?;
-        let cwd = global.resolve_cwd()?;
-        let full = cwd.join(p);
-        let content = std::fs::read_to_string(&full)
-            .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", full.display()))?;
-        (content, Some(p.to_string()))
-    };
-
-    let mut plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
-    let cwd = global.resolve_cwd()?;
-
-    // Expand for_each before summarizing so the explain output shows all
-    // expanded operations (not the template).
-    if plan.for_each.is_some() {
-        crate::plan::expand_for_each(&mut plan, &cwd)?;
-    }
-    let config_strict = crate::config::find_and_load(&cwd)
-        .map(|(config, _)| config.tx.strict)
-        .unwrap_or(None);
-    let strict = crate::plan::effective_strict(plan.strict, config_strict, false);
-
-    if !global.emit_json(&build_json_summary(&plan, strict))? && !global.quiet {
-        print_human_summary(&plan, strict);
-    }
-
-    Ok(exit::SUCCESS)
-}
-
-fn print_human_summary(plan: &Plan, strict: bool) {
-    let n = plan.operations.len();
-    let mode = if strict { "strict" } else { "normal" };
-    println!("Plan: {n} operation(s) ({mode} mode)\n");
-
-    for (i, op) in plan.operations.iter().enumerate() {
-        println!("  {}. {}", i + 1, describe_operation(op));
-    }
-
-    if let Some(ref wp) = plan.write_policy {
-        let mut parts = Vec::new();
-        if wp.ensure_final_newline == Some(true) {
-            parts.push("ensure final newline");
-        }
-        if wp.trim_trailing_whitespace == Some(true) {
-            parts.push("trim trailing whitespace");
-        }
-        if let Some(ref eol) = wp.normalize_eol {
-            parts.push(match eol.as_str() {
-                "lf" => "normalize EOL to LF",
-                "crlf" => "normalize EOL to CRLF",
-                "cr" => "normalize EOL to CR",
-                _ => "normalize EOL",
-            });
-        }
-        if wp.collapse_blanks == Some(true) {
-            parts.push("collapse blank lines");
-        }
-        if wp.respect_editorconfig == Some(true) {
-            parts.push("respect editorconfig");
-        }
-        if !parts.is_empty() {
-            println!("\nWrite policy: {}", parts.join(", "));
-        }
-    }
-
-    if let Some(ref steps) = plan.format {
-        for step in steps {
-            println!("Format: {}{}", step.cmd, format_timeout(step.timeout));
-        }
-    }
-
-    if let Some(ref steps) = plan.validate {
-        for step in steps {
-            let req = if step.required == Some(true) {
-                "required"
-            } else {
-                "advisory"
-            };
-            println!(
-                "Validate: {} ({req}){}",
-                step.cmd,
-                format_timeout(step.timeout)
-            );
-        }
-    }
-
-    if let Some(ref checks) = plan.verify {
-        for check in checks {
-            match check {
-                crate::plan::VerifyCheck::SymbolCount { kind, attr } => {
-                    if let Some(a) = attr {
-                        println!("Verify: count {kind} symbols with attr={a}");
-                    } else {
-                        println!("Verify: count {kind} symbols");
-                    }
-                }
-                crate::plan::VerifyCheck::Named { check } => {
-                    println!("Verify: {check}");
-                }
-            }
-        }
+/// Serde `op` tag for a plan operation (e.g. `"doc.set"`).
+pub(super) fn operation_op_name(op: &Operation) -> String {
+    // Serialize to JSON and read the discriminator — single source with serde renames.
+    match serde_json::to_value(op) {
+        Ok(serde_json::Value::Object(map)) => map
+            .get("op")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        _ => "unknown".to_string(),
     }
 }
 
-fn format_timeout(timeout: Option<u64>) -> String {
-    match timeout {
-        Some(t) => format!(" (timeout: {t}s)"),
-        None => String::new(),
-    }
-}
-
-fn describe_operation(op: &Operation) -> String {
+pub(super) fn describe_operation(op: &Operation) -> String {
+    // Rich field-level text; catalog blurb is on JSON via build_json_summary (`catalog`).
+    let _ = schema::operation_description(&operation_op_name(op));
     match op {
         Operation::Replace {
             path,
@@ -500,34 +374,11 @@ fn describe_operation(op: &Operation) -> String {
     }
 }
 
-fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
-    let ops: Vec<serde_json::Value> = plan
-        .operations
-        .iter()
-        .enumerate()
-        .map(|(i, op)| {
-            serde_json::json!({
-                "index": i + 1,
-                "description": describe_operation(op),
-            })
-        })
-        .collect();
-
-    serde_json::json!({
-        "ok": true,
-        "operation_count": plan.operations.len(),
-        "strict": strict,
-        "operations": ops,
-        "has_write_policy": plan.write_policy.is_some(),
-        "format_steps": plan.format.as_ref().map(|f| f.len()).unwrap_or(0),
-        "validate_steps": plan.validate.as_ref().map(|v| v.len()).unwrap_or(0),
-        "verify_checks": plan.verify.as_ref().map(|v| v.len()).unwrap_or(0),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::explain::{build_json_summary, print_human_summary};
+    use crate::plan::Plan;
     use crate::plan::{FormatStep, ValidationStep};
 
     #[test]
@@ -1111,5 +962,17 @@ mod tests {
         };
         let json = build_json_summary(&plan, false);
         assert_eq!(json["verify_checks"], 1);
+    }
+
+    #[test]
+    fn operation_op_name_matches_registry_for_common_ops() {
+        let op = Operation::DocSet {
+            path: "a.json".into(),
+            selector: "x".into(),
+            value: serde_json::json!(1),
+        };
+        assert_eq!(operation_op_name(&op), "doc.set");
+        assert!(schema::operation_description("doc.set").is_some());
+        assert!(describe_operation(&op).contains("a.json"));
     }
 }

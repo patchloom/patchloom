@@ -261,6 +261,17 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
+    // MCP-friendly alias of tidy.fix with agent-oriented defaults (trim + final
+    // newline on when omitted). Defaults applied in handle_simple_op.
+    McpToolMeta {
+        tool_name: "fix_whitespace",
+        op_name: "tidy.fix",
+        extra: Some(
+            "Defaults: trim trailing whitespace and ensure final newline when those fields are omitted.",
+        ),
+        has_strict: false,
+        validations: &[FieldValidation::Path("path")],
+    },
 ];
 
 /// Inject a `strict` boolean property (default true) into a JSON Schema object.
@@ -355,8 +366,24 @@ pub(super) fn handle_simple_op(
         );
     }
 
-    let op: Operation = serde_json::from_value(args)
+    let mut op: Operation = serde_json::from_value(args)
         .map_err(|e| McpError::invalid_params(format!("invalid parameters: {e}"), None))?;
+
+    // Agent-oriented defaults for the fix_whitespace alias of tidy.fix.
+    if meta.tool_name == "fix_whitespace"
+        && let Operation::TidyFix {
+            ensure_final_newline,
+            trim_trailing_whitespace,
+            ..
+        } = &mut op
+    {
+        if ensure_final_newline.is_none() {
+            *ensure_final_newline = Some(true);
+        }
+        if trim_trailing_whitespace.is_none() {
+            *trim_trailing_whitespace = Some(true);
+        }
+    }
 
     service.run_one_op(op, strict)
 }

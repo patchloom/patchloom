@@ -1,457 +1,18 @@
-// size-waiver: domain bulk, see #1376. Commit/rollback/plan-prepare lifecycle co-located for atomicity reviewability.
-use super::execute::execute_and_collect;
-use super::output::{
-    TxOutput, build_error_output, build_full_tx_output, describe_exit_status,
-    describe_lifecycle_cwd,
+//! Plan validation/preparation and direct in-process plan execution.
+
+use super::commit::commit_changes;
+use super::steps::{
+    resolve_plan_cwd, restore_collateral_files, rollback_strict, run_lifecycle,
+    snapshot_non_tx_files,
 };
-use super::validate::validate_plan_operations;
 use crate::cli::global::GlobalFlags;
-use crate::exec;
 use crate::plan::{self, Plan};
-use crate::write::{WritePolicy, atomic_create_new, atomic_write};
-use anyhow::Context;
-#[cfg(any(feature = "cli", feature = "files"))]
-use ignore::WalkBuilder;
+use crate::tx::execute::execute_and_collect;
+use crate::tx::output::{TxOutput, build_error_output, build_full_tx_output};
+use crate::tx::validate::validate_plan_operations;
+use crate::tx::verify;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-
-const DEFAULT_LIFECYCLE_TIMEOUT_SECS: u64 = 60;
-
-// ---------------------------------------------------------------------------
-// Lifecycle helpers (extracted from run() for testability)
-// ---------------------------------------------------------------------------
-
-pub(crate) struct LifecycleError {
-    pub(crate) message: String,
-    pub(crate) kind: &'static str,
-}
-
-/// Format a lifecycle step failure message, appending stderr output if available.
-fn lifecycle_failure_msg(header: &str, stderr: &str) -> String {
-    let trimmed = stderr.trim();
-    if trimmed.is_empty() {
-        header.to_string()
-    } else {
-        format!("{header}: {trimmed}")
-    }
-}
-
-/// Shared runner for format and validation lifecycle steps.
-///
-/// `label` is used in error messages (e.g. "format step" or "required validation").
-/// `error_label` is the shorter variant for the error branch (e.g. "format step" or "validation").
-/// `kind` is the `LifecycleError::kind` string.
-/// `fail_on_error` controls whether non-required failures are fatal.
-fn run_lifecycle_steps(
-    steps: impl Iterator<Item = (String, Option<u64>, bool)>,
-    base_cwd: &Path,
-    cwd: &Path,
-    label: &str,
-    error_label: &str,
-    kind: &'static str,
-) -> Result<(), LifecycleError> {
-    let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
-    for (index, (cmd, timeout, required)) in steps.enumerate() {
-        crate::verbose!(
-            "tx: running {} step {}: {:?} (timeout={}s, required={})",
-            label,
-            index + 1,
-            cmd,
-            timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS),
-            required
-        );
-        let timeout_secs = timeout.unwrap_or(DEFAULT_LIFECYCLE_TIMEOUT_SECS);
-        let result = exec::run_with_timeout(&cmd, timeout_secs, cwd);
-        match result {
-            Ok(exec::ShellResult {
-                status,
-                stderr_head,
-            }) if !status.success() => {
-                let step_label = if required { label } else { error_label };
-                let header = format!(
-                    "{step_label} failed (step {}, {}, cwd: {})",
-                    index + 1,
-                    describe_exit_status(status),
-                    lifecycle_cwd
-                );
-                let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
-                if required {
-                    return Err(LifecycleError { message: msg, kind });
-                }
-            }
-            Err(e) => {
-                let msg = format!(
-                    "{error_label} error (step {}, cwd: {}): {e}",
-                    index + 1,
-                    lifecycle_cwd
-                );
-                eprintln!("tx: {msg}");
-                if required {
-                    return Err(LifecycleError { message: msg, kind });
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn run_format_steps(
-    steps: &[plan::FormatStep],
-    base_cwd: &Path,
-    cwd: &Path,
-) -> Result<(), LifecycleError> {
-    run_lifecycle_steps(
-        steps.iter().map(|s| (s.cmd.clone(), s.timeout, true)),
-        base_cwd,
-        cwd,
-        "format step",
-        "format step",
-        "format_failed",
-    )
-}
-
-pub(crate) fn run_validate_steps(
-    steps: &[plan::ValidationStep],
-    base_cwd: &Path,
-    cwd: &Path,
-) -> Result<(), LifecycleError> {
-    run_lifecycle_steps(
-        steps
-            .iter()
-            .map(|s| (s.cmd.clone(), s.timeout, s.required.unwrap_or(false))),
-        base_cwd,
-        cwd,
-        "required validation",
-        "validation",
-        "validation_failed",
-    )
-}
-
-/// Maximum file size (in bytes) to include in the collateral snapshot.
-/// Files above this threshold are extremely unlikely to be reformatted by
-/// standard formatters and snapshotting them wastes memory.
-const COLLATERAL_SNAPSHOT_MAX_SIZE: u64 = 1_048_576; // 1 MiB
-
-/// Snapshot the content of non-binary text files under `cwd` that are NOT
-/// already tracked by the transaction. This captures the pre-format state of
-/// files that a format step (e.g. `cargo fmt`) might modify as a side effect.
-///
-/// Only called when `strict` mode is active and the plan has format or
-/// validate steps, so the cost is opt-in.
-#[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn snapshot_non_tx_files(
-    cwd: &Path,
-    tx_paths: &HashSet<PathBuf>,
-) -> HashMap<PathBuf, String> {
-    let mut snapshot = HashMap::new();
-    crate::verbose!(
-        "tx: collateral snapshot: walking {} (tx_paths: {})",
-        cwd.display(),
-        tx_paths.len()
-    );
-    let walker = WalkBuilder::new(cwd).hidden(false).build();
-    for entry in walker.flatten() {
-        let path = entry.path().to_path_buf();
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        if tx_paths.contains(&path) {
-            crate::verbose!(
-                "tx: collateral snapshot: skipping tx file {}",
-                path.display()
-            );
-            continue;
-        }
-        // Skip files above the size threshold.
-        if let Ok(meta) = std::fs::metadata(&path)
-            && meta.len() > COLLATERAL_SNAPSHOT_MAX_SIZE
-        {
-            crate::verbose!(
-                "tx: collateral snapshot: skipping large file {} ({} bytes)",
-                path.display(),
-                meta.len()
-            );
-            continue;
-        }
-        // Read bytes and skip binary files.
-        let bytes = match std::fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        if crate::files::is_binary(&bytes) {
-            continue;
-        }
-        if let Ok(content) = String::from_utf8(bytes) {
-            crate::verbose!(
-                "tx: collateral snapshot: captured {} ({} bytes)",
-                path.display(),
-                content.len()
-            );
-            snapshot.insert(path, content);
-        }
-    }
-    crate::verbose!("tx: collateral snapshot: {} files captured", snapshot.len());
-    snapshot
-}
-
-/// Restore any files that were modified by format/validate steps but were
-/// not part of the transaction. Compares current content against the
-/// snapshot and writes back the original content for any files that changed.
-#[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
-    let noop_policy = WritePolicy::default();
-    let mut restored = 0usize;
-    for (path, original) in snapshot {
-        let current = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        if current != *original {
-            crate::verbose!(
-                "tx: collateral restore: reverting {} (changed by formatter)",
-                path.display()
-            );
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
-                eprintln!(
-                    "tx: rollback: failed to restore collateral file {}: {e}",
-                    path.display()
-                );
-            } else {
-                restored += 1;
-            }
-        }
-    }
-    if restored > 0 {
-        crate::verbose!("tx: collateral restore: reverted {} file(s)", restored);
-    }
-}
-
-pub(crate) fn rollback_strict(
-    changes: &[(PathBuf, String, String)],
-    pending: &HashMap<PathBuf, (String, String)>,
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
-) {
-    let noop_policy = WritePolicy::default();
-    for (path, original, _) in changes {
-        if !existed_before.contains(path) {
-            // File was created during this tx. Whether it was also deleted
-            // does not matter: it should not exist after rollback.
-            if let Err(e) = std::fs::remove_file(path) {
-                eprintln!(
-                    "tx: rollback: failed to remove created file {}: {e}",
-                    path.display()
-                );
-            }
-        } else if !deletions.contains(path) {
-            // File existed before and was modified (not deleted): restore.
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
-                eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
-            }
-        }
-        // If existed_before AND in deletions: handled by the deletions loop below.
-    }
-    for path in deletions {
-        if let Some((orig, _)) = pending.get(path)
-            && existed_before.contains(path)
-        {
-            // Ensure parent directory exists before restoring; the directory
-            // may have been removed if the deletion was the last file in it.
-            if let Some(parent) = path.parent()
-                && !parent.as_os_str().is_empty()
-                && !parent.exists()
-                && let Err(e) = std::fs::create_dir_all(parent)
-            {
-                eprintln!(
-                    "tx: rollback: failed to create dir {}: {e}",
-                    parent.display()
-                );
-                continue;
-            }
-            if let Err(e) = atomic_write(path, orig, &noop_policy) {
-                eprintln!(
-                    "tx: rollback: failed to restore deleted {}: {e}",
-                    path.display()
-                );
-            }
-        }
-    }
-}
-
-/// Run format and validation lifecycle steps. Returns `None` on success.
-pub(crate) fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
-    plan.format
-        .as_deref()
-        .map(|steps| run_format_steps(steps, base_cwd, cwd))
-        .unwrap_or(Ok(()))
-        .err()
-        .or_else(|| {
-            plan.validate
-                .as_deref()
-                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd).err())
-        })
-}
-
-pub(crate) fn resolve_plan_cwd(base_cwd: &Path, plan_cwd: Option<&str>) -> PathBuf {
-    match plan_cwd {
-        Some(plan_cwd) => {
-            let path = Path::new(plan_cwd);
-            if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                base_cwd.join(path)
-            }
-        }
-        None => base_cwd.to_path_buf(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Direct execution (MCP / in-process callers)
-// ---------------------------------------------------------------------------
-
-/// Failure while committing staged changes to disk.
-#[derive(Debug)]
-pub struct CommitError {
-    pub message: String,
-    pub rollback_ok: bool,
-    pub backup_session: Option<String>,
-}
-
-impl std::fmt::Display for CommitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CommitError {}
-
-fn commit_error(message: impl Into<String>) -> CommitError {
-    CommitError {
-        message: message.into(),
-        rollback_ok: true,
-        backup_session: None,
-    }
-}
-
-thread_local! {
-    /// Per-thread test hook; never set in production.
-    static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
-        const { std::sync::atomic::AtomicBool::new(false) };
-}
-
-/// RAII guard that forces restore failure on the current thread only.
-#[doc(hidden)]
-pub struct RestoreFailGuard;
-
-impl RestoreFailGuard {
-    pub fn engage() -> Self {
-        FORCE_RESTORE_FAIL.with(|flag| flag.store(true, std::sync::atomic::Ordering::SeqCst));
-        Self
-    }
-}
-
-impl Drop for RestoreFailGuard {
-    fn drop(&mut self) {
-        FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
-    }
-}
-
-/// Restore files from a backup session after a failed commit. Returns `true`
-/// when restore completed successfully.
-pub(crate) fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
-    if FORCE_RESTORE_FAIL.with(|flag| flag.load(std::sync::atomic::Ordering::SeqCst)) {
-        return false;
-    }
-    crate::backup::restore_session(cwd, timestamp).is_ok()
-}
-
-/// Apply pending changes to disk: backup originals, write modified files,
-/// delete removed files, finalize backup session.
-///
-/// If any write fails, restores all already-written files from the backup
-/// session before returning [`CommitError`].
-pub(crate) fn commit_changes(
-    changes: &[(PathBuf, String, String)],
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
-    cwd: &Path,
-) -> Result<(), CommitError> {
-    let mut backup = crate::backup::BackupSession::new(cwd)
-        .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
-    for (path, _, _) in changes {
-        if deletions.contains(path) {
-            backup
-                .save_before_delete(path)
-                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-        } else {
-            backup
-                .save_before_write(path)
-                .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-        }
-    }
-    for path in deletions {
-        // Skip files already backed up in the changes loop above (#1111).
-        if changes.iter().any(|(p, _, _)| p == path) {
-            continue;
-        }
-        backup
-            .save_before_delete(path)
-            .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
-    }
-
-    // Finalize before writes so undo can recover from a mid-commit failure.
-    let backup_session = backup
-        .finalize()
-        .map_err(|e| commit_error(format!("finalizing backup session: {e}")))?;
-
-    let noop_policy = WritePolicy::default();
-    let write_result = (|| -> anyhow::Result<()> {
-        for (path, _, new_content) in changes {
-            if deletions.contains(path) {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("deleting {}", path.display()))?;
-            } else {
-                if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty()
-                    && !parent.exists()
-                {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("creating directory {}", parent.display()))?;
-                }
-                if !existed_before.contains(path) {
-                    atomic_create_new(path, new_content, &noop_policy)?;
-                } else {
-                    atomic_write(path, new_content, &noop_policy)?;
-                }
-            }
-        }
-        for path in deletions {
-            if path.exists() {
-                std::fs::remove_file(path)
-                    .with_context(|| format!("deleting {}", path.display()))?;
-            }
-        }
-        Ok(())
-    })();
-
-    if let Err(e) = write_result {
-        let rollback_ok = if let Some(ref ts) = backup_session {
-            restore_after_failed_commit(cwd, ts)
-        } else {
-            true
-        };
-        return Err(CommitError {
-            message: e.to_string(),
-            rollback_ok,
-            backup_session,
-        });
-    }
-
-    Ok(())
-}
 
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
     crate::config::find_and_load(cwd)
@@ -551,11 +112,11 @@ pub fn execute_plan_direct(
     #[cfg(feature = "ast")]
     let verify_before = if let Some(ref checks) = plan.verify {
         if !checks.is_empty() {
-            let affected = super::verify::affected_file_paths(&plan, &effective_cwd);
+            let affected = verify::affected_file_paths(&plan, &effective_cwd);
             checks
                 .iter()
                 .map(|check| {
-                    let snap = super::verify::snapshot_symbols(&affected, check);
+                    let snap = verify::snapshot_symbols(&affected, check);
                     (check.clone(), snap)
                 })
                 .collect::<Vec<_>>()
@@ -592,14 +153,13 @@ pub fn execute_plan_direct(
     // Post-execution verification against pending content.
     #[cfg(feature = "ast")]
     if !verify_before.is_empty() {
-        let affected = super::verify::affected_file_paths(&plan, &effective_cwd);
+        let affected = verify::affected_file_paths(&plan, &effective_cwd);
         let mut messages = Vec::new();
         let mut any_failed = false;
         for (check, before_snap) in &verify_before {
             let after_snap =
-                super::verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
-            let vr =
-                super::verify::compare_snapshots(before_snap, &after_snap, check, &effective_cwd);
+                verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
+            let vr = verify::compare_snapshots(before_snap, &after_snap, check, &effective_cwd);
             messages.push(vr.message.clone());
             if !vr.passed {
                 any_failed = true;
@@ -661,6 +221,13 @@ pub fn execute_plan_direct(
 
 #[cfg(test)]
 mod tests {
+    use super::super::commit::{
+        CommitError, FORCE_RESTORE_FAIL, RestoreFailGuard, commit_changes, commit_error,
+    };
+    use super::super::steps::{
+        COLLATERAL_SNAPSHOT_MAX_SIZE, LifecycleError, lifecycle_failure_msg, resolve_plan_cwd,
+        restore_collateral_files, rollback_strict, run_lifecycle, snapshot_non_tx_files,
+    };
     use super::*;
 
     // ---- lifecycle_failure_msg ----

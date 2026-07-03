@@ -98,25 +98,6 @@ pub(crate) struct MdMoveSectionParams {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct TidyParams {
-    /// File path to normalize (relative to working directory).
-    pub path: String,
-    /// Dedent: remove leading whitespace. Values: "auto", "tab", or a number (e.g. "4").
-    #[serde(default)]
-    pub dedent: Option<String>,
-    /// Indent: add leading whitespace. Values: "tab" or a number (e.g. "4").
-    #[serde(default)]
-    pub indent: Option<String>,
-    /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50" or "10-50").
-    #[serde(default)]
-    pub lines: Option<String>,
-    /// Collapse consecutive blank lines into a single blank line.
-    #[serde(default)]
-    pub collapse_blanks: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct PatchParams {
     pub diff: String,
     #[serde(default)]
