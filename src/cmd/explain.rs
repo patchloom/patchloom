@@ -513,6 +513,7 @@ fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
         .collect();
 
     serde_json::json!({
+        "ok": true,
         "operation_count": plan.operations.len(),
         "strict": strict,
         "operations": ops,
