@@ -2123,5 +2123,97 @@ fn test_doc_delete_default_mode_exits_2() {
 }
 
 // ---------------------------------------------------------------------------
+// doc keys/len type-error JSON envelope tests (#1354 coverage)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_keys_not_an_object_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name": "hello"}"#).unwrap();
+
+    // Text mode: exit 1
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("name")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "should be FAILURE");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not an object"),
+        "text-mode stderr should say 'not an object', got: {stderr}"
+    );
+
+    // JSON mode: exit 1 with JSON envelope
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .arg("name")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "JSON mode should be FAILURE");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(r#""ok": false"#),
+        "JSON output should contain ok:false, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("not an object"),
+        "JSON output should contain error, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_doc_len_not_array_or_object_returns_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"count": 42}"#).unwrap();
+
+    // Text mode: exit 1
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .arg("count")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "should be FAILURE");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not an array or object"),
+        "text-mode stderr should say 'not an array or object', got: {stderr}"
+    );
+
+    // JSON mode: exit 1 with JSON envelope
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .arg("count")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "JSON mode should be FAILURE");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(r#""ok": false"#),
+        "JSON output should contain ok:false, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("not an array or object"),
+        "JSON output should contain error, got: {stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Symlink integration tests (#231 coverage)
 // ---------------------------------------------------------------------------
