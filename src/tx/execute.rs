@@ -271,6 +271,11 @@ pub(crate) struct TxState<'a> {
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
     pub(crate) structured: bool,
+    /// Optional PathGuard for defense-in-depth containment checks on
+    /// dynamically-expanded paths (e.g. glob-matched files in replace). The
+    /// upfront declared_paths check covers static paths; this catches paths
+    /// discovered at runtime (#1361).
+    pub(crate) guard: Option<&'a crate::containment::PathGuard>,
 }
 
 /// Test fixture that owns all the storage behind a `TxState`, avoiding
@@ -316,6 +321,7 @@ impl TxStateFixture {
             cwd,
             quiet: true,
             structured: false,
+            guard: None,
         }
     }
 }
@@ -1406,6 +1412,7 @@ pub(crate) fn execute_and_collect(
     global: &GlobalFlags,
     quiet: bool,
     structured: bool,
+    guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<TxExecResult> {
     let mut pending: HashMap<PathBuf, (String, String)> = HashMap::new();
     let mut deletions: HashSet<PathBuf> = HashSet::new();
@@ -1456,6 +1463,7 @@ pub(crate) fn execute_and_collect(
             cwd,
             quiet,
             structured,
+            guard,
         };
         match execute_operation(op, &mut tx) {
             Ok(count) => {
@@ -1922,7 +1930,7 @@ mod tests {
             ensure_final_newline: true,
             ..GlobalFlags::default()
         };
-        let result = execute_and_collect(&plan, dir.path(), &global, true, false).unwrap();
+        let result = execute_and_collect(&plan, dir.path(), &global, true, false, None).unwrap();
 
         // The file should NOT appear in changes since it was only read.
         assert!(

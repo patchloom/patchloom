@@ -70,9 +70,11 @@ fn validate_operation_paths(
     for op in operations {
         for path in op.declared_paths() {
             guard
-                .check_path(path)
+                .check_path(&path)
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         }
+        // Note: PatchApply paths are now covered by declared_paths() which
+        // parses the diff. The block below is retained as defense-in-depth.
         if let Operation::PatchApply { diff, .. } = op {
             let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
                 McpError::invalid_params(
@@ -255,7 +257,7 @@ impl PatchloomService {
     /// Validate paths for a single operation (including embedded paths for PatchApply).
     fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
         for declared in op.declared_paths() {
-            self.check_path(declared)?;
+            self.check_path(&declared)?;
         }
         if let Operation::PatchApply { diff, .. } = op {
             let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {

@@ -209,7 +209,7 @@ fn execute_plan_inner(
     if let Some(g) = options.guard {
         for op in &operations {
             for p in op.declared_paths() {
-                g.check_path(p)
+                g.check_path(&p)
                     .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
             }
         }
@@ -228,7 +228,8 @@ fn execute_plan_inner(
     };
 
     let cwd = options.cwd.to_path_buf();
-    let result = super::execute_and_collect(&plan, &cwd, options.global, true, true)?;
+    let result =
+        super::execute_and_collect(&plan, &cwd, options.global, true, true, options.guard)?;
 
     let has_changes = !result.no_effective_changes;
 

@@ -70,7 +70,7 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
     let mut paths = HashSet::new();
     for op in &plan.operations {
         for p in op.declared_paths() {
-            let full = cwd.join(p);
+            let full = cwd.join(&p);
             if full.is_file() {
                 paths.insert(full);
             } else if full.is_dir() {
@@ -84,11 +84,11 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
                         paths.insert(f);
                     }
                 }
-            } else if is_glob_pattern(p) {
+            } else if is_glob_pattern(&p) {
                 // Expand glob patterns against cwd so verification
                 // covers files targeted by glob-based operations.
                 #[cfg(feature = "files")]
-                if let Ok(glob) = globset::Glob::new(p) {
+                if let Ok(glob) = globset::Glob::new(&p) {
                     let matcher = glob.compile_matcher();
                     walk_and_match(cwd, cwd, &matcher, &mut paths);
                 }
