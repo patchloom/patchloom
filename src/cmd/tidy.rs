@@ -1,6 +1,6 @@
 // size-waiver: domain bulk, see #1376. Tidy check+fix CLI surface with multi-file engine handoff.
 use crate::cli::global::GlobalFlags;
-use crate::diff::{render_diffs_colored, render_diffs_plain};
+use crate::diff::render_diffs_colored;
 use crate::exit;
 use crate::plan::Operation;
 use crate::tx::engine::{ExecutionResult, WriteSource};
@@ -383,66 +383,53 @@ fn eol_mode_to_str(mode: crate::cli::global::EolMode) -> &'static str {
 
 /// Handle output rendering and commit/check/preview for tidy fix via the engine.
 ///
-/// Exit codes are owned by [`crate::cmd::write_mode::write_exit_code`].
+/// Mode/exit owned by [`crate::cmd::write_mode::finalize_report`].
 fn tidy_fix_output(
     global: &GlobalFlags,
     result: ExecutionResult,
     dirty_rel_paths: &[String],
     cwd: &Path,
 ) -> anyhow::Result<u8> {
-    use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
+    use crate::cmd::write_mode::finalize_report;
 
     let fix_files: Vec<TidyFixFileResult> = dirty_rel_paths
         .iter()
         .map(|p| TidyFixFileResult { path: p.clone() })
         .collect();
-    // Fix path only stages when dirty files exist.
-    let has_changes = result.has_changes;
+    let n_files = dirty_rel_paths.len();
 
-    match classify_write_mode(global) {
-        WriteMode::Check => {
-            emit_tidy_fix_output(global, &fix_files, None)?;
-            if !global.quiet && !global.json && !global.jsonl {
+    finalize_report(
+        global,
+        cwd,
+        result,
+        true,
+        |g, _has, _diffs| {
+            emit_tidy_fix_output(g, &fix_files, None)?;
+            if !g.quiet && !g.json && !g.jsonl {
                 for p in dirty_rel_paths {
                     println!("{p}");
                 }
             }
-            Ok(write_exit_code(has_changes, false))
-        }
-        WriteMode::Apply => {
-            let diffs = result.build_diffs();
-            result.commit()?;
-            crate::write::run_format_command(global, cwd)?;
-            let diff_text = if global.diff {
-                Some(render_diffs_plain(&diffs))
-            } else {
-                None
-            };
-            emit_tidy_fix_output(global, &fix_files, diff_text)?;
-            Ok(write_exit_code(has_changes, true))
-        }
-        WriteMode::ConfirmJson | WriteMode::Preview => {
-            let diffs = result.build_diffs();
-            let diff_text = if !diffs.is_empty() {
-                Some(render_diffs_plain(&diffs))
-            } else {
-                None
-            };
-            emit_tidy_fix_output(global, &fix_files, diff_text)?;
-            if !global.json && !global.jsonl && !global.quiet && !diffs.is_empty() {
-                print!("{}", render_diffs_colored(&diffs, global.should_color()));
+            Ok(())
+        },
+        |g, _has, _diffs, diff_text| {
+            emit_tidy_fix_output(g, &fix_files, diff_text)?;
+            Ok(())
+        },
+        |g, _has, diffs, diff_text| {
+            emit_tidy_fix_output(g, &fix_files, diff_text)?;
+            if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
+                print!("{}", render_diffs_colored(diffs, g.should_color()));
             }
-            if global.show_status() {
-                eprintln!("{} file(s) changed", dirty_rel_paths.len());
+            Ok(())
+        },
+        |g| {
+            if g.show_status() {
+                eprintln!("{n_files} file(s) changed");
             }
-            let applied = global.should_apply();
-            if applied {
-                result.commit()?;
-                crate::write::run_format_command(global, cwd)?;
-            }
-            Ok(write_exit_code(has_changes, applied))
-        }
-    }
+        },
+        |_| {},
+    )
 }
 
 /// Emit structured JSON/JSONL output for tidy fix.

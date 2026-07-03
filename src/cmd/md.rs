@@ -284,41 +284,35 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
 
-            // Side-channel headings already emitted; do not emit a second JSON
-            // body via finalize_execution_result. Stage + mode/exit only.
+            // Side-channel headings already emitted; no second JSON schema body.
             let op = Operation::MdDedupeHeadings { path: file.clone() };
             let (cwd, result) = crate::cmd::output::stage_for_write(
                 crate::tx::engine::WriteSource::Operations(vec![op]),
                 global,
             )?;
-            use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
-            let has_changes = result.has_changes;
-            match classify_write_mode(global) {
-                WriteMode::Check => Ok(write_exit_code(has_changes, false)),
-                WriteMode::Apply => {
-                    result.commit()?;
-                    crate::write::run_format_command(global, &cwd)?;
-                    Ok(write_exit_code(has_changes, true))
-                }
-                WriteMode::ConfirmJson | WriteMode::Preview => {
-                    let diffs = result.build_diffs();
-                    if !diffs.is_empty() && !global.json && !global.jsonl {
+            use crate::cmd::write_mode::finalize_report;
+            finalize_report(
+                global,
+                &cwd,
+                result,
+                true,
+                |_g, _has, _diffs| Ok(()),
+                |_g, _has, _diffs, _plain| Ok(()),
+                |g, _has, diffs, _plain| {
+                    if !diffs.is_empty() && !g.json && !g.jsonl {
                         let dr = crate::diff::DiffResult {
-                            diffs: diffs.clone(),
+                            diffs: diffs.to_vec(),
                         };
                         print!(
                             "{}",
-                            crate::diff::format_diff_result_colored(&dr, global.should_color())
+                            crate::diff::format_diff_result_colored(&dr, g.should_color())
                         );
                     }
-                    let applied = global.should_apply();
-                    if applied {
-                        result.commit()?;
-                        crate::write::run_format_command(global, &cwd)?;
-                    }
-                    Ok(write_exit_code(has_changes, applied))
-                }
-            }
+                    Ok(())
+                },
+                |_| {},
+                |_| {},
+            )
         }
 
         MdAction::LintAgents { file } => {

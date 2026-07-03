@@ -29,9 +29,12 @@ CLI / API boundary
   → WriteSource::{Operations(Vec<Operation>), Precomputed(Vec<…>)}
   → stage(WriteRequest { source, options: ExecuteOptions { context, guard } })
   → WriteReport (ExecutionResult)
-  → finalize_execution_result(...)   // or custom renderer using write_exit_code
-  → optional commit inside finalize when apply/confirm accepts
+  → finalize_execution_result(...)   // standard phase JSON schema
+    OR finalize_report(hooks...)     // custom emit only; no mode match in commands
+  → commit/format inside finalize when apply/confirm accepts
 ```
+
+**Rule:** `match classify_write_mode` must only appear in `src/cmd/write_mode.rs`.
 
 ### CLI helpers (`src/cmd/output.rs`)
 
@@ -61,11 +64,10 @@ Binary / case-only renames cannot use the UTF-8 tx engine. They use
 |---------|---------|----------|
 | create, append, prepend, delete, doc writes, md most, ast replace | `run_write_op` / via engine alias | `finalize_execution_result` |
 | ast rename | `stage_for_write(Operations)` | `finalize_execution_result` |
-| replace (scan) | `stage_for_write(Precomputed)` | custom `replace_output` + `write_exit_code` |
-| replace (context) | `stage_for_write(Operations)` | same `replace_output` |
-| tidy fix | `stage_for_write(Operations)` | custom `tidy_fix_output` + `write_exit_code` |
-| patch apply | `stage_for_write(Operations)` | custom patch mode branch + `write_exit_code` |
-| md dedupe-headings | `stage_for_write` | `finalize_execution_result` (side-channel headings first) |
+| replace (scan + context) | `stage_for_write` | `finalize_report` via `replace_output` hooks |
+| tidy fix | `stage_for_write(Operations)` | `finalize_report` via `tidy_fix_output` hooks |
+| patch apply | `stage_for_write(Operations)` | `finalize_report` hooks |
+| md dedupe-headings | `stage_for_write` | `finalize_report` (side-channel headings first; no 2nd JSON body) |
 | rename binary/case-only | n/a | `execute_write` / `finalize_callback_write` |
 
 ## Adding a write command

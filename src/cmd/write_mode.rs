@@ -1,13 +1,16 @@
 //! Single owner of write **mode classification** and **exit codes**.
 //!
 //! Every CLI write path (engine-backed and binary/case-only callbacks) must use
-//! [`classify_write_mode`] and [`write_exit_code`] so preview/check/apply/confirm
-//! cannot diverge by path (see #1345–#1348 and #1373).
+//! the finalize helpers so preview/check/apply/confirm cannot diverge by path
+//! (see #1345–#1348 and #1373).
 //!
-//! Engine-backed commands: stage with [`crate::tx::engine::stage`] (or CLI
-//! [`crate::cmd::output::run_write`] / [`crate::cmd::output::stage_for_write`]),
-//! then finalize here. Callback-based paths (binary rename) use
-//! [`finalize_callback_write`].
+//! **Commands must not `match classify_write_mode` themselves.**
+//!
+//! - Standard phase JSON → [`finalize_execution_result`]
+//! - Custom JSON/text (replace, tidy, patch, md) → [`finalize_report`]
+//! - Binary/case-only rename → [`finalize_callback_write`]
+//!
+//! Stage with [`crate::tx::engine::stage`] or CLI `run_write` / `stage_for_write`.
 
 use crate::cli::global::GlobalFlags;
 use crate::diff::{FileDiff, render_diffs_colored, render_diffs_plain};
@@ -47,6 +50,8 @@ pub enum WriteMode {
 /// Classify write mode from global flags.
 ///
 /// Priority: check > apply > confirm+json > preview.
+///
+/// Do not match on this in command modules; use a finalize helper instead.
 #[must_use]
 pub fn classify_write_mode(global: &GlobalFlags) -> WriteMode {
     if global.check {
@@ -104,12 +109,68 @@ impl Default for RenderPolicy {
     }
 }
 
-/// Finalize a staged [`ExecutionResult`] under global write flags.
+/// Canonical mode → commit → format → exit for custom-rendered staged writes.
 ///
-/// This is the **canonical** mode → commit → exit owner for engine-backed
-/// single and multi-op writes (`execute_via_engine`, and callers that stage
-/// via `execute_single` / `execute_operations` / `execute_precomputed` and
-/// then hand off here).
+/// Callers only supply **emit** behavior. Order for preview/confirm-json:
+/// `on_preview` → optional status → `should_apply` → optional commit → optional
+/// post-apply status. That matches replace/tidy/patch/md custom output.
+///
+/// `on_check` receives built diffs (for commands that list changed files in
+/// check mode). Prefer [`finalize_execution_result`] for standard
+/// `make_output(WritePhase, diff)` schemas (ConfirmJson emits *after* apply).
+#[allow(clippy::too_many_arguments)]
+pub fn finalize_report(
+    global: &GlobalFlags,
+    cwd: &Path,
+    result: ExecutionResult,
+    preview_diffs: bool,
+    mut on_check: impl FnMut(&GlobalFlags, bool, &[FileDiff]) -> anyhow::Result<()>,
+    mut on_apply: impl FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
+    mut on_preview: impl FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
+    mut after_preview_emit: impl FnMut(&GlobalFlags),
+    mut after_preview_apply: impl FnMut(&GlobalFlags),
+) -> anyhow::Result<u8> {
+    let has_changes = result.has_changes;
+    match classify_write_mode(global) {
+        WriteMode::Check => {
+            let diffs = result.build_diffs();
+            on_check(global, has_changes, &diffs)?;
+            Ok(write_exit_code(has_changes, false))
+        }
+        WriteMode::Apply => {
+            let diffs = result.build_diffs();
+            result.commit()?;
+            crate::write::run_format_command(global, cwd)?;
+            let diff_text = if global.diff {
+                Some(render_diffs_plain(&diffs))
+            } else {
+                None
+            };
+            on_apply(global, has_changes, &diffs, diff_text)?;
+            Ok(write_exit_code(has_changes, true))
+        }
+        WriteMode::ConfirmJson | WriteMode::Preview => {
+            let diffs = if preview_diffs {
+                result.build_diffs()
+            } else {
+                Vec::new()
+            };
+            let diff_text = plain_diff_opt(&diffs);
+            on_preview(global, has_changes, &diffs, diff_text)?;
+            after_preview_emit(global);
+            let applied = global.should_apply();
+            if applied {
+                result.commit()?;
+                crate::write::run_format_command(global, cwd)?;
+                after_preview_apply(global);
+            }
+            Ok(write_exit_code(has_changes, applied))
+        }
+    }
+}
+
+/// Finalize a staged [`ExecutionResult`] under global write flags with a
+/// standard phase-based JSON schema (`make_output(phase, diff)`).
 pub fn finalize_execution_result<T: Serialize>(
     global: &GlobalFlags,
     cwd: &Path,
@@ -316,5 +377,47 @@ mod tests {
         assert_eq!(write_exit_code(false, true), exit::SUCCESS);
         assert_eq!(write_exit_code(true, false), exit::CHANGES_DETECTED);
         assert_eq!(write_exit_code(false, false), exit::SUCCESS);
+    }
+
+    #[test]
+    fn finalize_report_check_does_not_commit() {
+        use crate::plan::Operation;
+        use crate::tx::engine::{ExecuteOptions, WriteRequest, WriteSource, stage};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.check = true;
+        let options = ExecuteOptions::from_global(dir.path(), &global, None);
+        let report = stage(WriteRequest {
+            source: WriteSource::Operations(vec![Operation::FileCreate {
+                path: "f.txt".to_string(),
+                content: "x\n".to_string(),
+                force: None,
+            }]),
+            options,
+        })
+        .unwrap();
+
+        let checks = AtomicUsize::new(0);
+        let code = finalize_report(
+            &global,
+            dir.path(),
+            report,
+            true,
+            |_g, has, _d| {
+                assert!(has);
+                checks.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+            |_g, _, _, _| panic!("apply must not run"),
+            |_g, _, _, _| panic!("preview must not run"),
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+        assert!(!dir.path().join("f.txt").exists());
     }
 }
