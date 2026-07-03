@@ -49,6 +49,7 @@ fn test_explain_json_output() {
     assert!(output.status.success());
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
     assert_eq!(json["operation_count"], 1);
     assert_eq!(json["strict"], true);
     assert!(json["has_write_policy"].is_boolean());
