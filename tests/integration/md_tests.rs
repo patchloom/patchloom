@@ -225,6 +225,26 @@ fn test_md_dedupe_headings_removes_duplicate() {
 }
 
 #[test]
+fn test_md_dedupe_headings_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg(&file)
+        .assert()
+        .code(2);
+
+    // File should not be modified in preview mode
+    let content = fs::read_to_string(&file).unwrap();
+    let count = content.matches("## Dup").count();
+    assert_eq!(count, 2, "preview mode should not modify file");
+}
+
+#[test]
 fn test_md_dedupe_headings_jsonl_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.md");

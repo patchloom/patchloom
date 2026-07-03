@@ -245,8 +245,14 @@ fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.symbol
     );
     let all_symbols = symbols::extract_symbols(&source, lang);
-    let sym = symbols::find_symbol(&all_symbols, &args.symbol)
-        .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in {}", args.symbol, args.path))?;
+    let sym = match symbols::find_symbol(&all_symbols, &args.symbol) {
+        Some(s) => s,
+        None => {
+            let msg = format!("symbol '{}' not found in {}", args.symbol, args.path);
+            global.emit_error_json(&msg)?;
+            return Ok(exit::NO_MATCHES);
+        }
+    };
 
     let lines: Vec<&str> = source.lines().collect();
     let start = sym
