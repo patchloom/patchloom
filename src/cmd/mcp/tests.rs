@@ -75,12 +75,16 @@ mod basic {
             names.contains(&"fix_whitespace"),
             "missing fix_whitespace tool"
         );
-        assert_eq!(
-            descriptions.get("fix_whitespace"),
+        let expected_fix_ws = crate::schema::mcp_tool_description(
+            "tidy.fix",
             Some(
-                &"Fix whitespace in a file: trims trailing spaces, ensures final newline. Optionally dedent (\"auto\", \"tab\", \"4\") or indent (\"tab\", \"4\") with optional line range. Example: {\"path\": \"dirty.txt\"} or {\"path\": \"src/main.rs\", \"dedent\": \"auto\", \"lines\": \"10:50\"}"
+                "Defaults: trim trailing whitespace and ensure final newline when those fields are omitted.",
             ),
-            "fix_whitespace description drifted"
+        );
+        assert_eq!(
+            descriptions.get("fix_whitespace").map(|s| s.to_string()),
+            Some(expected_fix_ws),
+            "fix_whitespace description drifted from schema registry"
         );
         assert!(names.contains(&"move_file"), "missing move_file tool");
         assert!(names.contains(&"create_file"), "missing create_file tool");
@@ -304,16 +308,7 @@ mod basic {
                 mcp_only_allowed: &["strict", "regex"],
                 op_only_allowed: &["glob", "mode"],
             },
-            Check {
-                op_name: "tidy.fix",
-                mcp_keys: schema_keys_for::<TidyParams>(),
-                mcp_only_allowed: &[],
-                op_only_allowed: &[
-                    "ensure_final_newline",
-                    "trim_trailing_whitespace",
-                    "normalize_eol",
-                ],
-            },
+            // tidy.fix / fix_whitespace is registry-generated (no hand-written params).
             Check {
                 op_name: "patch.apply",
                 mcp_keys: schema_keys_for::<PatchParams>(),

@@ -575,39 +575,8 @@ impl PatchloomService {
         .await
     }
 
-    // doc_set, doc_delete, doc_merge, doc_append, doc_prepend, doc_ensure,
-    // doc_delete_where, doc_update, doc_move, and read_file are auto-generated
-    // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
-
-    #[tool(
-        description = "Fix whitespace in a file: trims trailing spaces, ensures final newline. Optionally dedent (\"auto\", \"tab\", \"4\") or indent (\"tab\", \"4\") with optional line range. Example: {\"path\": \"dirty.txt\"} or {\"path\": \"src/main.rs\", \"dedent\": \"auto\", \"lines\": \"10:50\"}"
-    )]
-    async fn fix_whitespace(
-        &self,
-        Parameters(p): Parameters<TidyParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| {
-            svc.check_path(&p.path)?;
-            svc.run_ops(
-                vec![Operation::TidyFix {
-                    path: p.path,
-                    ensure_final_newline: Some(true),
-                    trim_trailing_whitespace: Some(true),
-                    normalize_eol: None,
-                    collapse_blanks: p.collapse_blanks,
-                    dedent: p.dedent,
-                    indent: p.indent,
-                    lines: p.lines,
-                }],
-                None,
-            )
-        })
-        .await
-    }
-
-    // md_upsert_bullet, md_table_append, md_replace_section,
-    // md_insert_after_heading, and md_insert_before_heading are auto-generated
-    // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
+    // doc_*, read_file, md section mutators, file_* mutators, and fix_whitespace
+    // are auto-generated from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     // -----------------------------------------------------------------
     // AST tools (feature-gated)

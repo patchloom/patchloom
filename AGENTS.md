@@ -104,7 +104,8 @@ src/
   cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
   cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
-  cmd/explain.rs       Parse a tx plan and print a human-readable summary
+  cmd/explain/         Parse a tx plan and print a human-readable summary
+                         (mod + describe; JSON includes schema catalog blurb per op)
   cmd/undo.rs          Restore files from backup sessions created by --apply
   cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
   config.rs            Project config file (.patchloom.toml) loading and merging
