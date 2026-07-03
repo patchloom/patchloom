@@ -684,7 +684,7 @@ impl Operation {
 
     /// Returns the file paths declared by this operation for containment
     /// validation. See [`declared_paths`] for details.
-    pub fn declared_paths(&self) -> Vec<&str> {
+    pub fn declared_paths(&self) -> Vec<String> {
         declared_paths(self)
     }
 }
@@ -796,31 +796,40 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
 /// - `Replace`: includes `path` (if present) and `glob` pattern (if present).
 /// - Cross-file ops (`FileRename`, `MdMoveSection`): includes both source
 ///   and destination file paths.
-/// - `PatchApply`: returns empty; embedded paths are validated by the
-///   caller (MCP always parses the diff and checks before execute).
+/// - `PatchApply`: parses the embedded diff via `parse_patch()` and returns
+///   the file paths from `---`/`+++` headers. This ensures the upfront
+///   PathGuard check in `execute_plan` catches out-of-boundary patches
+///   (#1363). Returns empty on parse failure (error deferred to apply time).
 /// - All other ops: their primary `path` (or equivalent).
 /// - AST variants are included only when the `ast` feature is enabled.
-pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
+pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
     match op {
         Operation::Replace { path, glob, .. } => {
             let mut p = Vec::new();
             if let Some(s) = path {
-                p.push(s.as_str());
+                p.push(s.clone());
             }
             if let Some(s) = glob {
-                p.push(s.as_str());
+                p.push(s.clone());
             }
             p
         }
-        Operation::FileRename { from, to, .. } => vec![from.as_str(), to.as_str()],
+        Operation::FileRename { from, to, .. } => vec![from.clone(), to.clone()],
         Operation::MdMoveSection { path, to, .. } => {
-            let mut p = vec![path.as_str()];
+            let mut p = vec![path.clone()];
             if let Some(t) = to {
-                p.push(t.as_str());
+                p.push(t.clone());
             }
             p
         }
-        Operation::PatchApply { .. } => vec![],
+        Operation::PatchApply { diff, .. } => {
+            // Parse the diff to extract file paths from ---/+++ headers.
+            // If parsing fails, return empty (the error will surface at apply time).
+            match crate::ops::patch::parse_patch(diff) {
+                Ok(files) => files.into_iter().map(|pf| pf.path).collect(),
+                Err(_) => vec![],
+            }
+        }
         // Single-path operations (file, doc, md, read, search, tidy, lint, etc.)
         Operation::DocSet { path, .. }
         | Operation::DocDelete { path, .. }
@@ -844,7 +853,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
         | Operation::FileDelete { path, .. }
         | Operation::Read { path, .. }
         | Operation::Search { path, .. }
-        | Operation::MdLintAgents { path, .. } => vec![path.as_str()],
+        | Operation::MdLintAgents { path, .. } => vec![path.clone()],
         #[cfg(feature = "ast")]
         Operation::AstRename { path, .. }
         | Operation::AstReplace { path, .. }
@@ -853,21 +862,21 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<&str> {
         | Operation::AstImports { path, .. }
         | Operation::AstReorder { path, .. }
         | Operation::AstGroup { path, .. } => {
-            vec![path.as_str()]
+            vec![path.clone()]
         }
         #[cfg(feature = "ast")]
-        Operation::AstMove { path, target, .. } => vec![path.as_str(), target.as_str()],
+        Operation::AstMove { path, target, .. } => vec![path.clone(), target.clone()],
         #[cfg(feature = "ast")]
         Operation::AstExtractToFile { source, target, .. } => {
-            vec![source.as_str(), target.as_str()]
+            vec![source.clone(), target.clone()]
         }
         #[cfg(feature = "ast")]
         Operation::AstSplit {
             source, targets, ..
         } => {
-            let mut p = vec![source.as_str()];
+            let mut p = vec![source.clone()];
             for t in targets {
-                p.push(t.path.as_str());
+                p.push(t.path.clone());
             }
             p
         }
@@ -1613,7 +1622,7 @@ mod tests {
         let json = r#"{"version": 1,"operations":[{"op":"replace","path":"src/main.rs","glob":"**/*.rs","old":"old","new":"new"}]}"#;
         let plan = parse_plan(json).unwrap();
         let ps = declared_paths(&plan.operations[0]);
-        assert!(ps.contains(&"src/main.rs") && ps.contains(&"**/*.rs"));
+        assert!(ps.contains(&"src/main.rs".to_string()) && ps.contains(&"**/*.rs".to_string()));
 
         // FileRename (cross-file paths)
         let json = r#"{"version": 1,"operations":[{"op":"file.rename","from":"old.txt","to":"new.txt","force":false}]}"#;
@@ -1632,10 +1641,16 @@ mod tests {
         let json = r#"{"version": 1,"operations":[{"op":"md.move_section","path":"src.md","heading":"H","to":"dst.md"}]}"#;
         let plan = parse_plan(json).unwrap();
         let ps = declared_paths(&plan.operations[0]);
-        assert!(ps.contains(&"src.md") && ps.contains(&"dst.md"));
+        assert!(ps.contains(&"src.md".to_string()) && ps.contains(&"dst.md".to_string()));
 
-        // PatchApply: declared empty (diff paths handled by caller in MCP)
+        // PatchApply: now parses diff and returns file paths
         let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"--- a/x\n+++ b/x\n@@ -1 +1 @@\n- old\n+ new\n"}]}"#;
+        let plan = parse_plan(json).unwrap();
+        assert_eq!(declared_paths(&plan.operations[0]), vec!["x"]);
+
+        // PatchApply with invalid diff: returns empty (error deferred to apply time)
+        let json =
+            r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"not a valid diff"}]}"#;
         let plan = parse_plan(json).unwrap();
         assert!(declared_paths(&plan.operations[0]).is_empty());
 

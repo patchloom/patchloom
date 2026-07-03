@@ -540,7 +540,7 @@ pub fn execute_plan_direct(
         // patterns, patch embedded paths) are best-effort or handled by loaders.
         for op in &plan.operations {
             for p in op.declared_paths() {
-                g.check_path(p)
+                g.check_path(&p)
                     .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
             }
         }
@@ -566,7 +566,7 @@ pub fn execute_plan_direct(
     };
 
     // Execute operations and collect changes in memory.
-    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true) {
+    let mut result = match execute_and_collect(&plan, &effective_cwd, &global, true, true, guard) {
         Ok(r) => r,
         Err(e) => {
             return Ok(build_error_output("operation_failed", &e.to_string(), None));

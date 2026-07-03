@@ -13,7 +13,10 @@ use std::path::Path;
 pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
     crate::verbose!(
         "replace_op: target={}, old_len={}, regex={}",
-        op.declared_paths().first().unwrap_or(&"<glob>"),
+        op.declared_paths()
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("<glob>"),
         if let Operation::Replace { old, .. } = op {
             old.len()
         } else {
@@ -237,6 +240,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             }
             if seen_paths.insert(pending_path.clone()) {
                 candidate_paths.push(pending_path.clone());
+            }
+        }
+
+        // Defense-in-depth: validate glob-expanded paths against PathGuard.
+        // WalkBuilder doesn't follow symlinks by default, but this catches edge
+        // cases where a path might escape the containment boundary (#1361).
+        if let Some(guard) = tx.guard {
+            for path in &candidate_paths {
+                let rel = path.strip_prefix(tx.cwd).unwrap_or(path).to_string_lossy();
+                guard.check_path(&rel)?;
             }
         }
 

@@ -420,6 +420,103 @@ fn test_tx_guard_rejects_escaping_declared_path() {
     );
 }
 
+/// PatchApply declared_paths now parses the embedded diff and returns file
+/// paths, so the upfront PathGuard check catches out-of-boundary patches (#1363).
+#[test]
+fn test_tx_guard_rejects_patch_apply_escaping_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "hello\n").unwrap();
+    let guard = patchloom::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        patchloom::containment::AbsolutePathPolicy::Reject,
+    )
+    .unwrap();
+
+    // Diff targeting a path that escapes the workspace via ../
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "patch.apply",
+                "diff": "--- a/../escape.txt\n+++ b/../escape.txt\n@@ -1 +1 @@\n-old\n+new\n"
+            }
+        ]
+    }))
+    .unwrap();
+
+    let res = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), Some(&guard));
+    let msg = res
+        .expect_err("guard should reject patch targeting escaped path")
+        .to_string();
+    assert!(
+        msg.contains("path rejected by workspace guard") || msg.contains("Escaped"),
+        "unexpected error: {msg}"
+    );
+}
+
+/// PatchApply with paths inside the workspace should work normally with a guard.
+#[test]
+fn test_tx_guard_allows_patch_apply_within_boundary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("file.txt"), "old\n").unwrap();
+    let guard = patchloom::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        patchloom::containment::AbsolutePathPolicy::Reject,
+    )
+    .unwrap();
+
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "patch.apply",
+                "diff": "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n"
+            }
+        ]
+    }))
+    .unwrap();
+
+    let result = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), Some(&guard));
+    assert!(
+        result.is_ok(),
+        "patch within boundary should succeed: {result:?}"
+    );
+}
+
+/// Glob-replace with a PathGuard validates expanded paths at runtime (#1361).
+/// Verifies the guard is correctly threaded through execute_and_collect → TxState
+/// and that glob-expanded files inside the boundary are processed normally.
+#[test]
+fn test_tx_guard_allows_glob_replace_within_boundary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old_value\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "old_value\n").unwrap();
+    let guard = patchloom::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        patchloom::containment::AbsolutePathPolicy::Reject,
+    )
+    .unwrap();
+
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "replace",
+                "glob": "*.txt",
+                "old": "old_value",
+                "new": "new_value"
+            }
+        ]
+    }))
+    .unwrap();
+
+    let result = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), Some(&guard));
+    assert!(
+        result.is_ok(),
+        "glob replace within boundary should succeed: {result:?}"
+    );
+}
+
 #[test]
 fn test_tx_success_applies_all() {
     let dir = TempDir::new().unwrap();

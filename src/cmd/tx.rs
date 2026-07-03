@@ -353,7 +353,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let mut result =
-        match crate::tx::execute_and_collect(&plan, &cwd, global, global.quiet, structured) {
+        match crate::tx::execute_and_collect(&plan, &cwd, global, global.quiet, structured, None) {
             Ok(r) => r,
             Err(e) => {
                 let msg = e.to_string();
