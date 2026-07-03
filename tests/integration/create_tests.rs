@@ -290,7 +290,11 @@ fn test_create_json_confirm_output_reports_applied_false_on_tty_eof() {
         "\u{4}",
     );
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2), // CHANGES_DETECTED
+        "declining --confirm --json should return CHANGES_DETECTED (exit 2)"
+    );
     assert!(
         !file.exists(),
         "file should not be created when confirmation input ends at EOF"

@@ -135,7 +135,11 @@ fn execute_via_engine_inner<T: Serialize>(
         }
         let output = make_output(WritePhase::Confirmed(applied), diff_text);
         global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
+        return if applied {
+            Ok(exit::SUCCESS)
+        } else {
+            Ok(exit::CHANGES_DETECTED)
+        };
     }
 
     // Show preview output.
@@ -332,6 +336,40 @@ mod tests {
 
         assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(!dir.path().join("preview.txt").exists());
+    }
+
+    #[test]
+    fn execute_via_engine_confirm_json_decline_returns_changes_detected() {
+        let dir = TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.confirm = true;
+        global.json = true;
+        // confirm + json in non-TTY -> should_apply() returns false
+
+        let op = Operation::FileCreate {
+            path: "new.txt".to_string(),
+            content: "hello\n".to_string(),
+            force: None,
+        };
+
+        let code = execute_via_engine(
+            op,
+            &global,
+            |phase, _diff| TestOutput {
+                ok: true,
+                path: "new.txt".to_string(),
+                applied: match phase {
+                    WritePhase::Confirmed(a) => Some(a),
+                    _ => None,
+                },
+            },
+            "would create new.txt",
+            "created new.txt",
+        )
+        .unwrap();
+
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert!(!dir.path().join("new.txt").exists());
     }
 
     #[test]

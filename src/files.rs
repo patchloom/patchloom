@@ -143,9 +143,14 @@ pub(crate) fn collect_file_paths_opts(
             target: &collected,
         };
         Box::new(move |result| {
-            if let Ok(entry) = result
-                && entry.file_type().is_some_and(|ft| ft.is_file())
-            {
+            let Ok(entry) = result else {
+                return WalkState::Continue;
+            };
+            // Skip .patchloom directory (internal backup storage, #1349).
+            if entry.file_name() == ".patchloom" {
+                return WalkState::Skip;
+            }
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 state.batch.push(entry.into_path());
                 if state.batch.len() >= 256 {
                     state
@@ -460,12 +465,16 @@ pub fn collect_file_paths_with_ignores(
     for name in custom_ignore_filenames {
         builder.add_custom_ignore_filename(name);
     }
-    let mut paths: Vec<PathBuf> = builder
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
-        .map(|e| e.into_path())
-        .collect();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in builder.build().filter_map(Result::ok) {
+        // Skip .patchloom directory (internal backup storage, #1349).
+        if entry.file_name() == ".patchloom" {
+            continue;
+        }
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            paths.push(entry.into_path());
+        }
+    }
 
     apply_exclude_globs(&mut paths, exclude_patterns, Some(root))?;
     Ok(paths)
@@ -880,6 +889,57 @@ mod tests {
                 .any(|r| r.starts_with("target") || r.ends_with(".md") || r.ends_with(".rs")),
             "advanced ignores not applied: {:?}",
             rels
+        );
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn collect_file_paths_skips_patchloom_directory() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("real.txt"), "hello\n").unwrap();
+        fs::create_dir_all(root.join(".patchloom/backups/12345")).unwrap();
+        fs::write(root.join(".patchloom/backups/12345/manifest.json"), "{}\n").unwrap();
+
+        let paths = collect_file_paths(root, false).unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.contains(&"real.txt".to_string()),
+            "real.txt should be collected: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains(".patchloom")),
+            ".patchloom files should be excluded: {rels:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_skips_patchloom_directory() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("real.txt"), "hello\n").unwrap();
+        fs::create_dir_all(root.join(".patchloom/backups/12345")).unwrap();
+        fs::write(root.join(".patchloom/backups/12345/manifest.json"), "{}\n").unwrap();
+
+        let global = GlobalFlags::test_with_cwd(root);
+        let paths = collect_file_paths_opts(&[".".to_string()], &global, true, Some(root)).unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.contains(&"real.txt".to_string()),
+            "real.txt should be collected: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains(".patchloom")),
+            ".patchloom files should be excluded even with include_hidden=true: {rels:?}"
         );
     }
 
