@@ -459,7 +459,7 @@ fn expected_reference_markers() -> Vec<String> {
     let root = repo_root();
     let cmd_dir = root.join("src").join("cmd");
     let global_path = root.join("src").join("cli").join("global.rs");
-    let plan_path = root.join("src").join("plan.rs");
+    let plan_path = root.join("src").join("plan").join("mod.rs");
 
     let mut markers = std::collections::BTreeSet::new();
 
