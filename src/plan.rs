@@ -970,7 +970,10 @@ fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
             // Advance by one full UTF-8 character, not one byte.
             // `bytes[i] as char` would interpret each byte of a multi-byte
             // sequence as a Latin-1 code point, corrupting non-ASCII text.
-            let ch = template[i..].chars().next().unwrap();
+            let ch = template[i..]
+                .chars()
+                .next()
+                .expect("i < len guarantees non-empty slice");
             result.push(ch);
             i += ch.len_utf8();
         }

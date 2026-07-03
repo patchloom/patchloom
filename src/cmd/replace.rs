@@ -290,14 +290,14 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::SUCCESS);
         }
         let output = ReplaceOutput {
-            ok: true,
+            ok: false,
             match_count: 0,
             file_count: 0,
             files: vec![],
             diff: None,
         };
         global.emit_json(&output)?;
-        if !global.quiet {
+        if !global.quiet && !global.json && !global.jsonl {
             let path_desc = if args.paths.is_empty() {
                 ".".to_string()
             } else {
@@ -479,7 +479,7 @@ fn run_context_replace(
 
     if !result.has_changes {
         let empty = ReplaceOutput {
-            ok: true,
+            ok: args.if_exists,
             match_count: 0,
             file_count: 0,
             files: vec![],
@@ -489,7 +489,7 @@ fn run_context_replace(
         if args.if_exists {
             return Ok(exit::SUCCESS);
         }
-        if !global.quiet {
+        if !global.quiet && !global.json && !global.jsonl {
             eprintln!("no matches for '{}' in context-based replace", args.old);
         }
         return Ok(exit::NO_MATCHES);

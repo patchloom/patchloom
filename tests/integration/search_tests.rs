@@ -184,7 +184,7 @@ fn test_search_json_no_match_emits_valid_json() {
     assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["match_count"], 0);
     assert_eq!(parsed["file_count"], 0);
     assert!(parsed["matches"].as_array().unwrap().is_empty());
@@ -971,7 +971,7 @@ fn test_search_jsonl_no_match_emits_valid_jsonl() {
         "--jsonl no-match should emit a JSON line, got empty stdout"
     );
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
-    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["match_count"], 0);
     assert_eq!(parsed["file_count"], 0);
     assert!(parsed["matches"].as_array().unwrap().is_empty());

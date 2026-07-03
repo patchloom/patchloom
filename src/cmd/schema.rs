@@ -71,6 +71,7 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     .collect::<serde_json::Result<Vec<_>>>()?
             };
             let envelope = serde_json::json!({
+                "ok": true,
                 "version": schema::INTENT_FORMAT_VERSION,
                 "operations": ops_json,
                 "plan_envelope": {

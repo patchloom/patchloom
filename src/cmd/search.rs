@@ -358,7 +358,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     if !has_matches {
         let payload = SearchOutput {
-            ok: true,
+            ok: false,
             match_count: 0,
             file_count: 0,
             matches: vec![],
