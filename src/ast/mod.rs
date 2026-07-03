@@ -17,8 +17,11 @@ pub mod refs;
 pub mod rename;
 pub mod reorder;
 pub mod replace;
+pub mod rewrite;
+
 pub mod search;
 pub mod split;
+pub mod symbol_extract;
 pub mod symbols;
 pub mod validate;
 pub mod wrap;
