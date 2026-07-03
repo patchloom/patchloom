@@ -273,11 +273,11 @@ Command::<Name>(args) => {
 | Pattern | When to use | Example commands |
 |---------|-------------|------------------|
 | `run_write` / `run_write_op` | Standard single-op + standard JSON schema | doc, create, delete, append, ast replace |
-| `stage_for_write` + `finalize_execution_result` | Multi-op or custom messages, standard finalize | ast rename, md dedupe-headings |
-| `stage_for_write` + custom renderer | Custom JSON; still use `classify_write_mode` / `write_exit_code` | replace, tidy fix, patch |
+| `stage_for_write` + `finalize_execution_result` | Multi-op / standard phase schema | ast rename |
+| `stage_for_write` + `finalize_report` | Custom JSON/text **hooks only** (never re-match modes) | replace, tidy fix, patch, md dedupe |
 | `execute_write` (`write_dispatch`) | Binary/case-only only (`finalize_callback_write`) | rename (binary / case-only) |
 
-Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Precomputed`). Prefer `cmd::output` helpers at the CLI boundary. Do not use `atomic_write()` directly in command implementations.
+Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Precomputed`). Prefer `cmd::output` helpers at the CLI boundary. **`match classify_write_mode` is only allowed in `write_mode.rs`.** Do not use `atomic_write()` directly in command implementations.
 
 6. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
 

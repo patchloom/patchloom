@@ -405,53 +405,49 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         };
 
-    // Mode → exit ownership: write_mode (see #1373).
-    use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
+    use crate::cmd::write_mode::finalize_report;
 
-    let has_changes = result.has_changes;
-    match classify_write_mode(global) {
-        WriteMode::Check => {
-            let diffs = result.build_diffs();
-            let files = build_file_results(&diffs, "changed");
+    finalize_report(
+        global,
+        &cwd,
+        result,
+        true,
+        |g, _has, diffs| {
+            let files = build_file_results(diffs, "changed");
             let changed = files.len();
             if changed > 0 {
-                emit_patch_files_output(global, true, &files)?;
-                if !(global.json || global.jsonl || global.quiet) {
+                emit_patch_files_output(g, true, &files)?;
+                if !(g.json || g.jsonl || g.quiet) {
                     println!("{changed} file(s) would change");
                 }
             }
-            Ok(write_exit_code(has_changes, false))
-        }
-        WriteMode::Apply => {
-            let diffs = result.build_diffs();
-            let files = build_file_results(&diffs, "applied");
-            result.commit()?;
-            crate::write::run_format_command(global, &cwd)?;
-            emit_patch_files_output(global, true, &files)?;
-            Ok(write_exit_code(has_changes, true))
-        }
-        WriteMode::ConfirmJson | WriteMode::Preview => {
-            let diffs = result.build_diffs();
-            if global.json || global.jsonl {
-                let files = build_file_results(&diffs, "changed");
-                emit_patch_files_output(global, true, &files)?;
+            Ok(())
+        },
+        |g, _has, diffs, _plain| {
+            let files = build_file_results(diffs, "applied");
+            emit_patch_files_output(g, true, &files)?;
+            Ok(())
+        },
+        |g, _has, diffs, _plain| {
+            if g.json || g.jsonl {
+                let files = build_file_results(diffs, "changed");
+                emit_patch_files_output(g, true, &files)?;
             } else {
                 print!(
                     "{}",
-                    format_diff_result_colored(&DiffResult { diffs }, global.should_color())
+                    format_diff_result_colored(
+                        &DiffResult {
+                            diffs: diffs.to_vec()
+                        },
+                        g.should_color()
+                    )
                 );
             }
-            // Interactive confirm (and confirm+json via should_apply on non-TTY).
-            let applied = global.should_apply();
-            if applied {
-                // Rebuild diffs already consumed above only for commit path:
-                // commit does not need the FileDiff list.
-                result.commit()?;
-                crate::write::run_format_command(global, &cwd)?;
-            }
-            Ok(write_exit_code(has_changes, applied))
-        }
-    }
+            Ok(())
+        },
+        |_| {},
+        |_| {},
+    )
 }
 
 #[cfg(test)]
