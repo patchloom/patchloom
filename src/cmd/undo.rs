@@ -152,7 +152,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         "status": "restored",
         "session": timestamp,
         "file_count": restored,
-    }))? && global.show_status()
+    }))? && !global.quiet
     {
         eprintln!("restored {restored} file(s) from session {timestamp}");
     }
