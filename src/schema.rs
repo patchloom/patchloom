@@ -657,12 +657,16 @@ mod tests;
 
 /// All registered plan operation names (non-AST + AST when the `ast` feature is on).
 pub fn registered_operation_names() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = OPERATION_REGISTRY.iter().map(|o| o.name).collect();
     #[cfg(feature = "ast")]
     {
+        let mut names: Vec<&'static str> = OPERATION_REGISTRY.iter().map(|o| o.name).collect();
         names.extend(AST_OPERATION_REGISTRY.iter().map(|o| o.name));
+        names
     }
-    names
+    #[cfg(not(feature = "ast"))]
+    {
+        OPERATION_REGISTRY.iter().map(|o| o.name).collect()
+    }
 }
 
 /// Look up the human description for a plan `op` name (e.g. `"doc.set"`).

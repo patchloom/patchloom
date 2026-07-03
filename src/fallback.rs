@@ -56,6 +56,8 @@
 //! let result = validate_edit_nth(json, "val", "new", Some("data.json"), Some(1));
 //! assert!(result.valid);
 //! ```
+//!
+//! size-waiver: domain bulk, see #1376. Multi-strategy edit recovery chain is one conceptual unit.
 
 use serde::{Deserialize, Serialize};
 

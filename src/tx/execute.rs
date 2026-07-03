@@ -1,3 +1,4 @@
+// size-waiver: domain bulk, see #1376. Operation dispatcher; handlers already in *_op modules.
 use super::output::{TxExecResult, TxLintResult, TxReadResult, TxSearchResult};
 use super::validate::op_label;
 use crate::cli::global::GlobalFlags;

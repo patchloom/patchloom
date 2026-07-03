@@ -1,3 +1,4 @@
+// size-waiver: domain bulk, see #1376. Humanization of every Operation variant; shrinks only with more schema-driven templates.
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};

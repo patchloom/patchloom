@@ -459,7 +459,8 @@ fn expected_reference_markers() -> Vec<String> {
     let root = repo_root();
     let cmd_dir = root.join("src").join("cmd");
     let global_path = root.join("src").join("cli").join("global.rs");
-    let plan_path = root.join("src").join("plan").join("mod.rs");
+    let plan_mod_path = root.join("src").join("plan").join("mod.rs");
+    let plan_op_path = root.join("src").join("plan").join("operation.rs");
 
     let mut markers = std::collections::BTreeSet::new();
 
@@ -478,10 +479,10 @@ fn expected_reference_markers() -> Vec<String> {
     for name in collect_enum_variant_cli_names(&cmd_dir.join("tidy.rs"), "pub enum TidyAction") {
         markers.insert(format!("tidy-action:{name}"));
     }
-    for name in collect_struct_field_names(&plan_path, "pub struct Plan") {
+    for name in collect_struct_field_names(&plan_mod_path, "pub struct Plan") {
         markers.insert(format!("tx-field:{name}"));
     }
-    for name in collect_serde_rename_values(&plan_path, "pub enum Operation") {
+    for name in collect_serde_rename_values(&plan_op_path, "pub enum Operation") {
         markers.insert(format!("tx-op:{name}"));
     }
 
@@ -692,6 +693,7 @@ mod mcp_tests;
 mod mcp_tool_tests;
 mod md_tests;
 mod misc_tests;
+mod module_hygiene_tests;
 mod parse_tests;
 mod patch_tests;
 mod read_tests;

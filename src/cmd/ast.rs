@@ -1,4 +1,6 @@
 //! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
+//!
+//! size-waiver: domain bulk, see #1376. AST CLI subcommands share clap wiring; further split deferred after API stability.
 
 use crate::ast::Language;
 use crate::ast::symbols::{self, SymbolDef};

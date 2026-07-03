@@ -1,3 +1,4 @@
+// size-waiver: domain bulk, see #1376. Tidy check+fix CLI surface with multi-file engine handoff.
 use crate::cli::global::GlobalFlags;
 use crate::diff::{render_diffs_colored, render_diffs_plain};
 use crate::exit;

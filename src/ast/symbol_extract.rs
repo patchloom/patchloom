@@ -1,4 +1,6 @@
-//! Per-language symbol extractors for tree-sitter AST nodes.
+//! Per-language **tree-sitter visitors** that map AST nodes to [`SymbolDef`]s.
+//!
+//! This is *not* "extract a symbol to another file" (see [`crate::ast::extract_to_file`]).
 //!
 //! Each function maps language-specific tree-sitter node kinds to
 //! [`SymbolKind`] + name pairs. The top-level [`visit_node`] walks the
