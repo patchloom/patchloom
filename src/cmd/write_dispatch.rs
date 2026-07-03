@@ -81,7 +81,11 @@ pub fn execute_write<T: Serialize>(
         }
         let output = make_output(WritePhase::Confirmed(applied), diff_text);
         global.emit_json(&output)?;
-        return Ok(exit::SUCCESS);
+        return if applied {
+            Ok(exit::SUCCESS)
+        } else {
+            Ok(exit::CHANGES_DETECTED)
+        };
     }
 
     // Show preview output.
@@ -234,6 +238,32 @@ mod tests {
         .unwrap();
 
         assert_eq!(code, exit::CHANGES_DETECTED);
+    }
+
+    #[test]
+    fn confirm_json_decline_returns_changes_detected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.confirm = true;
+        global.json = true;
+        // confirm + json in non-TTY -> should_apply() returns false
+
+        let mut applied = false;
+        let code = execute_write(
+            &global,
+            dir.path(),
+            make_test_output,
+            Some(&|_color| "diff".to_string()),
+            || {
+                applied = true;
+                Ok(())
+            },
+            test_msgs(),
+        )
+        .unwrap();
+
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert!(!applied, "decline must not apply");
     }
 
     #[test]
