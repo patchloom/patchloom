@@ -705,3 +705,4 @@ mod status_tests;
 mod tidy_tests;
 mod tx_tests;
 mod undo_tests;
+mod write_path_contract_tests;
