@@ -127,7 +127,7 @@ src/
                        md (heading parse, section replace, bullet upsert, table append),
                        patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
-  plan.rs              Transaction plan format: Plan, Operation, FormatStep, ValidationStep, VerifyCheck;
+  plan/                Transaction plan format: Plan, Operation, FormatStep, ValidationStep, VerifyCheck;
                        25 operation types including all doc/md/replace/tidy/file/patch/read/search ops.
                        VerifyCheck defines pre/post symbol verification specs (must live here, not in
                        feature-gated modules, because Plan is always compiled)
@@ -294,9 +294,9 @@ Staging differs; **mode → exit is shared** (`src/cmd/write_mode.rs`). Do not u
 
 ## Adding a new Plan field
 
-When adding a field to the `Plan` struct in `src/plan.rs`:
+When adding a field to the `Plan` struct in `src/plan/mod.rs`:
 
-1. **Types must live in `plan.rs` (unconditional).** The `Plan` struct is always compiled (no feature gate). Any type referenced by a `Plan` field must also be unconditional. Do NOT define the type in a feature-gated module (e.g. `tx/verify.rs` behind `cli`/`files`) and import it into `plan.rs`. This breaks `--no-default-features`. Define the type in `plan.rs` and have the gated module import from `crate::plan` instead. This follows the existing pattern for `FormatStep`, `ValidationStep`, and `Operation`.
+1. **Types must live in `plan/` (unconditional).** The `Plan` struct is always compiled (no feature gate). Any type referenced by a `Plan` field must also be unconditional. Do NOT define the type in a feature-gated module (e.g. `tx/verify.rs` behind `cli`/`files`) and import it into `plan`. This breaks `--no-default-features`. Define the type in `plan/` and have the gated module import from `crate::plan` instead. This follows the existing pattern for `FormatStep`, `ValidationStep`, and `Operation`.
 
 2. **Add a reference doc marker.** The test `test_reference_doc_covers_meaningful_feature_inventory` collects all field names from `pub struct Plan` and requires a `<!-- ref:tx-field:fieldname -->` marker in `docs/reference/README.md`. Add a section with the marker, a `### \`fieldname\`` heading, and bullet points describing what it does, when to use it, and failure behavior.
 
