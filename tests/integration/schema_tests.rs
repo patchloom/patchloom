@@ -11,7 +11,8 @@ fn test_schema_json_output() {
     let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
-    // Envelope must contain version, operations, and plan_envelope.
+    // Envelope must contain ok, version, operations, and plan_envelope.
+    assert_eq!(parsed["ok"], true);
     let version = parsed
         .get("version")
         .and_then(|v| v.as_str())
