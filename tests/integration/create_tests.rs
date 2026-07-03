@@ -577,3 +577,25 @@ fn test_create_format_flag_runs_after_apply() {
         "--format command should have run after create --apply"
     );
 }
+
+// Regression: default (preview) mode must return exit code 2 (CHANGES_DETECTED)
+// when the operation would produce changes, not 0 (SUCCESS).
+#[test]
+fn test_create_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("create")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello")
+        .assert()
+        .code(2);
+
+    assert!(
+        !file.exists(),
+        "file should not be created in default (preview) mode"
+    );
+}

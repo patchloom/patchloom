@@ -139,11 +139,12 @@ fn execute_via_engine_inner<T: Serialize>(
     }
 
     // Show preview output.
+    let has_changes = result.has_changes;
     let output = make_output(WritePhase::Preview, diff_text);
     if !global.emit_json(&output)? {
         if !diffs.is_empty() {
             print!("{}", render_diffs_colored(&diffs, global.should_color()));
-        } else if result.has_changes && !global.quiet {
+        } else if has_changes && !global.quiet {
             println!("{check_msg}");
         }
     }
@@ -152,9 +153,14 @@ fn execute_via_engine_inner<T: Serialize>(
     if global.should_apply() {
         result.commit()?;
         crate::write::run_format_command(global, &cwd)?;
+        return Ok(exit::SUCCESS);
     }
 
-    Ok(exit::SUCCESS)
+    if has_changes {
+        Ok(exit::CHANGES_DETECTED)
+    } else {
+        Ok(exit::SUCCESS)
+    }
 }
 
 #[cfg(test)]
@@ -324,7 +330,38 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
         assert!(!dir.path().join("preview.txt").exists());
+    }
+
+    #[test]
+    fn execute_via_engine_preview_no_changes() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("existing.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let global = GlobalFlags::test_with_cwd(dir.path());
+
+        // FileCreate with same content + force should have no changes
+        // but that depends on engine internals; use Append with empty content
+        let op = Operation::FileAppend {
+            path: "existing.txt".to_string(),
+            content: String::new(),
+        };
+
+        let code = execute_via_engine(
+            op,
+            &global,
+            |_phase, _diff| TestOutput {
+                ok: true,
+                path: "existing.txt".to_string(),
+                applied: None,
+            },
+            "would change existing.txt",
+            "changed existing.txt",
+        )
+        .unwrap();
+
+        assert_eq!(code, exit::SUCCESS);
     }
 }

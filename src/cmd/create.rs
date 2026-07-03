@@ -220,7 +220,7 @@ mod tests {
         let global = GlobalFlags::test_default();
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(code, exit::CHANGES_DETECTED);
 
         // File should NOT be created in default diff-preview mode.
         assert!(!file.exists());

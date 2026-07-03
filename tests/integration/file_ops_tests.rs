@@ -122,7 +122,7 @@ fn test_append_cli_diff_shows_unified_diff() {
     patchloom_in(dir.path())
         .args(["append", "log.txt", "--content", "second\n"])
         .assert()
-        .success()
+        .code(2)
         .stdout(predicates::str::contains("+second"));
 }
 
@@ -206,6 +206,43 @@ fn test_prepend_cli_diff_shows_unified_diff() {
     patchloom_in(dir.path())
         .args(["prepend", "log.txt", "--content", "first\n"])
         .assert()
-        .success()
+        .code(2)
         .stdout(predicates::str::contains("+first"));
+}
+
+// Regression: default (preview) mode must return exit 2 (CHANGES_DETECTED), not 0.
+#[test]
+fn test_append_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "line1\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["append", "log.txt", "--content", "line2\n"])
+        .assert()
+        .code(2);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\n",
+        "file should not be modified in default mode"
+    );
+}
+
+#[test]
+fn test_prepend_default_mode_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("log.txt");
+    fs::write(&file, "line1\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "log.txt", "--content", "header\n"])
+        .assert()
+        .code(2);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\n",
+        "file should not be modified in default mode"
+    );
 }

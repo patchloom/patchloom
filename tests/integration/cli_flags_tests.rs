@@ -973,7 +973,7 @@ fn test_verbose_md_emits_trace() {
         .arg("--content")
         .arg("New body\n")
         .assert()
-        .success()
+        .code(2)
         .stderr(predicate::str::contains("[patchloom] md:"));
 }
 
@@ -1122,7 +1122,7 @@ fn test_verbose_doc_set_emits_trace() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success()
+        .code(2)
         .stderr(
             predicate::str::contains("[patchloom] doc:").and(predicate::str::contains("doc: set")),
         );
