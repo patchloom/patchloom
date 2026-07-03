@@ -126,6 +126,17 @@ mod basic {
     }
 
     #[test]
+    fn mcp_tool_description_includes_base_and_example() {
+        let desc = mcp_tool_description("doc.set", Some("EXTRA_FRAGMENT"));
+        let base = operation_description("doc.set").unwrap();
+        assert!(desc.contains(base));
+        assert!(desc.contains("EXTRA_FRAGMENT"));
+        if let Some(ex) = operation_example_json("doc.set") {
+            assert!(desc.contains(ex));
+        }
+    }
+
+    #[test]
     fn weak_tier_returns_subset() {
         let all = operation_schemas().unwrap();
         let weak = operations_for_tier(Tier::Weak).unwrap();

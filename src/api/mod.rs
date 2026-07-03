@@ -436,11 +436,7 @@ pub(crate) fn execute_as_edit_result(
     dest_path: Option<String>,
 ) -> anyhow::Result<EditResult> {
     let global = mode_to_global_flags(mode);
-    let options = crate::tx::engine::ExecuteOptions {
-        cwd,
-        global: &global,
-        guard,
-    };
+    let options = crate::tx::engine::ExecuteOptions::from_global(cwd, &global, guard);
     let result = crate::tx::engine::execute_single(op, options)?;
     execution_result_to_edit_result(result, mode, cwd, action, dest_path)
 }

@@ -998,7 +998,10 @@ mod deserialization_tests {
 #[cfg(test)]
 mod registry_schema_sync {
     use crate::cmd::mcp::registry::MCP_TOOL_REGISTRY;
-    use crate::schema::registered_operation_names;
+    use crate::schema::{
+        mcp_tool_description, operation_description, operation_example_json,
+        registered_operation_names,
+    };
 
     #[test]
     fn mcp_simple_tools_op_names_are_in_schema_registry() {
@@ -1010,6 +1013,42 @@ mod registry_schema_sync {
                 "MCP tool {} op_name {} missing from schema registry",
                 tool.tool_name,
                 tool.op_name,
+            );
+        }
+    }
+
+    /// #1383: simple-tool descriptions are generated from schema meta.
+    #[test]
+    fn mcp_simple_tool_descriptions_come_from_schema_meta() {
+        for tool in MCP_TOOL_REGISTRY {
+            let desc = tool.description();
+            let base = operation_description(tool.op_name)
+                .unwrap_or_else(|| panic!("{}: missing schema description", tool.op_name));
+            assert!(
+                desc.contains(base),
+                "{}: description must include schema base prose\nbase={base}\ndesc={desc}",
+                tool.tool_name
+            );
+            if let Some(example) = operation_example_json(tool.op_name) {
+                assert!(
+                    desc.contains(example),
+                    "{}: description must include schema example JSON",
+                    tool.tool_name
+                );
+            }
+            if let Some(extra) = tool.extra {
+                assert!(
+                    desc.contains(extra),
+                    "{}: description must include MCP extra fragment",
+                    tool.tool_name
+                );
+            }
+            // Resolved text must match the shared builder (single generation path).
+            assert_eq!(
+                desc,
+                mcp_tool_description(tool.op_name, tool.extra),
+                "{}: description() must equal mcp_tool_description()",
+                tool.tool_name
             );
         }
     }

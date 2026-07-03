@@ -363,11 +363,7 @@ pub fn run(args: TidyArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 })
                 .collect();
 
-            let options = ExecuteOptions {
-                cwd: &cwd,
-                global,
-                guard: None,
-            };
+            let options = ExecuteOptions::from_global(&cwd, global, None);
             let result = execute_operations(ops, options)?;
 
             tidy_fix_output(global, result, &dirty_rel_paths, &cwd)

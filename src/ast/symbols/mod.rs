@@ -6,18 +6,6 @@ use serde::Serialize;
 
 use super::{Language, parse_source};
 
-/// Re-export rewrite helpers at the historical `ast::symbols::*` path.
-///
-/// Prefer `ast::rewrite::*` for new code. These re-exports will be removed in a
-/// future major version (tracked under #1376).
-#[deprecated(
-    note = "use ast::rewrite::{FunctionSigEdit, FunctionSpan, find_function_span, replace_function_signature, rewrite_function_signature} instead; removal tracked in #1376"
-)]
-pub use crate::ast::rewrite::{
-    FunctionSigEdit, FunctionSpan, find_function_span, replace_function_signature,
-    rewrite_function_signature,
-};
-
 /// The kind of symbol extracted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]

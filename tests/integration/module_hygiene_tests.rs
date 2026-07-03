@@ -87,13 +87,10 @@ fn extract_to_file_and_symbol_extract_are_distinct_modules() {
         mod_rs.contains("pub mod extract_to_file"),
         "ast/mod.rs must declare extract_to_file"
     );
+    // #1386: deprecated shim removed (breaking / major).
     assert!(
-        mod_rs.contains("deprecated") && mod_rs.contains("pub mod extract"),
-        "ast/mod.rs must keep a deprecated extract shim for one major"
-    );
-    assert!(
-        mod_rs.contains("#1376"),
-        "deprecation note must reference #1376"
+        !mod_rs.contains("pub mod extract {"),
+        "ast::extract shim must be removed; use extract_to_file only"
     );
 
     let extract_docs = fs::read_to_string(root.join("extract_to_file.rs")).unwrap();
@@ -142,19 +139,20 @@ fn group_after_prefix_parsed_only_via_parse_group_position() {
 
 /// Historical rewrite re-exports must be marked deprecated with #1376.
 #[test]
-fn symbols_rewrite_reexports_are_deprecated_with_issue_link() {
+fn symbols_module_does_not_reexport_rewrite_helpers() {
     let symbols = fs::read_to_string(repo_root().join("src/ast/symbols/mod.rs")).unwrap();
     assert!(
-        symbols.contains("deprecated"),
-        "symbols rewrite re-exports must be #[deprecated]"
+        !symbols.contains("pub use crate::ast::rewrite::"),
+        "symbols must not re-export rewrite helpers; use ast::rewrite"
     );
     assert!(
-        symbols.contains("#1376"),
-        "deprecation must link #1376 for removal tracking"
+        !symbols.contains("FunctionSigEdit"),
+        "FunctionSigEdit must not appear in symbols module after #1386"
     );
+    let rewrite = fs::read_to_string(repo_root().join("src/ast/rewrite.rs")).unwrap();
     assert!(
-        !symbols.contains("for backward compatibility") || symbols.contains("#1376"),
-        "no permanent backward-compat re-export without issue tracking"
+        rewrite.contains("FunctionSigEdit"),
+        "rewrite module must own FunctionSigEdit"
     );
 }
 
