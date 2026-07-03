@@ -535,14 +535,15 @@ fn test_rename_binary_file_diff_mode() {
     let src = dir.path().join("binary.bin");
     fs::write(&src, b"\x00\x01\x02\xff").unwrap();
 
-    // Default mode (--diff) should not crash on binary files.
+    // Default mode (--diff) should not crash on binary files and should
+    // return exit 2 (CHANGES_DETECTED) since a rename would happen.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
         .arg(&src)
         .arg(dir.path().join("moved.bin"))
         .assert()
-        .code(0);
+        .code(2);
 
     // Source should still exist (no --apply).
     assert!(src.exists());
