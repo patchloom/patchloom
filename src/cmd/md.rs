@@ -284,14 +284,13 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
 
-            // Route the write through the engine. Use execute_single directly
-            // to avoid execute_via_engine's JSON emission (which would conflict
-            // with the removed-headings output already emitted above).
+            // Side-channel headings already emitted; do not emit a second JSON
+            // body via finalize_execution_result. Stage + mode/exit only.
             let op = Operation::MdDedupeHeadings { path: file.clone() };
-            let options = crate::tx::engine::ExecuteOptions::from_global(&cwd, global, None);
-            let result = crate::tx::engine::execute_single(op, options)?;
-
-            // Mode → exit ownership: write_mode (see #1373).
+            let (cwd, result) = crate::cmd::output::stage_for_write(
+                crate::tx::engine::WriteSource::Operations(vec![op]),
+                global,
+            )?;
             use crate::cmd::write_mode::{WriteMode, classify_write_mode, write_exit_code};
             let has_changes = result.has_changes;
             match classify_write_mode(global) {

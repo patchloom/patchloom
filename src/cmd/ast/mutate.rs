@@ -2,10 +2,11 @@
 
 use super::common::{resolve_lang, setup_multi_file};
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::{WritePhase, execute_via_engine};
+use crate::cmd::output::{WritePhase, run_write_op, stage_for_write};
+use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
 use crate::exit;
 use crate::plan::Operation;
-use crate::tx::engine::ExecuteOptions;
+use crate::tx::engine::WriteSource;
 use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
@@ -84,9 +85,8 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     }
 
     let files_changed = operations.len();
-    let options = ExecuteOptions::from_global(&cwd, global, None);
-    let result = match crate::tx::engine::execute_operations(operations, options) {
-        Ok(r) => r,
+    let (cwd, result) = match stage_for_write(WriteSource::Operations(operations), global) {
+        Ok(v) => v,
         Err(e) if exit::is_no_match(&e) => {
             let msg = e.to_string();
             global.emit_error_json(&msg)?;
@@ -95,45 +95,29 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         Err(e) => return Err(e),
     };
 
-    if global.check {
-        global.emit_json(&serde_json::json!({
-            "ok": true,
-            "files_changed": files_changed,
-        }))?;
-        return Ok(exit::CHANGES_DETECTED);
+    #[derive(serde::Serialize)]
+    struct RenameOut {
+        ok: bool,
+        files_changed: usize,
     }
 
-    if global.apply {
-        let diffs = result.build_diffs();
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-
-        if !global.emit_json(&serde_json::json!({
-            "ok": true,
-            "files_changed": diffs.len(),
-        }))? && !global.quiet
-        {
-            for d in &diffs {
-                eprintln!("{}: renamed", d.path);
-            }
-        }
-        return Ok(exit::SUCCESS);
-    }
-
-    // Default preview mode
-    let diffs = result.build_diffs();
-    if !diffs.is_empty() {
-        let colored = crate::diff::render_diffs_colored(&diffs, global.should_color());
-        print!("{colored}");
-    }
-
-    if global.should_apply() {
-        result.commit()?;
-        crate::write::run_format_command(global, &cwd)?;
-        return Ok(exit::SUCCESS);
-    }
-
-    Ok(exit::CHANGES_DETECTED)
+    let check_msg = format!("would rename in {files_changed} file(s)");
+    let apply_msg = format!("renamed in {files_changed} file(s)");
+    finalize_execution_result(
+        global,
+        &cwd,
+        result,
+        |_phase, _diff| RenameOut {
+            ok: true,
+            files_changed,
+        },
+        WriteMessages {
+            check: &check_msg,
+            apply: &apply_msg,
+            post_confirm: None,
+        },
+        RenderPolicy::default(),
+    )
 }
 
 #[derive(Debug, Args)]
@@ -197,7 +181,7 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     let check_msg = format!("would replace in symbol '{symbol}' in {}", args.path);
     let apply_msg = format!("replaced in symbol '{symbol}' in {}", args.path);
 
-    match execute_via_engine(
+    match run_write_op(
         op,
         global,
         |phase, diff| AstReplaceOutput {

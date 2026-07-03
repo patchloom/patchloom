@@ -177,7 +177,7 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Return `Ok(exit::SUCCESS)` for success, `Ok(exit::NO_MATCHES)` for no-match, etc.
 - When returning `NO_MATCHES` with an error message, use `global.emit_error_json(&msg)?` (added in PR #1339). This helper encapsulates the standard pattern: emit `{"ok": false, "error": msg}` in JSON/JSONL mode, fall back to `eprintln!` in text mode (respecting `--quiet`). Before this helper, the inline pattern was `if !global.emit_json(&json!({"ok": false, "error": &msg}))? && !global.quiet { eprintln!("{msg}"); }`.
 - **Never use `global.show_status()` on error diagnostic paths.** `show_status()` requires a TTY (returns `false` when stderr is piped), which silently suppresses error messages in scripts and pipelines. Use `!global.quiet` instead. Reserve `show_status()` for optional progress hints and status messages that are genuinely TTY-only (e.g., "hint: use --apply", file count summaries). See #1340 and #1341 for bugs caused by this confusion.
-- **Preview mode must return `CHANGES_DETECTED` (exit 2), not `SUCCESS` (exit 0).** When a write command runs in default mode (no `--apply`, `--check`, or `--diff`) and the operation would produce changes, the exit code must be `exit::CHANGES_DETECTED`. Returning `exit::SUCCESS` in preview mode is a bug: it makes scripts think no changes exist. **Exit codes are owned by `src/cmd/write_mode.rs`** (`classify_write_mode`, `write_exit_code`, `finalize_execution_result`, `finalize_callback_write`). Staging entry points still differ (`execute_via_engine` / `execute_operations` / `execute_precomputed` / `execute_write` / `execute_single`), but they must not invent their own exit matrix. Contract lock: `tests/integration/write_path_contract_tests.rs` and `docs/plans/write-pipeline.md`. Historical multi-path bugs: #1345-#1348; singularity work: #1373.
+- **Preview mode must return `CHANGES_DETECTED` (exit 2), not `SUCCESS` (exit 0).** When a write command runs in default mode (no `--apply`, `--check`, or `--diff`) and the operation would produce changes, the exit code must be `exit::CHANGES_DETECTED`. Returning `exit::SUCCESS` in preview mode is a bug: it makes scripts think no changes exist. **Write singularity:** stage with `tx::engine::stage(WriteRequest)` (or CLI `cmd::output::run_write` / `stage_for_write`), then finalize with `cmd::write_mode::finalize_execution_result` (or `finalize_callback_write` for binary/case-only renames). Mode and exit codes are owned only by `write_mode.rs`. Do not invent a parallel check/apply/preview matrix in a command. Contract lock: `tests/integration/write_path_contract_tests.rs` and `docs/plans/write-pipeline.md`. Historical multi-path bugs: #1345-#1348; singularity: #1373.
 
 ### Testing
 
@@ -268,17 +268,16 @@ Command::<Name>(args) => {
 }
 ```
 
-5. **Choose the correct staging entry for commands that mutate files** (exit codes always via `write_mode`):
+5. **Write path for commands that mutate files (rewrite singularity):**
 
 | Pattern | When to use | Example commands |
 |---------|-------------|------------------|
-| `execute_via_engine()` | Single-operation writes (most commands); uses `finalize_execution_result` | doc, md, create, delete, append, ast replace |
-| `execute_operations()` | Multi-file writes with pre-filtering; caller uses `write_exit_code` / classify | ast rename, tidy fix |
-| `execute_precomputed()` | Parallel scan + batch commit (optimization); caller uses classify + exit | replace (multi-file regex scan) |
-| `execute_write()` | Binary/case-only via `finalize_callback_write` | rename (binary files, case-only renames) |
-| `execute_single()` | One-off staging; caller must use `write_mode` for mode/exit | md dedupe-headings, patch apply |
+| `run_write` / `run_write_op` | Standard single-op + standard JSON schema | doc, create, delete, append, ast replace |
+| `stage_for_write` + `finalize_execution_result` | Multi-op or custom messages, standard finalize | ast rename, md dedupe-headings |
+| `stage_for_write` + custom renderer | Custom JSON; still use `classify_write_mode` / `write_exit_code` | replace, tidy fix, patch |
+| `execute_write` (`write_dispatch`) | Binary/case-only only (`finalize_callback_write`) | rename (binary / case-only) |
 
-Staging differs; **mode → exit is shared** (`src/cmd/write_mode.rs`). Do not use `atomic_write()` directly in command implementations.
+Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Precomputed`). Prefer `cmd::output` helpers at the CLI boundary. Do not use `atomic_write()` directly in command implementations.
 
 6. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
 
