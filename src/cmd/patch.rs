@@ -156,11 +156,7 @@ fn inject_stale_label(msg: &str, label: &str) -> String {
 }
 
 fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
-    if global.emit_json(&serde_json::json!({"ok": false, "error": error}))? {
-        return Ok(());
-    }
-    eprintln!("{error}");
-    Ok(())
+    global.emit_error_json(error)
 }
 
 fn emit_patch_files_output(
@@ -375,7 +371,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         } else if has_conflicts && !apply_options.allow_conflicts {
             exit::CONFLICTS
         } else {
-            exit::SUCCESS
+            // Preview/check mode: report that changes would be applied.
+            exit::CHANGES_DETECTED
         });
     }
 
@@ -565,8 +562,9 @@ mod tests {
             &global,
         )
         .unwrap();
-        // Should succeed (not error), treating missing file as empty.
-        assert_eq!(code, exit::SUCCESS);
+        // Should report changes detected (not error), treating missing file
+        // as empty for new file creation.
+        assert_eq!(code, exit::CHANGES_DETECTED);
     }
 
     #[test]

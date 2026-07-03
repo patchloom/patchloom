@@ -929,6 +929,29 @@ fn test_search_follows_symlink_within_cwd() {
 }
 
 #[test]
+fn test_search_skips_patchloom_backup_directory() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("real.txt"), "needle in real file\n").unwrap();
+    fs::create_dir_all(dir.path().join(".patchloom/backups/12345")).unwrap();
+    fs::write(
+        dir.path().join(".patchloom/backups/12345/manifest.json"),
+        "needle in backup\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("real.txt"))
+        .stdout(predicates::str::contains("manifest.json").not());
+}
+
+#[test]
 fn test_search_jsonl_no_match_emits_valid_jsonl() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("f.txt"), "hello\n").unwrap();

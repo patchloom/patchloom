@@ -257,10 +257,14 @@ mod tests {
 // For write commands:
 Command::<Name>(args) => {
     global.merge_write(&args.write);
+    load_project_config(&mut global);
     <name>::run(args, &global)
 }
 // For read-only commands:
-Command::<Name>(args) => <name>::run(args, &global),
+Command::<Name>(args) => {
+    load_project_config(&mut global);
+    <name>::run(args, &global)
+}
 ```
 
 5. **Choose the correct write path for commands that mutate files:**

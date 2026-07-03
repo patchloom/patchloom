@@ -738,26 +738,54 @@ mod error_handling {
     fn keys_on_scalar_returns_failure() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
-        let action = DocAction::Keys {
-            file: path,
-            selector: "name".into(),
-        };
-        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+        // Text mode: error goes to stderr, output is empty. Verify exit code.
+        let (_output, code) = execute_with_mode(
+            &DocAction::Keys {
+                file: path.clone(),
+                selector: "name".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
         assert_eq!(code, exit::FAILURE);
-        assert!(output.contains("not an object"));
+        // JSON mode: error is wrapped in a JSON envelope.
+        let (json_output, json_code) = execute_with_mode(
+            &DocAction::Keys {
+                file: path,
+                selector: "name".into(),
+            },
+            OutputMode::Json,
+        )
+        .unwrap();
+        assert_eq!(json_code, exit::FAILURE);
+        assert!(json_output.contains("not an object"));
     }
 
     #[test]
     fn len_on_scalar_returns_failure() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
-        let action = DocAction::Len {
-            file: path,
-            selector: "name".into(),
-        };
-        let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
+        // Text mode: error goes to stderr, output is empty. Verify exit code.
+        let (_output, code) = execute_with_mode(
+            &DocAction::Len {
+                file: path.clone(),
+                selector: "name".into(),
+            },
+            OutputMode::Text,
+        )
+        .unwrap();
         assert_eq!(code, exit::FAILURE);
-        assert!(output.contains("not an array or object"));
+        // JSON mode: error is wrapped in a JSON envelope.
+        let (json_output, json_code) = execute_with_mode(
+            &DocAction::Len {
+                file: path,
+                selector: "name".into(),
+            },
+            OutputMode::Json,
+        )
+        .unwrap();
+        assert_eq!(json_code, exit::FAILURE);
+        assert!(json_output.contains("not an array or object"));
     }
 
     #[test]
