@@ -293,7 +293,9 @@ mod tests {
         assert!(tiny.build().is_err(), "1-byte limit should reject any NFA");
 
         // Our builder should compile normal patterns just fine.
-        assert!(bounded_regex_builder(r"\d+").build().is_ok());
+        bounded_regex_builder(r"\d+")
+            .build()
+            .expect("simple pattern should compile");
 
         // Verify the builder actually sets size_limit (not just dfa_size_limit)
         // by building a moderately large pattern that fits 10 MiB.
@@ -301,6 +303,8 @@ mod tests {
             .map(|i| format!("word_{i}"))
             .collect::<Vec<_>>()
             .join("|");
-        assert!(bounded_regex_builder(&medium).build().is_ok());
+        bounded_regex_builder(&medium)
+            .build()
+            .expect("1K-alternation pattern should compile within 10 MiB limit");
     }
 }

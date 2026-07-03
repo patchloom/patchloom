@@ -18,7 +18,7 @@ fn test_replace_json_no_match_emits_valid_json() {
     assert_eq!(output.status.code(), Some(3), "should exit 3 (no matches)");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["match_count"], 0);
     assert_eq!(parsed["file_count"], 0);
     assert!(parsed["files"].as_array().unwrap().is_empty());
