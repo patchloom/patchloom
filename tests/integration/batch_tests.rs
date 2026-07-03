@@ -59,7 +59,7 @@ fn test_batch_diff_mode_does_not_write() {
         .arg("batch")
         .arg(&ops)
         .assert()
-        .code(0);
+        .code(2);
 
     // File must be unchanged in default (diff) mode.
     let content = fs::read_to_string(dir.path().join("pkg.json")).unwrap();

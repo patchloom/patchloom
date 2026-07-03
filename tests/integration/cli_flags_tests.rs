@@ -878,7 +878,7 @@ fn test_verbose_tx_emits_trace() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success()
+        .code(2)
         .stderr(
             predicate::str::contains("[patchloom] tx:")
                 .and(predicate::str::contains("[patchloom] tx: executing plan")),
@@ -949,7 +949,7 @@ fn test_verbose_batch_emits_trace() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success()
+        .code(2)
         .stderr(predicate::str::contains("[patchloom] batch:"));
 }
 
@@ -994,7 +994,7 @@ fn test_verbose_patch_emits_trace() {
         .arg("--cwd")
         .arg(dir.path())
         .assert()
-        .success()
+        .code(2)
         .stderr(predicate::str::contains("[patchloom] patch:"));
 }
 

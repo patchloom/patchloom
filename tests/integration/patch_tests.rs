@@ -22,7 +22,7 @@ fn test_patch_apply_dry_run_does_not_modify_file() {
         .arg("apply")
         .arg(&patch_file)
         .assert()
-        .code(0);
+        .code(2);
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(

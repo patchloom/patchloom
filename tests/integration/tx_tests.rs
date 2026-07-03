@@ -3320,7 +3320,11 @@ fn test_tx_read_sees_in_plan_state() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "tx with replace should exit 2 in preview mode"
+    );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let reads = json["reads"].as_array().unwrap();
     assert_eq!(reads.len(), 2);
@@ -4093,7 +4097,11 @@ fn test_tx_json_output_on_diff() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "tx default mode with changes should exit 2"
+    );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "success");

@@ -477,7 +477,11 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return commit_and_finalize(&ctx, &mut result, global, false);
     }
 
-    Ok(exit::SUCCESS)
+    if !result.no_effective_changes {
+        Ok(exit::CHANGES_DETECTED)
+    } else {
+        Ok(exit::SUCCESS)
+    }
 }
 
 #[path = "tx_tests.rs"]

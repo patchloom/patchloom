@@ -438,6 +438,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Default / --diff mode: show diff preview.
+    let has_changes = result.has_changes;
     let diffs = result.build_diffs();
     if global.json || global.jsonl {
         let files = build_file_results(&diffs, "changed");
@@ -448,7 +449,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             format_diff_result_colored(&DiffResult { diffs }, global.should_color())
         );
     }
-    Ok(exit::SUCCESS)
+    if has_changes {
+        Ok(exit::CHANGES_DETECTED)
+    } else {
+        Ok(exit::SUCCESS)
+    }
 }
 
 #[cfg(test)]
