@@ -56,6 +56,35 @@ fn test_ast_read_basic() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_read_symbol_not_found_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("main.rs");
+    fs::write(&f, "fn target() { let x=1; }\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "read", "main.rs", "nonexistent"])
+        .assert()
+        .code(3)
+        .stderr(predicates::str::contains("not found"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_read_symbol_not_found_json() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("main.rs");
+    fs::write(&f, "fn target() { let x=1; }\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "read", "main.rs", "nonexistent", "--json"])
+        .assert()
+        .code(3)
+        .stdout(
+            predicates::str::contains(r#""ok":false"#)
+                .or(predicates::str::contains(r#""ok": false"#)),
+        );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_validate_ok() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("ok.rs");

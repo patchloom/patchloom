@@ -310,6 +310,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
 
             // Default / --diff mode: preview diffs.
+            let has_changes = result.has_changes;
             let diffs = result.build_diffs();
             if !diffs.is_empty() && !global.json && !global.jsonl {
                 let dr = crate::diff::DiffResult {
@@ -325,9 +326,14 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if global.should_apply() {
                 result.commit()?;
                 crate::write::run_format_command(global, &cwd)?;
+                return Ok(exit::SUCCESS);
             }
 
-            Ok(exit::SUCCESS)
+            if has_changes {
+                Ok(exit::CHANGES_DETECTED)
+            } else {
+                Ok(exit::SUCCESS)
+            }
         }
 
         MdAction::LintAgents { file } => {
