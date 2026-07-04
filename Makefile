@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -23,6 +23,9 @@ test-no-default: ## Run lib tests with no default features (pure lib use, exerci
 test-ast-only: ## Run lib tests with only the ast feature (no cli, no mcp)
 	cargo test --lib --no-default-features --features ast
 
+test-mcp-no-ast: ## MCP without ast (inventory, tool_router merge, instructions honesty; #1395 #1396)
+	cargo test --lib --no-default-features --features "mcp,cli,files"
+
 test-library-hygiene: ## Run clippy + lib tests under exact Bline pure-library set (ast+files) to enforce no dead_code and hygiene (addresses #800 #802)
 	cargo clippy --no-default-features --features "ast,files" -- -D warnings
 	cargo test --no-default-features --features "ast,files" --lib
@@ -36,9 +39,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
