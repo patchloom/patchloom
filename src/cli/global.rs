@@ -48,6 +48,12 @@ pub struct GlobalFlags {
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub cwd: Option<String>,
 
+    /// Reject paths that escape the working directory (via `../` or outside
+    /// symlinks). Default CLI mode is unrestricted; use this for agent
+    /// sandboxes. MCP always enforces containment.
+    #[cfg_attr(feature = "cli", arg(long, global = true))]
+    pub contain: bool,
+
     /// Restrict target files by glob pattern (may be repeated).
     #[cfg_attr(feature = "cli", arg(long, global = true, action = clap::ArgAction::Append))]
     pub glob: Vec<String>,
@@ -298,6 +304,24 @@ impl GlobalFlags {
         }
     }
 
+    /// Build a workspace [`PathGuard`] when `--contain` is set.
+    ///
+    /// Returns `Ok(None)` when containment is off (default CLI behavior).
+    pub fn workspace_guard(
+        &self,
+        cwd: &std::path::Path,
+    ) -> anyhow::Result<Option<crate::containment::PathGuard>> {
+        if !self.contain {
+            return Ok(None);
+        }
+        crate::containment::PathGuard::new(
+            cwd.to_path_buf(),
+            crate::containment::AbsolutePathPolicy::Reject,
+        )
+        .map(Some)
+        .map_err(|e| anyhow::anyhow!("failed to initialize --contain path guard: {e}"))
+    }
+
     /// Emit a serializable value to stdout in structured format.
     ///
     /// If `--json` is set, pretty-prints. If `--jsonl` is set, prints compact.
@@ -452,6 +476,7 @@ impl GlobalFlags {
     pub fn with_editorconfig(base: &GlobalFlags, ec: bool) -> Self {
         GlobalFlags {
             cwd: base.cwd.clone(),
+            contain: base.contain,
             json: base.json,
             jsonl: base.jsonl,
             quiet: base.quiet,

@@ -135,6 +135,15 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **What it does:** Sets the working directory used to resolve relative paths.
 - **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory.
 - **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself, but keep it inside the invocation root. Relative plan `cwd` values resolve from the caller's working directory (`--cwd` or the process cwd), not from the plan file location.
+- **Not a sandbox:** Without `--contain`, paths may escape via `../` or absolute paths. MCP always enforces containment; use `--contain` for the same on CLI.
+
+<!-- ref:global-flag:contain -->
+### `--contain`
+
+- **What it does:** Rejects file paths that escape the working directory (via `../` or symlinks that resolve outside the workspace). Mirrors MCP / library `PathGuard` behavior.
+- **Use when:** An agent or automation should not be able to write outside `--cwd` (or the process cwd). Pair with `--cwd` for a workspace root.
+- **Default:** Off. CLI remains unrestricted for human scripts (same trust model as `make` / `sh`).
+- **Prefer instead:** Use the MCP server when the agent already has MCP tools; containment is always on there.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`

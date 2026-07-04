@@ -30,7 +30,8 @@ pub fn run_write<T: Serialize>(
     render: RenderPolicy,
 ) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    let options = ExecuteOptions::from_global(&cwd, global, None);
+    let guard = global.workspace_guard(&cwd)?;
+    let options = ExecuteOptions::from_global(&cwd, global, guard.as_ref());
     let result = stage(WriteRequest { source, options })?;
     finalize_execution_result(global, &cwd, result, make_output, msgs, render)
 }
@@ -87,7 +88,8 @@ pub fn stage_for_write(
     global: &GlobalFlags,
 ) -> anyhow::Result<(std::path::PathBuf, crate::tx::engine::WriteReport)> {
     let cwd = global.resolve_cwd()?;
-    let options = ExecuteOptions::from_global(&cwd, global, None);
+    let guard = global.workspace_guard(&cwd)?;
+    let options = ExecuteOptions::from_global(&cwd, global, guard.as_ref());
     let report = stage(WriteRequest { source, options })?;
     Ok((cwd, report))
 }
