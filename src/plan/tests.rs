@@ -232,7 +232,7 @@ fn parse_all_operation_variants() {
 }
 
 /// Canonical plan field is `selector` (matches CLI help). Alias `key` must
-/// still parse so older plans and agents do not fail with "missing field".
+/// still parse so agents that emit the LLM-prior field name do not fail.
 #[test]
 fn parse_doc_ops_with_selector_field() {
     let json = r#"{"version": 1, "operations": [
@@ -253,9 +253,9 @@ fn parse_doc_ops_with_selector_field() {
     }
 }
 
-/// Runtime scenario (fixrealloop): plan using legacy field name `key` must parse.
+/// Agents often emit `key` (LLM prior); alias must map it onto `selector`.
 #[test]
-fn parse_doc_ops_with_legacy_key_alias() {
+fn parse_doc_ops_with_key_alias() {
     let json = r#"{"version": 1, "operations": [
             {"op": "doc.set", "path": "f.json", "key": "a.b", "value": 1},
             {"op": "doc.delete", "path": "f.json", "key": "a.b"},

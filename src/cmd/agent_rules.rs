@@ -188,7 +188,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:\n\n\
              ```bash\n\
              patchloom tx plan.json --apply\n\
-             ```\n\n",
+             ```\n\n\
+             In plan JSON, doc ops use the field name `selector` (not `key`). \
+             `key` is accepted as an alias if a model emits it, but prefer `selector`.\n\n",
         );
 
         // Structured edits section

@@ -58,7 +58,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path (e.g. "server.port", "env.0.value").
-        /// Alias `key` kept for older plans and agents that used the prior field name.
+        /// Alias `key` accepted because agents often emit that name (LLM prior).
         #[serde(alias = "key")]
         selector: String,
         /// Value to set (any JSON type).

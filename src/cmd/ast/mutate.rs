@@ -225,3 +225,35 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::global::GlobalFlags;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn rename_path_first_order_hints_correct_usage() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.rs"), "fn alpha() {}\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        // Path-first (wrong): mod.rs interpreted as OLD_NAME, gamma as PATH.
+        let err = run_rename(
+            RenameArgs {
+                old_name: "mod.rs".into(),
+                new_name: "alpha".into(),
+                path: "gamma".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("path not found") && err.contains("OLD_NAME") && err.contains("NEW_NAME"),
+            "expected usage hint, got: {err}"
+        );
+    }
+}
