@@ -127,7 +127,7 @@ CLI flags override config values. The file is searched upward from the working d
 
 ```bash
 # Prefer AST-aware rename for code identifiers (skips strings/comments)
-patchloom ast rename old_function_name new_function_name src/ --apply
+patchloom ast rename src/ --old old_function_name --new new_function_name --apply
 
 # Fallback: text-based workflow when AST mode is unavailable
 patchloom search --count "old_function_name" src/
@@ -210,7 +210,7 @@ Tree-sitter-backed operations that understand code structure (20 languages).
 
 ```bash
 # Rename an identifier across a file, skipping strings and comments
-patchloom ast rename OldName NewName src/lib.rs --apply
+patchloom ast rename src/lib.rs --old OldName --new NewName --apply
 
 # Replace text only within a specific function body
 patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply
@@ -225,7 +225,7 @@ patchloom ast refs src/ --name my_function
 AST rename and replace can also be used in batch and tx plans:
 
 ```bash
-# In a batch file:
+# In a batch file (path, then old, then new — same names as CLI flags):
 ast.rename src/lib.rs OldStruct NewStruct
 ast.replace src/config.rs default_timeout "30" "60"
 ```

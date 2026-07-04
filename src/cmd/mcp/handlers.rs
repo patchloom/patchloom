@@ -660,7 +660,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"old_name\": \"process_data\", \"new_name\": \"transform_data\", \"path\": \"src/\"}"
+        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"path\": \"src/\", \"old\": \"process_data\", \"new\": \"transform_data\"}"
     )]
     async fn ast_rename(
         &self,

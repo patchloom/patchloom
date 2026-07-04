@@ -108,7 +108,7 @@ Agent: batch with
 | **Batch N files in 1 call** | `batch` and `tx` combine operations into one tool call with rollback | `batch --apply < ops.txt` |
 | **Comment preservation** | YAML/TOML comments survive all edits, including array resizing | `doc append config.yaml tags '"v2"' --apply` |
 | **Heading-aware markdown** | Edit sections, tables, and bullets by heading, not line number | `md table-append README.md --heading "API" --row "\| new \| row \|" --apply` |
-| **AST-aware code ops** | List, rename, replace, and analyze symbols across 20 languages | `ast rename src/ old_name new_name --apply` |
+| **AST-aware code ops** | List, rename, replace, and analyze symbols across 20 languages | `ast rename src/ --old old_name --new new_name --apply` |
 | **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx plan.json --apply` |
 | **MCP server** | Expose all operations as structured MCP tool calls | `patchloom mcp-server` |
 | **Optional CLI sandbox** | Reject `../` / absolute path escapes from `--cwd` on reads and writes (off by default; MCP always on) | `patchloom --cwd <ws> --contain search …` / `create … --apply` |

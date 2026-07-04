@@ -242,13 +242,8 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             format!("Lint {path} for AGENTS.md issues")
         }
         #[cfg(feature = "ast")]
-        Operation::AstRename {
-            path,
-            old_name,
-            new_name,
-            ..
-        } => {
-            format!("AST rename \"{old_name}\" to \"{new_name}\" in {path}")
+        Operation::AstRename { path, old, new, .. } => {
+            format!("AST rename \"{old}\" to \"{new}\" in {path}")
         }
         #[cfg(feature = "ast")]
         Operation::AstReplace {

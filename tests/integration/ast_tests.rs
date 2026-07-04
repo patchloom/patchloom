@@ -516,9 +516,11 @@ fn test_ast_rename_apply_exits_0() {
         .args([
             "ast",
             "rename",
-            "old_name",
-            "new_name",
             "rename.rs",
+            "--old",
+            "old_name",
+            "--new",
+            "new_name",
             "--apply",
         ])
         .assert()
@@ -544,9 +546,11 @@ fn test_ast_rename_nonexistent_symbol_exits_3() {
         .args([
             "ast",
             "rename",
-            "nonexistent",
-            "new_name",
             "rename.rs",
+            "--old",
+            "nonexistent",
+            "--new",
+            "new_name",
             "--apply",
         ])
         .assert()
@@ -563,9 +567,11 @@ fn test_ast_rename_check_mode_exits_2() {
         .args([
             "ast",
             "rename",
-            "old_name",
-            "new_name",
             "rename.rs",
+            "--old",
+            "old_name",
+            "--new",
+            "new_name",
             "--check",
         ])
         .assert()

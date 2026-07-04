@@ -13,14 +13,16 @@ use serde::Serialize;
 
 #[derive(Debug, Args)]
 pub struct RenameArgs {
+    /// File or directory to rename in (path-first, same as `ast replace` / batch / plan).
+    pub path: String,
+
     /// The identifier to rename.
-    pub old_name: String,
+    #[arg(long)]
+    pub old: String,
 
     /// The new identifier name.
-    pub new_name: String,
-
-    /// File or directory to rename in.
-    pub path: String,
+    #[arg(long)]
+    pub new: String,
 
     /// Language hint.
     #[arg(long)]
@@ -31,28 +33,11 @@ pub struct RenameArgs {
 }
 
 pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let (cwd, paths) = match setup_multi_file(&args.path, global) {
-        Ok(v) => v,
-        Err(e) => {
-            let msg = e.to_string();
-            // fixrealloop: path-first invocation (like many other commands) is a
-            // common agent mistake; surface the real order instead of only
-            // "path not found: <new_name>".
-            if msg.contains("path not found") {
-                anyhow::bail!(
-                    "{msg}\n\
-                     hint: usage is `ast rename <OLD_NAME> <NEW_NAME> <PATH>` \
-                     (example: `ast rename alpha gamma mod.rs --apply`). \
-                     Path-first order is not accepted."
-                );
-            }
-            return Err(e);
-        }
-    };
+    let (cwd, paths) = setup_multi_file(&args.path, global)?;
     crate::verbose!(
         "ast rename: '{}' -> '{}' in {}",
-        args.old_name,
-        args.new_name,
+        args.old,
+        args.new,
         args.path
     );
     crate::verbose!("ast rename: scanning {} files", paths.len());
@@ -68,13 +53,13 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
 
         // Check if this file has any matches (AST or word-boundary fallback).
         let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, &args.old_name, &args.new_name, lang)
+            crate::ast::rename::rename_in_source(&source, &args.old, &args.new, lang)
                 .is_some_and(|r| r.replacements > 0)
         } else {
             false
         } || {
             // Word-boundary fallback
-            crate::ops::replace::compile_replace_regex(&args.old_name, false, false, false, true)
+            crate::ops::replace::compile_replace_regex(&args.old, false, false, false, true)
                 .ok()
                 .flatten()
                 .is_some_and(|re| re.is_match(&source))
@@ -88,15 +73,15 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
                 .into_owned();
             operations.push(Operation::AstRename {
                 path: rel,
-                old_name: args.old_name.clone(),
-                new_name: args.new_name.clone(),
+                old: args.old.clone(),
+                new: args.new.clone(),
                 lang: args.lang.clone(),
             });
         }
     }
 
     if operations.is_empty() {
-        let msg = format!("symbol '{}' not found in {}", args.old_name, args.path);
+        let msg = format!("symbol '{}' not found in {}", args.old, args.path);
         global.emit_error_json(&msg)?;
         return Ok(exit::NO_MATCHES);
     }
@@ -234,26 +219,28 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn rename_path_first_order_hints_correct_usage() {
+    fn rename_path_first_with_old_new_flags_applies() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("mod.rs"), "fn alpha() {}\n").unwrap();
-        let global = GlobalFlags::test_with_cwd(dir.path());
-        // Path-first (wrong): mod.rs interpreted as OLD_NAME, gamma as PATH.
-        let err = run_rename(
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_rename(
             RenameArgs {
-                old_name: "mod.rs".into(),
-                new_name: "alpha".into(),
-                path: "gamma".into(),
+                path: "mod.rs".into(),
+                old: "alpha".into(),
+                new: "beta".into(),
                 lang: None,
                 write: Default::default(),
             },
             &global,
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let content = fs::read_to_string(dir.path().join("mod.rs")).unwrap();
         assert!(
-            err.contains("path not found") && err.contains("OLD_NAME") && err.contains("NEW_NAME"),
-            "expected usage hint, got: {err}"
+            content.contains("fn beta()"),
+            "expected rename, got: {content}"
         );
+        assert!(!content.contains("fn alpha()"), "old name should be gone");
     }
 }

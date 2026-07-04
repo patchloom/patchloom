@@ -215,7 +215,7 @@ fn parse_all_operation_variants() {
             {"op": "search", "path": "f.txt", "pattern": "he.*o", "regex": true, "case_insensitive": true, "multiline": true},
             {"op": "search", "path": "f.txt", "pattern": "TODO", "invert_match": true, "assert_count": 5},
             {"op": "search", "path": ".", "pattern": "foo", "literal": true, "exclude_patterns": ["target/**"], "custom_ignore_filenames": [".blineignore"], "max_results": 10},
-            {"op": "ast.rename", "path": "f.rs", "old_name": "Foo", "new_name": "Bar"},
+            {"op": "ast.rename", "path": "f.rs", "old": "Foo", "new": "Bar"},
             {"op": "ast.replace", "path": "f.rs", "symbol": "main", "old": "a", "new": "b"},
             {"op": "ast.insert", "path": "f.rs", "content": "fn new() {}", "after": "main"},
             {"op": "ast.wrap", "path": "f.rs", "symbols": ["helper"], "wrapper": "mod internal"},

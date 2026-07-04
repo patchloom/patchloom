@@ -5689,8 +5689,8 @@ fn test_tx_ast_rename_in_plan() {
         "operations": [{
             "op": "ast.rename",
             "path": portable_path_str(&file),
-            "old_name": "old_name",
-            "new_name": "new_name"
+            "old": "old_name",
+            "new": "new_name"
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -7054,8 +7054,8 @@ fn test_tx_ast_list_with_lang_name_hint() {
         "operations": [{
             "op": "ast.rename",
             "path": portable_path_str(&file),
-            "old_name": "hello",
-            "new_name": "world",
+            "old": "hello",
+            "new": "world",
             "lang": "rust"
         }]
     });
@@ -7098,8 +7098,8 @@ fn test_tx_ast_rename_directory_walks_recursively() {
         "operations": [{
             "op": "ast.rename",
             "path": "src",
-            "old_name": "old_func",
-            "new_name": "new_func"
+            "old": "old_func",
+            "new": "new_func"
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -7146,8 +7146,8 @@ fn test_tx_ast_rename_directory_no_matches_fails() {
         "operations": [{
             "op": "ast.rename",
             "path": "src",
-            "old_name": "nonexistent_func",
-            "new_name": "renamed"
+            "old": "nonexistent_func",
+            "new": "renamed"
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -7179,8 +7179,8 @@ fn test_tx_ast_rename_empty_directory_fails() {
         "operations": [{
             "op": "ast.rename",
             "path": "empty",
-            "old_name": "x",
-            "new_name": "y"
+            "old": "x",
+            "new": "y"
         }]
     });
     let plan_file = dir.path().join("plan.json");

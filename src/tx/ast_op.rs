@@ -80,8 +80,8 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     match op {
         Operation::AstRename {
             path,
-            old_name,
-            new_name,
+            old,
+            new,
             lang,
         } => {
             let abs = tx.cwd.join(path);
@@ -94,22 +94,21 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 let mut total = 0usize;
                 for file_path in &files {
-                    let count =
-                        ast_rename_single_file(tx, file_path, old_name, new_name, lang.as_deref());
+                    let count = ast_rename_single_file(tx, file_path, old, new, lang.as_deref());
                     if let Ok(n) = count {
                         total += n;
                     }
                 }
                 if total == 0 {
                     return Err(crate::exit::NoMatchError {
-                        msg: format!("no matches for '{}' in {}", old_name, path),
+                        msg: format!("no matches for '{}' in {}", old, path),
                     }
                     .into());
                 }
                 return Ok(total);
             }
 
-            ast_rename_single_file(tx, &abs, old_name, new_name, lang.as_deref())
+            ast_rename_single_file(tx, &abs, old, new, lang.as_deref())
         }
 
         Operation::AstReplace {

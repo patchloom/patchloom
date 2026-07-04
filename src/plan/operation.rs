@@ -271,10 +271,10 @@ pub enum Operation {
     AstRename {
         /// File or directory to rename in. Directories are walked recursively.
         path: String,
-        /// The identifier to rename.
-        old_name: String,
-        /// The new identifier name.
-        new_name: String,
+        /// The identifier to rename (same field name as replace / ast.replace).
+        old: String,
+        /// The new identifier name (same field name as replace / ast.replace JSON `new`).
+        new: String,
         /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
         #[serde(default)]
         lang: Option<String>,

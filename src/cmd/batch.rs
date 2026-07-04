@@ -37,8 +37,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.dedupe_headings <path>
 /// md.lint_agents <path>
 /// tidy.fix <path>
-/// ast.rename <path> <old_name> <new_name>
-/// ast.replace <path> <symbol> <from> <to>
+/// ast.rename <path> <old> <new>
+/// ast.replace <path> <symbol> <old> <new>
 /// ```
 ///
 /// Lines starting with `#` are comments. Empty lines are ignored.
@@ -280,8 +280,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             require_args(op, args, 3, line_num)?;
             op!(AstRename {
                 path: args[0].clone(),
-                old_name: args[1].clone(),
-                new_name: args[2].clone(),
+                old: args[1].clone(),
+                new: args[2].clone(),
                 lang: None
             })
         }

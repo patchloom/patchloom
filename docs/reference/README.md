@@ -1126,7 +1126,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.rename -->
 ### `ast.rename`
 
-- **What it does:** Renames all occurrences of an identifier within a file using tree-sitter AST awareness, skipping strings, comments, and documentation. References inside the renamed symbol and callers are updated atomically.
+- **What it does:** Renames all occurrences of an identifier within a file using tree-sitter AST awareness, skipping strings, comments, and documentation. References inside the renamed symbol and callers are updated atomically. Fields are `path`, `old`, and `new` (same names as `replace` / `ast.replace`). CLI: `ast rename <path> --old <OLD> --new <NEW>`.
 - **Use when:** You need a precise identifier rename that respects language semantics (e.g., renaming `old_fn` to `new_fn` without touching the string `"old_fn"` in a log message).
 - **Related:** `replace` (text-level), `ast replace`
 
