@@ -69,6 +69,7 @@ pub enum MdAction {
     /// Remove duplicate headings.
     DedupeHeadings { file: String },
     /// Lint common AGENTS.md problems.
+    #[command(name = "lint-agents", alias = "lint")]
     LintAgents { file: String },
     /// Append a row to a markdown table under a heading.
     TableAppend {

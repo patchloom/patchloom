@@ -278,6 +278,28 @@ fn parse_doc_ops_with_key_alias() {
     }
 }
 
+/// Agents often emit `from`/`to` for replace (LLM prior); aliases map to old/new.
+#[test]
+fn parse_replace_ops_with_from_to_aliases() {
+    let json = r#"{"version": 1, "operations": [
+            {"op": "replace", "path": "VERSION", "from": "v1", "to": "v2"}
+        ]}"#;
+    let plan = parse_plan(json).unwrap();
+    if let Operation::Replace {
+        old,
+        new_text,
+        path,
+        ..
+    } = &plan.operations[0]
+    {
+        assert_eq!(old, "v1");
+        assert_eq!(new_text.as_deref(), Some("v2"));
+        assert_eq!(path.as_deref(), Some("VERSION"));
+    } else {
+        panic!("expected Replace from from/to aliases");
+    }
+}
+
 #[test]
 fn parse_plan_with_for_each() {
     let json = r#"{

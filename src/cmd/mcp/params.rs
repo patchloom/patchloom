@@ -16,9 +16,12 @@ pub(crate) struct ReplaceParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Text to find.
+    /// Alias `from` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "from")]
     pub old: String,
     /// Text to replace with. Mutually exclusive with insert_before/insert_after.
-    #[serde(rename = "new")]
+    /// Alias `to` accepted because agents often emit that name (LLM prior).
+    #[serde(rename = "new", alias = "to")]
     pub new_text: Option<String>,
     /// Insert text before each match instead of replacing. Mutually exclusive with new/insert_after.
     pub insert_before: Option<String>,
@@ -192,9 +195,12 @@ pub(crate) struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
     pub files: Vec<String>,
     /// Text to find in each file.
+    /// Alias `from` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "from")]
     pub old: String,
     /// Text to replace with.
-    #[serde(rename = "new")]
+    /// Alias `to` accepted because agents often emit that name (LLM prior).
+    #[serde(rename = "new", alias = "to")]
     pub new_text: String,
     /// Use regex mode for the `old` pattern.
     #[serde(default)]
@@ -397,9 +403,12 @@ pub(crate) struct AstReplaceParams {
     /// Symbol name to scope the replacement to.
     pub symbol: String,
     /// Text or regex pattern to find.
+    /// Alias `from` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "from")]
     pub old: String,
     /// Replacement text.
-    #[serde(rename = "new")]
+    /// Alias `to` accepted because agents often emit that name (LLM prior).
+    #[serde(rename = "new", alias = "to")]
     pub new_text: String,
     /// Treat `old` as a regex pattern.
     #[serde(default)]
@@ -631,5 +640,13 @@ mod tests {
             serde_json::from_str(r#"{"action":"has","path":"config.toml","key":"server.port"}"#)
                 .expect("key alias must deserialize");
         assert_eq!(p.selector.as_deref(), Some("server.port"));
+    }
+
+    #[test]
+    fn replace_params_accept_from_to_aliases() {
+        let p: ReplaceParams = serde_json::from_str(r#"{"path":"VERSION","from":"v1","to":"v2"}"#)
+            .expect("from/to aliases must deserialize");
+        assert_eq!(p.old, "v1");
+        assert_eq!(p.new_text.as_deref(), Some("v2"));
     }
 }
