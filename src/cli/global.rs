@@ -48,9 +48,9 @@ pub struct GlobalFlags {
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub cwd: Option<String>,
 
-    /// Reject paths that escape the working directory (via `../` or outside
-    /// symlinks). Default CLI mode is unrestricted; use this for agent
-    /// sandboxes. MCP always enforces containment.
+    /// Reject paths that escape the working directory (via `../`, absolute
+    /// paths, or outside symlinks). Default CLI mode is unrestricted; use
+    /// this for agent sandboxes. MCP always enforces containment.
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub contain: bool,
 

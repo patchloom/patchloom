@@ -191,6 +191,32 @@ mod tests {
     }
 
     #[test]
+    fn create_with_contain_rejects_absolute_path_even_inside_workspace() {
+        // AbsolutePathPolicy::Reject matches MCP: absolute paths are refused
+        // even when the resolved location is under --cwd.
+        let dir = TempDir::new().unwrap();
+        let abs = dir.path().join("abs.txt");
+        let args = CreateArgs {
+            file: abs.to_string_lossy().into_owned(),
+            content: Some("nope\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let err = run(args, &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("absolute") || msg.contains("rejected") || msg.contains("workspace guard"),
+            "expected absolute-path containment error, got: {msg}"
+        );
+        assert!(!abs.exists());
+    }
+
+    #[test]
     fn create_refuses_to_overwrite_existing_file_without_force() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("existing.txt");
