@@ -246,3 +246,63 @@ fn test_prepend_default_mode_exits_2() {
         "file should not be modified in default mode"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --contain on append (engine-backed content inject) (MPI cycle 13)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_append_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-append-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "base\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "--contain",
+            "append",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            "--content",
+            "injected\n",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "base\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_append_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("log.txt"), "one\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "--contain",
+            "append",
+            "log.txt",
+            "--content",
+            "two\n",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("log.txt")).unwrap(),
+        "one\ntwo\n"
+    );
+}
