@@ -157,7 +157,8 @@ Patchloom runs with the privileges of the invoking user and treats all inputs (c
 What this means in practice:
 
 - **Plans can execute arbitrary shell commands.** The `format` and `validate` lifecycle steps pass their `cmd` field to `sh -c` (or `cmd /C` on Windows) with the user's full privileges. Only load plans you trust.
-- **File operations are unrestricted.** `create`, `delete`, `read`, `replace`, `patch`, and all `tx` operations accept any path the invoking user can access. There is no sandbox, chroot, or path restriction.
+- **CLI file operations are unrestricted.** `create`, `delete`, `read`, `replace`, `patch`, and all `tx` operations accept any path the invoking user can access (including `../` escapes from `--cwd`). There is no CLI sandbox, chroot, or path restriction. `--cwd` only sets the default base for relative paths; it is **not** a containment boundary.
+- **MCP and the library PathGuard are sandboxed.** The MCP server and embedders that pass a `PathGuard` reject paths that escape the workspace root (via `../` or symlinks). Prefer MCP tool calls when an agent must stay inside a workspace.
 - **Plan `cwd` overrides the working directory.** A plan's `cwd` field changes the working directory for all subsequent operations and lifecycle steps. Relative values resolve from the invocation root, not from the plan file location. In normal CLI use this still runs with the invoking user's filesystem access; in MCP mode the resolved directory must stay under the server root.
 
-**For AI agent authors:** Do not construct plans from untrusted conversational input without validation. A plan is equivalent to a shell script. Treat plan files with the same care you would treat a Makefile or a bash script from an unknown source.
+**For AI agent authors:** Prefer the MCP server for agent-driven edits so path containment is enforced. Do not construct plans from untrusted conversational input without validation. A plan is equivalent to a shell script. Treat plan files with the same care you would treat a Makefile or a bash script from an unknown source.
