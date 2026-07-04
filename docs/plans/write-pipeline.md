@@ -30,11 +30,13 @@ CLI / API boundary
   → stage(WriteRequest { source, options: ExecuteOptions { context, guard } })
   → WriteReport (ExecutionResult)
   → finalize_execution_result(...)   // standard phase JSON schema
-    OR finalize_report(hooks...)     // custom emit only; no mode match in commands
+    OR finalize_report(..., FinalizeCallbacks { ... })  // custom emit only
   → commit/format inside finalize when apply/confirm accepts
 ```
 
 **Rule:** `match classify_write_mode` must only appear in `src/cmd/write_mode.rs`.
+Emit hooks for custom paths are grouped in `FinalizeCallbacks` (no per-command
+mode matrices; no `clippy::too_many_arguments` on the entrypoint).
 
 ### CLI helpers (`src/cmd/output.rs`)
 
