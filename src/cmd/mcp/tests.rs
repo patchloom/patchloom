@@ -216,9 +216,15 @@ mod basic {
             instructions.contains("Text ops"),
             "instructions must mention Text ops category"
         );
+        #[cfg(feature = "ast")]
         assert!(
             instructions.contains("AST ops"),
-            "instructions must mention AST ops category"
+            "instructions must mention AST ops category when ast is enabled"
+        );
+        #[cfg(not(feature = "ast"))]
+        assert!(
+            !instructions.contains("AST ops"),
+            "instructions must not advertise AST ops without the ast feature"
         );
         assert!(
             instructions.contains("File ops"),
