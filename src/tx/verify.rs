@@ -658,8 +658,8 @@ fn my_test() {
         let result = compare_snapshots(&before, &after, &check, Path::new("/tmp"));
         assert!(!result.passed);
         assert!(
-            result.message.contains("-2"),
-            "should show count diff: {}",
+            result.message.contains("before=10, after=8 (-2)"),
+            "should show exact before/after and signed delta: {}",
             result.message
         );
         assert!(

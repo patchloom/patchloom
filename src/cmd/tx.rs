@@ -285,13 +285,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 } else {
                     exit::FAILURE
                 };
-                let msg = output
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "plan validation failed".to_string());
-                let bs = output.backup_session.clone();
+                let msg = output.error.as_deref().unwrap_or("plan validation failed");
+                let bs = output.backup_session.as_deref();
                 if structured {
-                    emit_error_json("parse_error", &msg, bs.as_deref(), compact);
+                    emit_error_json("parse_error", msg, bs, compact);
                 } else {
                     eprintln!("tx: {msg}");
                 }

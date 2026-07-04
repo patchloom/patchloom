@@ -972,7 +972,17 @@ mod tests {
             value: serde_json::json!(1),
         };
         assert_eq!(operation_op_name(&op), "doc.set");
-        assert!(schema::operation_description("doc.set").is_some());
-        assert!(describe_operation(&op).contains("a.json"));
+        let desc = schema::operation_description("doc.set")
+            .expect("doc.set must have a schema description");
+        assert!(!desc.is_empty(), "doc.set description must not be empty");
+        let summary = describe_operation(&op);
+        assert!(
+            summary.contains("a.json"),
+            "explain text must include the path: {summary}"
+        );
+        assert!(
+            summary.contains("doc.set") || summary.to_lowercase().contains("set"),
+            "explain text must identify the operation: {summary}"
+        );
     }
 }
