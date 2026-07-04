@@ -54,6 +54,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [&args.file])?;
     let path = cwd.join(&args.file);
     if path.exists() && !path.is_file() {
         bail!("target is not a file: {}", args.file);

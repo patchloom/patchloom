@@ -27,6 +27,7 @@ struct DeleteOutput {
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("delete: file={}", args.file);
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [&args.file])?;
     let path = cwd.join(&args.file);
 
     if !path.exists() {
