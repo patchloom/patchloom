@@ -214,6 +214,71 @@ fn fix_adds_missing_newline() {
     );
 }
 
+/// Bare `tidy fix --apply` must fix issues that bare `tidy check` reports
+/// (final newline + trailing whitespace). fixrealloop feature gap.
+#[test]
+fn fix_defaults_match_check_parity() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("messy.txt");
+    // Trailing spaces and no final newline — both reported by tidy check.
+    std::fs::write(&file, b"line  ").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+    // Deliberately leave ensure_final_newline / trim_trailing_whitespace false
+    // so the check-parity defaults must kick in.
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec![".".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let content = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "line\n",
+        "bare tidy fix should trim trailing ws and add final newline"
+    );
+}
+
+/// Explicit single-policy flag must not auto-enable the other defaults.
+#[test]
+fn fix_explicit_trim_only_does_not_force_final_newline() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("trim_only.txt");
+    std::fs::write(&file, b"line  ").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+    global.trim_trailing_whitespace = true;
+    // ensure_final_newline left false; because an explicit policy flag is set,
+    // check-parity defaults must not force final newline.
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec![".".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let content = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "line",
+        "explicit --trim-trailing-whitespace only should not force final newline"
+    );
+}
+
 #[test]
 fn fix_normalizes_eol() {
     let tmp = TempDir::new().unwrap();
