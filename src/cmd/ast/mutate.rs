@@ -31,7 +31,24 @@ pub struct RenameArgs {
 }
 
 pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
-    let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    let (cwd, paths) = match setup_multi_file(&args.path, global) {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.to_string();
+            // fixrealloop: path-first invocation (like many other commands) is a
+            // common agent mistake; surface the real order instead of only
+            // "path not found: <new_name>".
+            if msg.contains("path not found") {
+                anyhow::bail!(
+                    "{msg}\n\
+                     hint: usage is `ast rename <OLD_NAME> <NEW_NAME> <PATH>` \
+                     (example: `ast rename alpha gamma mod.rs --apply`). \
+                     Path-first order is not accepted."
+                );
+            }
+            return Err(e);
+        }
+    };
     crate::verbose!(
         "ast rename: '{}' -> '{}' in {}",
         args.old_name,
