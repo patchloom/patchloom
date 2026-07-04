@@ -239,6 +239,16 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let cwd = global.resolve_cwd()?;
+    // Fail closed before the parallel scan so --contain does not read
+    // outside the workspace while computing matches (write-path guard on
+    // precomputed results still applies as defense-in-depth; MPI cycle 17).
+    if let Some(guard) = global.workspace_guard(&cwd)? {
+        for p in &args.paths {
+            guard
+                .check_path(p)
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+        }
+    }
 
     // Context-based replace: route through the tx engine where the
     // context_filtered_offset and fallback chain live.
