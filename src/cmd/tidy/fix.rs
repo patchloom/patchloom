@@ -44,7 +44,7 @@ pub(super) fn tidy_fix_output(
     dirty_rel_paths: &[String],
     cwd: &Path,
 ) -> anyhow::Result<u8> {
-    use crate::cmd::write_mode::finalize_report;
+    use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
     let fix_files: Vec<TidyFixFileResult> = dirty_rel_paths
         .iter()
@@ -57,32 +57,40 @@ pub(super) fn tidy_fix_output(
         cwd,
         result,
         true,
-        |g, _has, _diffs| {
-            emit_tidy_fix_output(g, &fix_files, None)?;
-            if !g.quiet && !g.json && !g.jsonl {
-                for p in dirty_rel_paths {
-                    println!("{p}");
+        FinalizeCallbacks {
+            on_check: |g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
+                emit_tidy_fix_output(g, &fix_files, None)?;
+                if !g.quiet && !g.json && !g.jsonl {
+                    for p in dirty_rel_paths {
+                        println!("{p}");
+                    }
                 }
-            }
-            Ok(())
+                Ok(())
+            },
+            on_apply: |g: &GlobalFlags,
+                       _has: bool,
+                       _diffs: &[crate::diff::FileDiff],
+                       diff_text: Option<String>| {
+                emit_tidy_fix_output(g, &fix_files, diff_text)?;
+                Ok(())
+            },
+            on_preview: |g: &GlobalFlags,
+                         _has: bool,
+                         diffs: &[crate::diff::FileDiff],
+                         diff_text: Option<String>| {
+                emit_tidy_fix_output(g, &fix_files, diff_text)?;
+                if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
+                    print!("{}", render_diffs_colored(diffs, g.should_color()));
+                }
+                Ok(())
+            },
+            after_preview_emit: |g: &GlobalFlags| {
+                if g.show_status() {
+                    eprintln!("{n_files} file(s) changed");
+                }
+            },
+            after_preview_apply: |_: &GlobalFlags| {},
         },
-        |g, _has, _diffs, diff_text| {
-            emit_tidy_fix_output(g, &fix_files, diff_text)?;
-            Ok(())
-        },
-        |g, _has, diffs, diff_text| {
-            emit_tidy_fix_output(g, &fix_files, diff_text)?;
-            if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
-                print!("{}", render_diffs_colored(diffs, g.should_color()));
-            }
-            Ok(())
-        },
-        |g| {
-            if g.show_status() {
-                eprintln!("{n_files} file(s) changed");
-            }
-        },
-        |_| {},
     )
 }
 

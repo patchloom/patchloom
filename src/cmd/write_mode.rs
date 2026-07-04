@@ -109,6 +109,16 @@ impl Default for RenderPolicy {
     }
 }
 
+/// Emit hooks for [`finalize_report`] (grouped so the entrypoint stays under
+/// clippy's argument limit without a suppression).
+pub struct FinalizeCallbacks<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply> {
+    pub on_check: OnCheck,
+    pub on_apply: OnApply,
+    pub on_preview: OnPreview,
+    pub after_preview_emit: AfterEmit,
+    pub after_preview_apply: AfterApply,
+}
+
 /// Canonical mode → commit → format → exit for custom-rendered staged writes.
 ///
 /// Callers only supply **emit** behavior. Order for preview/confirm-json:
@@ -118,23 +128,25 @@ impl Default for RenderPolicy {
 /// `on_check` receives built diffs (for commands that list changed files in
 /// check mode). Prefer [`finalize_execution_result`] for standard
 /// `make_output(WritePhase, diff)` schemas (ConfirmJson emits *after* apply).
-#[allow(clippy::too_many_arguments)]
-pub fn finalize_report(
+pub fn finalize_report<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply>(
     global: &GlobalFlags,
     cwd: &Path,
     result: ExecutionResult,
     preview_diffs: bool,
-    mut on_check: impl FnMut(&GlobalFlags, bool, &[FileDiff]) -> anyhow::Result<()>,
-    mut on_apply: impl FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
-    mut on_preview: impl FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
-    mut after_preview_emit: impl FnMut(&GlobalFlags),
-    mut after_preview_apply: impl FnMut(&GlobalFlags),
-) -> anyhow::Result<u8> {
+    mut cb: FinalizeCallbacks<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply>,
+) -> anyhow::Result<u8>
+where
+    OnCheck: FnMut(&GlobalFlags, bool, &[FileDiff]) -> anyhow::Result<()>,
+    OnApply: FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
+    OnPreview: FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
+    AfterEmit: FnMut(&GlobalFlags),
+    AfterApply: FnMut(&GlobalFlags),
+{
     let has_changes = result.has_changes;
     match classify_write_mode(global) {
         WriteMode::Check => {
             let diffs = result.build_diffs();
-            on_check(global, has_changes, &diffs)?;
+            (cb.on_check)(global, has_changes, &diffs)?;
             Ok(write_exit_code(has_changes, false))
         }
         WriteMode::Apply => {
@@ -146,7 +158,7 @@ pub fn finalize_report(
             } else {
                 None
             };
-            on_apply(global, has_changes, &diffs, diff_text)?;
+            (cb.on_apply)(global, has_changes, &diffs, diff_text)?;
             Ok(write_exit_code(has_changes, true))
         }
         WriteMode::ConfirmJson | WriteMode::Preview => {
@@ -156,13 +168,13 @@ pub fn finalize_report(
                 Vec::new()
             };
             let diff_text = plain_diff_opt(&diffs);
-            on_preview(global, has_changes, &diffs, diff_text)?;
-            after_preview_emit(global);
+            (cb.on_preview)(global, has_changes, &diffs, diff_text)?;
+            (cb.after_preview_emit)(global);
             let applied = global.should_apply();
             if applied {
                 result.commit()?;
                 crate::write::run_format_command(global, cwd)?;
-                after_preview_apply(global);
+                (cb.after_preview_apply)(global);
             }
             Ok(write_exit_code(has_changes, applied))
         }
@@ -405,15 +417,21 @@ mod tests {
             dir.path(),
             report,
             true,
-            |_g, has, _d| {
-                assert!(has);
-                checks.fetch_add(1, Ordering::SeqCst);
-                Ok(())
+            FinalizeCallbacks {
+                on_check: |_g: &GlobalFlags, has: bool, _d: &[FileDiff]| {
+                    assert!(has);
+                    checks.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+                on_apply: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                    panic!("apply must not run")
+                },
+                on_preview: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                    panic!("preview must not run")
+                },
+                after_preview_emit: |_: &GlobalFlags| {},
+                after_preview_apply: |_: &GlobalFlags| {},
             },
-            |_g, _, _, _| panic!("apply must not run"),
-            |_g, _, _, _| panic!("preview must not run"),
-            |_| {},
-            |_| {},
         )
         .unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
@@ -447,16 +465,23 @@ mod tests {
             dir.path(),
             report,
             true,
-            |_g, _, _| panic!("check must not run"),
-            |_g, has, diffs, _plain| {
-                assert!(has);
-                assert!(!diffs.is_empty());
-                applied_hook.store(true, Ordering::SeqCst);
-                Ok(())
+            FinalizeCallbacks {
+                on_check: |_g: &GlobalFlags, _: bool, _: &[FileDiff]| panic!("check must not run"),
+                on_apply: |_g: &GlobalFlags,
+                           has: bool,
+                           diffs: &[FileDiff],
+                           _plain: Option<String>| {
+                    assert!(has);
+                    assert!(!diffs.is_empty());
+                    applied_hook.store(true, Ordering::SeqCst);
+                    Ok(())
+                },
+                on_preview: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                    panic!("preview must not run")
+                },
+                after_preview_emit: |_: &GlobalFlags| {},
+                after_preview_apply: |_: &GlobalFlags| {},
             },
-            |_g, _, _, _| panic!("preview must not run"),
-            |_| {},
-            |_| {},
         )
         .unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -490,14 +515,18 @@ mod tests {
             dir.path(),
             report,
             true,
-            |_g, _, _| panic!("check must not run"),
-            |_g, _, _, _| panic!("apply must not run"),
-            |_g, has, _d, _p| {
-                assert!(has);
-                Ok(())
+            FinalizeCallbacks {
+                on_check: |_g: &GlobalFlags, _: bool, _: &[FileDiff]| panic!("check must not run"),
+                on_apply: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                    panic!("apply must not run")
+                },
+                on_preview: |_g: &GlobalFlags, has: bool, _d: &[FileDiff], _p: Option<String>| {
+                    assert!(has);
+                    Ok(())
+                },
+                after_preview_emit: |_: &GlobalFlags| {},
+                after_preview_apply: |_: &GlobalFlags| {},
             },
-            |_| {},
-            |_| {},
         )
         .unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);

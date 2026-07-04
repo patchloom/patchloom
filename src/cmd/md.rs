@@ -290,28 +290,38 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 crate::tx::engine::WriteSource::Operations(vec![op]),
                 global,
             )?;
-            use crate::cmd::write_mode::finalize_report;
+            use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
             finalize_report(
                 global,
                 &cwd,
                 result,
                 true,
-                |_g, _has, _diffs| Ok(()),
-                |_g, _has, _diffs, _plain| Ok(()),
-                |g, _has, diffs, _plain| {
-                    if !diffs.is_empty() && !g.json && !g.jsonl {
-                        let dr = crate::diff::DiffResult {
-                            diffs: diffs.to_vec(),
-                        };
-                        print!(
-                            "{}",
-                            crate::diff::format_diff_result_colored(&dr, g.should_color())
-                        );
-                    }
-                    Ok(())
+                FinalizeCallbacks {
+                    on_check: |_g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
+                        Ok(())
+                    },
+                    on_apply: |_g: &GlobalFlags,
+                               _has: bool,
+                               _diffs: &[crate::diff::FileDiff],
+                               _plain: Option<String>| Ok(()),
+                    on_preview: |g: &GlobalFlags,
+                                 _has: bool,
+                                 diffs: &[crate::diff::FileDiff],
+                                 _plain: Option<String>| {
+                        if !diffs.is_empty() && !g.json && !g.jsonl {
+                            let dr = crate::diff::DiffResult {
+                                diffs: diffs.to_vec(),
+                            };
+                            print!(
+                                "{}",
+                                crate::diff::format_diff_result_colored(&dr, g.should_color())
+                            );
+                        }
+                        Ok(())
+                    },
+                    after_preview_emit: |_: &GlobalFlags| {},
+                    after_preview_apply: |_: &GlobalFlags| {},
                 },
-                |_| {},
-                |_| {},
             )
         }
 
