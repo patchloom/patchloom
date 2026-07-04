@@ -1029,3 +1029,39 @@ fn test_search_contain_allows_in_workspace() {
         .code(0)
         .stdout(predicate::str::contains("findme"));
 }
+
+#[test]
+fn test_search_contain_rejects_files_from_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-files-from-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "SECRET_VALUE=x\n").unwrap();
+    // --files-from opens the list file relative to the process cwd, so pass
+    // an absolute path to the list; entries inside are relative to --cwd.
+    let list = dir.path().join("list.txt");
+    fs::write(&list, format!("../{escape_name}\n")).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .arg("--contain")
+        .arg("--files-from")
+        .arg(&list)
+        .args(["search", "SECRET_VALUE"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}

@@ -72,6 +72,11 @@ pub(crate) fn collect_file_paths_opts(
     root: Option<&Path>,
 ) -> anyhow::Result<Vec<PathBuf>> {
     if let Some(files) = global.read_files_from()? {
+        // --files-from entries must honor --contain (paths may escape even when
+        // CLI positional paths were empty or in-workspace).
+        if let Some(r) = root {
+            global.check_paths_contained(r, &files)?;
+        }
         return Ok(files
             .iter()
             .map(|f| match root {
@@ -93,6 +98,11 @@ pub(crate) fn collect_file_paths_opts(
             None => PathBuf::from(p),
         }
     };
+    // Explicit walk roots under --contain (defense-in-depth for callers that
+    // skip an early check_paths_contained on the same list).
+    if let Some(r) = root {
+        global.check_paths_contained(r, effective)?;
+    }
     // Warn about nonexistent user-supplied paths so typos are visible
     // instead of silently producing an empty result set (exit 3).
     for p in effective {
