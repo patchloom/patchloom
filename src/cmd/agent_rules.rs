@@ -57,14 +57,16 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
     if show_mcp && !show_cli {
         out.push_str(
             "You have MCP tools for file reads, edits, and searches. \
-             Use them for ALL file operations.\n\n",
+             Use them for ALL file operations. Paths are confined to the \
+             server workspace (MCP rejects `../` escapes and outside symlinks).\n\n",
         );
     }
     if show_mcp && show_cli {
         out.push_str(
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
              tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
-             JSON/YAML/TOML) and handle whitespace cleanup in one call.\n\n",
+             JSON/YAML/TOML) and handle whitespace cleanup in one call. Prefer MCP over the \
+             CLI when path containment matters: MCP rejects workspace escapes; the CLI does not.\n\n",
         );
     }
     if show_cli {
@@ -466,6 +468,10 @@ mod tests {
         assert!(!out.contains("run_terminal_command"));
         assert!(!out.contains("command line"));
         assert!(out.contains("Use them for ALL file operations"));
+        assert!(
+            out.contains("confined to the server workspace"),
+            "MCP-only rules must state path containment"
+        );
         // CLI-only sections must be absent (check for h2 headings, not h3)
         assert!(!out.contains("\n## Batching"));
         assert!(!out.contains("\n## Structured edits"));
