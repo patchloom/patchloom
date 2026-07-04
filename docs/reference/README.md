@@ -353,7 +353,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Use when:** You are building an AI agent that uses patchloom programmatically and need machine-readable operation schemas, or you want to generate a system prompt tailored to a specific model tier.
 - **Notable flags:**
   - `--format json|prompt` (default: `json`): `json` outputs operation schemas as JSON, `prompt` outputs markdown suitable for LLM system prompts.
-  - `--tier weak|medium|strong`: Filter operations by minimum capability tier.
+  - `--tier weak|medium|strong`: Filter operations by minimum capability tier. Help lists these as the only allowed values (clap enum; no `small`/`large` aliases).
   - `--examples`: Include usage examples in JSON output (omitted by default).
 - **Prefer instead:** Nothing; this is the only programmatic way to discover available operations and their schemas.
 - **Related:** `agent-rules`, `mcp-server`
