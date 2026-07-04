@@ -501,3 +501,57 @@ fn test_batch_unterminated_quote_fails() {
         .code(1)
         .stderr(predicates::str::contains("unterminated"));
 }
+
+// ---------------------------------------------------------------------------
+// --contain on batch (delegates to tx execute_and_collect) (MPI cycle 14)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_batch_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-batch-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    let _ = fs::remove_file(&outside);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "batch", "--apply"])
+        .write_stdin(format!("file.create ../{escape_name} \"nope\"\n"))
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(!outside.exists(), "batch --contain must not write outside");
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_batch_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "batch", "--apply"])
+        .write_stdin("file.create inside-batch.txt \"ok\"\n")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("inside-batch.txt")).unwrap(),
+        "ok"
+    );
+}
