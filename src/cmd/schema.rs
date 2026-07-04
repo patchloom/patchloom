@@ -14,10 +14,11 @@ pub struct SchemaArgs {
     #[arg(long, default_value = "json")]
     pub format: SchemaFormat,
 
-    /// Capability tier to filter operations by.
-    /// Omit to include all operations.
-    #[arg(long)]
-    pub tier: Option<String>,
+    /// Capability tier to filter operations by (weak, medium, or strong).
+    /// Omit to include all operations. Only these three names are accepted
+    /// (not industry size labels like small/large).
+    #[arg(long, value_enum)]
+    pub tier: Option<Tier>,
 
     /// Include examples in the output.
     #[arg(long, default_value_t = false)]
@@ -39,15 +40,8 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.tier,
         args.examples
     );
-    let tier: Option<Tier> = match &args.tier {
-        Some(s) => {
-            let t: Tier = s.parse().map_err(|e: String| anyhow::anyhow!("{e}"))?;
-            Some(t)
-        }
-        None => None,
-    };
 
-    let ops = match tier {
+    let ops = match args.tier {
         Some(t) => schema::operations_for_tier(t)?,
         None => schema::operation_schemas()?,
     };
@@ -85,7 +79,7 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             println!("{output}");
         }
         SchemaFormat::Prompt => {
-            let prompt = match tier {
+            let prompt = match args.tier {
                 Some(t) => schema::system_prompt_for_tier(t)?,
                 None => schema::system_prompt_for_tier(Tier::Strong)?,
             };
@@ -116,21 +110,22 @@ mod tests {
     }
 
     #[test]
-    fn invalid_tier_returns_error() {
-        let args = SchemaArgs {
-            format: SchemaFormat::Json,
-            tier: Some("invalid".into()),
-            examples: false,
-        };
-        let global = GlobalFlags::default();
-        assert!(run(args, &global).is_err());
-    }
-
-    #[test]
     fn prompt_format_produces_markdown() {
         let args = SchemaArgs {
             format: SchemaFormat::Prompt,
-            tier: Some("medium".into()),
+            tier: Some(Tier::Medium),
+            examples: false,
+        };
+        let global = GlobalFlags::default();
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+    }
+
+    #[test]
+    fn weak_tier_runs_successfully() {
+        let args = SchemaArgs {
+            format: SchemaFormat::Json,
+            tier: Some(Tier::Weak),
             examples: false,
         };
         let global = GlobalFlags::default();

@@ -187,12 +187,38 @@ fn test_schema_quiet_suppresses_output() {
 
 #[test]
 fn test_schema_invalid_tier_fails() {
+    // clap ValueEnum rejects free strings at parse time (exit 2) and lists values.
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["schema", "--tier", "invalid"])
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("unknown tier"));
+        .code(2)
+        .stderr(predicate::str::contains("possible values"))
+        .stderr(predicate::str::contains("weak"));
+}
+
+#[test]
+fn test_schema_tier_small_is_not_accepted() {
+    // Industry model-size prior; product tiers are weak/medium/strong only.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--tier", "small"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("possible values"));
+}
+
+#[test]
+fn test_schema_help_lists_tier_enum() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Possible values"))
+        .stdout(predicate::str::contains("weak"))
+        .stdout(predicate::str::contains("medium"))
+        .stdout(predicate::str::contains("strong"));
 }
 
 // ---------------------------------------------------------------------------

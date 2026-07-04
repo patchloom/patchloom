@@ -96,8 +96,12 @@ pub fn is_compatible_version(version: &str) -> bool {
 ///
 /// Operations are annotated with a minimum tier. Weaker models get fewer,
 /// simpler operations; stronger models get the full set.
+///
+/// CLI accepts only these names (`weak`, `medium`, `strong`) via clap
+/// `ValueEnum` so help lists the enum; no industry-size aliases (`small`/`large`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 pub enum Tier {
     /// Simple operations: replace_text, file create/delete, fix_whitespace.
     Weak,
