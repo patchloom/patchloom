@@ -31,30 +31,29 @@ fn collect_ast_source_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> any
 fn ast_rename_single_file(
     tx: &mut TxState<'_>,
     abs: &Path,
-    old_name: &str,
-    new_name: &str,
+    old: &str,
+    new: &str,
     lang_hint: Option<&str>,
 ) -> anyhow::Result<usize> {
     let content = read_file_content(tx.pending, tx.existed_before, abs)?;
     let lang_val = lang_hint
         .map(crate::ast::Language::from_name_or_ext)
         .unwrap_or_else(|| crate::ast::Language::from_path(abs));
-    let result = crate::ast::rename::rename_in_source(content, old_name, new_name, lang_val);
+    let result = crate::ast::rename::rename_in_source(content, old, new, lang_val);
     match result {
         Some(r) if r.replacements > 0 => {
             update_file_content(tx.pending, tx.deletions, tx.write_targets, abs, r.content);
             Ok(r.replacements)
         }
         Some(_) => Err(crate::exit::NoMatchError {
-            msg: format!("no matches for '{}' in {}", old_name, abs.display()),
+            msg: format!("no matches for '{}' in {}", old, abs.display()),
         }
         .into()),
         None => {
             // Tree-sitter couldn't parse. Fallback to word-boundary replace.
-            let re =
-                crate::ops::replace::compile_replace_regex(old_name, false, false, false, true)?;
+            let re = crate::ops::replace::compile_replace_regex(old, false, false, false, true)?;
             if let Some(re) = re {
-                let new_content = re.replace_all(content, new_name).to_string();
+                let new_content = re.replace_all(content, new).to_string();
                 let count = re.find_iter(content).count();
                 if count > 0 {
                     update_file_content(
@@ -68,7 +67,7 @@ fn ast_rename_single_file(
                 }
             }
             Err(crate::exit::NoMatchError {
-                msg: format!("no matches for '{}' in {}", old_name, abs.display()),
+                msg: format!("no matches for '{}' in {}", old, abs.display()),
             }
             .into())
         }
