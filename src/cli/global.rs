@@ -395,6 +395,10 @@ impl GlobalFlags {
 
     /// Read file paths from `--files-from`. Returns `None` if the flag is not set.
     /// When the value is `-`, reads from stdin (one path per line).
+    ///
+    /// The list file path is resolved relative to `--cwd` when that flag is set
+    /// and the list path is not absolute (so `patchloom --cwd /ws --files-from
+    /// list.txt …` opens `/ws/list.txt`, not the process cwd).
     pub fn read_files_from(&self) -> anyhow::Result<Option<Vec<String>>> {
         let source = match self.files_from.as_deref() {
             Some(s) => s,
@@ -418,8 +422,19 @@ impl GlobalFlags {
                 .filter(|l| !l.is_empty())
                 .collect()
         } else {
-            let content = std::fs::read_to_string(source)
-                .map_err(|e| anyhow::anyhow!("failed to read --files-from '{}': {e}", source))?;
+            let list_path = {
+                let p = std::path::Path::new(source);
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else if let Some(ref cwd) = self.cwd {
+                    std::path::Path::new(cwd).join(p)
+                } else {
+                    p.to_path_buf()
+                }
+            };
+            let content = std::fs::read_to_string(&list_path).map_err(|e| {
+                anyhow::anyhow!("failed to read --files-from '{}': {e}", list_path.display())
+            })?;
             let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
             content
                 .lines()
@@ -754,5 +769,20 @@ mod tests {
         };
         let result = flags.read_files_from().unwrap().unwrap();
         assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
+    }
+
+    #[test]
+    fn read_files_from_resolves_relative_list_under_cwd_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "a.rs\nb.rs\n").unwrap();
+        let flags = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            // Relative list name; must open under --cwd, not process cwd.
+            files_from: Some("files.txt".into()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["a.rs", "b.rs"]);
     }
 }

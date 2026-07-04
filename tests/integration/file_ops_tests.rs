@@ -306,3 +306,93 @@ fn test_append_contain_allows_in_workspace() {
         "one\ntwo\n"
     );
 }
+
+#[test]
+fn test_files_from_resolves_list_under_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "findme here\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "inside.txt\n").unwrap();
+
+    // Process cwd is not dir; list path is relative and must open under --cwd.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path().parent().unwrap())
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "findme"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("findme"));
+}
+
+#[test]
+fn test_append_contain_rejects_missing_parent_escape_not_not_found() {
+    // Escaped path that does not exist must still fail with containment, not
+    // "file does not exist" (existence used to run before PathGuard).
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-append-missing-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "append",
+            &format!("../{escape_name}"),
+            "--content",
+            "x\n",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        )
+        .stderr(predicate::str::contains("does not exist").not());
+}
+
+#[test]
+fn test_prepend_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-prepend-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "base\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "prepend",
+            &format!("../{escape_name}"),
+            "--content",
+            "hdr\n",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "base\n");
+    let _ = fs::remove_file(&outside);
+}
