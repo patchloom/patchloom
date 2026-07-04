@@ -164,8 +164,9 @@ patchloom patch merge changes.patch --apply
 # WARNING: never commit files containing conflict markers
 patchloom patch merge changes.patch --apply --allow-conflicts
 
-# Diff from stdin (use --stdin; a bare '-' path is not special)
+# Diff from stdin (--stdin or a bare '-' path both work)
 cat changes.patch | patchloom patch apply --stdin --apply
+cat changes.patch | patchloom patch apply - --apply
 ```
 
 ```bash

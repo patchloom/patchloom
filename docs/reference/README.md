@@ -591,8 +591,8 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:doc-mode:predicate -->
 ### `doc --predicate`
 
-- **What it does:** Supplies the key-value predicate used by `doc delete-where`.
-- **Use when:** Array cleanup should target matching objects instead of deleting by fixed index or selector path alone.
+- **What it does:** Supplies the key-value predicate used by `doc delete-where`. Object arrays use a field key (e.g. `name=react`). Scalar arrays match the element with `.=a`, `_=a`, or `value=a` (`value` is accepted as an agent-friendly alias for element match).
+- **Use when:** Array cleanup should target matching objects or scalar values instead of deleting by fixed index or selector path alone.
 - **Prefer instead:** Use `doc delete` when one direct selector path can remove the target without predicate filtering.
 
 <!-- ref:doc-mode:stdin -->
@@ -674,8 +674,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:delete-where -->
 ### `doc delete-where`
 
-- **What it does:** Deletes array items that match a predicate.
-- **Use when:** You need to remove selected objects from a list without rebuilding the whole array by hand.
+- **What it does:** Deletes array items that match a predicate (`--predicate key=value`). For scalar arrays, use `.=x`, `_=x`, or `value=x`.
+- **Use when:** You need to remove selected objects or scalar values from a list without rebuilding the whole array by hand.
 - **Prefer instead:** Use `doc delete` when one direct selector path can remove the target.
 
 <!-- ref:doc-action:merge -->

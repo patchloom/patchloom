@@ -74,7 +74,9 @@ pub enum DocAction {
         /// Selector path (e.g. `server.port`, `items[0].name`).
         selector: String,
         // ref:doc-mode:predicate
-        /// Predicate in key=value format.
+        /// Predicate in key=value format. For object arrays use a field
+        /// (e.g. `name=react`). For scalar arrays match the element with
+        /// `.=a`, `_=a`, or `value=a` (the last is accepted as an agent prior).
         #[arg(long)]
         predicate: String,
     },

@@ -77,8 +77,14 @@ enum DiffReadError {
 }
 
 fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, DiffReadError> {
+    // A bare "-" path means stdin (common CLI convention); agents often pass
+    // this instead of --stdin (fixrealloop).
     if let Some(path) = file {
-        std::fs::read_to_string(path).map_err(|e| DiffReadError::IoError(path.clone(), e))
+        if path == "-" {
+            std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
+        } else {
+            std::fs::read_to_string(path).map_err(|e| DiffReadError::IoError(path.clone(), e))
+        }
     } else if stdin_flag {
         std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
     } else {

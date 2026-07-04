@@ -196,8 +196,10 @@ pub fn delete_at_selector(
 /// at `segments`. Returns the number of items removed.
 ///
 /// Predicate keys support dotted paths (e.g. `settings.theme=dark`) for
-/// nested field matching. For simple (non-object) arrays, use `_=value`
-/// or `.=value` to match against the element value itself.
+/// nested field matching. For simple (non-object) arrays, use `_=value`,
+/// `.=value`, or `value=value` to match against the element value itself.
+/// The `value=` form is accepted because agents often emit that name
+/// (LLM prior) instead of `.` / `_` (fixrealloop).
 pub fn delete_where(
     root: &mut serde_json::Value,
     segments: &[selector::Segment],
@@ -225,6 +227,19 @@ pub fn delete_where(
     if pred_key == "_" || pred_key == "." {
         // Simple value matching: compare the array item itself.
         arr.retain(|item| !selector::value_matches_str(item, pred_val));
+    } else if pred_key == "value" {
+        // Agents often write value=X for scalar arrays. Prefer a real field
+        // named "value" on objects; fall back to element match for scalars.
+        arr.retain(|item| {
+            if let Some(field) = item.get("value") {
+                !selector::value_matches_str(field, pred_val)
+            } else if item.is_object() {
+                // Same as missing field: keep the item.
+                true
+            } else {
+                !selector::value_matches_str(item, pred_val)
+            }
+        });
     } else {
         arr.retain(|item| {
             selector::get_nested(item, pred_key)

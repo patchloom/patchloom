@@ -18,9 +18,12 @@ pub enum Operation {
         #[serde(default)]
         regex: bool,
         /// Pattern to find (literal string or regex).
+        /// Alias `from` accepted because agents often emit that name (LLM prior).
+        #[serde(alias = "from")]
         old: String,
         /// Replacement text. Supports $1/$2 capture group references in regex mode.
-        #[serde(rename = "new")]
+        /// Alias `to` accepted because agents often emit that name (LLM prior).
+        #[serde(rename = "new", alias = "to")]
         new_text: Option<String>,
         /// Replace only the Nth occurrence (1-based).
         nth: Option<usize>,
@@ -284,9 +287,10 @@ pub enum Operation {
         /// Symbol name to scope the replacement to.
         symbol: String,
         /// Text or pattern to find within the symbol body.
+        #[serde(alias = "from")]
         old: String,
         /// Replacement text.
-        #[serde(rename = "new")]
+        #[serde(rename = "new", alias = "to")]
         new_text: String,
         /// Treat `old` as a regex pattern.
         #[serde(default)]

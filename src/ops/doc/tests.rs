@@ -475,6 +475,27 @@ mod edge_cases {
         assert_eq!(removed, 0);
     }
 
+    /// Agents often emit `value=X` for scalar arrays (LLM prior); treat as
+    /// element match when items are not objects with a `value` field.
+    #[test]
+    fn delete_where_value_alias_matches_scalar_elements() {
+        let mut root = json!({"tags": ["a", "b", "a"]});
+        let sel = crate::selector::parse("tags").unwrap();
+        let removed = delete_where(&mut root, &sel, "value=a").unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(root["tags"], json!(["b"]));
+    }
+
+    /// Object arrays with a real `value` field still match that field.
+    #[test]
+    fn delete_where_value_key_matches_object_field() {
+        let mut root = json!({"items": [{"value": "a"}, {"value": "b"}]});
+        let sel = crate::selector::parse("items").unwrap();
+        let removed = delete_where(&mut root, &sel, "value=a").unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(root["items"], json!([{"value": "b"}]));
+    }
+
     #[test]
     fn delete_where_trims_whitespace() {
         let mut root = json!({"items": [{"name": "a"}, {"name": "b"}]});

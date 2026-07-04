@@ -292,8 +292,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # WARNING: never commit files containing conflict markers\n\
              patchloom patch merge changes.patch --apply --allow-conflicts\n\
              \n\
-             # Diff from stdin (use --stdin; a bare '-' path is not special)\n\
+             # Diff from stdin (--stdin or a bare '-' path both work)\n\
              cat changes.patch | patchloom patch apply --stdin --apply\n\
+             cat changes.patch | patchloom patch apply - --apply\n\
              ```\n\n",
         );
 
