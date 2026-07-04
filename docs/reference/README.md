@@ -169,7 +169,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:files-from -->
 ### `--files-from`
 
-- **What it does:** Reads the target file list from a file, or from stdin when passed `-`.
+- **What it does:** Reads the target file list from a file, or from stdin when passed `-`. A relative list path is resolved under `--cwd` when that flag is set (absolute list paths are unchanged). Paths **inside** the list are still resolved against `--cwd` / the process cwd as usual, and under `--contain` each listed path must stay in the workspace.
 - **Use when:** Another tool already selected the exact paths and Patchloom should operate only on that set.
 - **Prefer instead:** Use `--glob` for pattern based scoping, or direct path arguments when the target set is already small and obvious.
 
