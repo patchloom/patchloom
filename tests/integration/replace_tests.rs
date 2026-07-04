@@ -1312,3 +1312,76 @@ fn test_replace_context_in_tx_plan() {
         "section [b] should be updated: {result}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --contain on replace (precomputed multi-file write path) (MPI cycle 15)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-replace-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "foo bar\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "replace",
+            "foo",
+            "--new",
+            "ZAZ",
+            &format!("../{escape_name}"),
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "foo bar\n",
+        "replace --contain must not mutate escaped path"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_replace_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "foo bar\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "replace",
+            "foo",
+            "--new",
+            "ZAZ",
+            "inside.txt",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("inside.txt")).unwrap(),
+        "ZAZ bar\n"
+    );
+}
