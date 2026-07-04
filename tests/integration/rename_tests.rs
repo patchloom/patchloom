@@ -740,3 +740,111 @@ fn test_rename_cross_dir_case_similar_requires_force() {
         "B\n"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --contain: all rename paths (text engine + binary callback) (#1406 / #1409)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_rename_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "keep\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "rename",
+            "inside.txt",
+            "../escape-renamed.txt",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(dir.path().join("inside.txt").exists());
+    assert!(!dir.path().join("../escape-renamed.txt").exists());
+}
+
+#[test]
+fn test_rename_binary_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("image.bin"), b"\x00\x01\x02\xff\xfe").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "rename",
+            "image.bin",
+            "../escaped.bin",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(dir.path().join("image.bin").exists());
+    assert!(!dir.path().join("../escaped.bin").exists());
+}
+
+#[test]
+fn test_rename_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "rename", "old.txt", "new.txt", "--apply"])
+        .assert()
+        .code(0);
+
+    assert!(!dir.path().join("old.txt").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
+fn test_rename_without_contain_allows_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "move me\n").unwrap();
+    let name = format!(
+        "patchloom-rename-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .arg("rename")
+        .arg("inside.txt")
+        .arg(format!("../{name}"))
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let outside = dir.path().parent().unwrap().join(&name);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "move me\n");
+    let _ = fs::remove_file(&outside);
+}
