@@ -409,7 +409,7 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
         tier: Tier::Medium,
         examples: &[(
             "Rename a struct",
-            r###"{"op":"ast.rename","path":"src/lib.rs","old_name":"OldStruct","new_name":"NewStruct"}"###,
+            r###"{"op":"ast.rename","path":"src/lib.rs","old":"OldStruct","new":"NewStruct"}"###,
         )],
     },
     OpMeta {

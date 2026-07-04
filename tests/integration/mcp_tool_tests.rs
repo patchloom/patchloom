@@ -2497,7 +2497,7 @@ async fn test_mcp_ast_rename_applies() {
     let (is_error, val) = call_tool_value(
         &client,
         "ast_rename",
-        serde_json::json!({"path": "lib.rs", "old_name": "old_name", "new_name": "new_name"}),
+        serde_json::json!({"path": "lib.rs", "old": "old_name", "new": "new_name"}),
     )
     .await;
     assert!(!is_error, "ast_rename should succeed: {val}");

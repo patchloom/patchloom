@@ -30,8 +30,8 @@ patchloom ast read src/lib.rs run --context 3
 
 # ---- ast rename: rename identifiers (AST-aware) --------------------------
 # Renames only true identifiers, skipping occurrences in strings and comments.
-patchloom ast rename OldName NewName src/lib.rs --diff    # preview
-patchloom ast rename OldName NewName src/ --apply          # apply across directory
+patchloom ast rename src/lib.rs --old OldName --new NewName --diff    # preview
+patchloom ast rename src/ --old OldName --new NewName --apply          # apply across directory
 
 # ---- ast validate: check syntax of source files --------------------------
 # Reports parse errors without modifying files. Useful as a CI gate.

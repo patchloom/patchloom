@@ -269,12 +269,12 @@ pub(crate) struct AstReadParams {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AstRenameParams {
-    /// The identifier to rename.
-    pub old_name: String,
-    /// The new identifier name.
-    pub new_name: String,
     /// File or directory to rename in (relative to working directory).
     pub path: String,
+    /// The identifier to rename (same name as replace / plan `old`).
+    pub old: String,
+    /// The new identifier name (same name as replace / plan `new`).
+    pub new: String,
     /// Language hint.
     pub lang: Option<String>,
 }

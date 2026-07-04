@@ -170,7 +170,7 @@ fn test_explain_ast_rename_description() {
     let plan = dir.path().join("plan.json");
     fs::write(
         &plan,
-        r#"{"version": 1, "operations": [{"op": "ast.rename", "path": "lib.rs", "old_name": "foo", "new_name": "bar"}]}"#,
+        r#"{"version": 1, "operations": [{"op": "ast.rename", "path": "lib.rs", "old": "foo", "new": "bar"}]}"#,
     )
     .unwrap();
 

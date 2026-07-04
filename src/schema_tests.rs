@@ -567,8 +567,8 @@ mod basic {
                 "ast.rename",
                 Operation::AstRename {
                     path: "f.rs".into(),
-                    old_name: "old".into(),
-                    new_name: "new".into(),
+                    old: "old".into(),
+                    new: "new".into(),
                     lang: None,
                 },
             ));

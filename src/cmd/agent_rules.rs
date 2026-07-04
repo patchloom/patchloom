@@ -254,7 +254,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "### Rename a function across a codebase\n\n\
              ```bash\n\
              # Prefer AST-aware rename for code identifiers (skips strings/comments)\n\
-             patchloom ast rename old_function_name new_function_name src/ --apply\n\n\
+             patchloom ast rename src/ --old old_function_name --new new_function_name --apply\n\n\
              # Fallback: text-based workflow when AST mode is unavailable\n\
              patchloom search --count \"old_function_name\" src/\n\
              patchloom replace \"old_function_name\" --new \"new_function_name\" src/ --apply\n\
@@ -347,7 +347,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              Tree-sitter-backed operations that understand code structure (20 languages).\n\n\
              ```bash\n\
              # Rename an identifier across a file, skipping strings and comments\n\
-             patchloom ast rename OldName NewName src/lib.rs --apply\n\n\
+             patchloom ast rename src/lib.rs --old OldName --new NewName --apply\n\n\
              # Replace text only within a specific function body\n\
              patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply\n\n\
              # List all symbol definitions\n\
@@ -357,7 +357,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              ```\n\n\
              AST rename and replace can also be used in batch and tx plans:\n\n\
              ```bash\n\
-             # In a batch file:\n\
+             # In a batch file (path, then old, then new — same names as CLI flags):\n\
              ast.rename src/lib.rs OldStruct NewStruct\n\
              ast.replace src/config.rs default_timeout \"30\" \"60\"\n\
              ```\n\n",

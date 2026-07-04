@@ -134,10 +134,10 @@ pub(super) fn handle_ast_rename(
     p: AstRenameParams,
 ) -> Result<CallToolResult, McpError> {
     svc.check_path(&p.path)?;
-    validate_param_size("old_name", &p.old_name)?;
-    validate_param_size("new_name", &p.new_name)?;
-    if p.old_name == p.new_name {
-        return exit_code_to_result(exit::NO_MATCHES, "", "old_name and new_name are identical.");
+    validate_param_size("old", &p.old)?;
+    validate_param_size("new", &p.new)?;
+    if p.old == p.new {
+        return exit_code_to_result(exit::NO_MATCHES, "", "old and new are identical.");
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
@@ -164,12 +164,12 @@ pub(super) fn handle_ast_rename(
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
 
         let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, &p.old_name, &p.new_name, lang)
+            crate::ast::rename::rename_in_source(&source, &p.old, &p.new, lang)
                 .is_some_and(|r| r.replacements > 0)
         } else {
             false
         } || {
-            crate::ops::replace::compile_replace_regex(&p.old_name, false, false, false, true)
+            crate::ops::replace::compile_replace_regex(&p.old, false, false, false, true)
                 .ok()
                 .flatten()
                 .is_some_and(|re| re.is_match(&source))
@@ -178,8 +178,8 @@ pub(super) fn handle_ast_rename(
         if has_match {
             operations.push(crate::plan::Operation::AstRename {
                 path: rel,
-                old_name: p.old_name.clone(),
-                new_name: p.new_name.clone(),
+                old: p.old.clone(),
+                new: p.new.clone(),
                 lang: p.lang.clone(),
             });
         }
@@ -935,9 +935,9 @@ impl Point {
 
         let svc = make_service(&dir);
         let params = AstRenameParams {
-            old_name: "greet".into(),
-            new_name: "salute".into(),
             path: "rename.rs".into(),
+            old: "greet".into(),
+            new: "salute".into(),
             lang: Some("rs".into()),
         };
 
@@ -957,9 +957,9 @@ impl Point {
 
         let svc = make_service(&dir);
         let params = AstRenameParams {
-            old_name: "greet".into(),
-            new_name: "greet".into(),
             path: "sample.rs".into(),
+            old: "greet".into(),
+            new: "greet".into(),
             lang: Some("rs".into()),
         };
 
