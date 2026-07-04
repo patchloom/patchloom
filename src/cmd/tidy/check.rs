@@ -148,6 +148,7 @@ pub(super) fn collect_issues(
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<TidyIssue>> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&cwd))?;
     let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
