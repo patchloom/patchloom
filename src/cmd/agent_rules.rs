@@ -67,7 +67,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
              JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects \
              workspace escapes. CLI is unrestricted by default; use \
-             `patchloom --cwd <ws> --contain …` for the same PathGuard rules on CLI writes.\n\n",
+             `patchloom --cwd <ws> --contain …` for the same PathGuard rules on CLI \
+             reads and writes.\n\n",
         );
     }
     if show_cli {
@@ -75,7 +76,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "**Decision rule: if you are about to make 3+ tool calls for file edits, use \
              `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes \
              that shell out to the CLI, pass `--contain` (with `--cwd`) so paths cannot escape \
-             the workspace.\n\n",
+             the workspace (reads and writes).\n\n",
         );
     }
 

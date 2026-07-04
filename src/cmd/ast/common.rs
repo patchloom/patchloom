@@ -21,6 +21,7 @@ pub(super) fn setup_single_file(
     global: &GlobalFlags,
 ) -> anyhow::Result<(PathBuf, PathBuf, Language, String)> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [path_arg])?;
     let target = cwd.join(path_arg);
     let lang = resolve_lang(lang_arg, &target);
     let source = std::fs::read_to_string(&target).with_context(|| format!("reading {path_arg}"))?;
@@ -34,6 +35,7 @@ pub(super) fn setup_multi_file(
     global: &GlobalFlags,
 ) -> anyhow::Result<(PathBuf, Vec<PathBuf>)> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [path_arg])?;
     let target = cwd.join(path_arg);
     let paths = resolve_target_paths(&target, path_arg, global)?;
     Ok((cwd, paths))

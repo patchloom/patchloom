@@ -63,6 +63,8 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("read: files={:?}, lines={:?}", args.files, args.lines);
     let cwd = global.resolve_cwd()?;
+    // --contain applies to read paths (agent sandbox; MPI cycle 18).
+    global.check_paths_contained(&cwd, &args.files)?;
     let structured = global.json || global.jsonl;
 
     let parsed_lines = if let Some(spec) = &args.lines {

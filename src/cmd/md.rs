@@ -272,6 +272,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Pre-read to compute removed headings for side-channel output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
+            global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
             let original =
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
@@ -328,6 +329,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         MdAction::LintAgents { file } => {
             crate::verbose!("md: lint-agents file={}", file);
             let cwd = global.resolve_cwd()?;
+            global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
             let content =
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
@@ -362,6 +364,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // from "no table under heading" (error), which the engine
             // conflates into a single None.
             let cwd = global.resolve_cwd()?;
+            global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
             let content =
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;

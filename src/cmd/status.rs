@@ -120,6 +120,8 @@ pub(crate) fn collect_status(
 
 pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("status: checking {} path(s)", args.paths.len());
+    let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, &args.paths)?;
     let out = collect_status(&args.paths, global)?;
     crate::verbose!(
         "status: {} modified, {} created, {} deleted",

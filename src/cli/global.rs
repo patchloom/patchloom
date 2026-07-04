@@ -49,8 +49,9 @@ pub struct GlobalFlags {
     pub cwd: Option<String>,
 
     /// Reject paths that escape the working directory (via `../`, absolute
-    /// paths, or outside symlinks). Default CLI mode is unrestricted; use
-    /// this for agent sandboxes. MCP always enforces containment.
+    /// paths, or outside symlinks) for reads and writes. Default CLI mode is
+    /// unrestricted; use this for agent sandboxes. MCP always enforces
+    /// containment.
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub contain: bool,
 
@@ -320,6 +321,27 @@ impl GlobalFlags {
         )
         .map(Some)
         .map_err(|e| anyhow::anyhow!("failed to initialize --contain path guard: {e}"))
+    }
+
+    /// When `--contain` is set, reject every path that escapes the workspace.
+    ///
+    /// Used by read-side commands (`search`, `read`) and as an early gate on
+    /// write commands that scan before staging. No-op when containment is off.
+    pub fn check_paths_contained(
+        &self,
+        cwd: &std::path::Path,
+        paths: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> anyhow::Result<()> {
+        let Some(guard) = self.workspace_guard(cwd)? else {
+            return Ok(());
+        };
+        for p in paths {
+            let p = p.as_ref();
+            guard
+                .check_path(p)
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+        }
+        Ok(())
     }
 
     /// Emit a serializable value to stdout in structured format.

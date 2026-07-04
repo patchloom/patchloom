@@ -140,8 +140,8 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:contain -->
 ### `--contain`
 
-- **What it does:** Rejects file paths that escape the working directory (via `../`, absolute paths outside the policy, or symlinks that resolve outside the workspace). Mirrors MCP / library `PathGuard` behavior for **all CLI write paths**, including engine-backed commands (`create`, `delete`, `replace`, `patch`, `md`, `doc`, `tidy`, text `rename`, `tx` / `batch`) and callback-only mutations (binary and case-only `rename`).
-- **Use when:** An agent or automation should not be able to write outside `--cwd` (or the process cwd). Pair with `--cwd` for a workspace root.
+- **What it does:** Rejects file paths that escape the working directory (via `../`, absolute paths outside the policy, or symlinks that resolve outside the workspace). Mirrors MCP / library `PathGuard` for **reads and writes**: explicit paths on `search` / `read` / `replace` / `create` / `delete` / `rename` / `append` / `prepend` / `patch` / `md` / `doc` / `tidy` / `tx` / `batch` (including binary/case-only rename).
+- **Use when:** An agent or automation should not be able to read or write outside `--cwd` (or the process cwd). Pair with `--cwd` for a workspace root.
 - **Default:** Off. CLI remains unrestricted for human scripts (same trust model as `make` / `sh`).
 - **Prefer instead:** Use the MCP server when the agent already has MCP tools; containment is always on there.
 
