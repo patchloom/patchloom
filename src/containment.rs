@@ -225,7 +225,7 @@ impl PathGuard {
         }
 
         // Syntactic depth-tracking check (no I/O). Relative always against primary root.
-        validate_relative_depth(path, p)?;
+        validate_relative_depth(path, p, &self.root)?;
 
         // Symlink-aware containment check (primary root).
         self.check_resolved_relative(path)
@@ -368,7 +368,11 @@ impl PathGuardBuilder {
 
 /// Syntactic depth check: walk path components, reject if `../` takes
 /// depth below zero (escaping the root).
-fn validate_relative_depth(path: &str, p: &Path) -> Result<(), ContainmentError> {
+///
+/// `root` is included in [`ContainmentError::Escaped`] so CLI `--contain`
+/// and MCP errors show which workspace was enforced (MPI cycle 16; previously
+/// the message always printed `workspace: ` with an empty root).
+fn validate_relative_depth(path: &str, p: &Path, root: &Path) -> Result<(), ContainmentError> {
     let mut depth: i32 = 0;
     for component in p.components() {
         match component {
@@ -377,7 +381,7 @@ fn validate_relative_depth(path: &str, p: &Path) -> Result<(), ContainmentError>
                 if depth < 0 {
                     return Err(ContainmentError::Escaped {
                         path: path.to_string(),
-                        root: String::new(),
+                        root: root.display().to_string(),
                     });
                 }
             }
@@ -388,7 +392,7 @@ fn validate_relative_depth(path: &str, p: &Path) -> Result<(), ContainmentError>
             _ => {
                 return Err(ContainmentError::Escaped {
                     path: path.to_string(),
-                    root: String::new(),
+                    root: root.display().to_string(),
                 });
             }
         }
@@ -665,8 +669,27 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("escapes workspace") && msg.contains("../../secret"),
+            msg.contains("escapes workspace")
+                && msg.contains("../../secret")
+                && msg.contains("/home/user"),
             "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn parent_escape_error_includes_workspace_root() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+        let err = guard.check_path("../escape.txt").unwrap_err();
+        let msg = err.to_string();
+        let root_disp = dir.path().display().to_string();
+        assert!(
+            msg.contains("escapes") && msg.contains(&root_disp),
+            "escape error must name workspace root {root_disp:?}, got: {msg}"
+        );
+        assert!(
+            !msg.contains("(workspace: )"),
+            "must not print empty workspace root: {msg}"
         );
     }
 
