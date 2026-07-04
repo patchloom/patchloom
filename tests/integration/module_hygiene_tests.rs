@@ -1,5 +1,5 @@
 //! Module layout and size-policy hygiene for the structural rewrite program
-//! (#1372 / #1376).
+//! (#1372 / #1376). Remaining domain monofiles are tracked in #1408.
 
 use std::fs;
 use std::path::PathBuf;
@@ -9,11 +9,14 @@ fn repo_root() -> PathBuf {
 }
 
 /// Production sources (excluding co-located `tests.rs` / `*_tests.rs`) over
-/// 1000 lines must carry an explicit size-waiver linked to #1376.
+/// 1000 lines must carry an explicit `size-waiver:` linked to an open tracker
+/// issue (currently #1408; historically #1376).
 #[test]
 fn large_production_src_files_have_size_waiver() {
     let src_root = repo_root().join("src");
     let mut offenders = Vec::new();
+    // Require a GitHub issue reference so waivers stay tracked (not free-form).
+    let issue_ref = regex::Regex::new(r"size-waiver:.*#\d+").unwrap();
 
     for entry in walkdir_rs_files(&src_root) {
         let path = entry;
@@ -26,9 +29,9 @@ fn large_production_src_files_have_size_waiver() {
         if lines <= 1000 {
             continue;
         }
-        if !text.contains("size-waiver:") || !text.contains("#1376") {
+        if !issue_ref.is_match(&text) {
             offenders.push(format!(
-                "{} ({} lines) missing size-waiver #1376",
+                "{} ({} lines) missing `size-waiver: ... #NNNN`",
                 path.strip_prefix(repo_root()).unwrap().display(),
                 lines
             ));
@@ -37,7 +40,7 @@ fn large_production_src_files_have_size_waiver() {
 
     assert!(
         offenders.is_empty(),
-        "large production files need `size-waiver: ... #1376`:\n{}",
+        "large production files need `size-waiver: ... #NNNN` (see #1408):\n{}",
         offenders.join("\n")
     );
 }

@@ -1,4 +1,4 @@
-// size-waiver: domain bulk, see #1376. YAML comment-preserving splice is cohesive domain logic; further split risks dual writers.
+// size-waiver: domain bulk, see #1408. YAML comment-preserving splice is cohesive domain logic; further split risks dual writers.
 /// Check if there are any arrays that grew between `old` and `new`.
 pub(super) fn has_array_growth_diffs(old: &serde_json::Value, new: &serde_json::Value) -> bool {
     if old == new {
