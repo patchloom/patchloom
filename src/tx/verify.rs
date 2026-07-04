@@ -7,7 +7,9 @@
 #[cfg(feature = "ast")]
 use crate::ast::{Language, symbols};
 use crate::plan::VerifyCheck;
-use std::collections::{HashMap, HashSet};
+#[cfg(feature = "ast")]
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// Snapshot of symbol counts per file, keyed by file path.
@@ -296,6 +298,7 @@ fn capitalize(s: &str) -> String {
 }
 
 /// Result of a verification comparison.
+#[cfg(feature = "ast")]
 #[derive(Debug)]
 pub(crate) struct VerifyResult {
     pub(crate) passed: bool,
