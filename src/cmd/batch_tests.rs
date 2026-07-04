@@ -522,6 +522,7 @@ mod doc_completeness {
     }
 
     #[test]
+    #[cfg(feature = "ast")]
     fn doc_comment_lists_ast_rename_and_replace() {
         // #1178: AST operations must be documented in the batch help text.
         let result = parse_line(r#"ast.rename test.rs old_fn new_fn"#, 1);
