@@ -40,9 +40,11 @@ pub(crate) fn validate_and_prepare_plan(
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
+        crate::verbose!("tx: plan validation failed: {msg}");
         return Err(Box::new(build_error_output("parse_error", &msg, None)));
     }
     if let Err(e) = validate_plan_operations(plan) {
+        crate::verbose!("tx: plan operation validation failed: {e}");
         return Err(Box::new(build_error_output(
             "parse_error",
             &e.to_string(),
@@ -280,6 +282,89 @@ mod tests {
         assert_eq!(
             resolve_plan_cwd(base, Some("/other/dir")),
             PathBuf::from("/other/dir")
+        );
+    }
+
+    // ---- validate_and_prepare_plan ----
+
+    fn minimal_plan(version: u32) -> crate::plan::Plan {
+        crate::plan::Plan {
+            version,
+            cwd: None,
+            operations: vec![crate::plan::Operation::Read {
+                path: "test.txt".into(),
+                lines: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        }
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_rejects_unsupported_version() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let plan = minimal_plan(999);
+        let err = validate_and_prepare_plan(&plan, dir.path(), false).unwrap_err();
+        assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
+        let msg = err.error.as_deref().unwrap_or("");
+        assert!(
+            msg.contains("unsupported plan version") && msg.contains("999"),
+            "expected version error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_accepts_current_version() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        let (cwd, _strict, _global) =
+            validate_and_prepare_plan(&plan, dir.path(), false).expect("valid plan must prepare");
+        assert_eq!(cwd, dir.path());
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_rejects_invalid_operation() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // whole_line + multiline is rejected by validate_operation.
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::Replace {
+                glob: None,
+                path: Some("f.txt".into()),
+                regex: false,
+                old: "a".into(),
+                new_text: Some("b".into()),
+                nth: None,
+                insert_before: None,
+                insert_after: None,
+                case_insensitive: false,
+                multiline: true,
+                if_exists: false,
+                whole_line: true,
+                range: None,
+                word_boundary: false,
+                before_context: None,
+                after_context: None,
+                unique: false,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        let err = validate_and_prepare_plan(&plan, dir.path(), false).unwrap_err();
+        assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
+        let msg = err.error.as_deref().unwrap_or("");
+        assert!(
+            msg.contains("whole_line") && msg.contains("multiline"),
+            "expected mutual-exclusion error, got: {msg}"
         );
     }
 

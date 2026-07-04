@@ -64,6 +64,7 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 |---------|-----|
 | `make fmt-check` | Run `make fmt` to auto-format, then re-run `make check`. |
 | `make clippy` | Address the specific warning shown in the output. Clippy treats all warnings as errors (`-D warnings`). |
+| `make test-mcp-no-ast` | MCP inventory/router/instructions must stay honest without the `ast` feature. Fix `surface.rs` / `handlers.rs` feature gates and re-run `make test-mcp-no-ast`. |
 | `make check-patchloom-md` | The agent-rules output changed. Run `make sync-patchloom-md` to regenerate `PATCHLOOM.md`. |
 | `make check-readme` | Test counts drifted. Run `make update-readme` to refresh `README.md`. |
 
