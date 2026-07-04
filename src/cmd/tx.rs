@@ -350,19 +350,25 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // 4. Execute all operations, collecting changes in memory (no writes).
     let engine_ctx = crate::tx::context::EngineContext::from_global(global, cwd.clone());
-    let mut result =
-        match crate::tx::execute_and_collect(&plan, &engine_ctx, global.quiet, structured, None) {
-            Ok(r) => r,
-            Err(e) => {
-                let msg = e.to_string();
-                if structured {
-                    emit_error_json("operation_failed", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::OPERATION_FAILED);
+    let guard = global.workspace_guard(&cwd)?;
+    let mut result = match crate::tx::execute_and_collect(
+        &plan,
+        &engine_ctx,
+        global.quiet,
+        structured,
+        guard.as_ref(),
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = e.to_string();
+            if structured {
+                emit_error_json("operation_failed", &msg, None, compact);
+            } else {
+                eprintln!("tx: {msg}");
             }
-        };
+            return Ok(exit::OPERATION_FAILED);
+        }
+    };
 
     // 4b. Post-execution verification against pending content.
     #[cfg(feature = "ast")]

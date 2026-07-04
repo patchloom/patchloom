@@ -118,6 +118,79 @@ mod tests {
     }
 
     #[test]
+    fn create_with_contain_rejects_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        let args = CreateArgs {
+            file: "../escape-outside.txt".into(),
+            content: Some("nope\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let err = run(args, &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes") || msg.contains("rejected"),
+            "expected containment error, got: {msg}"
+        );
+        assert!(!dir.path().join("../escape-outside.txt").exists());
+    }
+
+    #[test]
+    fn create_without_contain_allows_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        let name = format!(
+            "patchloom-create-escape-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        );
+        let args = CreateArgs {
+            file: format!("../{name}"),
+            content: Some("escaped\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::with_cwd(dir.path());
+        global.apply = true;
+        // contain defaults to false
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let outside = dir.path().parent().unwrap().join(&name);
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "escaped\n");
+        let _ = fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn create_with_contain_allows_in_workspace_relative_path() {
+        let dir = TempDir::new().unwrap();
+        let args = CreateArgs {
+            file: "inside.txt".into(),
+            content: Some("ok\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("inside.txt")).unwrap(),
+            "ok\n"
+        );
+    }
+
+    #[test]
     fn create_refuses_to_overwrite_existing_file_without_force() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("existing.txt");
