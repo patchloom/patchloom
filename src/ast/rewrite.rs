@@ -5,7 +5,7 @@
 //! [`rewrite_function_signature`] with [`FunctionSigEdit`] for structured
 //! multi-language edits (visibility, parameters, return type).
 //!
-//! size-waiver: domain bulk, see #1408. Multi-language function signature rewrite domain; tests co-located in module.
+//! size-waiver: accepted single-domain bulk (policy #1408). Multi-language function signature rewrite; tests co-located; do not split for LOC alone.
 
 use super::symbol_extract::innermost_qualified_name;
 use super::{Language, child_text_by_kind, child_text_by_kinds, parse_source};

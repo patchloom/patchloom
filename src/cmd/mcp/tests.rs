@@ -1,4 +1,4 @@
-// size-waiver: co-located MCP unit tests, see #1408. Intentionally co-located with the server module for shared test helpers; not unfinished Phase 4 work.
+// size-waiver: co-located MCP unit tests (policy #1408). Intentionally co-located with the server module for shared helpers; not unfinished Phase 4 work.
 use super::*;
 use rmcp::ServiceExt;
 

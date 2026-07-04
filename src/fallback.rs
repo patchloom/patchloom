@@ -57,7 +57,7 @@
 //! assert!(result.valid);
 //! ```
 //!
-//! size-waiver: domain bulk, see #1408. Multi-strategy edit recovery chain is one conceptual unit.
+//! size-waiver: accepted single-domain bulk (policy #1408). Multi-strategy edit recovery chain is one conceptual unit; do not split for LOC alone.
 
 use serde::{Deserialize, Serialize};
 
