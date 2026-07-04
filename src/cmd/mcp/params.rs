@@ -68,6 +68,8 @@ pub(crate) struct DocGetParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Dot-notation selector path for the value to read (e.g., "version", "db.pool").
+    /// Alias `key` accepted so agents that emit the LLM-prior field name still work.
+    #[serde(alias = "key")]
     pub selector: String,
 }
 
@@ -166,6 +168,8 @@ pub(crate) struct DocQueryParams {
     /// File path (relative to working directory).
     pub path: String,
     /// Dot-notation selector path to query. Required for has/keys/len/select; ignored for flatten.
+    /// Alias `key` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "key")]
     pub selector: Option<String>,
 }
 
@@ -608,4 +612,24 @@ pub(crate) struct ExecutePlanParams {
     /// Overrides plan's strict field if provided.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn doc_get_params_accept_key_alias() {
+        let p: DocGetParams = serde_json::from_str(r#"{"path":"config.toml","key":"server.port"}"#)
+            .expect("key alias must deserialize");
+        assert_eq!(p.selector, "server.port");
+    }
+
+    #[test]
+    fn doc_query_params_accept_key_alias() {
+        let p: DocQueryParams =
+            serde_json::from_str(r#"{"action":"has","path":"config.toml","key":"server.port"}"#)
+                .expect("key alias must deserialize");
+        assert_eq!(p.selector.as_deref(), Some("server.port"));
+    }
 }

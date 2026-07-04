@@ -78,6 +78,8 @@ For complex plans needing format/validate lifecycle, regex replace, or `--nth`, 
 patchloom tx plan.json --apply
 ```
 
+In plan JSON, doc ops use the field name `selector` (not `key`). `key` is accepted as an alias if a model emits it, but prefer `selector`.
+
 ## Structured edits
 
 ```bash
