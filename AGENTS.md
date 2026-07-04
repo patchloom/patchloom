@@ -382,7 +382,14 @@ grep -ri "tool_name" --include="*.md" --include="*.rs" --include="*.json" .
 - `ast::rewrite` — function signature rewrite helpers (use this path only; `ast::symbols` no longer re-exports them, #1386).
 - Shared position parsers: `ast::group::parse_group_position`, `ast::move_symbols::parse_position` (tx must call these, not re-parse `after:`).
 
-Production files over 1000 lines must carry `size-waiver: … #1376` (enforced by `module_hygiene_tests`).
+## Module size (hygiene, not a split mandate)
+
+The 1000-line check in `module_hygiene_tests` is a **multi-concern alert**, not a requirement to split single-domain files.
+
+- Prefer **one conceptual unit per module**. Cohesive domain logic (edit fallback chain, YAML comment-preserving splice, multi-language signature rewrite) and co-located MCP unit tests may stay large.
+- Production sources over ~1000 lines (excluding co-located `tests.rs` / `*_tests.rs`) need a short `size-waiver: … #NNNN` note naming the domain reason and a policy/history issue for provenance (enforced by `module_hygiene_tests`). Closed issues are fine (policy decision, not open tech-debt).
+- **Do not** split only to shrink line counts. Vanity splits that create dual writers, re-export noise, or weaker navigation are a net loss (see closed #1408).
+- Split when a **natural seam** appears during real work (a second independent subsystem), not because a counter crossed a threshold.
 
 ## Coding conventions
 
