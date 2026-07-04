@@ -31,15 +31,17 @@ fn server_instructions() -> String {
          - File ops: create_file, read_file, delete_file, move_file, append_file, \
          prepend_file, fix_whitespace, batch_tidy, git_status\n",
     );
+    // Continuation lines after `\` discard leading whitespace. Start each
+    // push_str body on the category marker so we do not inject indent spaces.
     #[cfg(feature = "ast")]
     s.push_str(
-        "         - AST ops (code-aware, 20 languages): ast_list, ast_read, ast_rename, \
+        "- AST ops (code-aware, 20 languages): ast_list, ast_read, ast_rename, \
          ast_replace, ast_search, ast_refs, ast_impact, ast_deps, ast_diff, ast_imports, \
          ast_insert, ast_wrap, ast_move, ast_reorder, ast_group, ast_extract_to_file, \
          ast_split, ast_map, ast_validate\n",
     );
     s.push_str(
-        "         - Plan ops: execute_plan\n\
+        "- Plan ops: execute_plan\n\
          - Server: server_info\n\n\
          Use doc_* tools for parser-backed JSON/YAML/TOML mutations by selector path \
          (e.g. doc_set for setting values, doc_merge for merging objects). Use replace_text \

@@ -217,14 +217,25 @@ mod basic {
             "instructions must mention Text ops category"
         );
         #[cfg(feature = "ast")]
-        assert!(
-            instructions.contains("AST ops"),
-            "instructions must mention AST ops category when ast is enabled"
-        );
+        {
+            assert!(
+                instructions.contains("AST ops"),
+                "instructions must mention AST ops category when ast is enabled"
+            );
+            // No accidental indent from push_str bodies (cycle 5 honesty).
+            assert!(
+                instructions.contains("\n- AST ops"),
+                "AST category line must not have leading indent spaces"
+            );
+        }
         #[cfg(not(feature = "ast"))]
         assert!(
             !instructions.contains("AST ops"),
             "instructions must not advertise AST ops without the ast feature"
+        );
+        assert!(
+            instructions.contains("\n- Plan ops"),
+            "Plan category line must not have leading indent spaces"
         );
         assert!(
             instructions.contains("File ops"),
