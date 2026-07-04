@@ -231,8 +231,8 @@ fn parse_all_operation_variants() {
     assert_eq!(plan.operations.len(), 45);
 }
 
-/// The CLI uses `selector` as the positional arg name for doc ops,
-/// but the Operation struct field is `key`. Both names must parse.
+/// Canonical plan field is `selector` (matches CLI help). Alias `key` must
+/// still parse so older plans and agents do not fail with "missing field".
 #[test]
 fn parse_doc_ops_with_selector_field() {
     let json = r#"{"version": 1, "operations": [
@@ -250,6 +250,31 @@ fn parse_doc_ops_with_selector_field() {
         assert_eq!(selector, "a.b");
     } else {
         panic!("expected DocSet");
+    }
+}
+
+/// Runtime scenario (fixrealloop): plan using legacy field name `key` must parse.
+#[test]
+fn parse_doc_ops_with_legacy_key_alias() {
+    let json = r#"{"version": 1, "operations": [
+            {"op": "doc.set", "path": "f.json", "key": "a.b", "value": 1},
+            {"op": "doc.delete", "path": "f.json", "key": "a.b"},
+            {"op": "doc.append", "path": "f.json", "key": "arr", "value": 1},
+            {"op": "doc.prepend", "path": "f.json", "key": "arr", "value": 0},
+            {"op": "doc.update", "path": "f.json", "key": "a.b", "value": 2},
+            {"op": "doc.ensure", "path": "f.json", "key": "a.b", "value": 1},
+            {"op": "doc.delete_where", "path": "f.json", "key": "arr", "predicate": "x=1"}
+        ]}"#;
+    let plan = parse_plan(json).unwrap();
+    assert_eq!(plan.operations.len(), 7);
+    if let Operation::DocSet {
+        selector, value, ..
+    } = &plan.operations[0]
+    {
+        assert_eq!(selector, "a.b");
+        assert_eq!(value, &serde_json::json!(1));
+    } else {
+        panic!("expected DocSet from key alias");
     }
 }
 

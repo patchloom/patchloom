@@ -58,6 +58,8 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path (e.g. "server.port", "env.0.value").
+        /// Alias `key` kept for older plans and agents that used the prior field name.
+        #[serde(alias = "key")]
         selector: String,
         /// Value to set (any JSON type).
         value: serde_json::Value,
@@ -67,6 +69,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path to delete.
+        #[serde(alias = "key")]
         selector: String,
     },
     #[serde(rename = "doc.merge")]
@@ -81,6 +84,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path to an array.
+        #[serde(alias = "key")]
         selector: String,
         /// Value to append to the array.
         value: serde_json::Value,
@@ -90,6 +94,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path to an array.
+        #[serde(alias = "key")]
         selector: String,
         /// Value to prepend to the array.
         value: serde_json::Value,
@@ -99,6 +104,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path (supports wildcards and predicates).
+        #[serde(alias = "key")]
         selector: String,
         /// New value for all matching locations.
         value: serde_json::Value,
@@ -117,6 +123,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path.
+        #[serde(alias = "key")]
         selector: String,
         /// Value to set only if the key does not already exist.
         value: serde_json::Value,
@@ -126,6 +133,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path to an array.
+        #[serde(alias = "key")]
         selector: String,
         /// Predicate in "field=value" format to match elements for deletion.
         predicate: String,
