@@ -65,14 +65,17 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         out.push_str(
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
              tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
-             JSON/YAML/TOML) and handle whitespace cleanup in one call. Prefer MCP over the \
-             CLI when path containment matters: MCP rejects workspace escapes; the CLI does not.\n\n",
+             JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects \
+             workspace escapes. CLI is unrestricted by default; use \
+             `patchloom --cwd <ws> --contain …` for the same PathGuard rules on CLI writes.\n\n",
         );
     }
     if show_cli {
         out.push_str(
             "**Decision rule: if you are about to make 3+ tool calls for file edits, use \
-             `patchloom batch` instead.** One call replaces N round-trips.\n\n",
+             `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes \
+             that shell out to the CLI, pass `--contain` (with `--cwd`) so paths cannot escape \
+             the workspace.\n\n",
         );
     }
 
@@ -454,6 +457,28 @@ mod tests {
         assert!(out.contains("## Structured edits"));
         // CLI-only mode keeps the "native tools are faster" note
         assert!(out.contains("native agent tools are faster"));
+    }
+
+    #[test]
+    fn mode_all_documents_cli_contain_flag() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        assert!(
+            out.contains("--contain"),
+            "combined MCP+CLI rules must document --contain for CLI sandboxes"
+        );
+        assert!(
+            !out.contains("the CLI does not"),
+            "must not claim CLI has no containment after --contain shipped"
+        );
+    }
+
+    #[test]
+    fn mode_cli_documents_contain_for_agent_sandboxes() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("--contain"),
+            "CLI-only rules must mention --contain for agent sandboxes"
+        );
     }
 
     #[test]

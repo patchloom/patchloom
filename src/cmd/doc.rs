@@ -715,7 +715,8 @@ fn execute_with_mode_inner(
             }
         }
 
-        // Write-mode subcommands are dispatched through execute_write() via run().
+        // Write-mode subcommands are dispatched through run() (engine-backed
+        // via execute_via_engine / stage_for_write, not write_dispatch).
         _ => {
             anyhow::bail!("write operations require the run() entry point")
         }

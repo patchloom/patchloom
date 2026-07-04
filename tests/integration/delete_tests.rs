@@ -341,3 +341,60 @@ fn test_delete_default_mode_exits_2() {
 
     assert!(file.exists(), "file should not be deleted in default mode");
 }
+
+// ---------------------------------------------------------------------------
+// --contain on delete (engine-backed path) (#1406 follow-up / MPI QA)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_delete_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-delete-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "do not delete\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "delete",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(
+        outside.exists(),
+        "contain must not delete outside workspace"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_delete_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "bye\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "delete", "inside.txt", "--apply"])
+        .assert()
+        .code(0);
+
+    assert!(!dir.path().join("inside.txt").exists());
+}
