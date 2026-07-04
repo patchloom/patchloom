@@ -976,3 +976,56 @@ fn test_search_jsonl_no_match_emits_valid_jsonl() {
     assert_eq!(parsed["file_count"], 0);
     assert!(parsed["matches"].as_array().unwrap().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// --contain on search (read-side sandbox) (MPI cycle 18)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_search_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-search-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "SECRET_VALUE=x\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "search",
+            "SECRET_VALUE",
+            &format!("../{escape_name}"),
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_search_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "findme here\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "search", "findme", "inside.txt"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("findme"));
+}

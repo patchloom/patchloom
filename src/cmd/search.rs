@@ -106,6 +106,9 @@ pub(crate) fn collect_matches(
         args.paths
     );
     let cwd = global.resolve_cwd()?;
+    // --contain applies to search paths (agent sandbox must not read secrets
+    // outside the workspace; MPI cycle 18).
+    global.check_paths_contained(&cwd, &args.paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let matcher = ops_search::build_matcher(
         &args.pattern,

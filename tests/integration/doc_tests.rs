@@ -2217,3 +2217,38 @@ fn test_doc_len_not_array_or_object_returns_failure() {
 // ---------------------------------------------------------------------------
 // Symlink integration tests (#231 coverage)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn test_doc_get_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-doc-escape-{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, r#"{"secret":1}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "doc",
+            "get",
+            &format!("../{escape_name}"),
+            "secret",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}

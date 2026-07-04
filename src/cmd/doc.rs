@@ -768,6 +768,17 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Read-only operations: resolve file paths for direct filesystem access.
     let cwd = global.resolve_cwd()?;
+    // --contain on read-only doc paths (writes use execute_via_engine guard).
+    match &args.action {
+        DocAction::Diff { file_a, file_b } => {
+            global.check_paths_contained(&cwd, [file_a.as_str(), file_b.as_str()])?;
+        }
+        _ => {
+            if let Some(p) = args.action.file_path() {
+                global.check_paths_contained(&cwd, [p])?;
+            }
+        }
+    }
     args.action.resolve_files(&cwd);
 
     let output_mode = if global.json {

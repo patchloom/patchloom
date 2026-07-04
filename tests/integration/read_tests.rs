@@ -500,3 +500,51 @@ async fn test_mcp_symlink_within_cwd_allowed() {
 // ---------------------------------------------------------------------------
 // Permission error integration tests (unix only)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// --contain on read (read-side sandbox) (MPI cycle 18)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_read_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-read-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "SECRET\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "read", &format!("../{escape_name}")])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_read_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "read", "inside.txt"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("hello"));
+}

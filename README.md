@@ -111,7 +111,7 @@ Agent: batch with
 | **AST-aware code ops** | List, rename, replace, and analyze symbols across 20 languages | `ast rename src/ old_name new_name --apply` |
 | **Atomic rollback** | `strict: true` reverts every file if format or validate steps fail | `tx plan.json --apply` |
 | **MCP server** | Expose all operations as structured MCP tool calls | `patchloom mcp-server` |
-| **Optional CLI sandbox** | Reject `../` / absolute path escapes from `--cwd` (off by default; MCP always on) | `patchloom --cwd <ws> --contain create … --apply` |
+| **Optional CLI sandbox** | Reject `../` / absolute path escapes from `--cwd` on reads and writes (off by default; MCP always on) | `patchloom --cwd <ws> --contain search …` / `create … --apply` |
 | **Cross-platform** | Identical behavior on Linux, macOS, Windows. No `sed`, `jq`, `grep` required. | Same binary everywhere |
 
 ### When to use patchloom vs native tools
