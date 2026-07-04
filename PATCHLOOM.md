@@ -47,6 +47,20 @@ Use patchloom when:
 - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.
 - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.
 
+## Canonical parameter names
+
+Use these names in plans, MCP args, and CLI flags (do not invent alternates):
+
+| Concept | Canonical name | Notes |
+|---------|----------------|-------|
+| Text/identifier before | `old` | CLI: `--old`. Plans/MCP: `"old"`. |
+| Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `"new"`. |
+| Doc path into a document | `selector` | CLI positional. Plans/MCP: `"selector"`. |
+| AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |
+| Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
+
+Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector) so older agent prompts keep working, but examples and new plans must use the canonical names above.
+
 ## Batching (the main speed win)
 
 Six file edits via native tools = six round-trips. One `batch` call = one round-trip:

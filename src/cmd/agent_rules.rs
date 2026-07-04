@@ -138,6 +138,21 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
+    // Canonical parameter names (same on CLI flags, tx/MCP JSON, and batch positionals).
+    out.push_str(
+        "## Canonical parameter names\n\n\
+         Use these names in plans, MCP args, and CLI flags (do not invent alternates):\n\n\
+         | Concept | Canonical name | Notes |\n\
+         |---------|----------------|-------|\n\
+         | Text/identifier before | `old` | CLI: `--old`. Plans/MCP: `\"old\"`. |\n\
+         | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `\"new\"`. |\n\
+         | Doc path into a document | `selector` | CLI positional. Plans/MCP: `\"selector\"`. |\n\
+         | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |\n\
+         | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
+         Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector) \
+         so older agent prompts keep working, but examples and new plans must use the canonical names above.\n\n",
+    );
+
     // Batching section
     if show_cli {
         out.push_str("## Batching (the main speed win)\n\n\

@@ -300,6 +300,37 @@ fn parse_replace_ops_with_from_to_aliases() {
     }
 }
 
+/// Canonical ast.rename fields are `old`/`new` (same as replace / ast.replace).
+#[cfg(feature = "ast")]
+#[test]
+fn parse_ast_rename_with_old_new() {
+    let json = r#"{"version": 1, "operations": [
+            {"op": "ast.rename", "path": "lib.rs", "old": "Foo", "new": "Bar"}
+        ]}"#;
+    let plan = parse_plan(json).unwrap();
+    if let Operation::AstRename { path, old, new, .. } = &plan.operations[0] {
+        assert_eq!(path, "lib.rs");
+        assert_eq!(old, "Foo");
+        assert_eq!(new, "Bar");
+    } else {
+        panic!("expected AstRename with old/new");
+    }
+}
+
+/// Legacy plan keys old_name/new_name are not co-equal API (consistency rename).
+#[cfg(feature = "ast")]
+#[test]
+fn parse_ast_rename_rejects_legacy_old_name_fields() {
+    let json = r#"{"version": 1, "operations": [
+            {"op": "ast.rename", "path": "lib.rs", "old_name": "Foo", "new_name": "Bar"}
+        ]}"#;
+    let err = parse_plan(json).unwrap_err().to_string();
+    assert!(
+        err.contains("old") || err.contains("missing field"),
+        "expected missing field `old` (or similar), got: {err}"
+    );
+}
+
 #[test]
 fn parse_plan_with_for_each() {
     let json = r#"{
