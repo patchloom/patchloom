@@ -476,7 +476,8 @@ fn expected_reference_markers() -> Vec<String> {
     for name in collect_enum_variant_cli_names(&cmd_dir.join("patch.rs"), "pub enum PatchAction") {
         markers.insert(format!("patch-action:{name}"));
     }
-    for name in collect_enum_variant_cli_names(&cmd_dir.join("tidy.rs"), "pub enum TidyAction") {
+    for name in collect_enum_variant_cli_names(&cmd_dir.join("tidy/mod.rs"), "pub enum TidyAction")
+    {
         markers.insert(format!("tidy-action:{name}"));
     }
     for name in collect_struct_field_names(&plan_mod_path, "pub struct Plan") {

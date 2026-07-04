@@ -97,7 +97,8 @@ src/
   cmd/doc.rs           Parser-backed JSON, YAML, TOML operations (get, has, keys, len, set,
                        delete, merge, append, prepend, update, move, ensure, delete-where,
                        select, flatten, diff)
-  cmd/tidy.rs          Final newline, line ending, and trailing whitespace normalization
+  cmd/tidy/            Final newline, line ending, and trailing whitespace normalization
+                         (mod dispatch; check scan/report; fix scan+stage+finalize)
   cmd/create.rs        Create a new file with content
   cmd/read.rs          Read file contents with optional line range
   cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
