@@ -110,17 +110,27 @@ mod basic {
         );
         assert!(names.contains(&"append_file"), "missing append_file tool");
         assert!(names.contains(&"prepend_file"), "missing prepend_file tool");
-        assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
-        assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
-        assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
-        assert!(names.contains(&"ast_reorder"), "missing ast_reorder tool");
-        assert!(names.contains(&"ast_group"), "missing ast_group tool");
-        assert!(names.contains(&"ast_move"), "missing ast_move tool");
-        assert!(
-            names.contains(&"ast_extract_to_file"),
-            "missing ast_extract_to_file tool"
-        );
-        assert!(names.contains(&"ast_split"), "missing ast_split tool");
+        #[cfg(feature = "ast")]
+        {
+            assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
+            assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
+            assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
+            assert!(names.contains(&"ast_reorder"), "missing ast_reorder tool");
+            assert!(names.contains(&"ast_group"), "missing ast_group tool");
+            assert!(names.contains(&"ast_move"), "missing ast_move tool");
+            assert!(
+                names.contains(&"ast_extract_to_file"),
+                "missing ast_extract_to_file tool"
+            );
+            assert!(names.contains(&"ast_split"), "missing ast_split tool");
+        }
+        #[cfg(not(feature = "ast"))]
+        {
+            assert!(
+                !names.iter().any(|n| n.starts_with("ast_")),
+                "ast tools must not appear without the ast feature: {names:?}"
+            );
+        }
         assert!(
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"

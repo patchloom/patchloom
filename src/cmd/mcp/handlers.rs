@@ -30,7 +30,16 @@ use super::{
 /// This wraps the `#[tool_router]`-generated private `tool_router()` method
 /// so it can be called from the parent module (`PatchloomService::new`).
 pub(super) fn new_tool_router() -> ToolRouter<PatchloomService> {
-    PatchloomService::tool_router()
+    #[cfg(feature = "ast")]
+    {
+        let mut router = PatchloomService::tool_router();
+        router.merge(PatchloomService::ast_tool_router());
+        router
+    }
+    #[cfg(not(feature = "ast"))]
+    {
+        PatchloomService::tool_router()
+    }
 }
 
 #[tool_router]
@@ -582,238 +591,6 @@ impl PatchloomService {
     // doc_*, read_file, md section mutators, file_* mutators, and fix_whitespace
     // are auto-generated from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
-    // -----------------------------------------------------------------
-    // AST tools (feature-gated)
-    // -----------------------------------------------------------------
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "List symbol definitions (functions, classes, structs, enums, methods, etc.) in a file or directory. Supports 20 languages. Example: {\"path\": \"src/\"} or {\"path\": \"main.py\", \"kind\": \"function,class\"}"
-    )]
-    async fn ast_list(
-        &self,
-        Parameters(p): Parameters<AstListParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_list(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Read a specific symbol's source code by name from a file. Uses AST parsing to find the exact definition. Example: {\"path\": \"src/main.rs\", \"symbol\": \"run\"}"
-    )]
-    async fn ast_read(
-        &self,
-        Parameters(p): Parameters<AstReadParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_read(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"old_name\": \"process_data\", \"new_name\": \"transform_data\", \"path\": \"src/\"}"
-    )]
-    async fn ast_rename(
-        &self,
-        Parameters(p): Parameters<AstRenameParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_rename(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Validate syntax of source files. Returns parse errors with line numbers. Supports 20 languages. Example: {\"path\": \"src/main.rs\"}"
-    )]
-    async fn ast_validate(
-        &self,
-        Parameters(p): Parameters<AstValidateParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_validate(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Structural search using AST queries. Use S-expression syntax or set pattern=true for code patterns with meta-variables ($VAR, $$$MULTI). Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
-    )]
-    async fn ast_search(
-        &self,
-        Parameters(p): Parameters<AstSearchParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_search(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Find all references to a symbol across files using AST analysis. Distinguishes definitions from references. Example: {\"symbol\": \"process_data\", \"path\": \"src/\"}"
-    )]
-    async fn ast_refs(
-        &self,
-        Parameters(p): Parameters<AstRefsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_refs(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Extract import/dependency statements from source files. Supports Rust, Python, JS/TS, Go, Java, C/C++, Ruby, PHP. Use reverse=true to find what imports a file. Example: {\"path\": \"src/main.rs\"}"
-    )]
-    async fn ast_deps(
-        &self,
-        Parameters(p): Parameters<AstDepsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_deps(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Generate a ranked repository map using PageRank over the symbol reference graph. Shows the most important symbols with token-budget-aware output. Example: {\"path\": \"src/\", \"max_tokens\": 2048}"
-    )]
-    async fn ast_map(
-        &self,
-        Parameters(p): Parameters<AstMapParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_map(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Structural diff between two versions of a file. Shows added, removed, and modified symbols (not line-level diff). Compares against git refs. Example: {\"path\": \"src/lib.rs\", \"from\": \"HEAD~1\"}"
-    )]
-    async fn ast_diff(
-        &self,
-        Parameters(p): Parameters<AstDiffParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_diff(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Transitive impact analysis: what symbols are affected by changing a given symbol. Traces the reference graph to find all direct and indirect dependents. Example: {\"symbol\": \"parse_config\", \"path\": \"src/\", \"depth\": 3}"
-    )]
-    async fn ast_impact(
-        &self,
-        Parameters(p): Parameters<AstImpactParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_impact(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
-    )]
-    async fn ast_replace(
-        &self,
-        Parameters(p): Parameters<AstReplaceParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_replace(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
-    )]
-    async fn ast_insert(
-        &self,
-        Parameters(p): Parameters<AstInsertParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_insert(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
-    )]
-    async fn ast_wrap(
-        &self,
-        Parameters(p): Parameters<AstWrapParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_wrap(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
-    )]
-    async fn ast_imports(
-        &self,
-        Parameters(p): Parameters<AstImportsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_imports(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Reorder symbols within a file or scope by name, kind, or custom order. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
-    )]
-    async fn ast_reorder(
-        &self,
-        Parameters(p): Parameters<AstReorderParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_reorder(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
-    )]
-    async fn ast_group(
-        &self,
-        Parameters(p): Parameters<AstGroupParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_group(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
-    )]
-    async fn ast_move(
-        &self,
-        Parameters(p): Parameters<AstMoveParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_move(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
-    )]
-    async fn ast_extract_to_file(
-        &self,
-        Parameters(p): Parameters<AstExtractToFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_extract_to_file(svc, p))
-            .await
-    }
-
-    #[cfg(feature = "ast")]
-    #[tool(
-        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
-    )]
-    async fn ast_split(
-        &self,
-        Parameters(p): Parameters<AstSplitParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.blocking(move |svc| ast_tools::handle_ast_split(svc, p))
-            .await
-    }
-
     #[tool(
         description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
     )]
@@ -848,4 +625,224 @@ impl PatchloomService {
 
     // move_file, append_file, create_file, and delete_file are auto-generated
     // from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
+}
+
+// AST tools: separate tool_router so mcp builds without `ast` (closes #1396).
+// The rmcp `#[tool_router]` macro does not honor `#[cfg]` on individual
+// methods, so feature-gating must be at the impl / router-merge level.
+#[cfg(feature = "ast")]
+#[tool_router(router = ast_tool_router)]
+impl PatchloomService {
+    // -----------------------------------------------------------------
+    // AST tools (feature-gated)
+    // -----------------------------------------------------------------
+
+    #[tool(
+        description = "List symbol definitions (functions, classes, structs, enums, methods, etc.) in a file or directory. Supports 20 languages. Example: {\"path\": \"src/\"} or {\"path\": \"main.py\", \"kind\": \"function,class\"}"
+    )]
+    async fn ast_list(
+        &self,
+        Parameters(p): Parameters<AstListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_list(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Read a specific symbol's source code by name from a file. Uses AST parsing to find the exact definition. Example: {\"path\": \"src/main.rs\", \"symbol\": \"run\"}"
+    )]
+    async fn ast_read(
+        &self,
+        Parameters(p): Parameters<AstReadParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_read(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"old_name\": \"process_data\", \"new_name\": \"transform_data\", \"path\": \"src/\"}"
+    )]
+    async fn ast_rename(
+        &self,
+        Parameters(p): Parameters<AstRenameParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_rename(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Validate syntax of source files. Returns parse errors with line numbers. Supports 20 languages. Example: {\"path\": \"src/main.rs\"}"
+    )]
+    async fn ast_validate(
+        &self,
+        Parameters(p): Parameters<AstValidateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_validate(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Structural search using AST queries. Use S-expression syntax or set pattern=true for code patterns with meta-variables ($VAR, $$$MULTI). Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
+    )]
+    async fn ast_search(
+        &self,
+        Parameters(p): Parameters<AstSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_search(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Find all references to a symbol across files using AST analysis. Distinguishes definitions from references. Example: {\"symbol\": \"process_data\", \"path\": \"src/\"}"
+    )]
+    async fn ast_refs(
+        &self,
+        Parameters(p): Parameters<AstRefsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_refs(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Extract import/dependency statements from source files. Supports Rust, Python, JS/TS, Go, Java, C/C++, Ruby, PHP. Use reverse=true to find what imports a file. Example: {\"path\": \"src/main.rs\"}"
+    )]
+    async fn ast_deps(
+        &self,
+        Parameters(p): Parameters<AstDepsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_deps(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Generate a ranked repository map using PageRank over the symbol reference graph. Shows the most important symbols with token-budget-aware output. Example: {\"path\": \"src/\", \"max_tokens\": 2048}"
+    )]
+    async fn ast_map(
+        &self,
+        Parameters(p): Parameters<AstMapParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_map(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Structural diff between two versions of a file. Shows added, removed, and modified symbols (not line-level diff). Compares against git refs. Example: {\"path\": \"src/lib.rs\", \"from\": \"HEAD~1\"}"
+    )]
+    async fn ast_diff(
+        &self,
+        Parameters(p): Parameters<AstDiffParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_diff(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Transitive impact analysis: what symbols are affected by changing a given symbol. Traces the reference graph to find all direct and indirect dependents. Example: {\"symbol\": \"parse_config\", \"path\": \"src/\", \"depth\": 3}"
+    )]
+    async fn ast_impact(
+        &self,
+        Parameters(p): Parameters<AstImpactParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_impact(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
+    )]
+    async fn ast_replace(
+        &self,
+        Parameters(p): Parameters<AstReplaceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_replace(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
+    )]
+    async fn ast_insert(
+        &self,
+        Parameters(p): Parameters<AstInsertParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_insert(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
+    )]
+    async fn ast_wrap(
+        &self,
+        Parameters(p): Parameters<AstWrapParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_wrap(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
+    )]
+    async fn ast_imports(
+        &self,
+        Parameters(p): Parameters<AstImportsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_imports(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Reorder symbols within a file or scope by name, kind, or custom order. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
+    )]
+    async fn ast_reorder(
+        &self,
+        Parameters(p): Parameters<AstReorderParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_reorder(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
+    )]
+    async fn ast_group(
+        &self,
+        Parameters(p): Parameters<AstGroupParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_group(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
+    )]
+    async fn ast_move(
+        &self,
+        Parameters(p): Parameters<AstMoveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_move(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
+    )]
+    async fn ast_extract_to_file(
+        &self,
+        Parameters(p): Parameters<AstExtractToFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_extract_to_file(svc, p))
+            .await
+    }
+
+    #[tool(
+        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
+    )]
+    async fn ast_split(
+        &self,
+        Parameters(p): Parameters<AstSplitParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_split(svc, p))
+            .await
+    }
 }
