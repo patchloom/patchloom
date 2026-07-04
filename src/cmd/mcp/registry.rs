@@ -1,4 +1,8 @@
 //! Auto-generated MCP tool registry mapping Operation variants to MCP tools.
+//!
+//! This is the **default** path for new write tools that map 1:1 to a plan
+//! [`crate::plan::Operation`]. Tools that cannot use this path are listed in
+//! [`super::surface::CUSTOM_MCP_TOOLS`] (MCP surface honesty).
 
 use rmcp::model::{CallToolResult, ErrorData as McpError};
 

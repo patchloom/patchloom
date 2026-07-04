@@ -9,10 +9,19 @@
 //!
 //! - [`validation`] - Resource limits and input validation helpers.
 //! - [`registry`]   - Auto-generated tool registry (1:1 Operation mappings).
-//! - [`handlers`]   - Hand-written `#[tool]` handler implementations.
+//! - [`surface`]    - Registry vs custom tool inventory (MCP surface honesty).
+//! - [`handlers`]   - Hand-written `#[tool]` handlers (must be listed in `surface`).
 //! - [`transport`]  - `ServerHandler` impl and server startup (stdio/HTTP).
 //! - [`params`]     - Parameter structs for hand-written MCP tools.
 //! - [`ast_tools`]  - AST MCP handler implementations (feature-gated).
+//!
+//! ## Surface policy
+//!
+//! **Registry is the default** for 1:1 write `Operation` tools. **Custom
+//! handlers are the exception** and must be justified in
+//! [`surface::CUSTOM_MCP_TOOLS`]. Do not migrate multi-file search/replace,
+//! batch tools, full plans, or AST analyze tools into the registry just to
+//! shrink the custom count.
 
 use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
 use rmcp::handler::server::tool::ToolCallContext;
@@ -31,6 +40,7 @@ use crate::plan::{Operation, Plan};
 mod handlers;
 mod params;
 mod registry;
+mod surface;
 mod transport;
 mod validation;
 

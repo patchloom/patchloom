@@ -75,6 +75,17 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 
 ## Available tools
 
+Patchloom exposes **two registration paths** for MCP tools (see
+`src/cmd/mcp/surface.rs` for the inventory and policy):
+
+| Path | Rule | Examples |
+|------|------|----------|
+| **Registry** (default) | 1:1 with a plan write `Operation`; schema from the variant | `doc_set`, `create_file`, `fix_whitespace`, most `md_*` writers |
+| **Custom** (justified exception) | Multi-file scan, multi-op/batch/plan, readonly query, AST analyze, patch/meta | `search_files`, `replace_text`, `batch_*`, `execute_plan`, `doc_get` / `doc_query`, all `ast_*` |
+
+Prefer the registry for new simple write tools. Do not force custom tools into
+the registry when that would lose multi-file, batch, or read UX.
+
 | Tool | Description |
 |------|-------------|
 | `doc_set` | Set a value by selector path in a JSON, YAML, or TOML file |
@@ -129,7 +140,7 @@ Any MCP client that supports stdio transport can connect by spawning `patchloom 
 | `ast_reorder` | Reorder symbols by strategy: alphabetical, reverse, kind-first, or custom order. |
 | `ast_group` | Move symbols into a new or existing module block within the same file. |
 | `ast_move` | Move symbols between files with configurable insertion position. |
-| `ast_extract` | Extract a symbol to a new file, optionally unwrapping module blocks. |
+| `ast_extract_to_file` | Extract a symbol to a new file, optionally unwrapping module blocks. |
 | `ast_split` | Split a file by distributing symbols across multiple target files. |
 
 ## How MCP mode differs from CLI mode

@@ -3,6 +3,10 @@
 //! Contains the `#[tool_router] impl PatchloomService` block with all
 //! `#[tool(...)]` handler methods that require custom logic beyond the
 //! auto-generated `MCP_TOOL_REGISTRY` dispatch.
+//!
+//! **Every tool in this module must appear in
+//! [`super::surface::CUSTOM_MCP_TOOLS`] with a reason.** Prefer the registry
+//! for new 1:1 `Operation` writes. See `surface` module docs for the policy.
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
