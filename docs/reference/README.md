@@ -840,9 +840,9 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tidy-action:fix -->
 ### `tidy fix`
 
-- **What it does:** Applies newline and whitespace normalization to text files. Binary and invalid UTF-8 files are skipped.
+- **What it does:** Applies newline and whitespace normalization to text files. Binary and invalid UTF-8 files are skipped. With no write-policy flags (and without `--respect-editorconfig`), it enables final-newline and trailing-whitespace fixes so it matches the issues bare `tidy check` always reports. Pass explicit flags (or EditorConfig) to narrow the fix set.
 - **Use when:** Existing files already need cleanup and the cleanup itself is the task.
-- **Prefer instead:** Use write policy flags when normalization should only apply to files already being touched by another write command.
+- **Prefer instead:** Use write policy flags on another write command when normalization should only apply to files already being touched by that command.
 
 ## `tx` reference
 

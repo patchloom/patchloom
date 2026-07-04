@@ -14,9 +14,14 @@ use clap::Args;
 #[derive(Debug, Args)]
 #[command(after_help = "\
 EXAMPLES:
-  patchloom tidy src/ --ensure-final-newline
-  patchloom tidy . --trim-trailing-whitespace --apply
-  patchloom tidy . --normalize-eol lf --check")]
+  patchloom tidy fix . --apply
+  patchloom tidy fix src/ --ensure-final-newline --apply
+  patchloom tidy fix . --trim-trailing-whitespace --apply
+  patchloom tidy check . --normalize-eol lf
+
+With no write-policy flags, `tidy fix` enables final-newline and trailing-
+whitespace fixes (the same issues `tidy check` always reports). Pass explicit
+flags to narrow the fix set.")]
 pub struct TidyArgs {
     #[command(subcommand)]
     pub action: TidyAction,

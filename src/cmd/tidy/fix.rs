@@ -114,6 +114,49 @@ fn emit_tidy_fix_output(
     Ok(())
 }
 
+/// Write-policy fields for `tidy fix` after applying check-parity defaults.
+struct TidyFixPolicy {
+    ensure_final_newline: bool,
+    trim_trailing_whitespace: bool,
+    normalize_eol: Option<crate::cli::global::EolMode>,
+    collapse_blanks: bool,
+}
+
+/// When the user did not pass any write-policy flag and is not only
+/// indenting/dedenting, enable the same normalizations that `tidy check`
+/// always reports (final newline + trailing whitespace). Otherwise
+/// `tidy fix --apply` is a silent no-op while `tidy check` still fails
+/// (fixrealloop feature gap).
+fn effective_tidy_fix_policy(
+    global: &GlobalFlags,
+    dedent: Option<&str>,
+    indent: Option<&str>,
+) -> TidyFixPolicy {
+    // EditorConfig opt-in is also "explicit policy": do not force check-parity
+    // defaults on top of per-file EditorConfig rules.
+    let any_explicit_policy = global.ensure_final_newline
+        || global.trim_trailing_whitespace
+        || global.normalize_eol.is_some()
+        || global.collapse_blanks
+        || global.respect_editorconfig
+        || dedent.is_some()
+        || indent.is_some();
+    if any_explicit_policy {
+        return TidyFixPolicy {
+            ensure_final_newline: global.ensure_final_newline,
+            trim_trailing_whitespace: global.trim_trailing_whitespace,
+            normalize_eol: global.normalize_eol,
+            collapse_blanks: global.collapse_blanks,
+        };
+    }
+    TidyFixPolicy {
+        ensure_final_newline: true,
+        trim_trailing_whitespace: true,
+        normalize_eol: None,
+        collapse_blanks: false,
+    }
+}
+
 /// Run `tidy fix` for the given paths and optional dedent/indent/lines.
 pub(super) fn run_fix(
     paths: Vec<String>,
@@ -126,6 +169,8 @@ pub(super) fn run_fix(
     if dedent.is_some() && indent.is_some() {
         anyhow::bail!("--dedent and --indent cannot both be set");
     }
+
+    let policy_flags = effective_tidy_fix_policy(global, dedent.as_deref(), indent.as_deref());
 
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, &paths)?;
@@ -141,6 +186,18 @@ pub(super) fn run_fix(
     let quiet = global.quiet;
     let dedent_ref = dedent.as_deref();
     let indent_ref = indent.as_deref();
+    // policy_from_flags reads ensure/trim/eol from GlobalFlags. Overlay the
+    // effective tidy defaults (and keep editorconfig opt-in from the caller).
+    let policy_global = GlobalFlags {
+        ensure_final_newline: policy_flags.ensure_final_newline,
+        trim_trailing_whitespace: policy_flags.trim_trailing_whitespace,
+        normalize_eol: policy_flags.normalize_eol,
+        collapse_blanks: policy_flags.collapse_blanks,
+        respect_editorconfig: global.respect_editorconfig,
+        quiet: global.quiet,
+        ..GlobalFlags::default()
+    };
+
     let dirty_rel_paths: Vec<String> = crate::par_process_files(
         &fix_file_paths,
         glob_matcher.as_ref(),
@@ -150,7 +207,7 @@ pub(super) fn run_fix(
                 Some(text) => text,
                 None => return None,
             };
-            let policy = policy_from_flags(global, Some(file_path));
+            let policy = policy_from_flags(&policy_global, Some(file_path));
             let mut fixed = apply_policy(&original, &policy).into_owned();
             if let Some(spec) = dedent_ref {
                 fixed = crate::write::dedent_content(&fixed, spec, line_range);
@@ -176,8 +233,8 @@ pub(super) fn run_fix(
         return Ok(exit::SUCCESS);
     }
 
-    let eol_str = global.normalize_eol.map(eol_mode_to_str);
-    let collapse = if global.collapse_blanks {
+    let eol_str = policy_flags.normalize_eol.map(eol_mode_to_str);
+    let collapse = if policy_flags.collapse_blanks {
         Some(true)
     } else {
         None
@@ -186,8 +243,8 @@ pub(super) fn run_fix(
         .iter()
         .map(|rel_path| Operation::TidyFix {
             path: rel_path.clone(),
-            ensure_final_newline: Some(global.ensure_final_newline),
-            trim_trailing_whitespace: Some(global.trim_trailing_whitespace),
+            ensure_final_newline: Some(policy_flags.ensure_final_newline),
+            trim_trailing_whitespace: Some(policy_flags.trim_trailing_whitespace),
             normalize_eol: eol_str.map(String::from),
             collapse_blanks: collapse,
             dedent: dedent.clone(),
@@ -196,6 +253,8 @@ pub(super) fn run_fix(
         })
         .collect();
 
+    // Mode/apply still come from the caller's global flags; only the
+    // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
     tidy_fix_output(global, result, &dirty_rel_paths, &cwd)
