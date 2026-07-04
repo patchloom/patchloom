@@ -351,7 +351,7 @@ fn replace_output(
     file_count: usize,
     cwd: &std::path::Path,
 ) -> anyhow::Result<u8> {
-    use crate::cmd::write_mode::finalize_report;
+    use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
     let build_output = |diff: Option<String>| ReplaceOutput {
         ok: true,
@@ -366,49 +366,57 @@ fn replace_output(
         cwd,
         result,
         true,
-        |g, _has, _diffs| {
-            if g.json {
-                g.emit_json(&build_output(None))?;
-            } else if !g.emit_json_items(files)? && !g.quiet {
-                println!("{total_matches} match(es) in {file_count} file(s)");
-                for f in files {
-                    println!("  {}: {} match(es)", f.path, f.match_count);
-                }
-            }
-            Ok(())
-        },
-        |g, _has, diffs, diff_text| {
-            if g.json {
-                g.emit_json(&build_output(diff_text))?;
-            } else if !g.emit_json_items(files)? {
-                if g.diff {
-                    print!("{}", render_diffs_colored(diffs, g.should_color()));
-                } else if !g.quiet {
-                    println!("replaced {total_matches} match(es) in {file_count} file(s)");
+        FinalizeCallbacks {
+            on_check: |g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
+                if g.json {
+                    g.emit_json(&build_output(None))?;
+                } else if !g.emit_json_items(files)? && !g.quiet {
+                    println!("{total_matches} match(es) in {file_count} file(s)");
                     for f in files {
                         println!("  {}: {} match(es)", f.path, f.match_count);
                     }
                 }
-            }
-            Ok(())
-        },
-        |g, _has, diffs, diff_text| {
-            if g.json {
-                g.emit_json(&build_output(diff_text))?;
-            } else if !g.emit_json_items(files)? && !diffs.is_empty() {
-                print!("{}", render_diffs_colored(diffs, g.should_color()));
-            }
-            Ok(())
-        },
-        |g| {
-            if g.show_status() {
-                eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
-            }
-        },
-        |g| {
-            if g.show_status() {
-                eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
-            }
+                Ok(())
+            },
+            on_apply: |g: &GlobalFlags,
+                       _has: bool,
+                       diffs: &[crate::diff::FileDiff],
+                       diff_text: Option<String>| {
+                if g.json {
+                    g.emit_json(&build_output(diff_text))?;
+                } else if !g.emit_json_items(files)? {
+                    if g.diff {
+                        print!("{}", render_diffs_colored(diffs, g.should_color()));
+                    } else if !g.quiet {
+                        println!("replaced {total_matches} match(es) in {file_count} file(s)");
+                        for f in files {
+                            println!("  {}: {} match(es)", f.path, f.match_count);
+                        }
+                    }
+                }
+                Ok(())
+            },
+            on_preview: |g: &GlobalFlags,
+                         _has: bool,
+                         diffs: &[crate::diff::FileDiff],
+                         diff_text: Option<String>| {
+                if g.json {
+                    g.emit_json(&build_output(diff_text))?;
+                } else if !g.emit_json_items(files)? && !diffs.is_empty() {
+                    print!("{}", render_diffs_colored(diffs, g.should_color()));
+                }
+                Ok(())
+            },
+            after_preview_emit: |g: &GlobalFlags| {
+                if g.show_status() {
+                    eprintln!("{file_count} file(s) changed, {total_matches} replacement(s)");
+                }
+            },
+            after_preview_apply: |g: &GlobalFlags| {
+                if g.show_status() {
+                    eprintln!("replaced {total_matches} match(es) in {file_count} file(s)");
+                }
+            },
         },
     )
 }

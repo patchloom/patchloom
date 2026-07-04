@@ -405,48 +405,56 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         };
 
-    use crate::cmd::write_mode::finalize_report;
+    use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
     finalize_report(
         global,
         &cwd,
         result,
         true,
-        |g, _has, diffs| {
-            let files = build_file_results(diffs, "changed");
-            let changed = files.len();
-            if changed > 0 {
-                emit_patch_files_output(g, true, &files)?;
-                if !(g.json || g.jsonl || g.quiet) {
-                    println!("{changed} file(s) would change");
-                }
-            }
-            Ok(())
-        },
-        |g, _has, diffs, _plain| {
-            let files = build_file_results(diffs, "applied");
-            emit_patch_files_output(g, true, &files)?;
-            Ok(())
-        },
-        |g, _has, diffs, _plain| {
-            if g.json || g.jsonl {
+        FinalizeCallbacks {
+            on_check: |g: &GlobalFlags, _has: bool, diffs: &[crate::diff::FileDiff]| {
                 let files = build_file_results(diffs, "changed");
+                let changed = files.len();
+                if changed > 0 {
+                    emit_patch_files_output(g, true, &files)?;
+                    if !(g.json || g.jsonl || g.quiet) {
+                        println!("{changed} file(s) would change");
+                    }
+                }
+                Ok(())
+            },
+            on_apply: |g: &GlobalFlags,
+                       _has: bool,
+                       diffs: &[crate::diff::FileDiff],
+                       _plain: Option<String>| {
+                let files = build_file_results(diffs, "applied");
                 emit_patch_files_output(g, true, &files)?;
-            } else {
-                print!(
-                    "{}",
-                    format_diff_result_colored(
-                        &DiffResult {
-                            diffs: diffs.to_vec()
-                        },
-                        g.should_color()
-                    )
-                );
-            }
-            Ok(())
+                Ok(())
+            },
+            on_preview: |g: &GlobalFlags,
+                         _has: bool,
+                         diffs: &[crate::diff::FileDiff],
+                         _plain: Option<String>| {
+                if g.json || g.jsonl {
+                    let files = build_file_results(diffs, "changed");
+                    emit_patch_files_output(g, true, &files)?;
+                } else {
+                    print!(
+                        "{}",
+                        format_diff_result_colored(
+                            &DiffResult {
+                                diffs: diffs.to_vec()
+                            },
+                            g.should_color()
+                        )
+                    );
+                }
+                Ok(())
+            },
+            after_preview_emit: |_: &GlobalFlags| {},
+            after_preview_apply: |_: &GlobalFlags| {},
         },
-        |_| {},
-        |_| {},
     )
 }
 
