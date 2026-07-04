@@ -86,6 +86,11 @@ Patchloom exposes **two registration paths** for MCP tools (see
 Prefer the registry for new simple write tools. Do not force custom tools into
 the registry when that would lose multi-file, batch, or read UX.
 
+Custom tools are inventoried in `CUSTOM_MCP_TOOLS_CORE` (always registered)
+and `CUSTOM_MCP_TOOLS_AST` (only when the `ast` feature is enabled). Default
+builds expose **54** tools (registry + custom). Builds without `ast` omit the
+AST tools so `list_tools` stays honest about what is callable.
+
 | Tool | Description |
 |------|-------------|
 | `doc_set` | Set a value by selector path in a JSON, YAML, or TOML file |

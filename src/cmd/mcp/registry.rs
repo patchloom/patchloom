@@ -2,7 +2,7 @@
 //!
 //! This is the **default** path for new write tools that map 1:1 to a plan
 //! [`crate::plan::Operation`]. Tools that cannot use this path are listed in
-//! [`super::surface::CUSTOM_MCP_TOOLS`] (MCP surface honesty).
+//! [`super::surface::custom_mcp_tools`] (MCP surface honesty).
 
 use rmcp::model::{CallToolResult, ErrorData as McpError};
 

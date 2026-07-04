@@ -6,13 +6,16 @@
 //!   tool is a 1:1 mapping to a plan [`crate::plan::Operation`] with no special
 //!   multi-file preflight, multi-op batching, or non-plan read UX.
 //! - **Custom (hand-written `#[tool]`):** only when the tool is *not* a simple
-//!   Operation write. Every custom tool must appear in
-//!   [`CUSTOM_MCP_TOOLS`] with a one-line reason.
+//!   Operation write. Every custom tool must appear in the feature-aware
+//!   inventory ([`CUSTOM_MCP_TOOLS_CORE`] + optional [`CUSTOM_MCP_TOOLS_AST`])
+//!   with a one-line reason. Use [`custom_mcp_tools`] / [`custom_tool_names`]
+//!   for the active feature set.
 //! - **Metric:** "no unjustified custom tools," not "fewer custom tools."
 //!   Forcing search/batch/AST-read into the registry would fight agent UX.
 //!
 //! Counts (with default features, including `ast`):
 //! registry + custom = total tools exposed by `list_tools`.
+//! Without `ast`, AST rows are omitted so inventory matches registration.
 //!
 //! Inventory is consumed by unit tests and documentation; it is intentionally
 //! not wired into every production call path.
@@ -48,11 +51,11 @@ pub(super) enum CustomKind {
     Meta,
 }
 
-/// Authoritative list of hand-written MCP tools and why they are not registry tools.
+/// Hand-written tools that are always registered (no `ast` feature required).
 ///
-/// When adding a custom `#[tool]` handler, add a row here in the same PR.
-/// When moving a tool to the registry, remove its row here.
-pub(super) const CUSTOM_MCP_TOOLS: &[CustomMcpTool] = &[
+/// When adding a custom `#[tool]` handler that is not AST-gated, add a row here
+/// in the same PR. When moving a tool to the registry, remove its row.
+pub(super) const CUSTOM_MCP_TOOLS_CORE: &[CustomMcpTool] = &[
     // --- Doc readonly ---
     CustomMcpTool {
         name: "doc_get",
@@ -124,7 +127,11 @@ pub(super) const CUSTOM_MCP_TOOLS: &[CustomMcpTool] = &[
         why: "server/workspace metadata for agents",
         kind: CustomKind::Meta,
     },
-    // --- AST (feature-gated at registration; always listed here) ---
+];
+
+/// AST custom tools; only registered when the `ast` feature is enabled.
+#[cfg(feature = "ast")]
+pub(super) const CUSTOM_MCP_TOOLS_AST: &[CustomMcpTool] = &[
     CustomMcpTool {
         name: "ast_list",
         why: "AST symbol listing (analyze, not plan write)",
@@ -222,9 +229,19 @@ pub(super) const CUSTOM_MCP_TOOLS: &[CustomMcpTool] = &[
     },
 ];
 
-/// Names of custom tools (for set algebra in tests).
+#[cfg(not(feature = "ast"))]
+pub(super) const CUSTOM_MCP_TOOLS_AST: &[CustomMcpTool] = &[];
+
+/// All custom tools for the current feature set (core + optional AST).
+pub(super) fn custom_mcp_tools() -> impl Iterator<Item = &'static CustomMcpTool> {
+    CUSTOM_MCP_TOOLS_CORE
+        .iter()
+        .chain(CUSTOM_MCP_TOOLS_AST.iter())
+}
+
+/// Names of custom tools for the current feature set (set algebra in tests).
 pub(super) fn custom_tool_names() -> impl Iterator<Item = &'static str> {
-    CUSTOM_MCP_TOOLS.iter().map(|t| t.name)
+    custom_mcp_tools().map(|t| t.name)
 }
 
 #[cfg(test)]
@@ -236,7 +253,7 @@ mod tests {
     #[test]
     fn custom_tool_names_are_unique() {
         let mut seen = BTreeSet::new();
-        for t in CUSTOM_MCP_TOOLS {
+        for t in custom_mcp_tools() {
             assert!(
                 seen.insert(t.name),
                 "duplicate custom tool name: {}",
@@ -259,14 +276,20 @@ mod tests {
 
     #[test]
     fn registry_plus_custom_count_matches_list_tools_expectation() {
-        // With default features, ast tools are registered (see mcp_lists_expected_tools).
+        // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
-        let custom_n = CUSTOM_MCP_TOOLS.len();
+        let custom_n = custom_mcp_tools().count();
+        let expected_total = if cfg!(feature = "ast") { 54 } else { 35 };
         assert_eq!(
             registry_n + custom_n,
-            54,
-            "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools (54)"
+            expected_total,
+            "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools ({expected_total})"
         );
+        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 13, "core custom tool count");
+        #[cfg(feature = "ast")]
+        assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 19, "ast custom tool count");
+        #[cfg(not(feature = "ast"))]
+        assert!(CUSTOM_MCP_TOOLS_AST.is_empty());
     }
 
     #[test]
@@ -278,5 +301,16 @@ mod tests {
                 .any(|t| t.tool_name == "fix_whitespace")
         );
         assert!(!custom_tool_names().any(|n| n == "fix_whitespace"));
+    }
+
+    #[test]
+    fn ast_custom_tools_are_feature_gated_in_inventory() {
+        let names: BTreeSet<_> = custom_tool_names().collect();
+        if cfg!(feature = "ast") {
+            assert!(names.contains("ast_list"));
+            assert!(names.contains("ast_split"));
+        } else {
+            assert!(!names.iter().any(|n| n.starts_with("ast_")));
+        }
     }
 }

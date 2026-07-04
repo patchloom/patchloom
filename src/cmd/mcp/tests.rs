@@ -110,26 +110,36 @@ mod basic {
         );
         assert!(names.contains(&"append_file"), "missing append_file tool");
         assert!(names.contains(&"prepend_file"), "missing prepend_file tool");
-        assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
-        assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
-        assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
-        assert!(names.contains(&"ast_reorder"), "missing ast_reorder tool");
-        assert!(names.contains(&"ast_group"), "missing ast_group tool");
-        assert!(names.contains(&"ast_move"), "missing ast_move tool");
-        assert!(
-            names.contains(&"ast_extract_to_file"),
-            "missing ast_extract_to_file tool"
-        );
-        assert!(names.contains(&"ast_split"), "missing ast_split tool");
+        #[cfg(feature = "ast")]
+        {
+            assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
+            assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
+            assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
+            assert!(names.contains(&"ast_reorder"), "missing ast_reorder tool");
+            assert!(names.contains(&"ast_group"), "missing ast_group tool");
+            assert!(names.contains(&"ast_move"), "missing ast_move tool");
+            assert!(
+                names.contains(&"ast_extract_to_file"),
+                "missing ast_extract_to_file tool"
+            );
+            assert!(names.contains(&"ast_split"), "missing ast_split tool");
+        }
+        #[cfg(not(feature = "ast"))]
+        {
+            assert!(
+                !names.iter().any(|n| n.starts_with("ast_")),
+                "ast tools must not appear without the ast feature: {names:?}"
+            );
+        }
         assert!(
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"
         );
-        // Surface honesty: live list_tools must equal registry ∪ CUSTOM_MCP_TOOLS.
-        // (Counts: registry 22 + custom 32 = 54 with default features / ast.)
+        // Surface honesty: live list_tools must equal registry ∪ custom inventory
+        // for the active feature set (AST tools only when `ast` is enabled).
         {
             use super::super::registry::MCP_TOOL_REGISTRY;
-            use super::super::surface::{CUSTOM_MCP_TOOLS, custom_tool_names};
+            use super::super::surface::{custom_mcp_tools, custom_tool_names};
             use std::collections::BTreeSet;
 
             let live: BTreeSet<&str> = names.iter().copied().collect();
@@ -143,7 +153,10 @@ mod basic {
                 live.difference(&expected).collect::<Vec<_>>(),
                 expected.difference(&live).collect::<Vec<_>>(),
             );
-            assert_eq!(CUSTOM_MCP_TOOLS.len() + MCP_TOOL_REGISTRY.len(), live.len());
+            assert_eq!(
+                custom_mcp_tools().count() + MCP_TOOL_REGISTRY.len(),
+                live.len()
+            );
         }
         client.cancel().await.unwrap();
     }
@@ -203,9 +216,15 @@ mod basic {
             instructions.contains("Text ops"),
             "instructions must mention Text ops category"
         );
+        #[cfg(feature = "ast")]
         assert!(
             instructions.contains("AST ops"),
-            "instructions must mention AST ops category"
+            "instructions must mention AST ops category when ast is enabled"
+        );
+        #[cfg(not(feature = "ast"))]
+        assert!(
+            !instructions.contains("AST ops"),
+            "instructions must not advertise AST ops without the ast feature"
         );
         assert!(
             instructions.contains("File ops"),
