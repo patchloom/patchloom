@@ -82,10 +82,9 @@ src/
                        generator, and inline Completions command
   cmd/append.rs        Append content to an existing file
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
-  cmd/mcp/mod.rs       MCP server (feature-gated): 21 auto-generated tools via MCP_TOOL_REGISTRY +
-                       33 hand-written #[tool] handlers, dynamic registration via ToolRoute::new_dyn()
-  cmd/mcp/params.rs    Parameter structs for hand-written MCP tool handlers only; simple tools use
-                       Operation variant schemas directly via operation_variant_schema()
+  cmd/mcp/             MCP server (feature-gated): registry (1:1 Operation tools) + hand-written
+                       handlers. Surface policy and custom-tool inventory: mcp/surface.rs
+                       (registry default; custom must be justified). Dynamic ToolRoute registration.
   cmd/search.rs        Literal/regex search across files with context, count, files-with-matches, -i
   cmd/replace.rs       Literal/regex string replacement with diff preview, --nth, -i, atomic write
   cmd/delete.rs        Delete a file (with --apply/--check modes)
@@ -309,11 +308,18 @@ When adding a field to the `Plan` struct in `src/plan/mod.rs`:
 
 ## Adding a new MCP tool
 
-MCP tools live in `src/cmd/mcp/mod.rs` behind the `mcp` feature gate. There are two paths depending on whether the tool maps 1:1 to an existing `Operation` variant.
+MCP tools live under `src/cmd/mcp/` behind the `mcp` feature gate.
+
+### Surface policy (registry default, custom exception)
+
+| Path | When to use | Where |
+|------|-------------|--------|
+| **A. Registry** | 1:1 mapping to a write `plan::Operation`, no multi-file preflight, no multi-op batch, no non-plan read UX | `MCP_TOOL_REGISTRY` in `registry.rs` |
+| **B. Custom** | Multi-file scan, batch/plan, readonly query, AST analyze/mutate, patch conflict UX, server meta | `handlers.rs` / `ast_tools.rs` **and** a row in `surface::CUSTOM_MCP_TOOLS` |
+
+**Do not** move search, batch, `execute_plan`, or AST-read tools into the registry just to reduce the custom count. The metric is “no *unjustified* custom tools,” not “zero custom tools.” Inventory and tests live in [`src/cmd/mcp/surface.rs`](src/cmd/mcp/surface.rs).
 
 ### Path A: Auto-generated tool (1:1 Operation mapping)
-
-If the new tool directly maps to a single `plan::Operation` variant with no custom logic:
 
 1. **Ensure the op is in the schema `OpMeta` registry** (`src/schema.rs`) with description + example.
 2. **Add an entry to `MCP_TOOL_REGISTRY`** in `src/cmd/mcp/registry.rs`:
@@ -328,46 +334,28 @@ McpToolMeta {
 },
 ```
 
-The tool description is built by `schema::mcp_tool_description(op_name, extra)` (registry base + optional extra + example). The input schema is auto-derived from the `Operation` variant via `operation_variant_schema()`. The handler is `handle_simple_op()`, which injects the `op` discriminator, validates fields, and deserializes into `Operation`.
+The tool description is built by `schema::mcp_tool_description(op_name, extra)`. The input schema is auto-derived via `operation_variant_schema()`. The handler is `handle_simple_op()`.
 
-3. **Add the tool name** to the `mcp_lists_expected_tools` test and update the expected count.
-
-4. **Add integration tests** in `tests/integration.rs` under `#[cfg(feature = "mcp")]`.
-
-5. **Update the tool list** in `src/cmd/mod.rs` (agent-rules generator) and `docs/getting-started/mcp-setup.md`.
-
+3. **Update** `mcp_lists_expected_tools` total count and `surface` tests if totals change.
+4. **Add integration tests** under `#[cfg(feature = "mcp")]` as needed.
+5. **Update** agent-rules / `docs/getting-started/mcp-setup.md` tool tables.
 6. Run `make sync-patchloom-md && make update-readme && make check`.
 
-### Path B: Custom hand-written tool (complex logic)
+### Path B: Custom hand-written tool
 
-If the tool needs custom validation, multi-operation plans, or read-only CLI delegation:
+1. **Define a params struct** in `src/cmd/mcp/params.rs` (`Deserialize` + `schemars::JsonSchema`).
+2. **Add a `#[tool]` handler** in `src/cmd/mcp/handlers.rs` (AST: thin stub + `ast_tools`).
+3. **Add a row to `CUSTOM_MCP_TOOLS`** in `src/cmd/mcp/surface.rs` with a one-line `why` (required).
+4. Follow Path A steps 3–6 for counts, tests, and docs.
 
-1. **Define a params struct** in `src/cmd/mcp/params.rs` with `Deserialize` and `schemars::JsonSchema`.
-
-2. **Add a handler method** in the `#[tool_router] impl PatchloomService` block in `src/cmd/mcp/mod.rs`:
-
-```rust
-#[tool(description = "Short description of what the tool does.")]
-async fn new_tool(
-    &self,
-    Parameters(p): Parameters<NewToolParams>,
-) -> Result<CallToolResult, McpError> {
-    self.check_path(&p.path)?;
-    // For write tools: build an Operation and call execute_plan()
-    // For read-only tools: call run_readonly_command()
-}
-```
-
-3. Follow steps 2-5 from Path A above.
-
-**PR body requirement (see #819):** When opening the PR for this MCP tool work, ensure the body contains `Closes #NNN` (or `Fixes`) lines for every targeted issue. Follow-up changes after base merges commonly miss this; edit the PR body explicitly.
+**PR body requirement (see #819):** include `Closes #NNN` / `Fixes #NNN` in the PR body for every resolved issue.
 
 ## Removing an MCP tool
 
-1. **For auto-generated tools:** Remove the `McpToolMeta` entry from `MCP_TOOL_REGISTRY` in `src/cmd/mcp/mod.rs`.
-   **For custom tools:** Remove the handler method from `src/cmd/mcp/mod.rs` and the params struct from `src/cmd/mcp/params.rs`.
+1. **For auto-generated tools:** Remove the `McpToolMeta` entry from `MCP_TOOL_REGISTRY` in `src/cmd/mcp/registry.rs`.
+   **For custom tools:** Remove the handler from `handlers.rs` / `ast_tools.rs`, the params struct from `params.rs`, and the row from `surface::CUSTOM_MCP_TOOLS`.
 
-2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected count.
+2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected total (and surface tests).
 
 3. **Remove integration tests** for the tool from `tests/integration.rs`.
 
