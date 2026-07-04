@@ -603,3 +603,85 @@ fn test_create_default_mode_exits_2() {
         "file should not be created in default (preview) mode"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --contain on create (engine-backed path) (#1406)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_create_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "create",
+            "../escape-outside.txt",
+            "--content",
+            "nope\n",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(!dir.path().join("../escape-outside.txt").exists());
+}
+
+#[test]
+fn test_create_without_contain_allows_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let name = format!(
+        "patchloom-create-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .arg("create")
+        .arg(format!("../{name}"))
+        .args(["--content", "escaped\n", "--apply"])
+        .assert()
+        .code(0);
+
+    let outside = dir.path().parent().unwrap().join(&name);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "escaped\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_create_contain_allows_in_workspace() {
+    let dir = TempDir::new().unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "create",
+            "inside.txt",
+            "--content",
+            "ok\n",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("inside.txt")).unwrap(),
+        "ok\n"
+    );
+}

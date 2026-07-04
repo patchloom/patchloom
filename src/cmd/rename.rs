@@ -46,6 +46,17 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.force
     );
     let cwd = global.resolve_cwd()?;
+    // Enforce --contain for all rename paths (engine-backed text and
+    // binary/case-only callback via write_dispatch). Engine-backed ops also
+    // check declared_paths in the tx engine; this early check covers the
+    // callback path that never reaches the engine (#1409).
+    if let Some(guard) = global.workspace_guard(&cwd)? {
+        for p in [&args.from, &args.to] {
+            guard
+                .check_path(p)
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+        }
+    }
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
@@ -449,6 +460,152 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         assert!(!src.exists());
         assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
+    }
+
+    #[test]
+    fn rename_with_contain_rejects_parent_escape_on_to() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("inside.txt"), "keep\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let args = RenameArgs {
+            from: "inside.txt".into(),
+            to: "../escape-renamed.txt".into(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let err = run(args, &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes") || msg.contains("rejected"),
+            "expected containment error, got: {msg}"
+        );
+        assert!(
+            dir.path().join("inside.txt").exists(),
+            "source must remain when containment rejects destination"
+        );
+        assert!(!dir.path().join("../escape-renamed.txt").exists());
+    }
+
+    #[test]
+    fn rename_with_contain_rejects_parent_escape_on_from() {
+        let dir = TempDir::new().unwrap();
+        let outside = dir.path().parent().unwrap().join(format!(
+            "patchloom-rename-from-escape-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        fs::write(&outside, "outside\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let args = RenameArgs {
+            from: format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            to: "pulled-in.txt".into(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let err = run(args, &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes") || msg.contains("rejected"),
+            "expected containment error, got: {msg}"
+        );
+        assert!(outside.exists(), "outside source must not be moved");
+        assert!(!dir.path().join("pulled-in.txt").exists());
+        let _ = fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn rename_binary_with_contain_rejects_parent_escape() {
+        // Binary rename uses write_dispatch (not the tx engine). Containment
+        // must still apply (#1409).
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("image.bin"), b"\x00\x01\x02\xff\xfe").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let args = RenameArgs {
+            from: "image.bin".into(),
+            to: "../escaped.bin".into(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let err = run(args, &global).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("escapes") || msg.contains("rejected"),
+            "expected containment error on binary rename escape, got: {msg}"
+        );
+        assert!(dir.path().join("image.bin").exists());
+        assert!(!dir.path().join("../escaped.bin").exists());
+    }
+
+    #[test]
+    fn rename_with_contain_allows_in_workspace_relative_path() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let args = RenameArgs {
+            from: "old.txt".into(),
+            to: "new.txt".into(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!dir.path().join("old.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("new.txt")).unwrap(),
+            "hello\n"
+        );
+    }
+
+    #[test]
+    fn rename_without_contain_allows_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("inside.txt"), "move me\n").unwrap();
+        let name = format!(
+            "patchloom-rename-escape-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        );
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        // contain defaults to false
+
+        let args = RenameArgs {
+            from: "inside.txt".into(),
+            to: format!("../{name}"),
+            force: false,
+            write: Default::default(),
+        };
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let outside = dir.path().parent().unwrap().join(&name);
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "move me\n");
+        let _ = fs::remove_file(&outside);
     }
 
     #[test]
