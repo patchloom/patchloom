@@ -26,22 +26,28 @@ fn config_tx_strict(cwd: &Path) -> Option<bool> {
 /// This is the in-process equivalent used by the library API (`api::execute_plan`)
 /// and (via serialization) by the CLI tx command and MCP.
 /// Library users get a typed `PlanReport` directly (addresses #811).
-#[allow(clippy::result_large_err)]
+///
+/// Errors are boxed so the `Result` stays under clippy's large-err threshold
+/// (TxOutput is intentionally rich for structured CLI/MCP reporting).
 pub(crate) fn validate_and_prepare_plan(
     plan: &Plan,
     cwd: &Path,
     no_strict: bool,
-) -> Result<(PathBuf, bool, GlobalFlags), TxOutput> {
+) -> Result<(PathBuf, bool, GlobalFlags), Box<TxOutput>> {
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
             "unsupported plan version '{}' (this build supports version {})",
             plan.version,
             crate::plan::SCHEMA_VERSION
         );
-        return Err(build_error_output("parse_error", &msg, None));
+        return Err(Box::new(build_error_output("parse_error", &msg, None)));
     }
     if let Err(e) = validate_plan_operations(plan) {
-        return Err(build_error_output("parse_error", &e.to_string(), None));
+        return Err(Box::new(build_error_output(
+            "parse_error",
+            &e.to_string(),
+            None,
+        )));
     }
 
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
@@ -78,7 +84,7 @@ pub fn execute_plan_direct(
 
     let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
         Ok(v) => v,
-        Err(output) => return Ok(output),
+        Err(output) => return Ok(*output),
     };
 
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
