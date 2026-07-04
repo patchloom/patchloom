@@ -7193,3 +7193,83 @@ fn test_tx_ast_rename_empty_directory_fails() {
         .assert()
         .code(9); // OPERATION_FAILED
 }
+
+// ---------------------------------------------------------------------------
+// CLI --contain on tx plans (MPI cycle 13)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tx_contain_rejects_parent_escape_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-tx-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    let _ = fs::remove_file(&outside);
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.create",
+            "path": format!("../{escape_name}"),
+            "content": "nope\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert!(
+        !outside.exists(),
+        "tx --contain must not create escaped path {outside:?}"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_tx_contain_allows_in_workspace_relative_path() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.create",
+            "path": "inside-tx.txt",
+            "content": "ok\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("inside-tx.txt")).unwrap(),
+        "ok\n"
+    );
+}

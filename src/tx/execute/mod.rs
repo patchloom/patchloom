@@ -463,6 +463,20 @@ pub(crate) fn execute_and_collect(
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
     let mut replace_hint: Option<String> = None;
 
+    // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
+    // execute_plan_direct). CLI `tx` and `batch` call this function directly and
+    // previously only had guard wiring on replace glob expansion, so
+    // `file.create ../escape` under `--contain` could still write outside the
+    // workspace (MPI cycle 13).
+    if let Some(g) = guard {
+        for op in &plan.operations {
+            for p in op.declared_paths() {
+                g.check_path(&p)
+                    .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+            }
+        }
+    }
+
     crate::verbose!(
         "tx: executing plan with {} operations",
         plan.operations.len()
