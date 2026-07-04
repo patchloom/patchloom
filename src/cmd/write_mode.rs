@@ -420,4 +420,87 @@ mod tests {
         assert_eq!(checks.load(Ordering::SeqCst), 1);
         assert!(!dir.path().join("f.txt").exists());
     }
+
+    #[test]
+    fn finalize_report_apply_commits_and_runs_apply_hook() {
+        use crate::plan::Operation;
+        use crate::tx::engine::{ExecuteOptions, WriteRequest, WriteSource, stage};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let options = ExecuteOptions::from_global(dir.path(), &global, None);
+        let report = stage(WriteRequest {
+            source: WriteSource::Operations(vec![Operation::FileCreate {
+                path: "applied.txt".to_string(),
+                content: "ok\n".to_string(),
+                force: None,
+            }]),
+            options,
+        })
+        .unwrap();
+
+        let applied_hook = AtomicBool::new(false);
+        let code = finalize_report(
+            &global,
+            dir.path(),
+            report,
+            true,
+            |_g, _, _| panic!("check must not run"),
+            |_g, has, diffs, _plain| {
+                assert!(has);
+                assert!(!diffs.is_empty());
+                applied_hook.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            |_g, _, _, _| panic!("preview must not run"),
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(applied_hook.load(Ordering::SeqCst));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("applied.txt")).unwrap(),
+            "ok\n"
+        );
+    }
+
+    #[test]
+    fn finalize_report_preview_does_not_commit_without_apply() {
+        use crate::plan::Operation;
+        use crate::tx::engine::{ExecuteOptions, WriteRequest, WriteSource, stage};
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let options = ExecuteOptions::from_global(dir.path(), &global, None);
+        let report = stage(WriteRequest {
+            source: WriteSource::Operations(vec![Operation::FileCreate {
+                path: "preview.txt".to_string(),
+                content: "p\n".to_string(),
+                force: None,
+            }]),
+            options,
+        })
+        .unwrap();
+
+        let code = finalize_report(
+            &global,
+            dir.path(),
+            report,
+            true,
+            |_g, _, _| panic!("check must not run"),
+            |_g, _, _, _| panic!("apply must not run"),
+            |_g, has, _d, _p| {
+                assert!(has);
+                Ok(())
+            },
+            |_| {},
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert!(!dir.path().join("preview.txt").exists());
+    }
 }
