@@ -121,12 +121,30 @@ mod basic {
             "missing ast_extract_to_file tool"
         );
         assert!(names.contains(&"ast_split"), "missing ast_split tool");
-        // 21 auto-generated (registry) + 33 hand-written (#[tool]) = 54
         assert!(
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"
         );
-        assert_eq!(names.len(), 54, "expected 54 tools, got {}", names.len());
+        // Surface honesty: live list_tools must equal registry ∪ CUSTOM_MCP_TOOLS.
+        // (Counts: registry 22 + custom 32 = 54 with default features / ast.)
+        {
+            use super::super::registry::MCP_TOOL_REGISTRY;
+            use super::super::surface::{CUSTOM_MCP_TOOLS, custom_tool_names};
+            use std::collections::BTreeSet;
+
+            let live: BTreeSet<&str> = names.iter().copied().collect();
+            let mut expected: BTreeSet<&str> =
+                MCP_TOOL_REGISTRY.iter().map(|t| t.tool_name).collect();
+            expected.extend(custom_tool_names());
+            assert_eq!(
+                live,
+                expected,
+                "list_tools drifted from surface inventory.\nonly live: {:?}\nonly inventory: {:?}",
+                live.difference(&expected).collect::<Vec<_>>(),
+                expected.difference(&live).collect::<Vec<_>>(),
+            );
+            assert_eq!(CUSTOM_MCP_TOOLS.len() + MCP_TOOL_REGISTRY.len(), live.len());
+        }
         client.cancel().await.unwrap();
     }
 
