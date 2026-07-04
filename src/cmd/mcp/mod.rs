@@ -19,7 +19,7 @@
 //!
 //! **Registry is the default** for 1:1 write `Operation` tools. **Custom
 //! handlers are the exception** and must be justified in
-//! [`surface::CUSTOM_MCP_TOOLS`]. Do not migrate multi-file search/replace,
+//! [`surface::custom_mcp_tools`]. Do not migrate multi-file search/replace,
 //! batch tools, full plans, or AST analyze tools into the registry just to
 //! shrink the custom count.
 

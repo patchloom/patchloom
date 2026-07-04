@@ -125,11 +125,11 @@ mod basic {
             names.contains(&"md_dedupe_headings"),
             "missing md_dedupe_headings tool"
         );
-        // Surface honesty: live list_tools must equal registry ∪ CUSTOM_MCP_TOOLS.
-        // (Counts: registry 22 + custom 32 = 54 with default features / ast.)
+        // Surface honesty: live list_tools must equal registry ∪ custom inventory
+        // for the active feature set (AST tools only when `ast` is enabled).
         {
             use super::super::registry::MCP_TOOL_REGISTRY;
-            use super::super::surface::{CUSTOM_MCP_TOOLS, custom_tool_names};
+            use super::super::surface::{custom_mcp_tools, custom_tool_names};
             use std::collections::BTreeSet;
 
             let live: BTreeSet<&str> = names.iter().copied().collect();
@@ -143,7 +143,10 @@ mod basic {
                 live.difference(&expected).collect::<Vec<_>>(),
                 expected.difference(&live).collect::<Vec<_>>(),
             );
-            assert_eq!(CUSTOM_MCP_TOOLS.len() + MCP_TOOL_REGISTRY.len(), live.len());
+            assert_eq!(
+                custom_mcp_tools().count() + MCP_TOOL_REGISTRY.len(),
+                live.len()
+            );
         }
         client.cancel().await.unwrap();
     }

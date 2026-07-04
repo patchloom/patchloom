@@ -316,7 +316,7 @@ MCP tools live under `src/cmd/mcp/` behind the `mcp` feature gate.
 | Path | When to use | Where |
 |------|-------------|--------|
 | **A. Registry** | 1:1 mapping to a write `plan::Operation`, no multi-file preflight, no multi-op batch, no non-plan read UX | `MCP_TOOL_REGISTRY` in `registry.rs` |
-| **B. Custom** | Multi-file scan, batch/plan, readonly query, AST analyze/mutate, patch conflict UX, server meta | `handlers.rs` / `ast_tools.rs` **and** a row in `surface::CUSTOM_MCP_TOOLS` |
+| **B. Custom** | Multi-file scan, batch/plan, readonly query, AST analyze/mutate, patch conflict UX, server meta | `handlers.rs` / `ast_tools.rs` **and** a row in `surface::CUSTOM_MCP_TOOLS_CORE` or `_AST` (feature-gated) |
 
 **Do not** move search, batch, `execute_plan`, or AST-read tools into the registry just to reduce the custom count. The metric is “no *unjustified* custom tools,” not “zero custom tools.” Inventory and tests live in [`src/cmd/mcp/surface.rs`](src/cmd/mcp/surface.rs).
 
@@ -346,7 +346,7 @@ The tool description is built by `schema::mcp_tool_description(op_name, extra)`.
 
 1. **Define a params struct** in `src/cmd/mcp/params.rs` (`Deserialize` + `schemars::JsonSchema`).
 2. **Add a `#[tool]` handler** in `src/cmd/mcp/handlers.rs` (AST: thin stub + `ast_tools`).
-3. **Add a row to `CUSTOM_MCP_TOOLS`** in `src/cmd/mcp/surface.rs` with a one-line `why` (required).
+3. **Add a row** to `CUSTOM_MCP_TOOLS_CORE` or `CUSTOM_MCP_TOOLS_AST` in `src/cmd/mcp/surface.rs` with a one-line `why` (required; AST-gated tools go in `_AST`).
 4. Follow Path A steps 3–6 for counts, tests, and docs.
 
 **PR body requirement (see #819):** include `Closes #NNN` / `Fixes #NNN` in the PR body for every resolved issue.
@@ -354,7 +354,7 @@ The tool description is built by `schema::mcp_tool_description(op_name, extra)`.
 ## Removing an MCP tool
 
 1. **For auto-generated tools:** Remove the `McpToolMeta` entry from `MCP_TOOL_REGISTRY` in `src/cmd/mcp/registry.rs`.
-   **For custom tools:** Remove the handler from `handlers.rs` / `ast_tools.rs`, the params struct from `params.rs`, and the row from `surface::CUSTOM_MCP_TOOLS`.
+   **For custom tools:** Remove the handler from `handlers.rs` / `ast_tools.rs`, the params struct from `params.rs`, and the row from `surface::CUSTOM_MCP_TOOLS_CORE` or `_AST`.
 
 2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected total (and surface tests).
 
