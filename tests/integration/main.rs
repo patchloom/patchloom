@@ -426,8 +426,12 @@ fn collect_struct_field_names(path: &Path, anchor: &str) -> Vec<String> {
 
 fn collect_serde_rename_values(path: &Path, anchor: &str) -> Vec<String> {
     let block = read_anchored_block(path, anchor);
-    // Match only variant-level renames (which always have an alias), not field-level renames.
-    let re = regex::Regex::new(r#"#\[serde\(rename = "([^"]+)",\s*alias"#).unwrap();
+    // Variant-level renames are a single-attribute attribute:
+    //   #[serde(rename = "doc.set")]
+    // Field renames that accept LLM aliases add extra attrs on the same line:
+    //   #[serde(rename = "new", alias = "to")]
+    // Only collect the bare form so field renames are not treated as op names.
+    let re = regex::Regex::new(r#"#\[serde\(rename = "([^"]+)"\)\]"#).unwrap();
     re.captures_iter(&block)
         .map(|caps| caps[1].to_string())
         .collect::<std::collections::BTreeSet<_>>()
