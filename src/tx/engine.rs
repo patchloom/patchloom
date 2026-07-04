@@ -75,7 +75,7 @@ pub fn stage(request: WriteRequest<'_>) -> anyhow::Result<WriteReport> {
             execute_single(op, request.options)
         }
         WriteSource::Operations(ops) => execute_operations(ops, request.options),
-        WriteSource::Precomputed(changes) => Ok(execute_precomputed(changes, request.options)),
+        WriteSource::Precomputed(changes) => execute_precomputed(changes, request.options),
     }
 }
 
@@ -166,13 +166,26 @@ pub fn execute_operations(
 pub type PrecomputedChange = (String, String, String);
 
 /// Stage pre-computed changes (implementation used by [`stage`]).
+///
+/// When a [`PathGuard`] is present (CLI `--contain`, MCP, library), every
+/// precomputed relative path is checked. This path is used by multi-file
+/// scan writers such as `replace` and `tidy fix`; without this check those
+/// commands could mutate files outside the workspace under `--contain`
+/// (MPI cycle 15).
 pub fn execute_precomputed(
     changes: Vec<PrecomputedChange>,
     options: ExecuteOptions<'_>,
-) -> ExecutionResult {
+) -> anyhow::Result<ExecutionResult> {
     crate::verbose!("engine: execute_precomputed changes={}", changes.len());
     use crate::write::apply_policy;
     use std::collections::{HashMap, HashSet};
+
+    if let Some(g) = options.guard {
+        for (rel_path, _, _) in &changes {
+            g.check_path(rel_path)
+                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+        }
+    }
 
     let cwd = options.cwd().to_path_buf();
     let ctx = &options.context;
@@ -213,11 +226,11 @@ pub fn execute_precomputed(
         replace_hint: None,
     };
 
-    ExecutionResult {
+    Ok(ExecutionResult {
         exec_result,
         has_changes: !no_effective_changes,
         cwd,
-    }
+    })
 }
 
 /// Shared implementation for single-op and multi-op execution.
@@ -551,7 +564,7 @@ mod tests {
             "replaced\n".to_string(),
         )];
 
-        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        let result = execute_precomputed(changes, test_options(dir.path(), &global)).unwrap();
         assert!(result.has_changes);
 
         // Not committed yet.
@@ -575,7 +588,7 @@ mod tests {
             "same\n".to_string(),
         )];
 
-        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        let result = execute_precomputed(changes, test_options(dir.path(), &global)).unwrap();
         assert!(!result.has_changes);
     }
 
@@ -592,9 +605,36 @@ mod tests {
             "new\n".to_string(),
         )];
 
-        let result = execute_precomputed(changes, test_options(dir.path(), &global));
+        let result = execute_precomputed(changes, test_options(dir.path(), &global)).unwrap();
         let diffs = result.build_diffs();
         assert_eq!(diffs.len(), 1);
         assert!(diffs[0].has_changes);
+    }
+
+    #[test]
+    fn execute_precomputed_with_guard_rejects_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.contain = true;
+        let guard = global.workspace_guard(dir.path()).unwrap().unwrap();
+        let options = ExecuteOptions::from_global(dir.path(), &global, Some(&guard));
+        let changes = vec![(
+            "../escape.txt".to_string(),
+            "old\n".to_string(),
+            "new\n".to_string(),
+        )];
+
+        match execute_precomputed(changes, options) {
+            Ok(_) => panic!("expected containment rejection for ../escape.txt"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("escapes")
+                        || msg.contains("rejected")
+                        || msg.contains("workspace guard"),
+                    "expected containment error, got: {msg}"
+                );
+            }
+        }
     }
 }
