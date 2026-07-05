@@ -15,7 +15,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks. While iterating locally, `make check-fast` skips the doc freshness checks but adds library hygiene enforcement.
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` so a drifted README test badge fails before CI).
 
 ## Development workflow
 
@@ -38,7 +38,7 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
-| `make check-fast` | Fast check (skips doc verification) |
+| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
 | `make update-readme` | Update README.md rounded test count |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 

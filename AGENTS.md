@@ -20,7 +20,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make test-mcp-no-ast` | Lib tests with `mcp,cli,files` and no `ast` (MCP inventory/router/instructions honesty) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
 | `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme |
-| `make check-fast` | Fast check: fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene (skips doc verification; enforces library hygiene) |
+| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme` so test-count drift fails locally before CI) |
 | `make update-readme` | Update README.md rounded test count (only changes when hundreds digit changes) |
 | `make check-readme` | Verify README.md rounded test count is accurate (part of `check`) |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |

@@ -41,7 +41,7 @@ clippy: ## Run clippy linter
 
 check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene ## Fast check (skips doc verification; includes release notes verify)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
