@@ -586,6 +586,32 @@ mod tests {
         assert!(out.contains("[tx]"));
     }
 
+    /// Canonical names table must stay present so agents do not invent alternates.
+    #[test]
+    fn agent_rules_includes_canonical_parameter_names() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        assert!(
+            out.contains("## Canonical parameter names"),
+            "missing Canonical parameter names section"
+        );
+        assert!(out.contains("| `old` |"), "must document canonical old");
+        assert!(out.contains("| `new` |"), "must document canonical new");
+        assert!(
+            out.contains("| `selector` |"),
+            "must document canonical selector"
+        );
+        assert!(
+            out.contains("`weak` / `medium` / `strong`"),
+            "must document schema tier names"
+        );
+        // Present in both CLI and MCP-only modes (not CLI-only prose).
+        let mcp_only = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(
+            mcp_only.contains("## Canonical parameter names"),
+            "MCP-only agent-rules must still include canonical names"
+        );
+    }
+
     #[test]
     fn agent_rules_includes_patch_merge_workflow() {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
