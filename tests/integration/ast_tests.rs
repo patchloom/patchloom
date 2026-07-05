@@ -536,6 +536,21 @@ fn test_ast_rename_apply_exits_0() {
     );
 }
 
+/// Legacy path-last positionals are no longer accepted (canonical: path + --old/--new).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rename_legacy_positionals_rejected() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("rename.rs");
+    fs::write(&f, "fn alpha() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "rename", "alpha", "beta", "rename.rs", "--apply"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--old"))
+        .stderr(predicates::str::contains("--new"));
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_rename_nonexistent_symbol_exits_3() {
