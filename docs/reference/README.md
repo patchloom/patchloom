@@ -676,6 +676,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Deletes array items that match a predicate (`--predicate key=value`). For scalar arrays, use `.=x`, `_=x`, or `value=x`.
 - **Use when:** You need to remove selected objects or scalar values from a list without rebuilding the whole array by hand.
+- **Idempotency:** When no elements match the predicate, the command exits 0 and does not rewrite the file (same as `doc delete` on a missing key). Use `doc update` when a missing match should be an error.
 - **Prefer instead:** Use `doc delete` when one direct selector path can remove the target.
 
 <!-- ref:doc-action:merge -->
