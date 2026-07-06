@@ -1,6 +1,5 @@
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
-use crate::cmd::output::execute_via_engine;
 use crate::exit;
 use crate::ops::doc::{detect_format, diff_values, flatten_value, parse_doc, parse_value};
 use crate::plan::Operation;
@@ -258,10 +257,59 @@ use anyhow::Context;
 struct DocWriteOutput {
     ok: bool,
     path: String,
+    /// Whether the staged mutation would (or did) change the file.
+    /// Always present so agents can distinguish idempotent no-ops from real
+    /// writes when exit code is 0 (e.g. delete / delete-where with zero matches).
+    changed: bool,
+    /// For `doc delete` / `doc delete-where`: how many values or array items
+    /// were removed (`0` on idempotent no-match). Omitted for other write ops.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    removed: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+}
+
+/// Count of items a delete / delete-where mutation would remove (file must still
+/// have original content). Returns `None` for non-delete write ops.
+fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize> {
+    use crate::ops::doc::{MutationResult, apply_doc_mutation, detect_format, parse_doc};
+    use crate::plan::op_to_doc_mutation;
+
+    let (path, mutation) = op_to_doc_mutation(op)?;
+    let is_delete = matches!(
+        mutation,
+        crate::ops::doc::DocMutation::Delete { .. }
+            | crate::ops::doc::DocMutation::DeleteWhere { .. }
+    );
+    if !is_delete {
+        return None;
+    }
+
+    let full = cwd.join(path);
+    let content = std::fs::read_to_string(&full).ok()?;
+    let format = detect_format(path).ok()?;
+    let mut root = parse_doc(&content, &format).ok()?;
+
+    match apply_doc_mutation(&mut root, mutation).ok()? {
+        MutationResult::Applied => match op {
+            Operation::DocDelete { .. } => Some(1),
+            Operation::DocDeleteWhere {
+                path: _,
+                selector,
+                predicate,
+            } => {
+                // Re-count via delete_where on a fresh parse (Applied loses count).
+                let mut root2 = parse_doc(&content, &format).ok()?;
+                let sel = crate::selector::parse_anyhow(selector).ok()?;
+                crate::ops::doc::delete_where(&mut root2, &sel, predicate).ok()
+            }
+            _ => None,
+        },
+        MutationResult::NoMatch => Some(0),
+        MutationResult::AlreadyExists | MutationResult::TypeError(_) => None,
+    }
 }
 
 /// Convert a write [`DocAction`] into the corresponding [`Operation`] variant.
@@ -742,22 +790,49 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let check_msg = format!("would modify {display_path}");
         let apply_msg = format!("updated {display_path}");
 
+        // Stage first so we can report `changed` / `removed` in JSON for
+        // idempotent delete no-ops (exit 0 with removed: 0). See #1434.
         let path_clone = display_path;
-        match execute_via_engine(
-            op,
-            global,
-            |phase, diff| DocWriteOutput {
-                ok: true,
-                path: path_clone.clone(),
-                diff,
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
+        match (|| -> anyhow::Result<u8> {
+            let cwd = global.resolve_cwd()?;
+            let removed = preview_removed_count(&cwd, &op);
+            let (cwd, result) = crate::cmd::output::stage_for_write(
+                crate::tx::engine::WriteSource::Operations(vec![op]),
+                global,
+            )?;
+            let changed = result.has_changes;
+            // For delete ops, always report removed (0 on idempotent no-match).
+            // Prefer pre-stage count; fall back to changed-as-0/1 if preview failed.
+            let removed = match (&args.action, removed) {
+                (DocAction::Delete { .. } | DocAction::DeleteWhere { .. }, Some(n)) => Some(n),
+                (DocAction::Delete { .. } | DocAction::DeleteWhere { .. }, None) => {
+                    Some(usize::from(changed))
+                }
+                _ => None,
+            };
+            crate::cmd::write_mode::finalize_execution_result(
+                global,
+                &cwd,
+                result,
+                |phase, diff| DocWriteOutput {
+                    ok: true,
+                    path: path_clone.clone(),
+                    changed,
+                    removed,
+                    diff,
+                    applied: match phase {
+                        WritePhase::Confirmed(a) => Some(a),
+                        _ => None,
+                    },
                 },
-            },
-            &check_msg,
-            &apply_msg,
-        ) {
+                crate::cmd::write_mode::WriteMessages {
+                    check: &check_msg,
+                    apply: &apply_msg,
+                    post_confirm: None,
+                },
+                crate::cmd::write_mode::RenderPolicy::default(),
+            )
+        })() {
             Ok(code) => return Ok(code),
             Err(e) => {
                 if exit::is_no_match(&e) {

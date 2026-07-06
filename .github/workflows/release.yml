@@ -182,11 +182,25 @@ jobs:
           submodules: recursive
           ref: ${{ steps.resolve-tag.outputs.tag || github.ref }}
       - name: Install dist
-        # we specify bash to get pipefail; it guards against the `curl` command
-        # failing. otherwise `sh` won't catch that `curl` returned non-0
+        # Pin the cargo-dist binary by SHA-256 (Scorecard Pinned-Dependencies /
+        # downloadThenRun). Avoids unpinned curl|sh of cargo-dist-installer.sh.
+        # Version must match dist-workspace.toml cargo-dist-version.
+        # Update both the URL version and DIST_SHA256 when bumping dist.
+        # SHA from https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/sha256.sum
         shell: bash
         run: |
-          curl --retry 5 --retry-delay 2 --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh
+          set -euo pipefail
+          DIST_VERSION=v0.31.0
+          DIST_TRIPLE=x86_64-unknown-linux-gnu
+          DIST_SHA256=cd355dab0b4c02fb59038fef87655550021d07f45f1d82f947a34ef98560abb8
+          ARCHIVE="cargo-dist-${DIST_TRIPLE}.tar.xz"
+          URL="https://github.com/axodotdev/cargo-dist/releases/download/${DIST_VERSION}/${ARCHIVE}"
+          curl --retry 5 --retry-delay 2 --proto '=https' --tlsv1.2 -LsSf -o "/tmp/${ARCHIVE}" "${URL}"
+          echo "${DIST_SHA256}  /tmp/${ARCHIVE}" | sha256sum -c -
+          mkdir -p "${HOME}/.cargo/bin"
+          tar -xJf "/tmp/${ARCHIVE}" -C /tmp
+          install -m 755 "/tmp/cargo-dist-${DIST_TRIPLE}/dist" "${HOME}/.cargo/bin/dist"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
       - name: Cache dist
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -260,12 +274,37 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Install Rust non-interactively if not already installed
+        # Pin rustup-init by version + SHA-256 (Scorecard Pinned-Dependencies).
+        # Avoids unpinned curl|sh of https://sh.rustup.rs.
+        # Hashes from https://static.rust-lang.org/rustup/archive/<ver>/<triple>/rustup-init.sha256
         if: ${{ matrix.container }}
+        shell: bash
         run: |
-          if ! command -v cargo > /dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          set -euo pipefail
+          if command -v cargo > /dev/null 2>&1; then
+            exit 0
           fi
+          RUSTUP_VERSION=1.29.0
+          case "$(uname -m)" in
+            x86_64)
+              RUSTUP_TRIPLE=x86_64-unknown-linux-gnu
+              RUSTUP_SHA256=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
+              ;;
+            aarch64|arm64)
+              RUSTUP_TRIPLE=aarch64-unknown-linux-gnu
+              RUSTUP_SHA256=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
+              ;;
+            *)
+              echo "unsupported architecture for pinned rustup-init: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          URL="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_TRIPLE}/rustup-init"
+          curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init "${URL}"
+          echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c -
+          chmod +x /tmp/rustup-init
+          /tmp/rustup-init -y --no-modify-path
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
