@@ -280,6 +280,14 @@ fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize>
     use crate::plan::op_to_doc_mutation;
 
     let (path, mutation) = op_to_doc_mutation(op)?;
+    // Only delete ops need a remove count; skip the disk read otherwise.
+    if !matches!(
+        mutation,
+        DocMutation::Delete { .. } | DocMutation::DeleteWhere { .. }
+    ) {
+        return None;
+    }
+
     let full = cwd.join(path);
     let content = std::fs::read_to_string(&full).ok()?;
     let format = detect_format(path).ok()?;
@@ -287,7 +295,10 @@ fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize>
 
     match mutation {
         // Single parse: delete_where returns the exact remove count.
-        DocMutation::DeleteWhere { selector, predicate } => {
+        DocMutation::DeleteWhere {
+            selector,
+            predicate,
+        } => {
             let sel = crate::selector::parse_anyhow(&selector).ok()?;
             delete_where(&mut root, &sel, &predicate).ok()
         }
