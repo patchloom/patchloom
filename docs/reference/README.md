@@ -629,6 +629,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 **Comment preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact. This includes operations that change array length (`append`, `prepend`, `delete-where`), which use text-level splicing to preserve comments on the affected file.
 
+**JSON write summary:** Every doc write success payload under `--json` / `--jsonl` includes `changed` (bool). `doc delete` and `doc delete-where` also include `removed` (usize). Agents should not treat exit 0 alone as "something was deleted"; check `removed` / `changed` for idempotent no-ops.
+
 <!-- ref:doc-action:get -->
 ### `doc get`
 

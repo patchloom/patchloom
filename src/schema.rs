@@ -256,7 +256,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "doc.delete",
-        description: "Delete a value at a selector path in a JSON, YAML, or TOML file.",
+        description: "Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json success includes changed and removed (0 on missing key; exit 0 is idempotent).",
         tier: Tier::Medium,
         examples: &[(
             "Remove a deprecated config entry",
@@ -383,7 +383,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "doc.delete_where",
-        description: "Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path.",
+        description: "Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json success includes changed and removed (0 when no elements match; exit 0 is idempotent).",
         tier: Tier::Strong,
         examples: &[(
             "Remove scalar array elements equal to a (agent-friendly value= form)",
