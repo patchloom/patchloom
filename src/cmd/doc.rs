@@ -274,41 +274,29 @@ struct DocWriteOutput {
 /// Count of items a delete / delete-where mutation would remove (file must still
 /// have original content). Returns `None` for non-delete write ops.
 fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize> {
-    use crate::ops::doc::{MutationResult, apply_doc_mutation, detect_format, parse_doc};
+    use crate::ops::doc::{
+        DocMutation, MutationResult, apply_doc_mutation, delete_where, detect_format, parse_doc,
+    };
     use crate::plan::op_to_doc_mutation;
 
     let (path, mutation) = op_to_doc_mutation(op)?;
-    let is_delete = matches!(
-        mutation,
-        crate::ops::doc::DocMutation::Delete { .. }
-            | crate::ops::doc::DocMutation::DeleteWhere { .. }
-    );
-    if !is_delete {
-        return None;
-    }
-
     let full = cwd.join(path);
     let content = std::fs::read_to_string(&full).ok()?;
     let format = detect_format(path).ok()?;
     let mut root = parse_doc(&content, &format).ok()?;
 
-    match apply_doc_mutation(&mut root, mutation).ok()? {
-        MutationResult::Applied => match op {
-            Operation::DocDelete { .. } => Some(1),
-            Operation::DocDeleteWhere {
-                path: _,
-                selector,
-                predicate,
-            } => {
-                // Re-count via delete_where on a fresh parse (Applied loses count).
-                let mut root2 = parse_doc(&content, &format).ok()?;
-                let sel = crate::selector::parse_anyhow(selector).ok()?;
-                crate::ops::doc::delete_where(&mut root2, &sel, predicate).ok()
-            }
-            _ => None,
+    match mutation {
+        // Single parse: delete_where returns the exact remove count.
+        DocMutation::DeleteWhere { selector, predicate } => {
+            let sel = crate::selector::parse_anyhow(&selector).ok()?;
+            delete_where(&mut root, &sel, &predicate).ok()
+        }
+        DocMutation::Delete { .. } => match apply_doc_mutation(&mut root, mutation).ok()? {
+            MutationResult::Applied => Some(1),
+            MutationResult::NoMatch => Some(0),
+            MutationResult::AlreadyExists | MutationResult::TypeError(_) => None,
         },
-        MutationResult::NoMatch => Some(0),
-        MutationResult::AlreadyExists | MutationResult::TypeError(_) => None,
+        _ => None,
     }
 }
 
