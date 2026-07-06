@@ -945,6 +945,103 @@ fn test_doc_delete_where() {
     assert_eq!(items[0]["name"], serde_json::json!("keep"));
 }
 
+/// #1434: delete-where zero matches is exit 0 with removed:0 / changed:false.
+#[test]
+fn test_doc_delete_where_json_zero_match_reports_removed_zero() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items":[{"name":"keep"},{"name":"also"}]}"#).unwrap();
+
+    let stdout = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("items")
+        .arg("--predicate")
+        .arg("name=nobody")
+        .arg("--apply")
+        .arg("--json")
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&stdout).expect("valid json");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["changed"], false, "payload: {v}");
+    assert_eq!(v["removed"], 0, "payload: {v}");
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("keep") && content.contains("also"),
+        "file should be unchanged on zero-match: {content}"
+    );
+}
+
+/// #1434: delete-where with matches reports non-zero removed and changed:true.
+#[test]
+fn test_doc_delete_where_json_match_reports_removed_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"name":"a"},{"name":"b"},{"name":"a"}]}"#,
+    )
+    .unwrap();
+
+    let stdout = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("items")
+        .arg("--predicate")
+        .arg("name=a")
+        .arg("--apply")
+        .arg("--json")
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&stdout).expect("valid json");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["changed"], true, "payload: {v}");
+    assert_eq!(v["removed"], 2, "payload: {v}");
+
+    let content = fs::read_to_string(&file).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(parsed["items"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["items"][0]["name"], "b");
+}
+
+/// #1434: doc delete missing key is exit 0 with removed:0.
+#[test]
+fn test_doc_delete_json_missing_key_reports_removed_zero() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"name":"keep"}"#).unwrap();
+
+    let stdout = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("missing")
+        .arg("--apply")
+        .arg("--json")
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&stdout).expect("valid json");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["changed"], false, "payload: {v}");
+    assert_eq!(v["removed"], 0, "payload: {v}");
+}
+
 // ---------------------------------------------------------------------------
 // md
 // ---------------------------------------------------------------------------

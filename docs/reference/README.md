@@ -669,6 +669,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Removes the value at a selector path.
 - **Use when:** A selector path or node is obsolete and should disappear cleanly.
+- **Idempotency:** When the selector matches nothing, the command exits 0 and does not rewrite the file.
+- **JSON summary:** With `--json` / `--jsonl`, success payloads include `changed` (bool) and `removed` (`1` when a value was deleted, `0` on no-match). Exit 0 with `"removed": 0` is expected for idempotent cleanup of a missing key.
 - **Prefer instead:** Use `doc delete-where` when the target is a subset of array items instead of one direct selector path.
 
 <!-- ref:doc-action:delete-where -->
@@ -677,6 +679,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 - **What it does:** Deletes array items that match a predicate (`--predicate key=value`). For scalar arrays, use `.=x`, `_=x`, or `value=x`. This is a separate filter from selector predicates used by `doc update`.
 - **Use when:** You need to remove selected objects or scalar values from a list without rebuilding the whole array by hand.
 - **Idempotency:** When no elements match the predicate, the command exits 0 and does not rewrite the file (same as `doc delete` on a missing key). Use `doc update` when a missing match should be an error.
+- **JSON summary:** With `--json` / `--jsonl`, success payloads include `changed` (bool) and `removed` (usize). Exit 0 with `"removed": 0` and `"changed": false` means the predicate matched nothing (idempotent cleanup). A non-zero `removed` means that many array items were deleted.
 - **Prefer instead:** Use `doc delete` when one direct selector path can remove the target.
 
 <!-- ref:doc-action:merge -->
