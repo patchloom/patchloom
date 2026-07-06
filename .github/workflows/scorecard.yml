@@ -35,13 +35,26 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      # Analysis writes results.sarif before publishing to api.scorecard.dev.
+      # That publish step has been flaky (context deadline exceeded) and failed
+      # main even when checks themselves succeeded (e.g. run 28784596891 after
+      # #1431). Tolerate publish failures when SARIF was produced; fail hard
+      # only when analysis produced no results.
       - name: Run Scorecard
+        id: scorecard
+        continue-on-error: true
         uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+      - name: Fail if Scorecard produced no results
+        if: hashFiles('results.sarif') == ''
+        run: |
+          echo "Scorecard analysis did not write results.sarif (step outcome=${{ steps.scorecard.outcome }})"
+          exit 1
       - name: Upload SARIF
+        if: hashFiles('results.sarif') != ''
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
         with:
           sarif_file: results.sarif
