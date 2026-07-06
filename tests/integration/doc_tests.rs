@@ -1106,6 +1106,41 @@ fn test_doc_ensure_json_existing_key_reports_changed_false() {
     assert_eq!(content["name"], "original");
 }
 
+/// Unicode predicate values must count toward removed (not silent no-op).
+#[test]
+fn test_doc_delete_where_json_unicode_predicate_reports_removed() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"users":[{"name":"日本語"},{"name":"🎉"},{"name":"ascii"}]}"#,
+    )
+    .unwrap();
+
+    let stdout = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete-where")
+        .arg(&file)
+        .arg("users")
+        .arg("--predicate")
+        .arg("name=🎉")
+        .arg("--apply")
+        .arg("--json")
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&stdout).expect("valid json");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["changed"], true, "payload: {v}");
+    assert_eq!(v["removed"], 1, "payload: {v}");
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(content["users"].as_array().unwrap().len(), 2);
+}
+
 /// set that would change content: --check JSON reports changed:true and exit 2.
 #[test]
 fn test_doc_set_json_check_reports_changed_true_exit_2() {
