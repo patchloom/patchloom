@@ -1508,6 +1508,39 @@ fn test_doc_update_matching_nodes() {
     assert_eq!(items[1]["s"], serde_json::json!("x"));
 }
 
+/// Selector predicates (not a separate --where flag) filter which elements update.
+/// fixrealloop: agents reading "predicate" in the schema invented --where.
+#[test]
+fn test_doc_update_selector_predicate_filters_elements() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"name":"a","v":1},{"name":"b","v":2}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("update")
+        .arg(&file)
+        .arg("items[name=a].v")
+        .arg("7")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v["items"][0]["v"], serde_json::json!(7));
+    assert_eq!(
+        v["items"][1]["v"],
+        serde_json::json!(2),
+        "non-matching element must stay unchanged"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // md: dedupe-headings, lint-agents
 // ---------------------------------------------------------------------------

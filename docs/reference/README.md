@@ -674,7 +674,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:delete-where -->
 ### `doc delete-where`
 
-- **What it does:** Deletes array items that match a predicate (`--predicate key=value`). For scalar arrays, use `.=x`, `_=x`, or `value=x`.
+- **What it does:** Deletes array items that match a predicate (`--predicate key=value`). For scalar arrays, use `.=x`, `_=x`, or `value=x`. This is a separate filter from selector predicates used by `doc update`.
 - **Use when:** You need to remove selected objects or scalar values from a list without rebuilding the whole array by hand.
 - **Idempotency:** When no elements match the predicate, the command exits 0 and does not rewrite the file (same as `doc delete` on a missing key). Use `doc update` when a missing match should be an error.
 - **Prefer instead:** Use `doc delete` when one direct selector path can remove the target.
@@ -710,7 +710,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 <!-- ref:doc-action:update -->
 ### `doc update`
 
-- **What it does:** Updates all matching nodes to the same value.
+- **What it does:** Sets the same new value at every location matching a selector. Wildcards (`items[*].enabled`) and selector predicates (`items[name=foo].v`) filter inside the selector string. There is no separate `--where` or `--predicate` flag (unlike `doc delete-where`).
 - **Use when:** A broad but uniform change should apply across many selected elements.
 - **Prefer instead:** Use `doc set` when the change only targets one path.
 
@@ -979,7 +979,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:doc.update -->
 ### `doc.update`
 
-- **What it does:** Updates all matching structured nodes inside a transaction.
+- **What it does:** Updates all matching structured nodes inside a transaction. Matching is via the `selector` field (wildcards and selector predicates), not a separate predicate field.
 - **Use when:** A broad structured rewrite should be coupled to other edits and validations.
 - **Related:** top level `doc update`
 

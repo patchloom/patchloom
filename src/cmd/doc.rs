@@ -119,7 +119,10 @@ pub enum DocAction {
     Update {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. `server.port`, `items[*].enabled`).
+        /// Selector path. Supports wildcards and selector predicates
+        /// (e.g. `server.port`, `items[*].enabled`, `items[name=foo].v`).
+        /// Filters live in the selector string; there is no separate --where flag
+        /// (unlike `doc delete-where --predicate`).
         selector: String,
         /// New value (JSON literal or bare string).
         value: String,

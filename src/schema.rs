@@ -368,15 +368,27 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "doc.update",
-        description: "Update all array elements matching a predicate with new values.",
+        description: "Set a new value at every location matching a selector. Use wildcards (items[*].enabled) or selector predicates (items[name=foo].v). Not a separate --where flag; the filter is part of the selector string.",
         tier: Tier::Strong,
-        examples: &[],
+        examples: &[
+            (
+                "Update one field on matching array objects via a selector predicate",
+                r###"{"op":"doc.update","path":"config.toml","selector":"items[name=a].v","value":7}"###,
+            ),
+            (
+                "Set a field on every array element with a wildcard",
+                r###"{"op":"doc.update","path":"config.json","selector":"items[*].enabled","value":true}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "doc.delete_where",
-        description: "Delete array elements matching a predicate.",
+        description: "Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path.",
         tier: Tier::Strong,
-        examples: &[],
+        examples: &[(
+            "Remove scalar array elements equal to a (agent-friendly value= form)",
+            r###"{"op":"doc.delete_where","path":"config.toml","selector":"tags","predicate":"value=a"}"###,
+        )],
     },
     OpMeta {
         name: "search",
