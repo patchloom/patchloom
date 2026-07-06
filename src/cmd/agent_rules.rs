@@ -412,7 +412,11 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
              | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
-             | 9 | Tx operation staging failure (`operation_failed`) |\n\n",
+             | 9 | Tx operation staging failure (`operation_failed`) |\n\n\
+             **Doc write JSON tip:** With `--json`, every doc write success includes \
+             `changed` (bool). `doc delete` / `doc delete-where` also include `removed` \
+             (usize). Exit 0 with `removed: 0` means idempotent cleanup (nothing matched); \
+             do not assume data was deleted from exit code alone.\n\n",
         );
     }
 
@@ -575,6 +579,16 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(out.contains("--whole-line"));
         assert!(out.contains("--collapse-blanks"));
+    }
+
+    #[test]
+    fn exit_codes_include_doc_write_json_tip() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("Doc write JSON tip"),
+            "agents need changed/removed guidance for idempotent doc delete"
+        );
+        assert!(out.contains("removed: 0"));
     }
 
     #[test]
