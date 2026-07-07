@@ -385,12 +385,20 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
 
 pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("batch: input={}", args.input);
-    // Read input.
+    // Read input. Relative paths are resolved under --cwd (same as `tx` plan files).
     let input = if args.input == "-" {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        std::fs::read_to_string(&args.input)
-            .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", args.input))?
+        let input_path = {
+            let p = std::path::Path::new(&args.input);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                global.resolve_cwd()?.join(p)
+            }
+        };
+        std::fs::read_to_string(&input_path)
+            .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", input_path.display()))?
     };
 
     // Parse lines into operations.
