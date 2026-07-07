@@ -254,7 +254,24 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     };
 
-    // 2b. Expand for_each (glob-driven batch) before validation.
+    run_parsed_plan(plan, args.no_strict, &args.verify, global)
+}
+
+/// Execute an already-parsed plan (shared by `tx` CLI and in-process `batch`).
+///
+/// Batch builds a `Plan` in memory and must not re-enter via a temp plan path:
+/// under `--contain`, absolute temp paths outside the workspace are rejected by
+/// [`GlobalFlags::resolve_user_path`].
+pub(crate) fn run_parsed_plan(
+    plan: Plan,
+    no_strict: bool,
+    verify: &[String],
+    global: &GlobalFlags,
+) -> anyhow::Result<u8> {
+    let structured = global.json || global.jsonl;
+    let compact = global.jsonl;
+
+    // Expand for_each (glob-driven batch) before validation.
     let base_cwd = global.resolve_cwd()?;
     let mut plan = plan;
     if plan.for_each.is_some()
@@ -277,7 +294,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // 3. Validate plan and resolve working directory.
     let (cwd, strict, _resolved_global) =
-        match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, args.no_strict) {
+        match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, no_strict) {
             Ok(v) => v,
             Err(output) => {
                 let code = if output.error_kind.as_deref() == Some("parse_error") {
@@ -309,12 +326,12 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::PARSE_ERROR);
     }
 
-    // 3b. Merge --verify CLI args with plan's verify field.
+    // Merge --verify CLI args with plan's verify field.
     #[cfg(feature = "ast")]
     let verify_checks = {
         use crate::plan::VerifyCheck;
         let mut checks: Vec<VerifyCheck> = plan.verify.clone().unwrap_or_default();
-        for raw in &args.verify {
+        for raw in verify {
             match VerifyCheck::parse(raw) {
                 Ok(c) => checks.push(c),
                 Err(e) => {

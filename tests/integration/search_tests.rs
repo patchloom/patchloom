@@ -605,7 +605,8 @@ fn test_search_context_flag() {
 fn test_search_before_context() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
-    fs::write(&file, "aaa\nbbb\nccc\ntarget\nddd\neee\n").unwrap();
+    // Use distinctive markers: plain "ddd" can appear in tempfile path names.
+    fs::write(&file, "aaa\nbbb\nccc\ntarget\nAFTER_CTX_MARKER\neee\n").unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -620,7 +621,7 @@ fn test_search_before_context() {
         .stdout(predicate::str::contains("ccc"))
         .stdout(predicate::str::contains("target"))
         // no after-context lines
-        .stdout(predicate::str::contains("ddd").not());
+        .stdout(predicate::str::contains("AFTER_CTX_MARKER").not());
 }
 
 #[test]

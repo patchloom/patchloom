@@ -325,6 +325,69 @@ fn test_files_from_resolves_list_under_cwd() {
         .stdout(predicate::str::contains("findme"));
 }
 
+/// Under --contain, the --files-from *list file* itself must not escape the workspace
+/// (meta-input read). Previously only entries inside the list were checked, so an
+/// absolute list path like /etc/passwd was opened and leaked via skip messages.
+#[test]
+fn test_files_from_contain_rejects_absolute_list_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "ok\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "--files-from",
+            "/etc/hosts",
+            "search",
+            "localhost",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("absolute")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+}
+
+#[test]
+fn test_files_from_contain_rejects_parent_list_path() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-meta-list-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "inside.txt\n").unwrap();
+    fs::write(dir.path().join("inside.txt"), "findme\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "--files-from",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            "search",
+            "findme",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
 #[test]
 fn test_append_contain_rejects_missing_parent_escape_not_not_found() {
     // Escaped path that does not exist must still fail with containment, not

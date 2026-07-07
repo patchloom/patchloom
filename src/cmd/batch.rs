@@ -427,40 +427,23 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         );
     }
 
-    // Build a plan and delegate to tx.
-    let plan_json = {
-        let plan = Plan {
-            version: crate::plan::SCHEMA_VERSION,
-            cwd: None,
-            write_policy: None,
-            strict: None,
-            operations,
-            format: None,
-            validate: None,
-            verify: None,
-            for_each: None,
-        };
-        serde_json::to_string(&plan)?
+    // Build a plan and run the shared tx engine in-process (no temp plan file).
+    // Under --contain, re-entering via an absolute NamedTempFile path would be
+    // rejected by resolve_user_path; keep the Plan in memory instead.
+    let plan = Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        cwd: None,
+        write_policy: None,
+        strict: None,
+        operations,
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
     };
-
-    // Write the plan to a temp file and invoke tx.
-    let tmp = tempfile::NamedTempFile::new()?;
-    std::fs::write(tmp.path(), &plan_json)?;
-
-    let tx_args = crate::tx::TxArgs {
-        plan: tmp
-            .path()
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("temp file path is not valid UTF-8"))?
-            .to_string(),
-        plan_format: None,
-        no_strict: false,
-        verify: Vec::new(),
-        write: args.write,
-    };
-    // Delegate to tx, which handles --apply / --confirm / --format / plan lifecycle.
-    let result = crate::cmd::tx::run(tx_args, global)?;
-    Ok(result)
+    // Write flags are already merged into global by dispatch before run().
+    let _ = args.write;
+    crate::cmd::tx::run_parsed_plan(plan, false, &[], global)
 }
 
 #[path = "batch_tests.rs"]

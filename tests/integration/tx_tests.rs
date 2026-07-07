@@ -7423,16 +7423,18 @@ fn test_tx_contain_allows_in_workspace_relative_path() {
             "content": "ok\n"
         }]
     });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
 
+    // Meta-input plan path must be relative under --contain (absolute paths are rejected).
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["--cwd"])
         .arg(dir.path())
-        .args(["--contain", "tx"])
-        .arg(plan_file.to_str().unwrap())
-        .arg("--apply")
+        .args(["--contain", "tx", "plan.json", "--apply"])
         .assert()
         .code(0);
 

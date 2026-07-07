@@ -311,11 +311,22 @@ impl GlobalFlags {
     /// Relative paths become `<cwd>/<path>`. Use for meta-inputs (`tx` plans,
     /// `batch` ops files, `patch` files, `--files-from` lists) so `--cwd` is
     /// consistent across commands.
+    ///
+    /// When [`Self::contain`] is set, the user-supplied path is also checked
+    /// with the workspace [`crate::containment::PathGuard`] (same policy as
+    /// operation targets). This prevents reading plan/ops/list files from
+    /// outside the workspace under `--contain`.
     pub fn resolve_user_path(
         &self,
         path: impl AsRef<std::path::Path>,
     ) -> anyhow::Result<std::path::PathBuf> {
-        Ok(self.resolve_cwd()?.join(path.as_ref()))
+        let path = path.as_ref();
+        let cwd = self.resolve_cwd()?;
+        if self.contain {
+            let path_str = path.to_string_lossy();
+            self.check_paths_contained(&cwd, std::iter::once(path_str.as_ref()))?;
+        }
+        Ok(cwd.join(path))
     }
 
     /// Build a workspace [`PathGuard`] when `--contain` is set.
@@ -757,6 +768,83 @@ mod tests {
         };
         let resolved = g.resolve_user_path(&abs).unwrap();
         assert_eq!(resolved, abs);
+    }
+
+    #[test]
+    fn resolve_user_path_contain_rejects_parent_escape() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            contain: true,
+            ..GlobalFlags::default()
+        };
+        let err = g
+            .resolve_user_path("../outside.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("rejected") || err.contains("escapes") || err.contains("workspace guard"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_user_path_contain_rejects_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir
+            .path()
+            .parent()
+            .unwrap()
+            .join("outside-meta.txt")
+            .to_string_lossy()
+            .into_owned();
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            contain: true,
+            ..GlobalFlags::default()
+        };
+        let err = g.resolve_user_path(&abs).unwrap_err().to_string();
+        assert!(
+            err.contains("absolute") || err.contains("rejected") || err.contains("workspace guard"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_user_path_contain_allows_relative_inside() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            contain: true,
+            ..GlobalFlags::default()
+        };
+        let resolved = g.resolve_user_path("ops.txt").unwrap();
+        assert_eq!(resolved, dir.path().join("ops.txt"));
+    }
+
+    #[test]
+    fn read_files_from_contain_rejects_list_outside_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().parent().unwrap().join(format!(
+            "patchloom-files-from-outside-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        std::fs::write(&outside, "in.txt\n").unwrap();
+        let flags = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            contain: true,
+            files_from: Some(outside.to_string_lossy().into_owned()),
+            ..GlobalFlags::test_default()
+        };
+        let err = flags.read_files_from().unwrap_err().to_string();
+        let _ = std::fs::remove_file(&outside);
+        assert!(
+            err.contains("absolute") || err.contains("rejected") || err.contains("workspace guard"),
+            "must not open outside list under --contain: {err}"
+        );
     }
 
     #[test]
