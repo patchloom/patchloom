@@ -191,9 +191,13 @@ fn ast_run_entrypoints_enforce_path_containment() {
                 .map(|(s, _)| *s)
                 .unwrap_or(text.len());
             let body = &text[*start..end];
+            // Engine-backed writes (run_write_op / stage_for_write) enforce
+            // --contain in the shared write path; query helpers use setup_*.
             let ok = body.contains("check_paths_contained")
                 || body.contains("setup_single_file")
-                || body.contains("setup_multi_file");
+                || body.contains("setup_multi_file")
+                || body.contains("run_write_op")
+                || body.contains("stage_for_write");
             if !ok {
                 missing.push(format!(
                     "{}::{name} (no check_paths_contained / setup_* in body)",
