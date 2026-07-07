@@ -344,6 +344,47 @@ fn test_batch_relative_input_respects_cwd() {
     );
 }
 
+/// Under --contain, the batch ops *file path* must stay in the workspace (meta-input).
+#[test]
+fn test_batch_contain_rejects_ops_file_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"key":"old"}"#).unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-batch-ops-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "doc.set data.json key \"new\"\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "batch",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicates::str::contains("escapes")
+                .or(predicates::str::contains("rejected"))
+                .or(predicates::str::contains("workspace guard")),
+        );
+
+    // Must not have applied the outside ops file.
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert!(
+        content.contains("old"),
+        "contain must block reading outside ops file: {content}"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
 /// #1439: batch --json surfaces delete-where mutation summary (shared tx path).
 #[test]
 fn test_batch_json_delete_where_mutations() {
