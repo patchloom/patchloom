@@ -36,7 +36,7 @@ fn server_instructions() -> String {
     #[cfg(feature = "ast")]
     s.push_str(
         "- AST ops (code-aware, 20 languages): ast_list, ast_read, ast_rename, \
-         ast_replace, ast_search, ast_refs, ast_impact, ast_deps, ast_diff, ast_imports, \
+         ast_replace, ast_rewrite_signature, ast_search, ast_refs, ast_impact, ast_deps, ast_diff, ast_imports, \
          ast_insert, ast_wrap, ast_move, ast_reorder, ast_group, ast_extract_to_file, \
          ast_split, ast_map, ast_validate\n",
     );

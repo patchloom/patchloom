@@ -103,8 +103,50 @@ fn doc_delete_removes_key() {
     let result = doc_delete(&file, "b", ApplyMode::Apply, None).unwrap();
     assert!(result.changed);
     assert!(result.applied);
+    assert_eq!(
+        result.removed, 1,
+        "library EditResult must report removed (#1459)"
+    );
+    assert_eq!(result.action, "doc.delete");
     let on_disk = fs::read_to_string(&file).unwrap();
     assert!(!on_disk.contains("\"b\""));
+}
+
+#[test]
+fn doc_delete_missing_key_reports_removed_zero() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let result = doc_delete(&file, "missing", ApplyMode::Apply, None).unwrap();
+    assert!(!result.changed);
+    assert!(!result.applied);
+    assert_eq!(
+        result.removed, 0,
+        "idempotent delete must report removed: 0 (#1459 / #1439)"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"a": 1}"#);
+}
+
+#[test]
+fn doc_delete_where_reports_removed_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"name":"a"},{"name":"b"},{"name":"a"}]}"#,
+    )
+    .unwrap();
+
+    let result = doc_delete_where(&file, "items", "name=a", ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.removed, 2);
+    assert_eq!(result.action, "doc.delete_where");
+
+    let preview = doc_delete_where(&file, "items", "name=zzz", ApplyMode::Preview, None).unwrap();
+    assert!(!preview.changed);
+    assert_eq!(preview.removed, 0);
+    assert!(!preview.applied);
 }
 
 #[test]
@@ -3482,4 +3524,114 @@ fn replace_text_fuzzy_with_if_exists_any_path() {
     )
     .unwrap();
     assert!(!result.changed);
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_api_updates_params() {
+    use crate::ast::rewrite::FunctionSigEdit;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn process(x: i32) {}\n").unwrap();
+
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: u64)".into()),
+        return_type: Some("-> u64".into()),
+        ..Default::default()
+    };
+    let result = ast_rewrite_signature(&file, "process", &edit, None, ApplyMode::Apply, None)
+        .expect("rewrite should succeed");
+    assert!(result.changed);
+    assert!(result.applied);
+    assert_eq!(result.action, "ast.rewrite_signature");
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("u64"), "got: {on_disk}");
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_plan_execute() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.rs");
+    fs::write(&file, "fn greet() {}\n").unwrap();
+
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [
+                {
+                    "op": "ast.rewrite_signature",
+                    "path": "m.rs",
+                    "old": "greet",
+                    "new_signature": "fn greet(name: &str)",
+                    "lang": "rust"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    let report = execute_plan(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "plan should succeed: status={}", report.status);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("name: &str"),
+        "plan rewrite should update signature: {on_disk}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_content_edits_to_file_writes_once() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("notes.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let edits = [
+        ContentEdit::Replace {
+            old: "hello".into(),
+            new: "hi".into(),
+            options: ReplaceOptions::default(),
+        },
+        ContentEdit::Append {
+            content: "done\n".into(),
+        },
+    ];
+    let result =
+        apply_content_edits_to_file(&file, &edits, ApplyMode::Apply, None).expect("file edits");
+    assert!(result.changed);
+    assert!(result.applied);
+    assert_eq!(result.action, "content.edits");
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert_eq!(on_disk, "hi world\ndone\n");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_content_edits_to_file_respects_guard() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-content-edit-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "secret\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let edits = [ContentEdit::Append {
+        content: "x\n".into(),
+    }];
+    let err = apply_content_edits_to_file(&outside, &edits, ApplyMode::Apply, Some(&guard))
+        .expect_err("must reject outside path");
+    assert!(
+        err.to_string().contains("guard") || err.to_string().contains("escapes"),
+        "got: {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "secret\n");
+    let _ = fs::remove_file(&outside);
 }

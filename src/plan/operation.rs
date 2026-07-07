@@ -299,6 +299,37 @@ pub enum Operation {
         #[serde(default)]
         lang: Option<String>,
     },
+    /// Rewrite a function signature (structured fields and/or full signature text).
+    ///
+    /// Prefer structured `visibility` / `parameters` / `return_type` for multi-language
+    /// edits via [`crate::ast::rewrite::rewrite_function_signature`]. Use
+    /// `new_signature` to replace the entire signature span (any language with
+    /// tree-sitter support). At least one of the structured fields or
+    /// `new_signature` must be set.
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.rewrite_signature")]
+    AstRewriteSignature {
+        /// Source file containing the function.
+        path: String,
+        /// Function name to rewrite (aliases `name` for agents).
+        #[serde(alias = "name")]
+        old: String,
+        /// Full replacement signature text (replaces the signature span).
+        #[serde(default)]
+        new_signature: Option<String>,
+        /// New visibility (e.g. `"pub"`, `"pub(crate)"`, or `""` for private).
+        #[serde(default)]
+        visibility: Option<String>,
+        /// New parameter list including parens (e.g. `"(x: i32)"`).
+        #[serde(default)]
+        parameters: Option<String>,
+        /// New return type using language-native syntax (e.g. `"-> String"`).
+        #[serde(default)]
+        return_type: Option<String>,
+        /// Language hint (e.g. "rust", "python"). Overrides extension detection.
+        #[serde(default)]
+        lang: Option<String>,
+    },
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.insert")]
     AstInsert {
@@ -498,6 +529,8 @@ impl Operation {
             Operation::AstRename { .. } => "ast.rename",
             #[cfg(feature = "ast")]
             Operation::AstReplace { .. } => "ast.replace",
+            #[cfg(feature = "ast")]
+            Operation::AstRewriteSignature { .. } => "ast.rewrite_signature",
             #[cfg(feature = "ast")]
             Operation::AstInsert { .. } => "ast.insert",
             #[cfg(feature = "ast")]

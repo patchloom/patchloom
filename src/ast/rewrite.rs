@@ -272,9 +272,9 @@ pub struct FunctionSigEdit {
 /// - Go: `"error"` or `"(*Response, error)"` (no prefix)
 /// - Java: `"Response"` (placed before the method name)
 ///
-/// Per #821: this remains a library-only helper for now (no CLI `ast signature`, no plan op, no MCP tool).
-/// Record of decision lives in #821 and src/lib.rs embedding docs.
-/// See #797, #1266.
+/// Plan op `ast.rewrite_signature`, library `api::ast_rewrite_signature`, and MCP
+/// `ast_rewrite_signature` wrap this helper for on-disk / agent use (#1459).
+/// See #797, #1266, #821.
 pub fn rewrite_function_signature(
     source: &str,
     old_name: &str,

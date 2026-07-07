@@ -152,6 +152,63 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             }
         }
 
+        Operation::AstRewriteSignature {
+            path,
+            old,
+            new_signature,
+            visibility,
+            parameters,
+            return_type,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = lang
+                .as_deref()
+                .map(crate::ast::Language::from_name_or_ext)
+                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let has_structured =
+                visibility.is_some() || parameters.is_some() || return_type.is_some();
+            if new_signature.is_none() && !has_structured {
+                anyhow::bail!(
+                    "ast.rewrite_signature requires new_signature and/or visibility/parameters/return_type"
+                );
+            }
+            let new_content = if let Some(new_sig) = new_signature {
+                let span = crate::ast::rewrite::find_function_span(content, old, lang_val)
+                    .ok_or_else(|| crate::exit::NoMatchError {
+                        msg: format!("function '{}' not found in {}", old, path),
+                    })?;
+                format!(
+                    "{}{}{}",
+                    &content[..span.signature_range.start],
+                    new_sig,
+                    &content[span.signature_range.end..]
+                )
+            } else {
+                let edit = crate::ast::rewrite::FunctionSigEdit {
+                    visibility: visibility.clone(),
+                    parameters: parameters.clone(),
+                    return_type: return_type.clone(),
+                };
+                crate::ast::rewrite::rewrite_function_signature(content, old, &edit, lang_val)
+                    .ok_or_else(|| crate::exit::NoMatchError {
+                        msg: format!("function '{}' not found in {}", old, path),
+                    })?
+            };
+            if new_content == content {
+                return Ok(0);
+            }
+            update_file_content(
+                tx.pending,
+                tx.deletions,
+                tx.write_targets,
+                &abs,
+                new_content,
+            );
+            Ok(1)
+        }
+
         Operation::AstInsert {
             path,
             content: insert_content,

@@ -113,6 +113,10 @@ mod basic {
         #[cfg(feature = "ast")]
         {
             assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
+            assert!(
+                names.contains(&"ast_rewrite_signature"),
+                "missing ast_rewrite_signature tool"
+            );
             assert!(names.contains(&"ast_wrap"), "missing ast_wrap tool");
             assert!(names.contains(&"ast_imports"), "missing ast_imports tool");
             assert!(names.contains(&"ast_reorder"), "missing ast_reorder tool");

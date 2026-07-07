@@ -759,6 +759,17 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter. Example: {\"path\": \"src/lib.rs\", \"old\": \"process\", \"parameters\": \"(x: i32)\", \"return_type\": \"-> String\"}"
+    )]
+    async fn ast_rewrite_signature(
+        &self,
+        Parameters(p): Parameters<AstRewriteSignatureParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| ast_tools::handle_ast_rewrite_signature(svc, p))
+            .await
+    }
+
+    #[tool(
         description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
     )]
     async fn ast_insert(

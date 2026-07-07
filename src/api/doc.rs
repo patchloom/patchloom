@@ -71,18 +71,25 @@ fn doc_write(
     if let MutationResult::TypeError(msg) = result {
         anyhow::bail!("{msg}");
     }
+    let removed = match &result {
+        MutationResult::Removed(n) => *n,
+        MutationResult::NoMatch if matches!(action, "doc.delete" | "doc.delete_where") => 0,
+        _ => 0,
+    };
 
     let new_content = ops::doc::serialize_value_preserving(&original, &value, &new_value, &format)?;
     let policy = WritePolicy::default();
-    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(super::build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        action,
-        None,
-    ))
+    // Do not write (or report applied) when the mutation is a no-op.
+    let content_changed = original != new_content;
+    let applied = if content_changed {
+        super::write_if_apply(path, &new_content, mode, &policy, guard)?
+    } else {
+        false
+    };
+    let mut edit =
+        super::build_edit_result(&path_str, original, new_content, applied, action, None);
+    edit.removed = removed;
+    Ok(edit)
 }
 
 /// Set a value at a selector path in a JSON, YAML, or TOML file.

@@ -304,6 +304,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         #[cfg(feature = "ast")]
         Operation::AstRename { path, .. }
         | Operation::AstReplace { path, .. }
+        | Operation::AstRewriteSignature { path, .. }
         | Operation::AstInsert { path, .. }
         | Operation::AstWrap { path, .. }
         | Operation::AstImports { path, .. }

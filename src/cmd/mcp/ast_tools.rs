@@ -588,6 +588,27 @@ pub(super) fn handle_ast_replace(
     svc.run_one_op(op, None)
 }
 
+pub(super) fn handle_ast_rewrite_signature(
+    svc: &PatchloomService,
+    p: AstRewriteSignatureParams,
+) -> Result<CallToolResult, McpError> {
+    svc.check_path(&p.path)?;
+    validate_param_size("old", &p.old)?;
+    if let Some(ref sig) = p.new_signature {
+        validate_content_size("new_signature", sig)?;
+    }
+    let op = crate::plan::Operation::AstRewriteSignature {
+        path: p.path,
+        old: p.old,
+        new_signature: p.new_signature,
+        visibility: p.visibility,
+        parameters: p.parameters,
+        return_type: p.return_type,
+        lang: p.lang,
+    };
+    svc.run_one_op(op, None)
+}
+
 pub(super) fn handle_ast_insert(
     svc: &PatchloomService,
     p: AstInsertParams,

@@ -71,18 +71,24 @@
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
-//! For AST signature edits (replacing line-scan heuristics):
-//! Use `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit` and a `Language`
-//! for structured changes to visibility, parameters, return type across all supported languages.
-//! See `ast::symbols` docs and #1266.
+//! For AST signature edits (bline #1459 / #821 follow-through):
 //!
-//! Decision for #821: kept library-only (specialized, currently Rust-focused). Full CLI (`ast signature`),
-//! plan op, and MCP exposure deferred unless demand arises. Tracked in #821.
+//! - In-memory: `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit`
+//! - On disk: `api::ast_rewrite_signature(path, name, &edit, new_signature, mode, guard?)`
+//! - Plans / MCP: op `ast.rewrite_signature` / tool `ast_rewrite_signature`
 //!
-//! **Note on results**: Single-file ops return `EditResult` (with `action` and `dest_path` for cross-file).
-//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) directly with `ok`, `changes`,
+//! CLI `ast rewrite-signature` is still optional; library + plan + MCP cover embedders.
+//!
+//! For several ordered text edits on **one buffer** then a single write (agent intent engines):
+//! use `api::apply_content_edits` / `api::apply_content_edits_to_file` with
+//! `ContentEdit::{Replace, InsertBefore, InsertAfter, Append, Prepend}` (all-or-nothing).
+//! Multi-file multi-op remains `execute_plan`.
+//!
+//! **Note on results**: Single-file ops return `EditResult` (with `action`, `dest_path`,
+//! `match_count` for replace, and `removed` for `doc.delete` / `doc.delete_where`).
+//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) with `ok`, `changes`,
 //! `searches`, `reads`, `error`, plus `mutations` / aggregate `changed` / `removed` for
-//! `doc.delete` and `doc.delete_where` (including idempotent `removed: 0` no-ops) (#811, #1439).
+//! deletes (including idempotent `removed: 0` no-ops) (#811, #1439, #1459).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
