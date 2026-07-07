@@ -46,17 +46,11 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.force
     );
     let cwd = global.resolve_cwd()?;
-    // Enforce --contain for all rename paths (engine-backed text and
+    // Empty-path + --contain for all rename paths (engine-backed text and
     // binary/case-only callback via write_dispatch). Engine-backed ops also
     // check declared_paths in the tx engine; this early check covers the
     // callback path that never reaches the engine (#1409).
-    if let Some(guard) = global.workspace_guard(&cwd)? {
-        for p in [&args.from, &args.to] {
-            guard
-                .check_path(p)
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
-        }
-    }
+    global.check_paths_contained(&cwd, [args.from.as_str(), args.to.as_str()])?;
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 

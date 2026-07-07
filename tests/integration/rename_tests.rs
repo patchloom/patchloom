@@ -848,3 +848,17 @@ fn test_rename_without_contain_allows_parent_escape() {
     assert_eq!(fs::read_to_string(&outside).unwrap(), "move me\n");
     let _ = fs::remove_file(&outside);
 }
+
+#[test]
+fn test_rename_empty_path_rejected() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["rename", "", "b.txt"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path must not be empty"));
+}

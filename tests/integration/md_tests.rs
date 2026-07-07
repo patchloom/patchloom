@@ -1106,3 +1106,24 @@ fn test_md_lint_alias_invokes_lint_agents() {
         .code(0)
         .stderr(predicate::str::contains("unrecognized").not());
 }
+
+#[test]
+fn test_md_empty_path_rejected() {
+    let dir = TempDir::new().unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "md",
+            "replace-section",
+            "",
+            "--heading",
+            "## X",
+            "--content",
+            "y",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path must not be empty"));
+}
