@@ -1066,7 +1066,6 @@ fn test_doc_delete_json_existing_key_reports_removed_one() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["changed"], true, "payload: {v}");
     assert_eq!(v["removed"], 1, "payload: {v}");
-    assert!(v.get("removed").is_some());
     let content: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert!(content.get("drop").is_none());

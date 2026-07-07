@@ -316,6 +316,49 @@ fn test_batch_json_output_on_apply() {
     assert_eq!(json["files_changed"], 1);
 }
 
+/// #1439: batch --json surfaces delete-where mutation summary (shared tx path).
+#[test]
+fn test_batch_json_delete_where_mutations() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("data.json"),
+        r#"{"items":[{"name":"keep"},{"name":"drop"}]}"#,
+    )
+    .unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.delete_where data.json items name=drop\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "payload: {json}");
+    assert_eq!(json["changed"], true, "payload: {json}");
+    assert_eq!(json["removed"], 1, "payload: {json}");
+    assert_eq!(json["mutations"][0]["op"], "doc.delete_where");
+    assert_eq!(json["mutations"][0]["path"], "data.json");
+    assert_eq!(json["mutations"][0]["removed"], 1);
+
+    let content: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("data.json")).unwrap()).unwrap();
+    assert_eq!(content["items"].as_array().unwrap().len(), 1);
+    assert_eq!(content["items"][0]["name"], "keep");
+}
+
 #[test]
 fn test_batch_empty_quoted_string_sets_empty_value() {
     let dir = TempDir::new().unwrap();

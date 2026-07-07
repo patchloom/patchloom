@@ -4021,6 +4021,57 @@ fn test_tx_json_doc_delete_mutations_summary() {
     assert_eq!(mutations[1]["changed"], false);
 }
 
+/// #1439: --check still reports mutation summaries without writing.
+#[test]
+fn test_tx_json_check_doc_delete_mutations_no_write() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("t.json"),
+        r#"{"items":[{"name":"a"},{"name":"b"}]}"#,
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.delete_where",
+            "path": "t.json",
+            "selector": "items",
+            "predicate": "name=a"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--check")
+        .output()
+        .unwrap();
+    // --check with changes → exit 2
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "payload: {json}");
+    assert_eq!(json["changed"], true, "payload: {json}");
+    assert_eq!(json["removed"], 1, "payload: {json}");
+    assert_eq!(json["mutations"][0]["op"], "doc.delete_where");
+    // File must be unchanged under --check.
+    let on_disk = fs::read_to_string(dir.path().join("t.json")).unwrap();
+    assert!(
+        on_disk.contains("\"name\":\"a\""),
+        "must not write: {on_disk}"
+    );
+}
+
 /// #1439: for_each-expanded delete-where produces one mutation row per file.
 #[test]
 fn test_tx_json_for_each_delete_where_mutations() {
